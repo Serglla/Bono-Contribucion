@@ -94,9 +94,35 @@ class Planilla(Base):
     numero = Column(Integer, nullable=False)  # secuencial por cobrador: 1, 2, 3...
     mes = Column(Integer, nullable=False)
     anio = Column(Integer, nullable=False)
+    comision_pct = Column(Float, default=10.0)
     fecha_creacion = Column(DateTime, server_default=func.now())
     cobrador = relationship("Cobrador", back_populates="planillas")
     boletas = relationship("Boleta", back_populates="planilla")
+    liquidacion = relationship("Liquidacion", back_populates="planilla", uselist=False)
+
+
+class Liquidacion(Base):
+    __tablename__ = "liquidaciones"
+    id = Column(Integer, primary_key=True, index=True)
+    planilla_id = Column(Integer, ForeignKey("planillas.id"), nullable=False, unique=True)
+    fecha = Column(Date, nullable=False)
+    total_cuotas = Column(Integer, default=0)   # cuotas cobradas en este mes
+    monto_total = Column(Float, default=0.0)    # total recaudado
+    comision = Column(Float, default=0.0)
+    neto = Column(Float, default=0.0)
+    created_at = Column(DateTime, server_default=func.now())
+    planilla = relationship("Planilla", back_populates="liquidacion")
+    detalles = relationship("LiquidacionDetalle", back_populates="liquidacion")
+
+
+class LiquidacionDetalle(Base):
+    __tablename__ = "liquidacion_detalles"
+    id = Column(Integer, primary_key=True, index=True)
+    liquidacion_id = Column(Integer, ForeignKey("liquidaciones.id"), nullable=False)
+    boleta_id = Column(Integer, ForeignKey("boletas.id"), nullable=False)
+    cuotas_cobradas = Column(Integer, default=0)  # cuotas cobradas en este mes
+    liquidacion = relationship("Liquidacion", back_populates="detalles")
+    boleta = relationship("Boleta")
 
 
 class Boleta(Base):

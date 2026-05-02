@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Liquidar Planilla{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a href="/cobranza/liquidacion?mes={{ planilla.mes }}&anio={{ planilla.anio }}"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h5 class="fw-bold mb-0">
+    Liquidación — {{ planilla.cobrador.nombre }}
+    <span class="badge bg-secondary ms-1">P{{ planilla.numero }}</span>
+    <span class="text-muted fw-normal fs-6 ms-1">{{ mes_nombre }} {{ planilla.anio }}</span>
+  </h5>
+</div>
+
+{% if liquidacion %}
+<div class="alert alert-success d-flex align-items-center gap-2 mb-3">
+  <i class="bi bi-check-circle-fill"></i>
+  Esta planilla ya fue liquidada. Podés modificar los valores y volver a guardar.
+</div>
+{% endif %}
+
+<form method="post" action="/cobranza/liquidacion/{{ planilla.id }}/guardar">
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+      <div class="d-flex align-items-center gap-4 flex-wrap">
+        <div>
+          <span class="text-muted small">Comisión</span>
+          <div class="fw-bold">{{ planilla.comision_pct }}%</div>
+        </div>
+        <div>
+          <span class="text-muted small">Total boletas</span>
+          <div class="fw-bold">{{ boletas | length }}</div>
+        </div>
+        {% if liquidacion %}
+        <div>
+          <span class="text-muted small">Cuotas cobradas</span>
+          <div class="fw-bold text-success">{{ liquidacion.total_cuotas }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0" style="font-size:0.82rem;">
+        <thead class="table-dark">
+          <tr>
+            <th>N° Boleta</th>
+            <th>Socio</th>
+            <th class="text-center">Cuotas pactadas</th>
+            <th class="text-center">Ya pagadas</th>
+            <th class="text-center" style="width:130px;">Cobradas este mes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in boletas %}
+          <tr>
+            <td class="fw-bold">{{ "%04d" | format(b.numero_principal) }}</td>
+            <td>{{ b.comprador.apellido_nombre if b.comprador else "—" }}</td>
+            <td class="text-center">{{ b.cuotas_pactadas }}</td>
+            <td class="text-center">
+              {% set ya_pagadas = b.cuotas_pagadas %}
+              <span class="badge {% if ya_pagadas >= b.cuotas_pactadas %}bg-success{% else %}bg-secondary{% endif %}">
+                {{ ya_pagadas }}
+              </span>
+            </td>
+            <td class="text-center">
+              <input type="hidden" name="boleta_ids" value="{{ b.id }}">
+              {% set pendientes = b.cuotas_pactadas - b.cuotas_pagadas %}
+              {% set val = detalles_map.get(b.id, 0) %}
+              <input type="number" name="cuotas_cobradas"
+                     class="form-control form-control-sm text-center"
+                     value="{{ val }}"
+                     min="0" max="{{ pendientes }}"
+                     {% if pendientes <= 0 %}disabled{% endif %}>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-muted py-3">No hay boletas en esta planilla.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if boletas %}
+  <div class="d-flex justify-content-end gap-2 mt-3">
+    <a href="/cobranza/liquidacion?mes={{ planilla.mes }}&anio={{ planilla.anio }}"
+       class="btn btn-secondary">Cancelar</a>
+    <button type="submit" class="btn btn-danger">
+      <i class="bi bi-save me-1"></i>Guardar liquidación
+    </button>
+  </div>
+  {% endif %}
+</form>
+{% endblock %}

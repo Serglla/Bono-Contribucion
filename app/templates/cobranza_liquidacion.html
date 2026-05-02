@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Liquidación{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0"><i class="bi bi-wallet2 text-danger me-2"></i>Cobranza</h4>
+</div>
+
+<!-- Tabs de navegación -->
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item">
+    <a class="nav-link" href="/cobranza/">Planillas</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="/cobranza/emplantillado">Emplantillado</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link active fw-semibold" href="/cobranza/liquidacion">Liquidación</a>
+  </li>
+</ul>
+
+<!-- Selector mes/año -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body py-3">
+    <form method="get" action="/cobranza/liquidacion" class="d-flex align-items-center gap-3 flex-wrap">
+      <label class="fw-semibold text-muted small mb-0">Período:</label>
+      <select name="mes" class="form-select form-select-sm" style="width:140px;">
+        {% for m in meses %}
+        <option value="{{ loop.index }}" {% if loop.index == mes %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+      <select name="anio" class="form-select form-select-sm" style="width:100px;">
+        {% for a in anios %}
+        <option value="{{ a }}" {% if a == anio %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-sm btn-danger">Ver</button>
+      <span class="text-muted small ms-2">Liquidaciones de <strong>{{ mes_nombre }} {{ anio }}</strong></span>
+    </form>
+  </div>
+</div>
+
+<!-- Lista de planillas -->
+{% if planillas %}
+<div class="row g-3">
+  {% for p in planillas %}
+  <div class="col-md-4 col-sm-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-person-circle text-danger fs-4"></i>
+          <div>
+            <h6 class="fw-bold mb-0">{{ p.cobrador.nombre }}</h6>
+            <small class="text-muted">Planilla P{{ p.numero }} · Comisión {{ p.comision_pct }}%</small>
+          </div>
+        </div>
+        <p class="text-muted small mb-1">
+          <span class="badge bg-dark me-1">{{ p.boletas | length }}</span> boletas emplantilladas
+        </p>
+        {% if p.liquidacion %}
+        <p class="text-success small mb-0">
+          <i class="bi bi-check-circle me-1"></i>Liquidada · {{ p.liquidacion.total_cuotas }} cuotas cobradas
+        </p>
+        {% else %}
+        <p class="text-warning small mb-0">
+          <i class="bi bi-clock me-1"></i>Pendiente de liquidar
+        </p>
+        {% endif %}
+      </div>
+      <div class="card-footer bg-white">
+        <a href="/cobranza/liquidacion/{{ p.id }}"
+           class="btn btn-sm {% if p.liquidacion %}btn-outline-success{% else %}btn-danger{% endif %} w-100">
+          {% if p.liquidacion %}
+          <i class="bi bi-eye me-1"></i>Ver liquidación
+          {% else %}
+          <i class="bi bi-pencil-square me-1"></i>Liquidar planilla
+          {% endif %}
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center text-muted py-5">
+  <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+  No hay planillas armadas para {{ mes_nombre }} {{ anio }}.<br>
+  <a href="/cobranza/emplantillado?mes={{ mes }}&anio={{ anio }}" class="btn btn-sm btn-outline-danger mt-3">
+    Ir a Emplantillado
+  </a>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Request, Query, Form
+from fastapi import APIRouter, Depends, Request, Query, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import date
+from typing import List, Optional
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..models import CondicionBoleta
@@ -67,12 +68,13 @@ async def index(request: Request, db: Session = Depends(get_db),
 @router.post("/{cobrador_id}/planilla/armar")
 async def armar_planilla(request: Request, cobrador_id: int,
                          mes: int = Form(...), anio: int = Form(...),
+                         comision_pct: float = Form(10.0),
                          db: Session = Depends(get_db)):
     await auth_module.require_user(request, db)
 
     cobrador = db.query(models.Cobrador).get(cobrador_id)
     if not cobrador:
-        return RedirectResponse("/cobranza/", status_code=302)
+        return RedirectResponse("/cobranza/emplantillado", status_code=302)
 
     # Si ya existe planilla para este cobrador+mes+anio, solo redirigir
     existente = db.query(models.Planilla).filter_by(cobrador_id=cobrador_id, mes=mes, anio=anio).first()
@@ -85,9 +87,10 @@ async def armar_planilla(request: Request, cobrador_id: int,
             numero=siguiente_numero,
             mes=mes,
             anio=anio,
+            comision_pct=comision_pct,
         )
         db.add(planilla)
-        db.flush()  # obtener planilla.id antes del commit
+        db.flush()
 
         # Asignar boletas sin planilla de este cobrador a la nueva planilla
         (db.query(models.Boleta)
@@ -97,7 +100,147 @@ async def armar_planilla(request: Request, cobrador_id: int,
            .update({"planilla_id": planilla.id}, synchronize_session=False))
         db.commit()
 
-    return RedirectResponse(f"/cobranza/{cobrador_id}/planilla?mes={mes}&anio={anio}", status_code=302)
+    return RedirectResponse(f"/cobranza/emplantillado?mes={mes}&anio={anio}", status_code=302)
+
+
+# ── EMPLANTILLADO ──────────────────────────────────────────────────────────────
+
+@router.get("/emplantillado", response_class=HTMLResponse)
+async def emplantillado(request: Request, db: Session = Depends(get_db),
+                        mes: int = Query(default=0), anio: int = Query(default=0)):
+    user = await auth_module.require_user(request, db)
+    hoy = date.today()
+    if not mes:  mes  = hoy.month
+    if not anio: anio = hoy.year
+
+    cobradores = db.query(models.Cobrador).filter_by(activo=True).order_by(models.Cobrador.nombre).all()
+    resumen = []
+    for co in cobradores:
+        # Boletas activas de este cobrador
+        activas = (db.query(models.Boleta)
+                   .filter(models.Boleta.cobrador_id == co.id,
+                           models.Boleta.condicion.in_([CondicionBoleta.VENDIDO, CondicionBoleta.EN_COBRANZA]))
+                   .all())
+        sin_planilla = [b for b in activas if b.planilla_id is None]
+        planilla = db.query(models.Planilla).filter_by(cobrador_id=co.id, mes=mes, anio=anio).first()
+        if activas:
+            resumen.append({
+                "cobrador": co,
+                "total_activas": len(activas),
+                "sin_planilla": len(sin_planilla),
+                "planilla": planilla,
+            })
+
+    return templates.TemplateResponse(request, "cobranza_emplantillado.html", {
+        "user": user,
+        "resumen": resumen,
+        "mes": mes, "anio": anio,
+        "mes_nombre": MESES[mes - 1],
+        "meses": MESES,
+        "anios": list(range(hoy.year - 1, hoy.year + 2)),
+    })
+
+
+# ── LIQUIDACIÓN ────────────────────────────────────────────────────────────────
+
+@router.get("/liquidacion", response_class=HTMLResponse)
+async def liquidacion_index(request: Request, db: Session = Depends(get_db),
+                             mes: int = Query(default=0), anio: int = Query(default=0)):
+    user = await auth_module.require_user(request, db)
+    hoy = date.today()
+    if not mes:  mes  = hoy.month
+    if not anio: anio = hoy.year
+
+    planillas = (db.query(models.Planilla)
+                 .filter_by(mes=mes, anio=anio)
+                 .join(models.Cobrador)
+                 .order_by(models.Cobrador.nombre)
+                 .all())
+
+    return templates.TemplateResponse(request, "cobranza_liquidacion.html", {
+        "user": user,
+        "planillas": planillas,
+        "mes": mes, "anio": anio,
+        "mes_nombre": MESES[mes - 1],
+        "meses": MESES,
+        "anios": list(range(hoy.year - 1, hoy.year + 2)),
+    })
+
+
+@router.get("/liquidacion/{planilla_id}", response_class=HTMLResponse)
+async def liquidacion_detalle(request: Request, planilla_id: int,
+                               db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    planilla = db.query(models.Planilla).get(planilla_id)
+    if not planilla:
+        raise HTTPException(404)
+
+    boletas = (db.query(models.Boleta)
+               .filter(models.Boleta.planilla_id == planilla_id)
+               .join(models.Comprador, isouter=True)
+               .order_by(models.Boleta.numero_principal)
+               .all())
+
+    # Detalles de liquidación ya existentes
+    liq = planilla.liquidacion
+    detalles_map = {}
+    if liq:
+        for d in liq.detalles:
+            detalles_map[d.boleta_id] = d.cuotas_cobradas
+
+    return templates.TemplateResponse(request, "cobranza_liquidacion_detalle.html", {
+        "user": user,
+        "planilla": planilla,
+        "boletas": boletas,
+        "detalles_map": detalles_map,
+        "liquidacion": liq,
+        "mes_nombre": MESES[planilla.mes - 1],
+    })
+
+
+@router.post("/liquidacion/{planilla_id}/guardar")
+async def liquidacion_guardar(request: Request, planilla_id: int,
+                               boleta_ids: List[int] = Form(...),
+                               cuotas_cobradas: List[int] = Form(...),
+                               db: Session = Depends(get_db)):
+    await auth_module.require_user(request, db)
+    planilla = db.query(models.Planilla).get(planilla_id)
+    if not planilla:
+        raise HTTPException(404)
+
+    # Crear o actualizar liquidación
+    liq = planilla.liquidacion
+    if not liq:
+        liq = models.Liquidacion(planilla_id=planilla_id, fecha=date.today())
+        db.add(liq)
+        db.flush()
+
+    # Eliminar detalles anteriores y recrear
+    db.query(models.LiquidacionDetalle).filter_by(liquidacion_id=liq.id).delete()
+
+    total_cuotas = 0
+    for bid, cobradas in zip(boleta_ids, cuotas_cobradas):
+        if cobradas > 0:
+            db.add(models.LiquidacionDetalle(
+                liquidacion_id=liq.id,
+                boleta_id=bid,
+                cuotas_cobradas=cobradas,
+            ))
+            # Actualizar cuotas_pagadas en la boleta
+            boleta = db.query(models.Boleta).get(bid)
+            if boleta:
+                boleta.cuotas_pagadas = min(
+                    boleta.cuotas_anticipadas + cobradas,
+                    boleta.cuotas_pactadas
+                )
+            total_cuotas += cobradas
+
+    # Calcular totales (sin monto por ahora, se puede agregar precio por cuota después)
+    liq.total_cuotas = total_cuotas
+    liq.fecha = date.today()
+    db.commit()
+
+    return RedirectResponse(f"/cobranza/liquidacion/{planilla_id}", status_code=302)
 
 
 @router.get("/{cobrador_id}/planilla", response_class=HTMLResponse)

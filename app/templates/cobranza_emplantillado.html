@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Emplantillado{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0"><i class="bi bi-wallet2 text-danger me-2"></i>Cobranza</h4>
+</div>
+
+<!-- Tabs de navegación -->
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item">
+    <a class="nav-link" href="/cobranza/">Planillas</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link active fw-semibold" href="/cobranza/emplantillado">Emplantillado</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="/cobranza/liquidacion">Liquidación</a>
+  </li>
+</ul>
+
+<!-- Selector de mes/año -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body py-3">
+    <form method="get" action="/cobranza/emplantillado" class="d-flex align-items-center gap-3 flex-wrap">
+      <label class="fw-semibold text-muted small mb-0">Período:</label>
+      <select name="mes" class="form-select form-select-sm" style="width:140px;">
+        {% for m in meses %}
+        <option value="{{ loop.index }}" {% if loop.index == mes %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+      <select name="anio" class="form-select form-select-sm" style="width:100px;">
+        {% for a in anios %}
+        <option value="{{ a }}" {% if a == anio %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-sm btn-danger">Ver</button>
+      <span class="text-muted small ms-2">Emplantillando para <strong>{{ mes_nombre }} {{ anio }}</strong></span>
+    </form>
+  </div>
+</div>
+
+<!-- Tarjetas por cobrador -->
+{% if resumen %}
+<div class="row g-3">
+  {% for r in resumen %}
+  <div class="col-md-4 col-sm-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-person-circle text-danger fs-4"></i>
+          <h6 class="fw-bold mb-0">{{ r.cobrador.nombre }}</h6>
+          {% if r.planilla %}
+          <span class="badge bg-success ms-auto">P{{ r.planilla.numero }} armada</span>
+          {% endif %}
+        </div>
+
+        <p class="text-muted small mb-1">
+          <span class="badge bg-dark me-1">{{ r.total_activas }}</span> boletas activas en total
+        </p>
+        {% if r.sin_planilla > 0 %}
+        <p class="text-muted small mb-0">
+          <span class="badge bg-warning text-dark me-1">{{ r.sin_planilla }}</span> sin emplantillar aún
+        </p>
+        {% else %}
+        <p class="text-success small mb-0"><i class="bi bi-check-circle me-1"></i>Todas emplantilladas</p>
+        {% endif %}
+      </div>
+
+      <div class="card-footer bg-white">
+        {% if r.planilla %}
+          <div class="d-flex gap-2">
+            <a href="/cobranza/{{ r.cobrador.id }}/planilla?mes={{ mes }}&anio={{ anio }}"
+               class="btn btn-sm btn-outline-danger flex-fill">
+              <i class="bi bi-eye me-1"></i>Ver planilla P{{ r.planilla.numero }}
+            </a>
+          </div>
+        {% else %}
+          <!-- Modal trigger -->
+          <button class="btn btn-sm btn-danger w-100"
+                  data-bs-toggle="modal"
+                  data-bs-target="#modalArmar{{ r.cobrador.id }}">
+            <i class="bi bi-plus-circle me-1"></i>Armar planilla
+            {% if r.sin_planilla > 0 %}
+            <span class="badge bg-light text-danger ms-1">{{ r.sin_planilla }} boletas</span>
+            {% endif %}
+          </button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal para armar planilla -->
+  {% if not r.planilla %}
+  <div class="modal fade" id="modalArmar{{ r.cobrador.id }}" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-content">
+        <form method="post" action="/cobranza/{{ r.cobrador.id }}/planilla/armar">
+          <input type="hidden" name="mes" value="{{ mes }}">
+          <input type="hidden" name="anio" value="{{ anio }}">
+          <div class="modal-header">
+            <h6 class="modal-title">Armar planilla — {{ r.cobrador.nombre }}</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted small mb-3">
+              Se van a emplantillar <strong>{{ r.sin_planilla }}</strong> boleta{% if r.sin_planilla != 1 %}s{% endif %}
+              para <strong>{{ mes_nombre }} {{ anio }}</strong>.
+            </p>
+            <label class="form-label fw-semibold small">Comisión del cobrador</label>
+            <div class="input-group input-group-sm">
+              <input type="number" name="comision_pct" class="form-control"
+                     value="10" min="0" max="100" step="0.5" required>
+              <span class="input-group-text">%</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="submit" class="btn btn-sm btn-danger">Confirmar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center text-muted py-5">No hay cobradores con boletas activas.</div>
+{% endif %}
+{% endblock %}

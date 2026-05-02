@@ -108,7 +108,17 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion cuotas_anticipadas: {e}")
 
-        # planillas y planilla_id en boletas son creadas por create_all (modelo Planilla en models.py)
+        # Migrar columna comision_pct en planillas
+        try:
+            cols_planillas = [c["name"] for c in inspector.get_columns("planillas")]
+            if "comision_pct" not in cols_planillas:
+                db.execute(text("ALTER TABLE planillas ADD COLUMN comision_pct REAL DEFAULT 10.0"))
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion comision_pct planillas: {e}")
+
+        # liquidaciones y liquidacion_detalles se crean por create_all
 
         if not db.query(models.User).filter_by(username="admin").first():
             import logging
