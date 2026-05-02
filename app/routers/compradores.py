@@ -276,7 +276,6 @@ async def editar(
     vendedor_id: Optional[int] = Form(None),
     cuotas_anticipadas: Optional[int] = Form(None),
     condicion: Optional[str] = Form(None),
-    cuotas_pagadas_json: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
     await auth_module.require_user(request, db)
@@ -288,20 +287,6 @@ async def editar(
     c.direccion = direccion.strip().upper() or None
     c.zona_id = zona
     c.telefono = telefono.strip() or None
-
-    # Actualizar cuotas_pagadas por boleta desde JSON
-    if cuotas_pagadas_json:
-        import json
-        try:
-            cuotas_map = json.loads(cuotas_pagadas_json)
-            for b_exist in c.boletas:
-                val = cuotas_map.get(str(b_exist.id))
-                if val is not None:
-                    nuevas = int(val)
-                    if 0 <= nuevas <= (b_exist.cuotas_pactadas or 99):
-                        b_exist.cuotas_pagadas = nuevas
-        except (ValueError, TypeError, json.JSONDecodeError):
-            pass
 
     # Actualizar condición en todas las boletas existentes
     if condicion:
@@ -326,6 +311,18 @@ async def editar(
             if b_exist.condicion == CondicionBoleta.SIN_VENDER and b_exist.fecha_venta:
                 b_exist.condicion = CondicionBoleta.VENDIDO
 
+    # Actualizar cuotas_pagadas por boleta (campos cpag_<id>)
+    form_data = await request.form()
+    for b_exist in c.boletas:
+        key = f"cpag_{b_exist.id}"
+        if key in form_data:
+            try:
+                nuevas = int(form_data[key])
+                if 0 <= nuevas <= (b_exist.cuotas_pactadas or 99):
+                    b_exist.cuotas_pagadas = nuevas
+            except (ValueError, TypeError):
+                pass
+
     # Agregar nueva boleta si se buscó una
     if boleta_id:
         b = db.query(models.Boleta).get(boleta_id)
@@ -345,6 +342,23 @@ async def editar(
                 b.condicion = CondicionBoleta.VENDIDO
     db.commit()
     return RedirectResponse("/compradores/", status_code=302)
+
+
+@router.post("/{comprador_id}/boleta/{boleta_id}/cuotas")
+async def actualizar_cuotas(
+    comprador_id: int, boleta_id: int, request: Request,
+    cuotas_pagadas: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    await auth_module.require_user(request, db)
+    b = db.query(models.Boleta).filter(models.Boleta.id == boleta_id).first()
+    if not b:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False, "error": f"boleta {boleta_id} no encontrada"}, status_code=404)
+    b.cuotas_pagadas = cuotas_pagadas
+    db.commit()
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"ok": True, "cuotas_pagadas": b.cuotas_pagadas})
 
 
 @router.post("/{comprador_id}/eliminar")
