@@ -84,7 +84,6 @@ class Talonera(Base):
     offset_series = Column(Integer, default=0)
     activa = Column(Boolean, default=True)
     color = Column(String, default="#ffffff")
-    num_cuotas = Column(Integer, default=11)
     boletas = relationship("Boleta", back_populates="talonera")
 
 

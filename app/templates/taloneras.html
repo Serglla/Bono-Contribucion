@@ -106,15 +106,6 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
             <input type="text" id="inputNombre" name="nombre" class="form-control" required style="max-width:220px;">
           </div>
 
-          <!-- Cuotas de la campaña -->
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Cuotas de la campaña</label>
-            <div class="d-flex align-items-center gap-2">
-              <input type="number" name="num_cuotas" class="form-control" value="11" min="1" max="60" required style="max-width:100px;">
-              <span class="text-muted small">cuotas por boleta (se usará al generar boletas)</span>
-            </div>
-          </div>
-
           <!-- Campos de series (se generan dinámicamente con JS) -->
           <div id="seriesContainer" class="row g-2 mt-1"></div>
 

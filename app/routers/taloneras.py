@@ -48,7 +48,6 @@ async def crear(
     request: Request,
     nombre: str = Form(...),
     num_series: int = Form(3),
-    num_cuotas: int = Form(11),
     serie_inicio: List[int] = Form(...),
     serie_fin: List[int] = Form(...),
     db: Session = Depends(get_db)
@@ -65,8 +64,7 @@ async def crear(
         numero_inicio=numero_inicio,
         numero_fin=numero_fin,
         num_series=num_series,
-        offset_series=offset,
-        num_cuotas=num_cuotas
+        offset_series=offset
     )
     db.add(t)
     db.commit()
@@ -226,15 +224,13 @@ async def generar_boletas(
     talonera_id: int, request: Request,
     numero_inicio: int = Form(...),
     numero_fin: int = Form(...),
-    cuotas_pactadas: Optional[int] = Form(None),
+    cuotas_pactadas: int = Form(11),
     db: Session = Depends(get_db)
 ):
     await auth_module.require_admin(request, db)
     talonera = db.query(models.Talonera).get(talonera_id)
     if not talonera:
         raise HTTPException(404)
-    # Usar cuotas de la talonera si no se especifica manualmente
-    cuotas_pactadas = cuotas_pactadas or talonera.num_cuotas or 11
 
     # Números ya existentes para no duplicar
     existentes = {
