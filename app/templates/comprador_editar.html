@@ -98,13 +98,23 @@
                    class="form-control form-control-sm input-upper d-none" placeholder="Nombre zona">
           </div>
         </div>
-        <div class="col-6">
+        <div class="col-3">
           <label class="form-label mb-1" style="font-size:.8rem;">Vendedor</label>
           {% set vendedor_actual = comprador.boletas[0].vendedor_id if comprador.boletas else None %}
           <select name="vendedor_id" id="vendedorSelectEdit" class="form-select form-select-sm">
             <option value="">— Sin vendedor —</option>
             {% for v in vendedores %}
             <option value="{{ v.id }}" {% if vendedor_actual == v.id %}selected{% endif %}>{{ v.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-3">
+          <label class="form-label mb-1" style="font-size:.8rem;">Cobrador</label>
+          {% set cobrador_actual = comprador.boletas[0].cobrador_id if comprador.boletas else None %}
+          <select name="cobrador_id" id="cobradorSelectEdit" class="form-select form-select-sm">
+            <option value="">— Sin cobrador —</option>
+            {% for cb in cobradores %}
+            <option value="{{ cb.id }}" {% if cobrador_actual == cb.id %}selected{% endif %}>{{ cb.nombre }}</option>
             {% endfor %}
           </select>
         </div>

@@ -255,11 +255,13 @@ async def editar_form(comprador_id: int, request: Request, db: Session = Depends
         raise HTTPException(404)
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
+    cobradores = db.query(models.Cobrador).filter(models.Cobrador.activo == True).order_by(models.Cobrador.nombre).all()
     return templates.TemplateResponse(request, "comprador_editar.html", {
         "user": user,
         "comprador": c,
         "zonas": zonas,
         "vendedores": vendedores,
+        "cobradores": cobradores,
     })
 
 
@@ -274,6 +276,7 @@ async def editar(
     fecha_compra: Optional[str] = Form(None),
     boleta_id: Optional[int] = Form(None),
     vendedor_id: Optional[int] = Form(None),
+    cobrador_id: Optional[int] = Form(None),
     cuotas_anticipadas: Optional[int] = Form(None),
     condicion: Optional[str] = Form(None),
     db: Session = Depends(get_db)
@@ -302,12 +305,21 @@ async def editar(
         for b_exist in c.boletas:
             b_exist.vendedor_id = vendedor_id
 
-    # Auto-asignar cobrador y condición en boletas existentes si cambió la zona
-    if zona:
+    # Cobrador: si el usuario eligió uno manualmente, tiene prioridad;
+    # si no, auto-asignar según la zona
+    effective_cobrador_id = cobrador_id
+    if not effective_cobrador_id and zona:
         z = db.query(models.Zona).get(zona)
+        if z and z.cobrador_id:
+            effective_cobrador_id = z.cobrador_id
+
+    if effective_cobrador_id:
         for b_exist in c.boletas:
-            if z and z.cobrador_id:
-                b_exist.cobrador_id = z.cobrador_id
+            b_exist.cobrador_id = effective_cobrador_id
+
+    # Condición en boletas si cambió la zona
+    if zona:
+        for b_exist in c.boletas:
             if b_exist.condicion == CondicionBoleta.SIN_VENDER and b_exist.fecha_venta:
                 b_exist.condicion = CondicionBoleta.VENDIDO
 
@@ -334,10 +346,8 @@ async def editar(
             if cuotas_anticipadas and cuotas_anticipadas > 0:
                 b.cuotas_anticipadas = cuotas_anticipadas
                 b.cuotas_pagadas = cuotas_anticipadas
-            if zona:
-                z = db.query(models.Zona).get(zona)
-                if z and z.cobrador_id:
-                    b.cobrador_id = z.cobrador_id
+            if effective_cobrador_id:
+                b.cobrador_id = effective_cobrador_id
             if b.condicion == CondicionBoleta.SIN_VENDER:
                 b.condicion = CondicionBoleta.VENDIDO
     db.commit()
