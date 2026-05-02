@@ -108,6 +108,16 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion cuotas_anticipadas: {e}")
 
+        # Migrar columna num_cuotas en taloneras
+        try:
+            cols_taloneras = [c["name"] for c in inspector.get_columns("taloneras")]
+            if "num_cuotas" not in cols_taloneras:
+                db.execute(text("ALTER TABLE taloneras ADD COLUMN num_cuotas INTEGER DEFAULT 11"))
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion num_cuotas taloneras: {e}")
+
         # planillas y planilla_id en boletas son creadas por create_all (modelo Planilla en models.py)
 
         if not db.query(models.User).filter_by(username="admin").first():
