@@ -108,32 +108,7 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion cuotas_anticipadas: {e}")
 
-        # Migrar tabla planillas y columna planilla_id en boletas
-        try:
-            if "planillas" not in inspector.get_table_names():
-                db.execute(text("""
-                    CREATE TABLE planillas (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        cobrador_id INTEGER NOT NULL REFERENCES cobradores(id),
-                        numero INTEGER NOT NULL,
-                        mes INTEGER NOT NULL,
-                        anio INTEGER NOT NULL,
-                        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """))
-                db.commit()
-        except Exception as e:
-            db.rollback()
-            print(f"Migracion tabla planillas: {e}")
-
-        try:
-            cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
-            if "planilla_id" not in cols_boletas:
-                db.execute(text("ALTER TABLE boletas ADD COLUMN planilla_id INTEGER REFERENCES planillas(id)"))
-                db.commit()
-        except Exception as e:
-            db.rollback()
-            print(f"Migracion planilla_id en boletas: {e}")
+        # planillas y planilla_id en boletas son creadas por create_all (modelo Planilla en models.py)
 
         if not db.query(models.User).filter_by(username="admin").first():
             import logging
