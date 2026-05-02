@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – Bonos CDELU{% endblock %}
+{% block content %}
+<h4 class="fw-bold mb-4"><i class="bi bi-bar-chart-fill text-danger me-2"></i>Dashboard General</h4>
+
+<!-- Tarjetas resumen -->
+<div class="row g-3 mb-4">
+  <div class="col-sm-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-1 fw-bold text-danger">{{ totales.boletas }}</div>
+      <div class="text-muted small">Total Boletas</div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-1 fw-bold text-success">{{ totales.vendidas }}</div>
+      <div class="text-muted small">Vendidas</div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-1 fw-bold text-danger">{{ totales.baja }}</div>
+      <div class="text-muted small">Baja</div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-1 fw-bold text-primary">{{ totales.compradores }}</div>
+      <div class="text-muted small">Compradores</div>
+    </div>
+  </div>
+</div>
+
+<!-- Por talonera -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white fw-semibold">Por Talonera</div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Talonera</th><th>Total</th><th>Vendidas</th><th>Baja</th><th>En Caja</th>
+          <th>En Cobranza</th><th>Sin Vender</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in stats_por_talonera %}
+        <tr>
+          <td><span class="badge bg-danger">{{ s.nombre }}</span></td>
+          <td>{{ s.total }}</td>
+          <td><span class="text-success fw-semibold">{{ s.vendidas }}</span></td>
+          <td><span class="text-danger">{{ s.baja }}</span></td>
+          <td><span class="text-primary">{{ s.en_caja }}</span></td>
+          <td><span class="text-warning">{{ s.en_cobranza }}</span></td>
+          <td><span class="text-secondary">{{ s.sin_vender }}</span></td>
+          <td>
+            <a href="/boletas" class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-eye"></i>
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-3">Sin datos aún</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Por zona -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white fw-semibold"><i class="bi bi-geo-alt-fill me-1 text-danger"></i>Por Zona</div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Zona</th><th>Vendedor</th><th>Cobrador</th>
+          <th>Compradores</th><th>Vendidas</th><th>Baja</th>
+          <th>En Cobranza</th><th>Sin Vender</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in stats_por_zona %}
+        <tr>
+          <td><span class="badge bg-dark">{{ s.zona.nombre }}</span></td>
+          <td class="text-muted small">{{ s.vendedor }}</td>
+          <td class="text-muted small">{{ s.cobrador }}</td>
+          <td>{{ s.compradores }}</td>
+          <td><span class="text-success fw-semibold">{{ s.vendidas }}</span></td>
+          <td><span class="text-danger">{{ s.baja }}</span></td>
+          <td><span class="text-warning">{{ s.en_cobranza }}</span></td>
+          <td><span class="text-secondary">{{ s.sin_vender }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-3">Sin zonas</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Top vendedores y cobradores -->
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold"><i class="bi bi-person-badge me-1 text-danger"></i>Top Vendedores</div>
+      <ul class="list-group list-group-flush">
+        {% for v in top_vendedores %}
+        <li class="list-group-item d-flex justify-content-between">
+          {{ v.nombre }} <span class="badge bg-secondary">{{ v.cantidad }}</span>
+        </li>
+        {% else %}
+        <li class="list-group-item text-muted">Sin datos</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold"><i class="bi bi-cash-coin me-1 text-danger"></i>Top Cobradores</div>
+      <ul class="list-group list-group-flush">
+        {% for c in top_cobradores %}
+        <li class="list-group-item d-flex justify-content-between">
+          {{ c.nombre }} <span class="badge bg-secondary">{{ c.cantidad }}</span>
+        </li>
+        {% else %}
+        <li class="list-group-item text-muted">Sin datos</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

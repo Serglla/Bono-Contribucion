@@ -1,0 +1,811 @@
+{% extends "base.html" %}
+{% block title %}Socios{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0"><i class="bi bi-people-fill text-danger me-2"></i>Socios</h4>
+  <div class="d-flex gap-2">
+    <a href="/compradores/exportar" class="btn btn-outline-success">
+      <i class="bi bi-file-earmark-excel me-1"></i>Exportar Excel
+    </a>
+    <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNuevo">
+      <i class="bi bi-plus-lg me-1"></i>Nuevo
+    </button>
+  </div>
+</div>
+
+{% if sin_vendedor > 0 or sin_cobrador > 0 %}
+<div class="d-flex flex-column gap-2 mb-3">
+
+  {% if sin_vendedor > 0 %}
+  <div class="alert alert-warning d-flex align-items-center justify-content-between py-2 mb-0" id="alertaSinVendedor">
+    <span><i class="bi bi-exclamation-triangle-fill me-2"></i>
+      <strong>{{ sin_vendedor }}</strong> socio{% if sin_vendedor != 1 %}s{% endif %} sin vendedor asignado.
+    </span>
+    {% if user.is_admin %}
+    <button class="btn btn-sm btn-warning fw-semibold" onclick="completarFaltantes('vendedores', this, 'alertaSinVendedor')">
+      <i class="bi bi-magic me-1"></i>Completar automáticamente
+    </button>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if sin_cobrador > 0 %}
+  <div class="alert alert-warning d-flex align-items-center justify-content-between py-2 mb-0" id="alertaSinCobrador">
+    <span><i class="bi bi-exclamation-triangle-fill me-2"></i>
+      <strong>{{ sin_cobrador }}</strong> socio{% if sin_cobrador != 1 %}s{% endif %} sin cobrador asignado.
+    </span>
+    {% if user.is_admin %}
+    <button class="btn btn-sm btn-warning fw-semibold" onclick="completarFaltantes('cobradores', this, 'alertaSinCobrador')">
+      <i class="bi bi-magic me-1"></i>Completar automáticamente
+    </button>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+<script>
+function completarFaltantes(tipo, btn, alertaId) {
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Procesando...';
+  fetch('/compradores/completar-' + tipo, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      const alerta = document.getElementById(alertaId);
+      if (data.ok) {
+        alerta.className = 'alert alert-success d-flex align-items-center py-2 mb-0';
+        alerta.innerHTML = `<i class="bi bi-check-circle-fill me-2"></i>
+          Se completaron <strong>${data.arreglados}</strong> socio${data.arreglados !== 1 ? 's' : ''}. Recargando...`;
+        setTimeout(() => location.reload(), 1500);
+      }
+    });
+}
+</script>
+{% endif %}
+
+<!-- Tabs por talonera -->
+<div class="mb-3">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <a href="/compradores/?q={{ q }}"
+       class="btn btn-sm {{ 'btn-danger' if not pata else 'btn-outline-secondary' }}">
+      Todas <span class="badge {{ 'bg-white text-danger' if not pata else 'bg-secondary' }} ms-1">{{ total_compradores }}</span>
+    </a>
+    {% for tab in tabs %}
+    <a href="/compradores/?q={{ q }}&pata={{ tab.nombre }}"
+       class="btn btn-sm {{ 'btn-danger' if pata == tab.nombre else 'btn-outline-secondary' }}">
+      {{ tab.nombre }}
+      <span class="badge {{ 'bg-white text-danger' if pata == tab.nombre else 'bg-secondary' }} ms-1">{{ tab.total }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Búsqueda -->
+<form class="mb-3 d-flex gap-2" method="get">
+  {% if pata %}<input type="hidden" name="pata" value="{{ pata }}">{% endif %}
+  <input type="text" name="q" class="form-control" placeholder="Buscar por nombre..." value="{{ q }}">
+  <button class="btn btn-outline-secondary">Buscar</button>
+  {% if q %}<a href="/compradores/?pata={{ pata }}" class="btn btn-outline-danger">Limpiar</a>{% endif %}
+</form>
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover table-sm align-middle mb-0" id="tablaCompradores">
+      <thead class="table-light">
+        <tr>
+          <th class="sortable" data-col="0" style="cursor:pointer; user-select:none; white-space:nowrap;">
+            N° Boleta <span class="sort-icon text-muted ms-1">⇅</span>
+          </th>
+          <th class="sortable" data-col="1" style="cursor:pointer; user-select:none;">
+            Apellido y Nombre <span class="sort-icon text-muted ms-1">⇅</span>
+          </th>
+          <th class="sortable" data-col="2" style="cursor:pointer; user-select:none;">
+            Dirección <span class="sort-icon text-muted ms-1">⇅</span>
+          </th>
+          <th class="sortable" data-col="3" style="cursor:pointer; user-select:none;">
+            Zona <span class="sort-icon text-muted ms-1">⇅</span>
+          </th>
+          <th class="sortable" data-col="4" style="cursor:pointer; user-select:none; white-space:nowrap;">
+            Fecha compra <span class="sort-icon text-muted ms-1">⇅</span>
+          </th>
+          <th class="sortable" data-col="5" style="cursor:pointer; user-select:none;">
+            Vendedor <span class="sort-icon text-muted ms-1">⇅</span>
+          </th>
+          <th class="sortable" data-col="6" style="cursor:pointer; user-select:none;">
+            Cobrador <span class="sort-icon text-muted ms-1">⇅</span>
+          </th>
+          <th class="sortable" data-col="7" style="cursor:pointer; user-select:none;">
+            Teléfono <span class="sort-icon text-muted ms-1">⇅</span>
+          </th>
+          <th>Condición</th>
+          <th></th>
+        </tr>
+        <!-- Fila de filtros de columna -->
+        <tr id="filaFiltros">
+          <td><input type="text" class="form-control form-control-sm col-filter" data-col="0" placeholder="Filtrar N°…"></td>
+          <td><input type="text" class="form-control form-control-sm col-filter" data-col="1" placeholder="Filtrar nombre…"></td>
+          <td><input type="text" class="form-control form-control-sm col-filter" data-col="2" placeholder="Filtrar dirección…"></td>
+          <td><input type="text" class="form-control form-control-sm col-filter" data-col="3" placeholder="Filtrar zona…"></td>
+          <td><input type="text" class="form-control form-control-sm col-filter" data-col="4" placeholder="Filtrar fecha…"></td>
+          <td><input type="text" class="form-control form-control-sm col-filter" data-col="5" placeholder="Filtrar vendedor…"></td>
+          <td><input type="text" class="form-control form-control-sm col-filter" data-col="6" placeholder="Filtrar cobrador…"></td>
+          <td><input type="text" class="form-control form-control-sm col-filter" data-col="7" placeholder="Filtrar tel…"></td>
+          <td><input type="text" class="form-control form-control-sm col-filter" data-col="8" placeholder="Filtrar condición…"></td>
+          <td><button class="btn btn-sm btn-outline-secondary" id="btnLimpiarFiltros" title="Limpiar filtros"><i class="bi bi-x-lg"></i></button></td>
+        </tr>
+      </thead>
+      <tbody id="tbodyCompradores">
+        {% for c in compradores %}
+        {% set b = c.boletas[0] if c.boletas else None %}
+        {% set row_color = b.talonera.color if b and b.talonera and b.talonera.color else '#ffffff' %}
+        <tr data-comprador-id="{{ c.id }}"
+            style="cursor:pointer; --bs-table-bg: {{ row_color }}40; --bs-table-hover-bg: {{ row_color }}70;"
+            title="Doble clic para ver detalle completo">
+          <td data-val="{% for boleta in c.boletas %}{{ boleta.numero_principal }}{% if boleta.numeros_adicionales %} {{ boleta.numeros_adicionales }}{% endif %} {% endfor %}">
+            {% for boleta in c.boletas %}
+              <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:0.68rem;">{{ boleta.talonera.nombre if boleta.talonera else "" }}</span>
+              <span class="badge bg-dark">{{ boleta.numero_principal }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endfor %}
+          </td>
+          <td class="fw-semibold">{{ c.apellido_nombre }}</td>
+          <td class="col-direccion">{{ c.direccion or "—" }}</td>
+          <td>{{ c.zona.nombre if c.zona else "—" }}</td>
+          <td data-val="{{ b.fecha_venta.isoformat() if b and b.fecha_venta else '' }}" style="white-space:nowrap;">
+            {% if b and b.fecha_venta %}
+              {{ b.fecha_venta.strftime('%d/%m/%Y') }}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if b and b.vendedor %}
+              {{ b.vendedor.nombre }}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if b and b.cobrador %}
+              {{ b.cobrador.nombre }}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>{{ c.telefono or "—" }}</td>
+          <td>
+            {% set cond = b.condicion.value if b and b.condicion else '' %}
+            {% set pagado = b and b.cuotas_pagadas is not none and b.cuotas_pactadas and b.cuotas_pagadas >= b.cuotas_pactadas %}
+            {% if cond == 'BAJA' %}
+              <span class="badge bg-danger">Baja</span>
+            {% elif pagado or cond == 'CAJA' %}
+              <span class="badge bg-success">Al contado</span>
+            {% elif cond in ('EN_COBRANZA', 'VENDIDO') %}
+              <span class="badge bg-primary">En cobranza</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="/compradores/{{ c.id }}/editar" class="btn btn-sm btn-outline-primary"
+               ondblclick="event.preventDefault(); event.stopPropagation();">
+              <i class="bi bi-pencil"></i>
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="text-center text-muted py-3">No hay compradores registrados</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    <span id="contadorVisible">{{ compradores|length }}</span> socio(s)
+    {% if pata %}<span class="ms-2 badge bg-danger-subtle text-danger border border-danger">{{ pata }}</span>{% endif %}
+  </div>
+</div>
+
+<style>
+  .input-upper { text-transform: uppercase; }
+  #tablaCompradores { font-size: 0.8rem; }
+  #tablaCompradores thead th { font-size: 0.78rem; white-space: nowrap; }
+  #tablaCompradores tbody td { padding-top: 1px; padding-bottom: 1px; vertical-align: middle; line-height: 1.2; }
+  #tablaCompradores tbody tr { height: 28px; }
+  td.col-direccion { text-transform: uppercase; }
+  .sortable:hover { background-color: #f0f0f0; }
+  .sortable.asc .sort-icon::after  { content: " ▲"; color: #dc3545; }
+  .sortable.desc .sort-icon::after { content: " ▼"; color: #dc3545; }
+  .sortable.asc .sort-icon,
+  .sortable.desc .sort-icon { display: none; }
+  #filaFiltros td { padding: 3px 6px; background: #fff; }
+  #filaFiltros .form-control-sm { font-size: 0.72rem; padding: 2px 5px; }
+</style>
+
+<script>
+(function() {
+  const tbody = document.getElementById('tbodyCompradores');
+  const headers = document.querySelectorAll('#tablaCompradores thead .sortable');
+  const filters = document.querySelectorAll('.col-filter');
+  const contador = document.getElementById('contadorVisible');
+  let sortState = { col: -1, asc: true };
+
+  // ── Ordenar ──────────────────────────────────────────────────────────
+  headers.forEach(th => {
+    th.addEventListener('click', () => {
+      const col = parseInt(th.dataset.col);
+      if (sortState.col === col) {
+        sortState.asc = !sortState.asc;
+      } else {
+        sortState.col = col;
+        sortState.asc = true;
+      }
+      headers.forEach(h => h.classList.remove('asc','desc'));
+      th.classList.add(sortState.asc ? 'asc' : 'desc');
+      sortRows();
+    });
+  });
+
+  function getCellText(row, col) {
+    const td = row.querySelectorAll('td')[col];
+    if (!td) return '';
+    // Columna N° boleta: usar data-val numérico
+    if (col === 0 && td.dataset.val !== undefined) return td.dataset.val;
+    // Columna fecha: usar data-val ISO para ordenar correctamente
+    if (col === 4 && td.dataset.val !== undefined) return td.dataset.val;
+    return td.innerText.trim();
+  }
+
+  function sortRows() {
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {
+      let va = getCellText(a, sortState.col);
+      let vb = getCellText(b, sortState.col);
+      const na = parseFloat(va), nb = parseFloat(vb);
+      if (!isNaN(na) && !isNaN(nb)) {
+        return sortState.asc ? na - nb : nb - na;
+      }
+      return sortState.asc ? va.localeCompare(vb, 'es') : vb.localeCompare(va, 'es');
+    });
+    rows.forEach(r => tbody.appendChild(r));
+    applyFilters();
+  }
+
+  // ── Filtros de columna ───────────────────────────────────────────────
+  filters.forEach(input => input.addEventListener('input', applyFilters));
+
+  function applyFilters() {
+    const vals = Array.from(filters).map(i => i.value.trim().toLowerCase());
+    let visible = 0;
+    tbody.querySelectorAll('tr').forEach(row => {
+      const tds = row.querySelectorAll('td');
+      if (tds.length < 7) { row.style.display = ''; return; }
+      const show = vals.every((val, col) => {
+        if (!val) return true;
+        const text = (col === 0 && tds[col].dataset.val !== undefined)
+          ? (tds[col].dataset.val + ' ' + tds[col].innerText).toLowerCase()
+          : tds[col].innerText.toLowerCase();
+        return text.includes(val);
+      });
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    if (contador) contador.textContent = visible;
+  }
+
+  // ── Limpiar filtros ──────────────────────────────────────────────────
+  document.getElementById('btnLimpiarFiltros').addEventListener('click', () => {
+    filters.forEach(i => { i.value = ''; });
+    applyFilters();
+  });
+
+  applyFilters();
+})();
+
+// Mayúsculas en tiempo real
+document.querySelectorAll('.input-upper').forEach(el => {
+  el.addEventListener('input', function() {
+    const pos = this.selectionStart;
+    this.value = this.value.toUpperCase();
+    this.setSelectionRange(pos, pos);
+  });
+});
+</script>
+
+<!-- Modal Nuevo -->
+<div class="modal fade" id="modalNuevo" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form id="formNuevoComprador">
+        <input type="hidden" name="boleta_id" id="nuevoBoleta_id">
+
+        <!-- Header -->
+        <div class="modal-header py-2">
+          <h5 class="modal-title mb-0">
+            <i class="bi bi-person-plus-fill me-2 text-danger"></i>Nuevo Socio
+          </h5>
+          <span id="flashGuardado" class="badge bg-success ms-3 d-none" style="font-size:.85rem;">✓ Guardado</span>
+          <span id="contadorGuardados" class="badge bg-secondary ms-2 d-none" style="font-size:.8rem;"></span>
+          <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+        </div>
+
+        <!-- Banda de datos recordados -->
+        <div class="px-3 pt-2 pb-2" style="background:#eef2ff; border-bottom:2px solid #c7d2fe;">
+          <!-- Fila 1: Fecha · Zona · Vendedor -->
+          <div class="row g-2 align-items-end mb-2">
+            <div class="col-md-4">
+              <label class="form-label form-label-sm mb-1 fw-semibold text-primary">Fecha</label>
+              <input type="date" name="fecha_compra" id="fechaInput" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label form-label-sm mb-1 fw-semibold text-primary">Zona</label>
+              <div class="d-flex gap-1">
+                <select name="zona_id" id="zonaSelect" class="form-select form-select-sm">
+                  <option value="">— Sin zona —</option>
+                  {% for z in zonas %}
+                  <option value="{{ z.id }}" data-vendedor-id="{{ z.vendedor_id or '' }}">{{ z.nombre }}</option>
+                  {% endfor %}
+                  <option value="__nueva__">➕ Nueva zona...</option>
+                </select>
+                <input type="text" name="zona_nueva" id="zonaNuevaInput"
+                       class="form-control form-control-sm input-upper d-none" placeholder="Nueva zona">
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label form-label-sm mb-1 fw-semibold text-primary d-flex align-items-center gap-1">
+                Vendedor
+                <span id="vendedorZonaBadge" class="d-none" style="font-size:.65rem; color:#dc3545; font-weight:600;">
+                  <i class="bi bi-lock-fill"></i> Fijo por zona
+                </span>
+              </label>
+              <select name="vendedor_id" id="vendedorSelect" class="form-select form-select-sm">
+                <option value="">— Sin vendedor —</option>
+                {% for v in vendedores %}
+                <option value="{{ v.id }}">{{ v.nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <!-- Fila 2: Cuotas pactadas · Cuotas al contado -->
+          <div class="row g-2 align-items-end">
+            <div class="col-auto">
+              <label class="form-label form-label-sm mb-1 fw-semibold text-primary">Cuotas pactadas</label>
+              <input type="number" name="cuotas_pactadas" id="cuotasInput"
+                     class="form-control form-control-sm text-center fw-bold" min="1" max="99" placeholder="11"
+                     style="width:80px;">
+            </div>
+            <div class="col-auto">
+              <label class="form-label form-label-sm mb-1 fw-semibold text-primary">Cuotas al contado</label>
+              <input type="number" name="cuotas_anticipadas" id="anticipadasInput"
+                     class="form-control form-control-sm text-center fw-bold" min="1" max="11" value="1"
+                     style="width:80px;" title="Cuotas cobradas por el vendedor al momento de la venta">
+            </div>
+          </div>
+          <div class="mt-1" style="font-size:.68rem; color:#6366f1;">
+            <i class="bi bi-arrow-repeat me-1"></i>Estos valores se recuerdan entre cargas · Enter para navegar entre ellos
+          </div>
+        </div>
+
+        <!-- Cuerpo: datos por comprador -->
+        <div class="modal-body pt-3">
+
+          <!-- Boleta -->
+          <div class="card border-danger border-2 rounded-3 p-3 mb-3 bg-light">
+            <label class="form-label fw-bold text-danger mb-1">N° de boleta <span class="text-danger">*</span></label>
+            <div class="input-group" style="max-width:280px;">
+              <input type="number" id="nuevoBoleta_num" class="form-control form-control-lg fw-bold"
+                     placeholder="ej: 0001">
+              <button class="btn btn-danger" type="button" id="nuevoBtnBuscar">
+                <i class="bi bi-search"></i>
+              </button>
+            </div>
+            <div id="nuevoBoletaError" class="text-danger small mt-1 d-none">Boleta no encontrada.</div>
+            <div id="nuevoBoletaRequerida" class="text-danger small mt-1 d-none">
+              <i class="bi bi-exclamation-circle-fill me-1"></i>Debe buscar y confirmar una boleta antes de guardar.
+            </div>
+            <div id="nuevoBoletaInfo" class="mt-2 d-none">
+              <span class="small text-muted me-1">Números:</span>
+              <span id="nuevoBoletaBadges"></span>
+              <span id="nuevoBoletaTalonera" class="badge bg-danger ms-2"></span>
+              <span id="nuevoBoletaYaTiene" class="text-warning small ms-2 d-none">
+                <i class="bi bi-exclamation-triangle-fill"></i> Ya tiene socio asignado
+              </span>
+            </div>
+          </div>
+
+          <!-- Apellido / Dirección / Teléfono -->
+          <div class="row g-2">
+            <div class="col-md-8">
+              <label class="form-label fw-semibold">Apellido y Nombre *</label>
+              <input type="text" name="apellido_nombre" id="apellidoInput"
+                     class="form-control input-upper">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Teléfono <small class="text-muted">(Enter → guarda)</small></label>
+              <input type="text" name="telefono" id="telefonoInput" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Dirección</label>
+              <input type="text" name="direccion" id="direccionInput" class="form-control input-upper">
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+          <button type="button" class="btn btn-danger" id="btnGuardar">
+            <i class="bi bi-check-lg me-1"></i>Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const zonaSelect    = document.getElementById('zonaSelect');
+  const zonaNuevaInput = document.getElementById('zonaNuevaInput');
+
+  // ── Búsqueda de boleta ───────────────────────────────────────────────
+  (function setupBuscador() {
+    const inputNum  = document.getElementById('nuevoBoleta_num');
+    const btn       = document.getElementById('nuevoBtnBuscar');
+    const errorDiv  = document.getElementById('nuevoBoletaError');
+    const infoDiv   = document.getElementById('nuevoBoletaInfo');
+    const badgesDiv = document.getElementById('nuevoBoletaBadges');
+    const talonBadge = document.getElementById('nuevoBoletaTalonera');
+    const yaTiene   = document.getElementById('nuevoBoletaYaTiene');
+    const hidden    = document.getElementById('nuevoBoleta_id');
+
+    function buscar() {
+      const num = inputNum.value.trim();
+      if (!num) return;
+      errorDiv.classList.add('d-none');
+      infoDiv.classList.add('d-none');
+      hidden.value = '';
+      fetch(`/taloneras/buscar-boleta/${num}`)
+        .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+        .then(b => {
+          let badges = `<span class="badge bg-dark fs-6 me-1">${b.numero_principal}</span>`;
+          if (b.numeros_adicionales)
+            b.numeros_adicionales.split(', ').forEach(n =>
+              badges += `<span class="badge bg-secondary fs-6 me-1">${n}</span>`);
+          badgesDiv.innerHTML = badges;
+          talonBadge.textContent = b.talonera;
+          infoDiv.classList.remove('d-none');
+
+          if (b.comprador) {
+            // Ya tiene comprador: bloquear avance
+            hidden.value = '';
+            yaTiene.classList.remove('d-none');
+            yaTiene.textContent = `⛔ Ya asignada a: ${b.comprador}`;
+            yaTiene.className = 'text-danger small ms-2 fw-semibold';
+            inputNum.select();   // volver foco al número
+          } else {
+            hidden.value = b.id;
+            yaTiene.classList.add('d-none');
+            document.getElementById('apellidoInput').focus();
+          }
+        })
+        .catch(() => { errorDiv.classList.remove('d-none'); inputNum.select(); });
+    }
+
+    btn.addEventListener('click', buscar);
+    inputNum.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); buscar(); }
+    });
+  })();
+
+  // ── Navegación con Enter ─────────────────────────────────────────────
+  // Orden: fecha → zona → vendedor → cuotas → contado → boleta → apellido → dirección → teléfono → GUARDAR
+  const ordenRecordados = ['fechaInput', 'zonaSelect', 'vendedorSelect', 'cuotasInput', 'anticipadasInput'];
+  const ordenComprador  = ['apellidoInput', 'direccionInput', 'telefonoInput'];
+
+  function irA(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.focus();
+    try { el.select(); } catch (_) {}
+  }
+
+  function addEnter(id, onEnter) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault(); e.stopPropagation();
+      onEnter(el);
+    });
+  }
+
+  // Recordados: cada uno avanza al siguiente; vendedor va a boleta
+  ordenRecordados.forEach((id, idx) => {
+    addEnter(id, el => {
+      if (id === 'zonaSelect' && el.value === '__nueva__') {
+        zonaNuevaInput.focus(); return;
+      }
+      // Si zona tiene vendedor bloqueado, saltar directamente a boleta
+      if (id === 'zonaSelect' && document.getElementById('vendedorSelect').disabled) {
+        irA('nuevoBoleta_num'); return;
+      }
+      const sig = idx < ordenRecordados.length - 1
+        ? ordenRecordados[idx + 1]
+        : null;
+      if (sig) irA(sig);
+      else irA('nuevoBoleta_num');   // vendedor → boleta
+    });
+    // Select con Enter también avanza (keydown ya lo maneja addEnter arriba)
+  });
+
+  // Zona nueva → boleta
+  addEnter('zonaNuevaInput', () => irA('nuevoBoleta_num'));
+
+  // Datos del comprador: apellido → dirección → teléfono → GUARDAR
+  ordenComprador.forEach((id, idx) => {
+    addEnter(id, () => {
+      if (idx < ordenComprador.length - 1) irA(ordenComprador[idx + 1]);
+      else guardarComprador();
+    });
+  });
+
+  // ── Cuotas → actualiza máximo de "Contado" ──────────────────────────
+  document.getElementById('cuotasInput').addEventListener('input', function() {
+    const max = parseInt(this.value) || 11;
+    const ant = document.getElementById('anticipadasInput');
+    ant.max = max;
+    if (parseInt(ant.value) > max) ant.value = max;
+  });
+
+  // ── Zona select ──────────────────────────────────────────────────────
+  function autoFillVendedorDesdeZona() {
+    const vendedorSel = document.getElementById('vendedorSelect');
+    const badge       = document.getElementById('vendedorZonaBadge');
+    const opt         = zonaSelect.options[zonaSelect.selectedIndex];
+    const vidZona     = opt ? opt.dataset.vendedorId : '';
+    if (vidZona) {
+      // La zona ya tiene vendedor fijo: auto-completar y bloquear
+      vendedorSel.value    = vidZona;
+      vendedorSel.disabled = true;
+      badge.classList.remove('d-none');
+    } else {
+      // Sin vínculo: dejar libre
+      vendedorSel.disabled = false;
+      badge.classList.add('d-none');
+    }
+  }
+
+  zonaSelect.addEventListener('change', () => {
+    const nueva = zonaSelect.value === '__nueva__';
+    zonaNuevaInput.classList.toggle('d-none', !nueva);
+    zonaNuevaInput.required = nueva;
+    if (nueva) { zonaNuevaInput.value = ''; zonaNuevaInput.focus(); }
+    else {
+      zonaNuevaInput.value = '';
+      autoFillVendedorDesdeZona();
+    }
+  });
+
+  // ── Memoria ──────────────────────────────────────────────────────────
+  const MEMORIA = {
+    fecha:       { key: 'bono_fecha',       el: 'fechaInput',       def: '' },
+    cuotas:      { key: 'bono_cuotas',      el: 'cuotasInput',      def: '11' },
+    anticipadas: { key: 'bono_anticipadas', el: 'anticipadasInput', def: '1' },
+    zona:        { key: 'bono_zona',        el: 'zonaSelect',        def: '' },
+    vendedor:    { key: 'bono_vendedor',    el: 'vendedorSelect',    def: '' },
+  };
+
+  function guardarMemoria() {
+    Object.values(MEMORIA).forEach(({ key, el }) => {
+      const v = document.getElementById(el).value;
+      if (v && v !== '__nueva__') localStorage.setItem(key, v);
+    });
+  }
+
+  function restaurarMemoria() {
+    Object.values(MEMORIA).forEach(({ key, el, def }) => {
+      document.getElementById(el).value = localStorage.getItem(key) ?? def;
+    });
+    zonaNuevaInput.classList.add('d-none');
+    zonaNuevaInput.required = false;
+    zonaNuevaInput.value = '';
+    // Si la zona recordada ya tiene un vendedor vinculado, usarlo
+    autoFillVendedorDesdeZona();
+  }
+
+  restaurarMemoria();
+
+  // ── Guardar (AJAX, el modal no se cierra) ────────────────────────────
+  let nGuardados = 0;
+
+  function resetComprador() {
+    ['nuevoBoleta_num','nuevoBoleta_id','apellidoInput','direccionInput','telefonoInput'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('nuevoBoletaInfo').classList.add('d-none');
+    document.getElementById('nuevoBoletaError').classList.add('d-none');
+    document.getElementById('nuevoBoletaRequerida').classList.add('d-none');
+  }
+
+  function flash() {
+    nGuardados++;
+    const f = document.getElementById('flashGuardado');
+    const c = document.getElementById('contadorGuardados');
+    f.classList.remove('d-none');
+    c.textContent = `${nGuardados} guardado${nGuardados !== 1 ? 's' : ''}`;
+    c.classList.remove('d-none');
+    setTimeout(() => f.classList.add('d-none'), 1400);
+  }
+
+  async function guardarComprador() {
+    if (!document.getElementById('nuevoBoleta_id').value) {
+      document.getElementById('nuevoBoletaRequerida').classList.remove('d-none');
+      irA('nuevoBoleta_num');
+      return;
+    }
+    if (!document.getElementById('apellidoInput').value.trim()) {
+      irA('apellidoInput');
+      return;
+    }
+    guardarMemoria();
+    const fd = new FormData(document.getElementById('formNuevoComprador'));
+    try {
+      const resp = await fetch('/compradores/crear', { method: 'POST', body: fd });
+      if (resp.ok) {
+        flash();
+        resetComprador();
+        irA('nuevoBoleta_num');
+      } else {
+        alert('Error al guardar. Intente de nuevo.');
+      }
+    } catch { alert('Error de conexión.'); }
+  }
+
+  document.getElementById('btnGuardar').addEventListener('click', guardarComprador);
+
+  // ── Abrir modal ──────────────────────────────────────────────────────
+  document.getElementById('modalNuevo').addEventListener('show.bs.modal', () => {
+    restaurarMemoria();
+    nGuardados = 0;
+    document.getElementById('contadorGuardados').classList.add('d-none');
+    resetComprador();
+    setTimeout(() => {
+      // Si ya hay fecha, ir directo a boleta; si no, empezar por fecha
+      irA(document.getElementById('fechaInput').value ? 'nuevoBoleta_num' : 'fechaInput');
+    }, 300);
+  });
+
+  // ── Cerrar modal: recargar tabla si se guardó algo ───────────────────
+  document.getElementById('modalNuevo').addEventListener('hidden.bs.modal', () => {
+    if (nGuardados > 0) window.location.reload();
+  });
+
+  // Mayúsculas en tiempo real (ya definido globalmente más abajo, pero por si acaso)
+  document.querySelectorAll('#formNuevoComprador .input-upper').forEach(el => {
+    el.addEventListener('input', function () {
+      const p = this.selectionStart;
+      this.value = this.value.toUpperCase();
+      this.setSelectionRange(p, p);
+    });
+  });
+})();
+</script>
+
+<!-- Modal Detalle Comprador -->
+<div class="modal fade" id="modalDetalle" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title"><i class="bi bi-person-lines-fill me-2"></i><span id="detalle-nombre"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="detalle-body">
+        <div class="text-center py-4"><div class="spinner-border text-danger" role="status"></div></div>
+      </div>
+      <div class="modal-footer">
+        <a id="detalle-btn-editar" href="#" class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-pencil me-1"></i>Editar
+        </a>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .detalle-boleta-card { border-left: 4px solid #dc3545; background: #fff8f8; }
+  .num-badge { font-size: 1rem; min-width: 3rem; text-align: center; }
+  #tbodyCompradores tr:hover { background-color: #fff3f3 !important; }
+</style>
+
+<script>
+(function() {
+  document.getElementById('tbodyCompradores').addEventListener('dblclick', function(e) {
+    const tr = e.target.closest('tr[data-comprador-id]');
+    if (!tr) return;
+    window.location.href = `/compradores/${tr.dataset.compradorId}/editar`;
+  });
+
+  function abrirDetalle(id) {
+    const modalEl = document.getElementById('modalDetalle');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    document.getElementById('detalle-nombre').textContent = 'Cargando…';
+    document.getElementById('detalle-body').innerHTML =
+      '<div class="text-center py-4"><div class="spinner-border text-danger" role="status"></div></div>';
+    document.getElementById('detalle-btn-editar').href = `/compradores/${id}/editar`;
+    modal.show();
+
+    fetch(`/compradores/${id}/detalle`)
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(d => renderDetalle(d))
+      .catch(() => {
+        document.getElementById('detalle-body').innerHTML =
+          '<div class="alert alert-danger">No se pudieron cargar los datos.</div>';
+      });
+  }
+
+  function renderDetalle(d) {
+    document.getElementById('detalle-nombre').textContent = d.apellido_nombre;
+
+    let html = `
+      <div class="row g-3 mb-3">
+        <div class="col-md-6">
+          <div class="p-3 rounded bg-light border">
+            <div class="mb-1"><i class="bi bi-geo-alt-fill text-danger me-1"></i>
+              <strong>Dirección:</strong> ${d.direccion || '<span class="text-muted">—</span>'}
+            </div>
+            <div class="mb-1"><i class="bi bi-telephone-fill text-danger me-1"></i>
+              <strong>Teléfono:</strong> ${d.telefono || '<span class="text-muted">—</span>'}
+            </div>
+            <div><i class="bi bi-map-fill text-danger me-1"></i>
+              <strong>Zona:</strong> ${d.zona ? `<span class="badge bg-secondary">${d.zona}</span>` : '<span class="text-muted">—</span>'}
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    if (d.boletas.length === 0) {
+      html += '<div class="alert alert-secondary">Este socio no tiene boletas asignadas.</div>';
+    } else {
+      d.boletas.forEach((b) => {
+        const numBadges = b.todos_numeros.map((n, idx) =>
+          `<span class="badge ${idx === 0 ? 'bg-dark' : 'bg-secondary'} num-badge me-1">${n}</span>`
+        ).join('');
+
+        const condColor = {
+          'VENDIDO': 'success', 'CAJA': 'warning', 'BAJA': 'danger',
+          'EN_COBRANZA': 'info', 'SIN_VENDER': 'secondary'
+        }[b.condicion] || 'secondary';
+
+        const cuotasBar = b.cuotas_pactadas > 0
+          ? `<div class="progress mt-1" style="height:6px;" title="${b.cuotas_pagadas}/${b.cuotas_pactadas} cuotas">
+               <div class="progress-bar bg-danger" style="width:${Math.round(b.cuotas_pagadas/b.cuotas_pactadas*100)}%"></div>
+             </div>`
+          : '';
+
+        html += `
+        <div class="card detalle-boleta-card rounded mb-3 p-3">
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+            <span class="badge bg-danger-subtle text-danger border border-danger fs-6 px-2">${b.talonera || '?'}</span>
+            ${numBadges}
+            <span class="badge bg-${condColor} ms-auto">${b.condicion || '—'}</span>
+          </div>
+          <div class="row g-1 small text-muted">
+            <div class="col-6"><i class="bi bi-calendar3 me-1"></i><strong>Fecha:</strong> ${b.fecha_venta || '—'}</div>
+            <div class="col-6"><i class="bi bi-person me-1"></i><strong>Vendedor:</strong> ${b.vendedor || '—'}</div>
+            <div class="col-6"><i class="bi bi-person-badge me-1"></i><strong>Cobrador:</strong> ${b.cobrador || '—'}</div>
+            <div class="col-6"><i class="bi bi-cash me-1"></i><strong>Pagado:</strong> $${(b.total_pagado || 0).toLocaleString('es-AR')}</div>
+            <div class="col-12">
+              <i class="bi bi-check2-square me-1"></i><strong>Cuotas:</strong>
+              ${b.cuotas_pagadas} / ${b.cuotas_pactadas}
+              ${cuotasBar}
+            </div>
+          </div>
+        </div>`;
+      });
+    }
+
+    document.getElementById('detalle-body').innerHTML = html;
+  }
+})();
+</script>
+{% endblock %}

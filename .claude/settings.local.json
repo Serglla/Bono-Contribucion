@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Command python3, python, py -ErrorAction SilentlyContinue)"
+    ]
+  }
+}

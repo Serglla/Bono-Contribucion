@@ -1,0 +1,487 @@
+{% extends "base.html" %}
+{% block title %}Boletas – {{ talonera.nombre }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <a href="/taloneras/" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
+    <span class="fw-bold fs-5"><i class="bi bi-journal-text text-danger me-2"></i>{{ talonera.nombre }}</span>
+    <span class="badge bg-danger ms-2">×{{ talonera.multiplicador }}</span>
+  </div>
+  <div class="d-flex gap-2">
+    {% if user.is_admin and talonera.numero_inicio and talonera.numero_fin %}
+    <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalGenerar">
+      <i class="bi bi-lightning-fill me-1"></i>Generar boletas
+    </button>
+    {% endif %}
+    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalAsignar">
+      <i class="bi bi-person-check-fill me-1"></i>Asignar comprador
+    </button>
+    <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNueva">
+      <i class="bi bi-plus-lg me-1"></i>Nueva Boleta
+    </button>
+  </div>
+</div>
+
+<!-- Filtros -->
+<form class="mb-3 d-flex gap-2 flex-wrap" method="get">
+  <input type="text" name="q" class="form-control" style="max-width:220px;" placeholder="Buscar comprador..." value="{{ q }}">
+  <select name="condicion" class="form-select" style="max-width:180px;">
+    <option value="">Todas las condiciones</option>
+    {% for cond in condiciones %}
+    <option value="{{ cond }}" {% if condicion_sel == cond %}selected{% endif %}>{{ cond }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-outline-secondary">Filtrar</button>
+  {% if q or condicion_sel %}<a href="/taloneras/{{ talonera.id }}/boletas" class="btn btn-outline-danger">Limpiar</a>{% endif %}
+</form>
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th>Números</th><th>Comprador</th><th>Vendedor</th><th>Cobrador</th>
+          <th>Fecha</th><th>Cuotas</th><th>Total $</th><th>Condición</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in boletas %}
+        <tr>
+          <td class="fw-bold">
+            <span class="badge bg-dark">{{ b.numero_principal }}</span>
+            {% if b.numeros_adicionales %}
+              {% for n in b.numeros_adicionales.split(', ') %}
+                <span class="badge bg-secondary">{{ n }}</span>
+              {% endfor %}
+            {% endif %}
+          </td>
+          <td>{{ b.comprador.apellido_nombre if b.comprador else "—" }}</td>
+          <td>{{ b.vendedor.nombre if b.vendedor else "—" }}</td>
+          <td>{{ b.cobrador.nombre if b.cobrador else "—" }}</td>
+          <td>{{ b.fecha_venta.strftime('%d/%m/%y') if b.fecha_venta else "—" }}</td>
+          <td>{{ b.cuotas_pagadas }}/{{ b.cuotas_pactadas }}</td>
+          <td>{{ "{:,.0f}".format(b.total_pagado) if b.total_pagado else "—" }}</td>
+          <td>
+            <span class="badge badge-{{ b.condicion.value.lower() }}">{{ b.condicion.value }}</span>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                    data-bs-target="#modalEditar{{ b.id }}"><i class="bi bi-pencil"></i></button>
+            <form method="post" action="/taloneras/boletas/{{ b.id }}/eliminar" class="d-inline"
+                  onsubmit="return confirm('¿Eliminar boleta?')">
+              <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        <!-- Modal Editar -->
+        <div class="modal fade" id="modalEditar{{ b.id }}" tabindex="-1">
+          <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+              <form method="post" action="/taloneras/boletas/{{ b.id }}/editar">
+                <div class="modal-header">
+                  <h5 class="modal-title">Editar Boleta #{{ b.numero_principal }}</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div class="row g-2">
+                    <div class="col-md-6">
+                      <label class="form-label">Comprador</label>
+                      <select name="comprador_id" class="form-select">
+                        <option value="">— Sin comprador —</option>
+                        {% for c in compradores %}
+                        <option value="{{ c.id }}" {% if b.comprador_id == c.id %}selected{% endif %}>{{ c.apellido_nombre }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label">Vendedor</label>
+                      <select name="vendedor_id" class="form-select">
+                        <option value="">—</option>
+                        {% for v in vendedores %}
+                        <option value="{{ v.id }}" {% if b.vendedor_id == v.id %}selected{% endif %}>{{ v.nombre }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label">Cobrador</label>
+                      <select name="cobrador_id" class="form-select">
+                        <option value="">—</option>
+                        {% for c in cobradores %}
+                        <option value="{{ c.id }}" {% if b.cobrador_id == c.id %}selected{% endif %}>{{ c.nombre }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label">Fecha Venta</label>
+                      <input type="date" name="fecha_venta" class="form-control"
+                             value="{{ b.fecha_venta.isoformat() if b.fecha_venta else '' }}">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label">Condición</label>
+                      <select name="condicion" class="form-select">
+                        {% for cond in condiciones %}
+                        <option value="{{ cond }}" {% if b.condicion.value == cond %}selected{% endif %}>{{ cond }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label">Cuotas Pact.</label>
+                      <input type="number" name="cuotas_pactadas" class="form-control" value="{{ b.cuotas_pactadas }}">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label">Cuotas Pag.</label>
+                      <input type="number" name="cuotas_pagadas" class="form-control" value="{{ b.cuotas_pagadas }}">
+                    </div>
+                    <div class="col-md-2">
+                      <label class="form-label">Total $</label>
+                      <input type="number" step="0.01" name="total_pagado" class="form-control" value="{{ b.total_pagado }}">
+                    </div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                  <button type="submit" class="btn btn-danger">Guardar</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-muted py-4">Sin boletas registradas</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">{{ boletas|length }} boleta(s)</div>
+</div>
+
+<!-- Modal Nueva Boleta -->
+<div class="modal fade" id="modalNueva" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/taloneras/{{ talonera.id }}/boletas/crear">
+        <div class="modal-header">
+          <h5 class="modal-title">Nueva Boleta – {{ talonera.nombre }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2">
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">N° Principal *</label>
+              <input type="number" name="numero_principal" class="form-control" required>
+            </div>
+            <div class="col-md-9">
+              <label class="form-label">N° Adicionales (separados por coma)</label>
+              <input type="text" name="numeros_adicionales" class="form-control" placeholder="1001, 1002, 1003...">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Comprador</label>
+              <select name="comprador_id" class="form-select">
+                <option value="">— Sin comprador —</option>
+                {% for c in compradores %}
+                <option value="{{ c.id }}">{{ c.apellido_nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Vendedor</label>
+              <select name="vendedor_id" class="form-select">
+                <option value="">—</option>
+                {% for v in vendedores %}<option value="{{ v.id }}">{{ v.nombre }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Cobrador</label>
+              <select name="cobrador_id" class="form-select">
+                <option value="">—</option>
+                {% for c in cobradores %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Fecha Venta</label>
+              <input type="date" name="fecha_venta" class="form-control">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Condición</label>
+              <select name="condicion" class="form-select">
+                {% for cond in condiciones %}<option value="{{ cond }}">{{ cond }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Cuotas Pac.</label>
+              <input type="number" name="cuotas_pactadas" class="form-control" value="11">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Cuotas Pag.</label>
+              <input type="number" name="cuotas_pagadas" class="form-control" value="0">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Total $</label>
+              <input type="number" step="0.01" name="total_pagado" class="form-control" value="0">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-danger">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Generar Boletas -->
+{% if user.is_admin %}
+<div class="modal fade" id="modalGenerar" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/taloneras/{{ talonera.id }}/generar-boletas">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-lightning-fill text-danger me-2"></i>Generar boletas – {{ talonera.nombre }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small mb-3">
+            Se crearán boletas para cada número del rango indicado. Las que ya existen <strong>no se duplican</strong>.
+            Los números adicionales se calculan automáticamente
+            ({{ talonera.num_series }} series · offset {{ talonera.offset_series }}).
+          </p>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label fw-semibold">N° Inicio *</label>
+              <input type="number" name="numero_inicio" class="form-control"
+                     value="{{ talonera.numero_inicio }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">N° Fin *</label>
+              <input type="number" name="numero_fin" class="form-control"
+                     value="{{ talonera.numero_fin }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Cuotas pactadas</label>
+              <input type="number" name="cuotas_pactadas" class="form-control" value="11">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-danger"
+                  onclick="return confirm('¿Generar todas las boletas del rango? Las existentes no se tocan.')">
+            <i class="bi bi-lightning-fill me-1"></i>Generar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Modal Asignar Comprador por Número -->
+<div class="modal fade" id="modalAsignar" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-person-check-fill me-2"></i>Asignar comprador – {{ talonera.nombre }}</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <!-- Búsqueda por número -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">N° de boleta (primer número)</label>
+          <div class="input-group" style="max-width:260px;">
+            <input type="number" id="buscarNumero" class="form-control form-control-lg"
+                   placeholder="ej: 0001" autofocus>
+            <button class="btn btn-outline-success" type="button" id="btnBuscar">
+              <i class="bi bi-search"></i>
+            </button>
+          </div>
+          <div id="buscarError" class="text-danger small mt-1 d-none">Boleta no encontrada.</div>
+        </div>
+
+        <!-- Números de la boleta (se muestra tras buscar) -->
+        <div id="boletaInfo" class="d-none">
+          <div class="alert alert-light border mb-3 py-2">
+            <span class="small text-muted me-2">Números de la boleta:</span>
+            <span id="numeroBadges"></span>
+          </div>
+
+          <!-- Formulario de asignación -->
+          <form method="post" id="formAsignar">
+            <input type="hidden" name="_method" value="post">
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Comprador</label>
+                <select name="comprador_id" id="asigComprador" class="form-select">
+                  <option value="">— Sin comprador —</option>
+                  {% for c in compradores %}
+                  <option value="{{ c.id }}">{{ c.apellido_nombre }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Vendedor</label>
+                <select name="vendedor_id" id="asigVendedor" class="form-select">
+                  <option value="">—</option>
+                  {% for v in vendedores %}<option value="{{ v.id }}">{{ v.nombre }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Cobrador</label>
+                <select name="cobrador_id" id="asigCobrador" class="form-select">
+                  <option value="">—</option>
+                  {% for c in cobradores %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Fecha Venta</label>
+                <input type="date" name="fecha_venta" id="asigFecha" class="form-control">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Condición</label>
+                <select name="condicion" id="asigCondicion" class="form-select">
+                  {% for cond in condiciones %}<option value="{{ cond }}">{{ cond }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label">Cuotas Pac.</label>
+                <input type="number" name="cuotas_pactadas" id="asigCuotasPac" class="form-control">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label">Cuotas Pag.</label>
+                <input type="number" name="cuotas_pagadas" id="asigCuotasPag" class="form-control">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label">Total $</label>
+                <input type="number" step="0.01" name="total_pagado" id="asigTotal" class="form-control">
+              </div>
+            </div>
+            <div class="mt-3 d-flex justify-content-end gap-2">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="submit" class="btn btn-success">
+                <i class="bi bi-check-lg me-1"></i>Guardar
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const talonId = {{ talonera.id }};
+  const btnBuscar = document.getElementById('btnBuscar');
+  const inputNum = document.getElementById('buscarNumero');
+  const errorDiv = document.getElementById('buscarError');
+  const boletaInfo = document.getElementById('boletaInfo');
+  const numeroBadges = document.getElementById('numeroBadges');
+  const formAsignar = document.getElementById('formAsignar');
+
+  function buscar() {
+    const num = inputNum.value.trim();
+    if (!num) return;
+    errorDiv.classList.add('d-none');
+    boletaInfo.classList.add('d-none');
+
+    fetch(`/taloneras/${talonId}/boleta-info/${num}`)
+      .then(r => {
+        if (!r.ok) throw new Error('not found');
+        return r.json();
+      })
+      .then(b => {
+        // Mostrar números
+        let badges = `<span class="badge bg-dark fs-6 me-1">${b.numero_principal}</span>`;
+        if (b.numeros_adicionales) {
+          b.numeros_adicionales.split(', ').forEach(n => {
+            badges += `<span class="badge bg-secondary fs-6 me-1">${n}</span>`;
+          });
+        }
+        numeroBadges.innerHTML = badges;
+
+        // Apuntar el form al endpoint de edición correcto
+        formAsignar.action = `/taloneras/boletas/${b.id}/editar`;
+
+        // Pre-cargar valores actuales
+        setVal('asigComprador', b.comprador_id);
+        setVal('asigVendedor', b.vendedor_id);
+        setVal('asigCobrador', b.cobrador_id);
+        document.getElementById('asigFecha').value = b.fecha_venta || '';
+        setVal('asigCondicion', b.condicion);
+        document.getElementById('asigCuotasPac').value = b.cuotas_pactadas;
+        document.getElementById('asigCuotasPag').value = b.cuotas_pagadas;
+        document.getElementById('asigTotal').value = b.total_pagado;
+
+        boletaInfo.classList.remove('d-none');
+      })
+      .catch(() => {
+        errorDiv.classList.remove('d-none');
+      });
+  }
+
+  function setVal(id, val) {
+    const el = document.getElementById(id);
+    if (el && val !== null && val !== undefined) el.value = val;
+  }
+
+  btnBuscar.addEventListener('click', buscar);
+  inputNum.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } });
+
+  // ===== Navegación con Enter entre campos del formulario de asignación =====
+  // Orden de los campos al presionar Enter
+  const ordenCampos = [
+    'asigComprador',
+    'asigVendedor',
+    'asigCobrador',
+    'asigFecha',
+    'asigCondicion',
+    'asigCuotasPac',
+    'asigCuotasPag',
+    'asigTotal'
+  ];
+
+  ordenCampos.forEach((id, idx) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        // Si es el último campo, enviar el formulario
+        if (idx === ordenCampos.length - 1) {
+          formAsignar.requestSubmit();
+          return;
+        }
+        // Sino, ir al siguiente campo
+        const siguiente = document.getElementById(ordenCampos[idx + 1]);
+        if (siguiente) {
+          siguiente.focus();
+          // Si es input numérico/texto/fecha, seleccionar el contenido para sobrescribir fácil
+          if (typeof siguiente.select === 'function') {
+            try { siguiente.select(); } catch (_) {}
+          }
+        }
+      }
+    });
+  });
+
+  // Cuando se cargan los datos de la boleta, dar foco al primer campo (Comprador)
+  // Esto se hace al final del .then() de buscar(), pero como ya está escrito,
+  // observamos cuando boletaInfo deja de estar oculto:
+  const obs = new MutationObserver(() => {
+    if (!boletaInfo.classList.contains('d-none')) {
+      const primero = document.getElementById(ordenCampos[0]);
+      if (primero) primero.focus();
+    }
+  });
+  obs.observe(boletaInfo, { attributes: true, attributeFilter: ['class'] });
+
+  // Limpiar al cerrar el modal
+  document.getElementById('modalAsignar').addEventListener('hidden.bs.modal', () => {
+    inputNum.value = '';
+    boletaInfo.classList.add('d-none');
+    errorDiv.classList.add('d-none');
+  });
+})();
+</script>
+{% endblock %}

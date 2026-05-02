@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}Taloneras{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0"><i class="bi bi-journal-text text-danger me-2"></i>Taloneras</h4>
+  {% if user.is_admin %}
+  <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNueva">
+    <i class="bi bi-plus-lg me-1"></i>Nueva Talonera
+  </button>
+  {% endif %}
+</div>
+
+<div class="row g-3">
+  {% for g in grupos %}
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100" style="border-left: 5px solid {{ g.color }} !important;">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <h5 class="card-title fw-bold text-danger mb-0">{{ g.nombre }}</h5>
+          {% if user.is_admin %}
+          <div class="d-flex align-items-center gap-2">
+            <label class="form-label mb-0 small text-muted">Color cartón:</label>
+            <input type="color" class="form-control form-control-color color-picker"
+                   value="{{ g.color }}" data-nombre="{{ g.nombre }}"
+                   title="Color del cartón" style="width:36px; height:28px; padding:2px; cursor:pointer;">
+            <span class="badge guardar-color-ok d-none text-success"><i class="bi bi-check-lg"></i></span>
+          </div>
+          {% endif %}
+        </div>
+        <p class="text-muted small mb-1">Multiplicador: <strong>×{{ g.multiplicador }}</strong> &nbsp;|&nbsp; <strong>{{ g.num_series }}</strong> números por boleta</p>
+        <p class="text-muted small mb-2">{{ g.taloneras | length }} tanda{% if g.taloneras|length != 1 %}s{% endif %}</p>
+        <div class="d-flex flex-column gap-1">
+          {% for t in g.taloneras %}
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-secondary" style="font-size:.7rem;">{{ t.numero_inicio }} → {{ t.numero_fin }}</span>
+            <span class="text-muted small">{{ t.boletas|length }} boletas</span>
+            <span class="badge {% if t.activa %}bg-success{% else %}bg-secondary{% endif %}" style="font-size:.65rem;">
+              {% if t.activa %}Activa{% else %}Inactiva{% endif %}
+            </span>
+            <a href="/taloneras/{{ t.id }}/boletas" class="btn btn-sm btn-outline-danger py-0 px-2 ms-auto" style="font-size:.7rem;">
+              <i class="bi bi-eye"></i>
+            </a>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12 text-center text-muted py-5">
+    No hay taloneras. {% if user.is_admin %}Creá una para empezar.{% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+document.querySelectorAll('.color-picker').forEach(function(picker) {
+  picker.addEventListener('change', function() {
+    const nombre = this.dataset.nombre;
+    const color  = this.value;
+    const card   = this.closest('.card');
+    const ok     = this.closest('.d-flex').querySelector('.guardar-color-ok');
+    const fd = new FormData();
+    fd.append('nombre', nombre);
+    fd.append('color', color);
+    fetch('/taloneras/grupo/color', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          card.style.borderLeftColor = color;
+          ok.classList.remove('d-none');
+          setTimeout(() => ok.classList.add('d-none'), 2000);
+        }
+      });
+  });
+});
+</script>
+
+{% if user.is_admin %}
+<div class="modal fade" id="modalNueva" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/taloneras/crear" id="formNuevaTalonera">
+        <div class="modal-header">
+          <h5 class="modal-title">Nueva Talonera</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+
+          <!-- Paso 1: elegir número de series -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold">N° por boleta</label>
+            <select id="selNumSeries" name="num_series" class="form-select" style="max-width:220px;">
+              <option value="3">3 números → PATA 1</option>
+              <option value="6">6 números → PATA 2</option>
+              <option value="9">9 números → PATA 3</option>
+              <option value="12">12 números → PATA 4</option>
+              <option value="15">15 números → PATA 5</option>
+              <option value="18">18 números → PATA 6</option>
+            </select>
+          </div>
+
+          <!-- Nombre auto-generado (oculto, editable si hace falta) -->
+          <div class="mb-3">
+            <label class="form-label">Nombre de la talonera</label>
+            <input type="text" id="inputNombre" name="nombre" class="form-control" required style="max-width:220px;">
+          </div>
+
+          <!-- Campos de series (se generan dinámicamente con JS) -->
+          <div id="seriesContainer" class="row g-2 mt-1"></div>
+
+          <!-- Info calculada -->
+          <p class="text-muted small mt-2 mb-0" id="offsetInfo"></p>
+
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-danger">Crear</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const sel        = document.getElementById('selNumSeries');
+  const nombreInput = document.getElementById('inputNombre');
+  const container  = document.getElementById('seriesContainer');
+  const offsetInfo = document.getElementById('offsetInfo');
+
+  function pataNum(n) { return n / 3; }
+
+  // Devuelve la cantidad de boletas definida por la Serie 1, o null si no está completa
+  function getCantidad() {
+    const ini = parseInt(container.querySelector('.serie-inicio[data-idx="1"]')?.value);
+    const fin = parseInt(container.querySelector('.serie-fin[data-idx="1"]')?.value);
+    if (!isNaN(ini) && !isNaN(fin) && fin >= ini) return fin - ini + 1;
+    return null;
+  }
+
+  // Auto-rellena el N° Fin de una serie (idx >= 2) según la cantidad de la Serie 1
+  function autoFin(idx) {
+    const cant = getCantidad();
+    const iniEl = container.querySelector(`.serie-inicio[data-idx="${idx}"]`);
+    const finEl = container.querySelector(`.serie-fin[data-idx="${idx}"]`);
+    if (!iniEl || !finEl) return;
+    const ini = parseInt(iniEl.value);
+    if (cant && !isNaN(ini)) {
+      finEl.value = ini + cant - 1;
+      finEl.classList.add('text-muted');
+    } else {
+      finEl.value = '';
+    }
+    calcOffset();
+  }
+
+  // Recalcula el fin de TODAS las series 2+ (útil cuando cambia la Serie 1)
+  function recalcTodas() {
+    const n = parseInt(sel.value);
+    for (let j = 2; j <= n; j++) autoFin(j);
+    calcOffset();
+  }
+
+  function calcOffset() {
+    const inicios = [...container.querySelectorAll('.serie-inicio')]
+      .map(e => parseInt(e.value)).filter(v => !isNaN(v));
+    const cant = getCantidad();
+    if (inicios.length >= 2 && cant) {
+      const offset = inicios[1] - inicios[0];
+      offsetInfo.textContent = `${cant} boletas por serie · Offset entre series: ${offset}`;
+    } else if (cant) {
+      offsetInfo.textContent = `${cant} boletas por serie`;
+    } else {
+      offsetInfo.textContent = '';
+    }
+  }
+
+  function render() {
+    const n = parseInt(sel.value);
+    nombreInput.value = 'PATA ' + pataNum(n);
+    container.innerHTML = '';
+
+    for (let i = 1; i <= n; i++) {
+      const esAuto = i > 1;
+      const col = document.createElement('div');
+      col.className = 'col-12';
+      col.innerHTML = `
+        <div class="card border-0 bg-light px-3 py-2 mb-1">
+          <div class="row g-2 align-items-center">
+            <div class="col-auto">
+              <span class="badge bg-dark">Serie ${i}</span>
+            </div>
+            <div class="col">
+              <label class="form-label mb-0 small">N° Inicio</label>
+              <input type="number" name="serie_inicio" class="form-control form-control-sm serie-inicio"
+                     data-idx="${i}" required>
+            </div>
+            <div class="col">
+              <label class="form-label mb-0 small">
+                N° Fin${esAuto ? ' <span class="badge bg-success-subtle text-success border border-success" style="font-size:.65rem;">auto</span>' : ''}
+              </label>
+              <input type="number" name="serie_fin" class="form-control form-control-sm serie-fin"
+                     data-idx="${i}" ${esAuto ? 'readonly style="background:#f8fff8;"' : ''} required>
+            </div>
+          </div>
+        </div>`;
+      container.appendChild(col);
+    }
+
+    // Serie 1: cuando cambia inicio o fin, recalcular todas las demás
+    container.querySelector('.serie-inicio[data-idx="1"]').addEventListener('input', recalcTodas);
+    container.querySelector('.serie-fin[data-idx="1"]').addEventListener('input', recalcTodas);
+
+    // Series 2+: cuando cambia el inicio, auto-calcular su fin
+    for (let i = 2; i <= n; i++) {
+      const idx = i;
+      container.querySelector(`.serie-inicio[data-idx="${idx}"]`).addEventListener('input', () => autoFin(idx));
+    }
+  }
+
+  sel.addEventListener('change', render);
+  document.getElementById('modalNueva').addEventListener('show.bs.modal', render);
+  render();
+})();
+</script>
+{% endif %}
+{% endblock %}

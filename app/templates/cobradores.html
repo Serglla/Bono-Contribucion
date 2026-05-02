@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Cobradores{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0"><i class="bi bi-cash-coin text-danger me-2"></i>Cobradores</h4>
+  <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNuevo">
+    <i class="bi bi-plus-lg me-1"></i>Nuevo
+  </button>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Nombre</th>
+          <th>Teléfono</th>
+          <th>Zonas asignadas</th>
+          <th>Boletas</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in cobradores %}
+        <tr>
+          <td class="fw-semibold">{{ c.nombre }}</td>
+          <td>{{ c.telefono or "—" }}</td>
+          <td>
+            {% if c.zonas %}
+              {% for z in c.zonas %}
+                <span class="badge bg-danger-subtle text-danger border border-danger me-1">{{ z.nombre }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="text-muted small">Sin zonas</span>
+            {% endif %}
+          </td>
+          <td><span class="badge bg-secondary">{{ c.boletas|length }}</span></td>
+          <td>
+            <form method="post" action="/cobradores/{{ c.id }}/toggle" class="d-inline">
+              <button class="btn btn-sm {% if c.activo %}btn-success{% else %}btn-secondary{% endif %}">
+                {% if c.activo %}Activo{% else %}Inactivo{% endif %}
+              </button>
+            </form>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                    data-bs-target="#modalEditar{{ c.id }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </td>
+        </tr>
+
+        <!-- Modal Editar -->
+        <div class="modal fade" id="modalEditar{{ c.id }}" tabindex="-1">
+          <div class="modal-dialog modal-lg"><div class="modal-content">
+            <form method="post" action="/cobradores/{{ c.id }}/editar">
+              <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil me-2 text-danger"></i>Editar Cobrador</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label class="form-label fw-semibold">Nombre *</label>
+                    <input type="text" name="nombre" class="form-control" value="{{ c.nombre }}" required>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label">Teléfono</label>
+                    <input type="text" name="telefono" class="form-control" value="{{ c.telefono or '' }}">
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label fw-semibold">Zonas que cobra</label>
+                    {% if zonas %}
+                    <div class="border rounded p-3 bg-light" style="max-height:220px; overflow-y:auto;">
+                      <div class="row g-2">
+                        {% for z in zonas %}
+                        <div class="col-6 col-md-4">
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   name="zona_ids" value="{{ z.id }}"
+                                   id="zona_e{{ c.id }}_{{ z.id }}"
+                                   {% if z.cobrador_id == c.id %}checked{% endif %}>
+                            <label class="form-check-label" for="zona_e{{ c.id }}_{{ z.id }}">
+                              {{ z.nombre }}
+                              {% if z.cobrador_id and z.cobrador_id != c.id %}
+                                <span class="text-muted small">({{ z.cobrador.nombre }})</span>
+                              {% endif %}
+                            </label>
+                          </div>
+                        </div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                    <div class="form-text text-muted">
+                      Las zonas marcadas con otro cobrador serán reasignadas a este.
+                    </div>
+                    {% else %}
+                    <p class="text-muted small mb-0">No hay zonas creadas todavía.</p>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-danger">Guardar</button>
+              </div>
+            </form>
+          </div></div>
+        </div>
+
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">Sin cobradores</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal Nuevo -->
+<div class="modal fade" id="modalNuevo" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <form method="post" action="/cobradores/crear">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-plus-fill me-2 text-danger"></i>Nuevo Cobrador</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Nombre *</label>
+            <input type="text" name="nombre" class="form-control" required autofocus>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Teléfono</label>
+            <input type="text" name="telefono" class="form-control">
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold">Zonas que cobra</label>
+            {% if zonas %}
+            <div class="border rounded p-3 bg-light" style="max-height:220px; overflow-y:auto;">
+              <div class="row g-2">
+                {% for z in zonas %}
+                <div class="col-6 col-md-4">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox"
+                           name="zona_ids" value="{{ z.id }}"
+                           id="zona_n_{{ z.id }}">
+                    <label class="form-check-label" for="zona_n_{{ z.id }}">
+                      {{ z.nombre }}
+                      {% if z.cobrador %}
+                        <span class="text-muted small">({{ z.cobrador.nombre }})</span>
+                      {% endif %}
+                    </label>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="form-text text-muted">
+              Las zonas marcadas con otro cobrador serán reasignadas a este.
+            </div>
+            {% else %}
+            <p class="text-muted small mb-0">No hay zonas creadas todavía. Podés crearlas en la sección Zonas.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Crear</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endblock %}

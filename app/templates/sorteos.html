@@ -1,0 +1,455 @@
+{% extends "base.html" %}
+{% block title %}Sorteos{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0"><i class="bi bi-trophy-fill text-danger me-2"></i>Sorteos</h4>
+  <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNuevo">
+    <i class="bi bi-plus-lg me-1"></i>Nuevo
+  </button>
+</div>
+
+<!-- Filtros -->
+<div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+  <button class="btn btn-sm btn-danger filtro-tipo active" data-tipo="TODOS">Todos</button>
+  <button class="btn btn-sm btn-outline-secondary filtro-tipo" data-tipo="SEMANAL">Semanales</button>
+  <button class="btn btn-sm btn-outline-secondary filtro-tipo" data-tipo="MENSUAL">Mensuales</button>
+  <button class="btn btn-sm btn-outline-secondary filtro-tipo" data-tipo="FINAL">Final</button>
+
+  <div class="ms-auto d-flex align-items-center gap-2">
+    <label class="form-label mb-0 text-muted small">Buscar por fecha:</label>
+    <input type="date" id="filtrFecha" class="form-control form-control-sm" style="width:160px;">
+    <button class="btn btn-sm btn-outline-secondary" id="btnLimpiarFecha" title="Limpiar fecha">
+      <i class="bi bi-x"></i>
+    </button>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover table-sm align-middle mb-0" id="tablaSorteos">
+      <thead class="table-light">
+        <tr>
+          <th>Tipo</th>
+          <th>Nombre / Descripción</th>
+          <th>Cifras</th>
+          <th>Fecha</th>
+          <th>Resultados</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in sorteos %}
+        {% set cifras_list = (s.cifras|string).split(",") %}
+        <tr data-tipo="{{ s.tipo.value }}" data-fecha="{{ s.fecha.strftime('%Y-%m-%d') }}" data-sid="{{ s.id }}">
+          <td>
+            {% if s.tipo.value == "SEMANAL" %}
+              <span class="badge" style="background:#0d6efd;">Semanal</span>
+            {% elif s.tipo.value == "MENSUAL" %}
+              <span class="badge" style="background:#198754;">Mensual</span>
+            {% else %}
+              <span class="badge" style="background:#dc3545;">Final</span>
+            {% endif %}
+          </td>
+          <td>{{ s.nombre or "—" }}</td>
+          <td>
+            {% for c in cifras_list %}
+              <span class="badge bg-secondary">{{ c }} cifras</span>
+            {% endfor %}
+          </td>
+          <td>{{ s.fecha.strftime("%d/%m/%Y") }}</td>
+
+          <!-- Columna resultados -->
+          <td class="col-resultado" id="resultado-{{ s.id }}">
+            {% if s.resultado_json %}
+              {% set numeros = s.resultado_json[1:-1].replace('"','').split(',') %}
+              <div class="resultado-grilla">
+                {% for c in cifras_list | reverse %}
+                  <div class="mb-1">
+                    <span class="text-muted small fw-semibold me-1">{{ c }}c:</span>
+                    {% for n in numeros[:20] %}
+                      <span class="badge resultado-badge cifra-{{ c }}" title="{{ loop.index }}° premio">
+                        <span class="ordinal">{{ loop.index }}°</span>
+                        {% if c == "2" %}{{ n[-2:] }}
+                        {% elif c == "3" %}{{ n.zfill(4)[-3:] }}
+                        {% else %}{{ n.zfill(4) }}
+                        {% endif %}
+                      </span>
+                    {% endfor %}
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <span class="text-muted small fst-italic" id="estado-{{ s.id }}">Sin resultado</span>
+            {% endif %}
+          </td>
+
+          <td class="text-end" style="white-space:nowrap;">
+            {% if s.resultado_json %}
+              <a href="/sorteos/{{ s.id }}/ganadores"
+                 class="btn btn-sm btn-warning me-1"
+                 title="Ver ganadores">
+                <i class="bi bi-trophy-fill"></i>
+              </a>
+            {% endif %}
+            <button class="btn btn-sm btn-outline-primary me-1 btn-cargar-resultado"
+                    data-sid="{{ s.id }}"
+                    data-fecha="{{ s.fecha.strftime('%d/%m/%Y') }}"
+                    data-resultado="{{ s.resultado_json or '' }}"
+                    data-numpremios="{{ s.num_premios or 20 }}"
+                    title="Cargar resultado">
+              <i class="bi bi-pencil-square"></i>
+            </button>
+            <form method="post" action="/sorteos/{{ s.id }}/eliminar" class="d-inline"
+                  onsubmit="return confirm('¿Eliminar este sorteo?')">
+              <button class="btn btn-sm btn-outline-danger" title="Eliminar">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">Sin sorteos registrados</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    <span id="contadorSorteos">{{ sorteos|length }}</span> sorteo(s)
+  </div>
+</div>
+
+<!-- Modal Nuevo Sorteo -->
+<div class="modal fade" id="modalNuevo" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <form method="post" action="/sorteos/crear">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-trophy-fill me-2 text-danger"></i>Nuevo Sorteo
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <!-- Tipo -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Tipo *</label>
+          <div class="d-flex gap-2 flex-wrap">
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="tipo" id="tipoSemanal"
+                     value="SEMANAL" required>
+              <label class="form-check-label" for="tipoSemanal">
+                <span class="badge" style="background:#0d6efd;">Semanal</span>
+              </label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="tipo" id="tipoMensual"
+                     value="MENSUAL">
+              <label class="form-check-label" for="tipoMensual">
+                <span class="badge" style="background:#198754;">Mensual</span>
+              </label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="tipo" id="tipoFinal"
+                     value="FINAL">
+              <label class="form-check-label" for="tipoFinal">
+                <span class="badge" style="background:#dc3545;">Final</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cifras -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Cifras * <small class="text-muted">(podés elegir más de una)</small></label>
+          <div class="d-flex gap-3">
+            <div class="form-check">
+              <input class="form-check-input cifras-check" type="checkbox" name="cifras" id="cifras2" value="2">
+              <label class="form-check-label" for="cifras2">2 cifras</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input cifras-check" type="checkbox" name="cifras" id="cifras3" value="3">
+              <label class="form-check-label" for="cifras3">3 cifras</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input cifras-check" type="checkbox" name="cifras" id="cifras4" value="4">
+              <label class="form-check-label" for="cifras4">4 cifras</label>
+            </div>
+          </div>
+          <div id="cifrasError" style="display:none; color:#dc3545; font-size:0.875em;">
+            Seleccioná al menos una opción.
+          </div>
+        </div>
+
+        <!-- Fecha -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">
+            Fecha *
+            <small class="text-muted ms-1">
+              <i class="bi bi-calendar-check"></i> Próximo sábado precargado
+            </small>
+          </label>
+          <input type="date" name="fecha" id="inputFechaSorteo" class="form-control" required>
+        </div>
+
+        <!-- Hasta qué premio -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Premios a considerar *</label>
+          <div class="d-flex align-items-center gap-2">
+            <span class="text-muted small">Del 1° al</span>
+            <input type="number" name="num_premios" class="form-control form-control-sm"
+                   min="1" max="20" value="20" style="width:70px;" required>
+            <span class="text-muted small">° premio</span>
+          </div>
+          <div class="form-text">Normalmente 20. Para sorteos especiales puede ser menos.</div>
+        </div>
+
+        <!-- Nombre opcional -->
+        <div class="mb-3">
+          <label class="form-label text-muted">Nombre / Descripción <small>(opcional)</small></label>
+          <input type="text" name="nombre" class="form-control"
+                 placeholder="Ej: Sorteo Semana 1 Mayo, Sorteo Mayo, Gran Final...">
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">
+          <i class="bi bi-trophy-fill me-1"></i>Crear sorteo
+        </button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<!-- Modal carga manual de resultado -->
+<div class="modal fade" id="modalResultado" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header" style="background:#f5a623;">
+      <h5 class="modal-title fw-bold">
+        <i class="bi bi-pencil-square me-2"></i>
+        Tómbola de Entre Ríos — Nocturna
+        <span id="modalResultadoFecha" class="ms-2 fw-normal fs-6"></span>
+      </h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <p class="text-muted small mb-3">Ingresá los 20 números de 4 dígitos tal como aparecen en la pizarra.</p>
+      <div class="row g-2" id="gridNumeros">
+        <!-- 20 inputs generados por JS -->
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="btnGuardarResultado">
+        <i class="bi bi-save me-1"></i>Guardar resultado
+      </button>
+    </div>
+  </div></div>
+</div>
+
+<!-- Toast de error/éxito -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100">
+  <div id="toastResultado" class="toast align-items-center border-0" role="alert">
+    <div class="d-flex">
+      <div class="toast-body" id="toastMsg"></div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<style>
+  #tablaSorteos { font-size: 0.85rem; }
+  #tablaSorteos thead th { font-size: 0.8rem; white-space: nowrap; }
+  .resultado-badge { font-size: 0.75rem; margin: 1px 2px; padding: 2px 5px; }
+  .resultado-badge .ordinal { font-size: 0.6rem; opacity: 0.75; margin-right: 2px; vertical-align: super; }
+  .cifra-2 { background: #6c757d; }
+  .cifra-3 { background: #0d6efd; }
+  .cifra-4 { background: #198754; }
+  .resultado-grilla { max-width: 500px; }
+</style>
+
+<script>
+  // --- Próximo sábado como fecha por defecto ---
+  function proximoSabado() {
+    const hoy = new Date();
+    const dia = hoy.getDay();
+    const diasHastaSabado = dia === 6 ? 7 : (6 - dia);
+    hoy.setDate(hoy.getDate() + diasHastaSabado);
+    return hoy.toISOString().split('T')[0];
+  }
+  document.getElementById('inputFechaSorteo').value = proximoSabado();
+
+  // --- Validar cifras ---
+  document.querySelector('#modalNuevo form').addEventListener('submit', function(e) {
+    const checked = document.querySelectorAll('.cifras-check:checked');
+    const errorEl = document.getElementById('cifrasError');
+    if (checked.length === 0) {
+      e.preventDefault();
+      errorEl.style.display = 'block';
+    } else {
+      errorEl.style.display = 'none';
+    }
+  });
+
+  // --- Modal carga manual de resultado ---
+  let sidActual = null;
+
+  // Construir grid de N inputs (2 columnas: mitad izq, mitad der, igual que la pizarra)
+  function buildGrid(numerosActuales, numPremios) {
+    const grid = document.getElementById('gridNumeros');
+    grid.innerHTML = '';
+    const mitad = Math.ceil(numPremios / 2);
+    for (let i = 1; i <= mitad; i++) {
+      const par = i + mitad;
+      const val1 = numerosActuales[i-1] || '';
+      const val2 = par <= numPremios ? (numerosActuales[par-1] || '') : null;
+
+      // Columna izquierda
+      grid.innerHTML += `
+        <div class="col-6">
+          <div class="input-group input-group-sm mb-1">
+            <span class="input-group-text fw-bold" style="min-width:38px;background:#f5a623;border-color:#e09400;color:#000;">${i}°</span>
+            <input type="text" class="form-control num-input font-monospace"
+                   data-pos="${i}" maxlength="4"
+                   placeholder="0000" value="${val1}"
+                   oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)">
+          </div>
+        </div>`;
+
+      // Columna derecha (puede no existir si numPremios es impar y es la última)
+      if (val2 !== null) {
+        grid.innerHTML += `
+          <div class="col-6">
+            <div class="input-group input-group-sm mb-1">
+              <span class="input-group-text fw-bold" style="min-width:38px;background:#f5a623;border-color:#e09400;color:#000;">${par}°</span>
+              <input type="text" class="form-control num-input font-monospace"
+                     data-pos="${par}" maxlength="4"
+                     placeholder="0000" value="${val2}"
+                     oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)">
+            </div>
+          </div>`;
+      } else {
+        grid.innerHTML += `<div class="col-6"></div>`;
+      }
+    }
+
+    // Tab/Enter en orden de posición
+    grid.querySelectorAll('.num-input').forEach(inp => {
+      inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          const pos = parseInt(inp.dataset.pos);
+          const next = grid.querySelector(`.num-input[data-pos="${pos+1}"]`);
+          if (next) next.focus();
+        }
+      });
+    });
+  }
+
+  let numPremiosActual = 20;
+
+  document.querySelectorAll('.btn-cargar-resultado').forEach(btn => {
+    btn.addEventListener('click', function() {
+      sidActual = this.dataset.sid;
+      numPremiosActual = parseInt(this.dataset.numpremios) || 20;
+      const fecha = this.dataset.fecha;
+      const resultadoActual = this.dataset.resultado;
+      document.getElementById('modalResultadoFecha').textContent = fecha;
+      let nums = Array(numPremiosActual).fill('');
+      if (resultadoActual) {
+        try { nums = JSON.parse(resultadoActual); } catch(e) {}
+      }
+      buildGrid(nums, numPremiosActual);
+      new bootstrap.Modal(document.getElementById('modalResultado')).show();
+      setTimeout(() => document.querySelector('.num-input[data-pos="1"]')?.focus(), 300);
+    });
+  });
+
+  document.getElementById('btnGuardarResultado').addEventListener('click', async function() {
+    const inputs = document.querySelectorAll('.num-input');
+    // Ordenar por posición
+    const numeros = Array.from({length: numPremiosActual}, (_, i) => {
+      const inp = document.querySelector(`.num-input[data-pos="${i+1}"]`);
+      return inp ? inp.value.padStart(4, '0') : '0000';
+    });
+
+    // Validar que al menos el primero esté cargado
+    const minRequerido = Math.min(1, numPremiosActual);
+    const cargados = numeros.filter(n => n !== '0000').length;
+    if (cargados < minRequerido) {
+      mostrarToast('⚠️ Ingresá al menos el primer número.', 'warning');
+      return;
+    }
+
+    this.disabled = true;
+    try {
+      const resp = await fetch(`/sorteos/${sidActual}/guardar-resultado`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({numeros})
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        bootstrap.Modal.getInstance(document.getElementById('modalResultado')).hide();
+        mostrarToast('✅ Resultado guardado correctamente.', 'success');
+        setTimeout(() => location.reload(), 800);
+      } else {
+        mostrarToast(`⚠️ ${data.error}`, 'danger');
+      }
+    } catch(e) {
+      mostrarToast('Error al guardar.', 'danger');
+    } finally {
+      this.disabled = false;
+    }
+  });
+
+  function mostrarToast(msg, tipo) {
+    const toast = document.getElementById('toastResultado');
+    const toastMsg = document.getElementById('toastMsg');
+    toastMsg.textContent = msg;
+    toast.className = `toast align-items-center border-0 text-bg-${tipo}`;
+    const bsToast = new bootstrap.Toast(toast, { delay: 4000 });
+    bsToast.show();
+  }
+
+  // --- Filtro combinado: tipo + fecha ---
+  let filtroTipoActual = 'TODOS';
+  let filtroFechaActual = '';
+
+  function aplicarFiltros() {
+    let visible = 0;
+    document.querySelectorAll('#tablaSorteos tbody tr[data-tipo]').forEach(row => {
+      const matchTipo = filtroTipoActual === 'TODOS' || row.dataset.tipo === filtroTipoActual;
+      const matchFecha = !filtroFechaActual || row.dataset.fecha === filtroFechaActual;
+      const mostrar = matchTipo && matchFecha;
+      row.style.display = mostrar ? '' : 'none';
+      if (mostrar) visible++;
+    });
+    document.getElementById('contadorSorteos').textContent = visible;
+  }
+
+  document.querySelectorAll('.filtro-tipo').forEach(btn => {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.filtro-tipo').forEach(b => {
+        b.classList.remove('btn-danger', 'active');
+        b.classList.add('btn-outline-secondary');
+      });
+      this.classList.remove('btn-outline-secondary');
+      this.classList.add('btn-danger', 'active');
+      filtroTipoActual = this.dataset.tipo;
+      aplicarFiltros();
+    });
+  });
+
+  document.getElementById('filtrFecha').addEventListener('change', function() {
+    filtroFechaActual = this.value;
+    aplicarFiltros();
+  });
+
+  document.getElementById('btnLimpiarFecha').addEventListener('click', function() {
+    document.getElementById('filtrFecha').value = '';
+    filtroFechaActual = '';
+    aplicarFiltros();
+  });
+</script>
+{% endblock %}

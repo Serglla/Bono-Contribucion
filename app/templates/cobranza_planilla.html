@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>{% if planilla_label %}{{ planilla_label }} — {% endif %}{{ cobrador.nombre }} — {{ mes_nombre }} {{ anio }}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body { font-family: Arial, sans-serif; background: #aaa; }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      background: #222; padding: 7px 14px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .toolbar a, .toolbar button {
+      font-size: 11px; padding: 4px 11px; border-radius: 3px;
+      cursor: pointer; border: none; text-decoration: none;
+    }
+    .btn-back  { background: #555; color: #fff; }
+    .btn-print { background: #c00; color: #fff; font-weight: 700; }
+    .toolbar-info { color: #bbb; font-size: 11px; margin-left: 6px; }
+
+    /* ── Hoja A4 ── */
+    .page {
+      width: 210mm;
+      height: 297mm;
+      background: #fff;
+      margin: 12px auto;
+      padding: 4mm 5mm;
+      overflow: hidden;
+      box-shadow: 0 3px 16px rgba(0,0,0,0.35);
+    }
+
+    /* ── Encabezado ── */
+    table.doc-header {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border: 1.5px solid #000;
+      margin-bottom: 1mm;
+    }
+    table.doc-header td {
+      border: 1px solid #000;
+      padding: 1mm 2mm;
+      vertical-align: middle;
+    }
+    table.doc-header td:last-child { border-right: none; }
+    .hd-label {
+      font-size: 5pt; color: #666;
+      text-transform: uppercase; display: block;
+      line-height: 1; margin-bottom: 0.5mm;
+    }
+    .hd-val {
+      font-size: 7.5pt; font-weight: 700;
+      text-transform: uppercase; display: block; line-height: 1.1;
+    }
+    .hd-localidad {
+      font-size: 9.5pt; font-weight: 900;
+      text-transform: uppercase; letter-spacing: 0.04em;
+      text-align: center;
+    }
+
+    /* ── Tabla principal ── */
+    table.main-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border: 1.5px solid #000;
+      margin-bottom: 1mm;
+    }
+
+    table.main-table thead tr { height: 5mm; }
+    table.main-table tbody tr { height: 5.2mm; }
+
+    table.main-table thead td,
+    table.main-table thead th {
+      background: #d0d0d0;
+      border: 1px solid #888;
+      border-bottom: 2px solid #000;
+      text-align: center;
+      font-size: 6.5pt;
+      font-weight: 700;
+      padding: 0;
+      overflow: hidden;
+    }
+    table.main-table tbody td {
+      border: 1px solid #ccc;
+      text-align: center;
+      padding: 0;
+      background: #fff;
+      overflow: hidden;
+      font-size: 8.5pt;
+    }
+
+    .td-num { font-weight: 800; letter-spacing: -0.03em; }
+    .td-q   { font-size: 8pt; }
+    .td-q.paid { font-weight: 900; }
+
+    /* Cuota 1: cobrada por el vendedor en el momento de la venta */
+    .td-q.cuota-venta {
+      background: #333 !important;
+      color: #fff;
+      font-size: 9pt;
+      font-weight: 900;
+      line-height: 5.2mm;
+      padding: 0 !important;
+    }
+
+    /* Separador de sección */
+    td.col-sep, th.col-sep {
+      background: #333 !important;
+      border: none !important;
+      padding: 0 !important;
+    }
+
+    /* Línea gruesa cada 10 filas */
+    tr.blk-end td { border-bottom: 2px solid #555 !important; }
+
+    /* ── Tabla resumen ── */
+    table.res-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border: 1.5px solid #000;
+    }
+    table.res-table thead tr { height: 5mm; }
+    table.res-table tbody tr { height: 4mm; }
+
+    table.res-table thead th {
+      background: #c00; color: #fff;
+      font-size: 6.5pt; font-weight: 700;
+      text-transform: uppercase;
+      border: 1px solid #900;
+      text-align: center; padding: 0 1mm;
+      overflow: hidden;
+    }
+    table.res-table tbody td {
+      border: 1px solid #bbb;
+      font-size: 6.5pt; padding: 0 1.5mm;
+    }
+    .td-mes {
+      background: #c00; color: #fff;
+      font-weight: 700; font-size: 6.5pt;
+      text-transform: uppercase; white-space: nowrap;
+    }
+
+    /* ── PRINT ── */
+    @media print {
+      body { background: #fff !important; }
+      .toolbar { display: none !important; }
+      .page { margin: 0 !important; box-shadow: none !important; }
+      @page { size: A4 portrait; margin: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <a href="/cobranza/?mes={{ mes }}&anio={{ anio }}" class="btn-back">← Volver</a>
+  <button onclick="window.print()" class="btn-print">🖨 Imprimir</button>
+  <span class="toolbar-info">
+    {% if planilla_label %}<strong style="color:#f88;">{{ planilla_label }}</strong> — {% endif %}{{ cobrador.nombre | upper }} — {{ mes_nombre | upper }} {{ anio }}
+    {% if not planilla %}<span style="color:#fa0; margin-left:8px;">⚠ Planilla no guardada (vista previa)</span>{% endif %}
+  </span>
+</div>
+
+<div class="page">
+
+  <!-- Encabezado -->
+  <table class="doc-header">
+    <colgroup>
+      <col style="width:40%">
+      <col style="width:14%">
+      <col style="width:18%">
+      <col style="width:28%">
+    </colgroup>
+    <tr style="height:6mm;">
+      <td><span class="hd-label">Institución</span><span class="hd-val">Bomberos Voluntarios CDELU</span></td>
+      <td><span class="hd-label">Año</span><span class="hd-val">2026-2027</span></td>
+      <td><span class="hd-label">Entrega</span><span class="hd-val">{{ mes_nombre }}</span></td>
+      <td>
+        <span class="hd-label">Cobrador</span>
+        <span class="hd-val">{{ cobrador.nombre }}{% if planilla_label %} <span style="color:#c00;">{{ planilla_label }}</span>{% endif %}</span>
+      </td>
+    </tr>
+    <tr style="height:5mm;">
+      <td><span class="hd-label">Localidad</span></td>
+      <td colspan="3" style="border-right:none; border-left:none;">
+        <span class="hd-localidad">Concepción del Uruguay — Entre Ríos</span>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Tabla de boletas -->
+  {#
+    Anchos:
+      col-num  = 11mm × 3 = 33mm
+      col-sep  = 3mm  × 2 =  6mm
+      restante = 198 - 33 - 6 = 159mm ÷ (3 × num_cuotas)
+      => las 3 secciones son exactamente iguales por colgroup
+  #}
+  <table class="main-table">
+    <colgroup>
+      {# Sección 1 #}
+      <col style="width:11mm">
+      {% for n in cuota_nums %}<col>{% endfor %}
+      {# Sep 1 #}
+      <col style="width:3mm">
+      {# Sección 2 #}
+      <col style="width:11mm">
+      {% for n in cuota_nums %}<col>{% endfor %}
+      {# Sep 2 #}
+      <col style="width:3mm">
+      {# Sección 3 #}
+      <col style="width:11mm">
+      {% for n in cuota_nums %}<col>{% endfor %}
+    </colgroup>
+    <thead>
+      <tr>
+        <th class="td-num">{{ col1_label }}</th>
+        {% for n in cuota_nums %}<th>{{ n }}</th>{% endfor %}
+        <th class="col-sep"></th>
+        <th class="td-num">{{ col2_label }}</th>
+        {% for n in cuota_nums %}<th>{{ n }}</th>{% endfor %}
+        <th class="col-sep"></th>
+        <th class="td-num">{{ col3_label }}</th>
+        {% for n in cuota_nums %}<th>{{ n }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {# ── Macro: renderiza una celda (label / boleta / vacía) ── #}
+      {%- macro render_cell(b) -%}
+        {% if b is mapping %}
+          {# Fila de etiqueta coloreada #}
+          <td class="td-num" style="background:{{ b.color }}; font-weight:900; font-size:7.5pt; letter-spacing:0.02em; border-bottom:1.5px solid #555;">{{ b.pata }}</td>
+          {% for n in cuota_nums %}<td class="td-q" style="background:{{ b.color }};"></td>{% endfor %}
+        {% elif b %}
+          {# Boleta normal #}
+          <td class="td-num">{{ "%04d"|format(b.numero_principal) }}</td>
+          {% set ant = b.cuotas_anticipadas if b.cuotas_anticipadas else 1 %}
+          {% for n in cuota_nums %}
+            {% if n <= ant %}
+              <td class="td-q cuota-venta">X</td>
+            {% else %}
+              <td class="td-q{% if n <= (b.cuotas_pagadas or 0) %} paid{% endif %}">
+                {%- if n <= (b.cuotas_pagadas or 0) %}X{% endif -%}
+              </td>
+            {% endif %}
+          {% endfor %}
+        {% else %}
+          {# Vacía #}
+          <td class="td-num"></td>{% for n in cuota_nums %}<td class="td-q"></td>{% endfor %}
+        {% endif %}
+      {%- endmacro -%}
+
+      {% for b1, b2, b3 in rows %}
+      <tr class="{% if loop.index % 10 == 0 and not loop.last %}blk-end{% endif %}">
+        {{ render_cell(b1) }}
+        <td class="col-sep"></td>
+        {{ render_cell(b2) }}
+        <td class="col-sep"></td>
+        {{ render_cell(b3) }}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Resumen mensual -->
+  <table class="res-table">
+    <colgroup>
+      <col style="width:22%">
+      <col><col><col><col><col><col><col><col>
+    </colgroup>
+    <thead>
+      <tr>
+        <th style="text-align:left; padding-left:2mm;">MES</th>
+        <th>COLUMNA 1</th>
+        <th>COLUMNA 2</th>
+        <th>COLUMNA 3</th>
+        <th>TOTAL</th>
+        <th>CUOTAS</th>
+        <th>DINERO TO.</th>
+        <th>COMISIÓN</th>
+        <th>NETO</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for mes_nom, mes_num in meses_campana %}
+      <tr>
+        <td class="td-mes">{{ mes_nom }} ({{ mes_num }})</td>
+        <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+</div>
+</body>
+</html>

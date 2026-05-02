@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Ganadores — {{ sorteo.fecha.strftime("%d/%m/%Y") }}{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a href="/sorteos/" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-trophy-fill text-warning me-2"></i>
+    Ganadores ·
+    {% if sorteo.tipo.value == "SEMANAL" %}<span class="badge" style="background:#0d6efd;">Semanal</span>
+    {% elif sorteo.tipo.value == "MENSUAL" %}<span class="badge" style="background:#198754;">Mensual</span>
+    {% else %}<span class="badge" style="background:#dc3545;">Final</span>{% endif %}
+    {% if sorteo.nombre %} {{ sorteo.nombre }}{% endif %}
+    <span class="text-muted fw-normal fs-6 ms-1">{{ sorteo.fecha.strftime("%d/%m/%Y") }}</span>
+  </h4>
+  {% if total_ganadores > 0 %}
+    <span class="badge bg-warning text-dark ms-2 fs-6">{{ total_ganadores }} ganador{{ "es" if total_ganadores != 1 else "" }}</span>
+  {% endif %}
+</div>
+
+{% if not sorteo.resultado_json %}
+  <div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    Este sorteo no tiene resultados cargados todavía.
+    <a href="/sorteos/" class="alert-link">Ir a cargar resultados</a>
+  </div>
+
+{% elif not grupos %}
+  <div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>
+    No se encontraron boletas ganadoras para este sorteo.
+  </div>
+
+{% else %}
+
+  {% for grupo in grupos %}
+  <div class="card border-0 shadow-sm mb-3">
+
+    <!-- Encabezado del grupo -->
+    <div class="card-header d-flex align-items-center gap-3 py-2"
+         style="background:{% if grupo.cifras == 4 %}#d1e7dd{% elif grupo.cifras == 3 %}#cfe2ff{% else %}#e2e3e5{% endif %};">
+      <span class="fw-bold fs-5">{{ grupo.posicion }}°</span>
+      <span class="font-monospace fw-bold fs-5">
+        {%- if grupo.cifras < 4 %}<span class="text-muted">{{ grupo.numero_ganador[:-grupo.cifras] }}</span>{%- endif -%}
+        <span style="color:{% if grupo.cifras == 4 %}#146c43{% elif grupo.cifras == 3 %}#084298{% else %}#41464b{% endif %};">
+          {{- grupo.numero_ganador[-grupo.cifras:] -}}
+        </span>
+      </span>
+      <span class="badge" style="background:{% if grupo.cifras == 4 %}#198754{% elif grupo.cifras == 3 %}#0d6efd{% else %}#6c757d{% endif %};">
+        {{ grupo.cifras }} cifras
+      </span>
+      {% if grupo.filas %}
+        <span class="badge bg-warning text-dark ms-1">{{ grupo.filas|length }} ganador{{ "es" if grupo.filas|length != 1 else "" }}</span>
+      {% else %}
+        <span class="text-muted small fst-italic ms-1">Sin ganadores</span>
+      {% endif %}
+    </div>
+
+    {% if grupo.filas %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" style="font-size:0.85rem;">
+        <thead class="table-light">
+          <tr>
+            <th>Pata / Talonera</th>
+            <th>Nº ganador</th>
+            <th>Otros números</th>
+            <th>Comprador</th>
+            <th>Vendedor</th>
+            <th>Cobrador</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in grupo.filas %}
+          <tr {% if f.condicion == "SIN_VENDER" %}class="table-warning"{% endif %}>
+            <td class="fw-semibold text-muted">{{ f.talonera }}</td>
+            <td>
+              <span class="badge font-monospace fs-6"
+                    style="background:{% if grupo.cifras == 4 %}#198754{% elif grupo.cifras == 3 %}#0d6efd{% else %}#6c757d{% endif %};">
+                {{ f.num_match }}
+              </span>
+            </td>
+            <td class="font-monospace text-muted small">
+              {% if f.otros_numeros %}
+                {{ f.otros_numeros | join(" · ") }}
+              {% else %}—{% endif %}
+            </td>
+            <td>{{ f.comprador or "—" }}</td>
+            <td class="text-muted">{{ f.vendedor or "—" }}</td>
+            <td class="text-muted">{{ f.cobrador or "—" }}</td>
+            <td>
+              {% if f.condicion == "VENDIDO" %}<span class="badge bg-success">Vendido</span>
+              {% elif f.condicion == "CAJA" %}<span class="badge bg-primary">Caja</span>
+              {% elif f.condicion == "EN_COBRANZA" %}<span class="badge bg-warning text-dark">En cobranza</span>
+              {% elif f.condicion == "BAJA" %}<span class="badge bg-danger">Baja</span>
+              {% else %}<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle-fill me-1"></i>Sin vender</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+  </div>
+  {% endfor %}
+
+{% endif %}
+
+{% endblock %}
