@@ -40,14 +40,15 @@ async def crear(
     request: Request,
     nombre: str = Form(...),
     telefono: str = Form(""),
-    zona_ids: Optional[List[int]] = Form(None),
     db: Session = Depends(get_db)
 ):
     await auth_module.require_user(request, db)
+    form_data = await request.form()
+    zona_ids = [int(v) for v in form_data.getlist("zona_ids") if v]
     c = models.Cobrador(nombre=nombre.strip().upper(), telefono=telefono.strip() or None)
     db.add(c)
     db.flush()
-    _actualizar_zonas(c.id, zona_ids or [], db)
+    _actualizar_zonas(c.id, zona_ids, db)
     db.commit()
     return RedirectResponse("/cobradores/", status_code=302)
 
@@ -67,14 +68,15 @@ async def editar(
     cid: int, request: Request,
     nombre: str = Form(...),
     telefono: str = Form(""),
-    zona_ids: Optional[List[int]] = Form(None),
     db: Session = Depends(get_db)
 ):
     await auth_module.require_user(request, db)
+    form_data = await request.form()
+    zona_ids = [int(v) for v in form_data.getlist("zona_ids") if v]
     c = db.query(models.Cobrador).get(cid)
     if c:
         c.nombre = nombre.strip().upper()
         c.telefono = telefono.strip() or None
-        _actualizar_zonas(cid, zona_ids or [], db)
+        _actualizar_zonas(cid, zona_ids, db)
         db.commit()
     return RedirectResponse("/cobradores/", status_code=302)
