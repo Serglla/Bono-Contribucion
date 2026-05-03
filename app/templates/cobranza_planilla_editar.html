@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Editar planilla P{{ planilla.numero }}{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a href="/cobranza/emplanillado?mes={{ planilla.mes }}&anio={{ planilla.anio }}"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Volver
+  </a>
+  <h5 class="fw-bold mb-0">
+    <i class="bi bi-pencil-square text-danger me-2"></i>
+    Editar P{{ planilla.numero }} — {{ planilla.cobrador.nombre }}
+    <span class="text-muted fw-normal fs-6 ms-2">{{ mes_nombre }} {{ planilla.anio }}</span>
+  </h5>
+</div>
+
+<form method="post" action="/cobranza/planilla/{{ planilla.id }}/editar">
+
+  <div class="row g-4">
+
+    <!-- Boletas ya en la planilla -->
+    <div class="col-md-6">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header bg-danger text-white fw-semibold py-2">
+          <i class="bi bi-check2-square me-1"></i>En la planilla
+          <span class="badge bg-light text-danger ms-2">{{ en_planilla | length }}</span>
+        </div>
+        <div class="card-body p-0">
+          {% if en_planilla %}
+          <table class="table table-sm table-hover mb-0" style="font-size:0.82rem;">
+            <thead class="table-light">
+              <tr>
+                <th style="width:36px;"></th>
+                <th>N° Boleta</th>
+                <th>Comprador</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for b in en_planilla %}
+              <tr>
+                <td class="text-center">
+                  <input type="checkbox" name="boleta_ids" value="{{ b.id }}"
+                         class="form-check-input" checked>
+                </td>
+                <td class="fw-bold">{{ '%04d' % b.numero_principal }}</td>
+                <td>{{ b.comprador.nombre_completo if b.comprador else '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="text-muted text-center py-4 small">Sin boletas en la planilla.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Boletas disponibles para agregar -->
+    <div class="col-md-6">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header bg-light fw-semibold py-2">
+          <i class="bi bi-plus-circle me-1 text-secondary"></i>Disponibles para agregar
+          <span class="badge bg-secondary ms-2">{{ disponibles | length }}</span>
+        </div>
+        <div class="card-body p-0">
+          {% if disponibles %}
+          <table class="table table-sm table-hover mb-0" style="font-size:0.82rem;">
+            <thead class="table-light">
+              <tr>
+                <th style="width:36px;"></th>
+                <th>N° Boleta</th>
+                <th>Comprador</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for b in disponibles %}
+              <tr>
+                <td class="text-center">
+                  <input type="checkbox" name="boleta_ids" value="{{ b.id }}"
+                         class="form-check-input">
+                </td>
+                <td class="fw-bold">{{ '%04d' % b.numero_principal }}</td>
+                <td>{{ b.comprador.nombre_completo if b.comprador else '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="text-muted text-center py-4 small">No hay boletas disponibles para agregar.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="d-flex gap-2 mt-4">
+    <button type="submit" class="btn btn-danger px-4">
+      <i class="bi bi-save me-1"></i>Guardar cambios
+    </button>
+    <a href="/cobranza/emplanillado?mes={{ planilla.mes }}&anio={{ planilla.anio }}"
+       class="btn btn-outline-secondary">Cancelar</a>
+  </div>
+
+</form>
+{% endblock %}

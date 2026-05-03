@@ -104,7 +104,7 @@ class Planilla(Base):
 class Liquidacion(Base):
     __tablename__ = "liquidaciones"
     id = Column(Integer, primary_key=True, index=True)
-    planilla_id = Column(Integer, ForeignKey("planillas.id"), nullable=False, unique=True)
+    planilla_id = Column(Integer, ForeignKey("planillas.id"), nullable=True, unique=True)
     fecha = Column(Date, nullable=False)
     total_cuotas = Column(Integer, default=0)   # cuotas cobradas en este mes
     monto_total = Column(Float, default=0.0)    # total recaudado

@@ -74,7 +74,7 @@ async def armar_planilla(request: Request, cobrador_id: int,
 
     cobrador = db.query(models.Cobrador).get(cobrador_id)
     if not cobrador:
-        return RedirectResponse("/cobranza/emplantillado", status_code=302)
+        return RedirectResponse("/cobranza/emplanillado", status_code=302)
 
     # Si ya existe planilla para este cobrador+mes+anio, solo redirigir
     existente = db.query(models.Planilla).filter_by(cobrador_id=cobrador_id, mes=mes, anio=anio).first()
@@ -100,13 +100,13 @@ async def armar_planilla(request: Request, cobrador_id: int,
            .update({"planilla_id": planilla.id}, synchronize_session=False))
         db.commit()
 
-    return RedirectResponse(f"/cobranza/emplantillado?mes={mes}&anio={anio}", status_code=302)
+    return RedirectResponse(f"/cobranza/emplanillado?mes={mes}&anio={anio}", status_code=302)
 
 
-# ── EMPLANTILLADO ──────────────────────────────────────────────────────────────
+# ── EMPLANILLADO ───────────────────────────────────────────────────────────────
 
-@router.get("/emplantillado", response_class=HTMLResponse)
-async def emplantillado(request: Request, db: Session = Depends(get_db),
+@router.get("/emplanillado", response_class=HTMLResponse)
+async def emplanillado(request: Request, db: Session = Depends(get_db),
                         mes: int = Query(default=0), anio: int = Query(default=0)):
     user = await auth_module.require_user(request, db)
     hoy = date.today()
@@ -131,7 +131,7 @@ async def emplantillado(request: Request, db: Session = Depends(get_db),
                 "planilla": planilla,
             })
 
-    return templates.TemplateResponse(request, "cobranza_emplantillado.html", {
+    return templates.TemplateResponse(request, "cobranza_emplanillado.html", {
         "user": user,
         "resumen": resumen,
         "mes": mes, "anio": anio,
@@ -139,6 +139,100 @@ async def emplantillado(request: Request, db: Session = Depends(get_db),
         "meses": MESES,
         "anios": list(range(hoy.year - 1, hoy.year + 2)),
     })
+
+
+# ── EDITAR PLANILLA ────────────────────────────────────────────────────────────
+
+@router.get("/planilla/{planilla_id}/editar", response_class=HTMLResponse)
+async def planilla_editar_form(request: Request, planilla_id: int,
+                               db: Session = Depends(get_db)):
+    await auth_module.require_user(request, db)
+    planilla = db.query(models.Planilla).get(planilla_id)
+    if not planilla:
+        raise HTTPException(404)
+
+    # Boletas ya en esta planilla
+    en_planilla = (db.query(models.Boleta)
+                   .filter(models.Boleta.planilla_id == planilla_id)
+                   .join(models.Comprador, isouter=True)
+                   .order_by(models.Boleta.numero_principal)
+                   .all())
+
+    # Boletas activas del mismo cobrador que NO tienen planilla aún
+    disponibles = (db.query(models.Boleta)
+                   .filter(models.Boleta.cobrador_id == planilla.cobrador_id,
+                           models.Boleta.planilla_id.is_(None),
+                           models.Boleta.condicion.in_([CondicionBoleta.VENDIDO, CondicionBoleta.EN_COBRANZA]))
+                   .join(models.Comprador, isouter=True)
+                   .order_by(models.Boleta.numero_principal)
+                   .all())
+
+    return templates.TemplateResponse(request, "cobranza_planilla_editar.html", {
+        "planilla": planilla,
+        "en_planilla": en_planilla,
+        "disponibles": disponibles,
+        "mes_nombre": MESES[planilla.mes - 1],
+    })
+
+
+@router.post("/planilla/{planilla_id}/editar")
+async def planilla_editar_guardar(request: Request, planilla_id: int,
+                                  db: Session = Depends(get_db)):
+    await auth_module.require_user(request, db)
+    planilla = db.query(models.Planilla).get(planilla_id)
+    if not planilla:
+        raise HTTPException(404)
+
+    form_data = await request.form()
+    ids_seleccionados = set(int(x) for x in form_data.getlist("boleta_ids"))
+
+    # Quitar de planilla las que ya no están seleccionadas
+    (db.query(models.Boleta)
+       .filter(models.Boleta.planilla_id == planilla_id,
+               models.Boleta.id.notin_(ids_seleccionados))
+       .update({"planilla_id": None}, synchronize_session=False))
+
+    # Agregar a la planilla las nuevas seleccionadas
+    if ids_seleccionados:
+        (db.query(models.Boleta)
+           .filter(models.Boleta.id.in_(ids_seleccionados),
+                   models.Boleta.cobrador_id == planilla.cobrador_id)
+           .update({"planilla_id": planilla_id}, synchronize_session=False))
+
+    db.commit()
+    return RedirectResponse(
+        f"/cobranza/emplanillado?mes={planilla.mes}&anio={planilla.anio}",
+        status_code=302
+    )
+
+
+@router.post("/planilla/{planilla_id}/eliminar")
+async def planilla_eliminar(request: Request, planilla_id: int,
+                            db: Session = Depends(get_db)):
+    await auth_module.require_user(request, db)
+    planilla = db.query(models.Planilla).get(planilla_id)
+    if not planilla:
+        raise HTTPException(404)
+
+    mes, anio = planilla.mes, planilla.anio
+
+    # Desvincular todas las boletas (quedan listas para re-emplanillar)
+    (db.query(models.Boleta)
+       .filter(models.Boleta.planilla_id == planilla_id)
+       .update({"planilla_id": None}, synchronize_session=False))
+
+    # Orphanar la liquidación si existe (se conserva el historial y cuotas_pagadas en cada boleta)
+    liq = planilla.liquidacion
+    if liq:
+        liq.planilla_id = None
+        db.flush()
+
+    db.delete(planilla)
+    db.commit()
+    return RedirectResponse(
+        f"/cobranza/emplanillado?mes={mes}&anio={anio}",
+        status_code=302
+    )
 
 
 # ── LIQUIDACIÓN ────────────────────────────────────────────────────────────────

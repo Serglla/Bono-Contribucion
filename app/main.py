@@ -118,6 +118,44 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion comision_pct planillas: {e}")
 
+        # Migrar liquidaciones.planilla_id a nullable
+        # (permite eliminar una planilla sin borrar su liquidación histórica)
+        try:
+            cols_liq = inspector.get_columns("liquidaciones")
+            planilla_col = next((c for c in cols_liq if c["name"] == "planilla_id"), None)
+            if planilla_col and not planilla_col.get("nullable", True):
+                dialect = engine.dialect.name
+                if dialect == "postgresql":
+                    db.execute(text("ALTER TABLE liquidaciones ALTER COLUMN planilla_id DROP NOT NULL"))
+                    db.commit()
+                else:
+                    # SQLite: recrear tabla con planilla_id nullable
+                    db.execute(text("PRAGMA foreign_keys = OFF"))
+                    db.execute(text("""
+                        CREATE TABLE liquidaciones_new (
+                            id INTEGER PRIMARY KEY NOT NULL,
+                            planilla_id INTEGER,
+                            fecha DATE NOT NULL,
+                            total_cuotas INTEGER DEFAULT 0,
+                            monto_total REAL DEFAULT 0.0,
+                            comision REAL DEFAULT 0.0,
+                            neto REAL DEFAULT 0.0,
+                            created_at DATETIME DEFAULT (CURRENT_TIMESTAMP)
+                        )
+                    """))
+                    db.execute(text("""
+                        INSERT INTO liquidaciones_new
+                        SELECT id, planilla_id, fecha, total_cuotas, monto_total, comision, neto, created_at
+                        FROM liquidaciones
+                    """))
+                    db.execute(text("DROP TABLE liquidaciones"))
+                    db.execute(text("ALTER TABLE liquidaciones_new RENAME TO liquidaciones"))
+                    db.execute(text("PRAGMA foreign_keys = ON"))
+                    db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion liquidaciones planilla_id nullable: {e}")
+
         # liquidaciones y liquidacion_detalles se crean por create_all
 
         if not db.query(models.User).filter_by(username="admin").first():
