@@ -15,6 +15,15 @@
   </div>
 </div>
 
+{% if error == 'tiene_vendidas' %}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  No se puede eliminar la talonera <strong>{{ error_nombre }}</strong> porque tiene boletas vendidas.
+  Primero editá los socios correspondientes y cambiá sus boletas.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
 <div class="row g-3">
   {% for g in grupos %}
   <div class="col-md-4">
@@ -24,7 +33,7 @@
           <h5 class="card-title fw-bold text-danger mb-0">{{ g.nombre }}</h5>
           {% if user.is_admin %}
           <div class="d-flex align-items-center gap-2">
-            <label class="form-label mb-0 small text-muted">Color cartón:</label>
+            <label class="form-label mb-0 small text-muted">Color:</label>
             <input type="color" class="form-control form-control-color color-picker"
                    value="{{ g.color }}" data-nombre="{{ g.nombre }}"
                    title="Color del cartón" style="width:36px; height:28px; padding:2px; cursor:pointer;">
@@ -32,23 +41,47 @@
           </div>
           {% endif %}
         </div>
-        <p class="text-muted small mb-1">Multiplicador: <strong>×{{ g.multiplicador }}</strong> &nbsp;|&nbsp; <strong>{{ g.num_series }}</strong> números por boleta</p>
-        <p class="text-muted small mb-1">{{ g.taloneras | length }} tanda{% if g.taloneras|length != 1 %}s{% endif %}
+        <p class="text-muted small mb-1">
+          <strong>{{ g.num_series }}</strong> series por boleta
           {% if g.taloneras[0].valor_cuota and g.taloneras[0].valor_cuota > 0 %}
           &nbsp;|&nbsp; Cuota: <strong>${{ "%.0f"|format(g.taloneras[0].valor_cuota) }}</strong>
           {% endif %}
         </p>
+        <p class="text-muted small mb-2">{{ g.taloneras | length }} tanda{% if g.taloneras|length != 1 %}s{% endif %}</p>
         <div class="d-flex flex-column gap-1">
           {% for t in g.taloneras %}
-          <div class="d-flex align-items-center gap-2">
-            <span class="badge bg-secondary" style="font-size:.7rem;">{{ t.numero_inicio }} → {{ t.numero_fin }}</span>
+          {% set num_vendidas = t.boletas | selectattr('condicion', 'equalto', 'VENDIDO') | list | length %}
+          <div class="d-flex align-items-center gap-1 flex-wrap">
+            <span class="badge bg-secondary" style="font-size:.7rem;">{{ '%04d'|format(t.numero_inicio) }} → {{ '%04d'|format(t.numero_fin) }}</span>
             <span class="text-muted small">{{ t.boletas|length }} boletas</span>
-            <span class="badge {% if t.activa %}bg-success{% else %}bg-secondary{% endif %}" style="font-size:.65rem;">
-              {% if t.activa %}Activa{% else %}Inactiva{% endif %}
-            </span>
-            <a href="/taloneras/{{ t.id }}/boletas" class="btn btn-sm btn-outline-danger py-0 px-2 ms-auto" style="font-size:.7rem;" title="Ver boletas">
-              <i class="bi bi-eye"></i>
-            </a>
+            {% if num_vendidas > 0 %}
+            <span class="badge bg-warning text-dark" style="font-size:.65rem;" title="Tiene vendidas — no se puede eliminar">{{ num_vendidas }} vend.</span>
+            {% endif %}
+            <div class="ms-auto d-flex gap-1">
+              <a href="/taloneras/{{ t.id }}/boletas" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size:.7rem;" title="Ver boletas">
+                <i class="bi bi-eye"></i>
+              </a>
+              {% if user.is_admin %}
+              <button class="btn btn-sm btn-outline-primary py-0 px-2 btn-editar"
+                      style="font-size:.7rem;" title="Editar talonera"
+                      data-id="{{ t.id }}"
+                      data-nombre="{{ t.nombre }}"
+                      data-num-series="{{ t.num_series }}"
+                      data-offset="{{ t.offset_series }}"
+                      data-inicio="{{ t.numero_inicio }}"
+                      data-fin="{{ t.numero_fin }}"
+                      data-cuota="{{ t.valor_cuota or 0 }}">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="btn btn-sm btn-outline-danger py-0 px-2 btn-eliminar"
+                      style="font-size:.7rem;" title="Eliminar talonera"
+                      data-id="{{ t.id }}"
+                      data-nombre="{{ t.nombre }}"
+                      data-vendidas="{{ num_vendidas }}">
+                <i class="bi bi-trash"></i>
+              </button>
+              {% endif %}
+            </div>
           </div>
           {% endfor %}
         </div>
@@ -62,7 +95,111 @@
   {% endfor %}
 </div>
 
+{% if user.is_admin %}
+<!-- Modal editar talonera -->
+<div class="modal fade" id="modalEditar" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" id="formEditar">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-pencil text-primary me-2"></i>Editar Talonera</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Nombre</label>
+            <input type="text" name="nombre" id="editNombre" class="form-control" required>
+          </div>
+          <div class="d-flex gap-3 mb-3">
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">N° de series por boleta</label>
+              <input type="text" inputmode="numeric" name="num_series" id="editNumSeries" class="form-control" required>
+            </div>
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">Offset entre series</label>
+              <input type="text" inputmode="numeric" name="offset_series" id="editOffset" class="form-control">
+            </div>
+          </div>
+          <div class="d-flex gap-3 mb-3">
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">N° inicio</label>
+              <input type="text" inputmode="numeric" name="numero_inicio" id="editInicio" class="form-control" required>
+            </div>
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">N° fin</label>
+              <input type="text" inputmode="numeric" name="numero_fin" id="editFin" class="form-control" required>
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label fw-semibold">Valor de la cuota $</label>
+            <input type="text" inputmode="decimal" name="valor_cuota" id="editCuota" class="form-control" placeholder="0">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Guardar cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal confirmar eliminación -->
+<div class="modal fade" id="modalEliminar" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title text-danger"><i class="bi bi-trash me-2"></i>Eliminar talonera</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1">¿Eliminás la talonera <strong id="elimNombre"></strong>?</p>
+        <p class="text-muted small mb-0">Esto eliminará también todas sus boletas sin vender.</p>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <form method="post" id="formEliminar" style="display:inline;">
+          <button type="submit" class="btn btn-danger btn-sm"><i class="bi bi-trash me-1"></i>Eliminar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <script>
+// Botón editar talonera
+document.querySelectorAll('.btn-editar').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var d = this.dataset;
+    document.getElementById('editNombre').value    = d.nombre;
+    document.getElementById('editNumSeries').value = d.numSeries;
+    document.getElementById('editOffset').value    = d.offset;
+    document.getElementById('editInicio').value    = d.inicio;
+    document.getElementById('editFin').value       = d.fin;
+    document.getElementById('editCuota').value     = d.cuota;
+    document.getElementById('formEditar').action   = '/taloneras/' + d.id + '/editar';
+    var modal = new bootstrap.Modal(document.getElementById('modalEditar'));
+    modal.show();
+  });
+});
+
+// Botón eliminar talonera
+document.querySelectorAll('.btn-eliminar').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var d = this.dataset;
+    if (parseInt(d.vendidas) > 0) {
+      alert('No se puede eliminar "' + d.nombre + '" porque tiene ' + d.vendidas + ' boleta(s) vendida(s).\nPrimero editá los socios y cambiá sus boletas.');
+      return;
+    }
+    document.getElementById('elimNombre').textContent  = d.nombre;
+    document.getElementById('formEliminar').action     = '/taloneras/' + d.id + '/eliminar';
+    var modal = new bootstrap.Modal(document.getElementById('modalEliminar'));
+    modal.show();
+  });
+});
+
+// Color picker
 document.querySelectorAll('.color-picker').forEach(function(picker) {
   picker.addEventListener('change', function() {
     const nombre = this.dataset.nombre;

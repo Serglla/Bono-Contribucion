@@ -14,7 +14,7 @@ router = APIRouter(prefix="/taloneras", tags=["taloneras"])
 
 
 @router.get("/", response_class=HTMLResponse)
-async def listar(request: Request, db: Session = Depends(get_db)):
+async def listar(request: Request, db: Session = Depends(get_db), error: str = "", nombre: str = ""):
     user = await auth_module.require_user(request, db)
     taloneras = db.query(models.Talonera).order_by(models.Talonera.multiplicador, models.Talonera.numero_inicio).all()
     # Agrupar por nombre para la vista
@@ -26,7 +26,8 @@ async def listar(request: Request, db: Session = Depends(get_db)):
                                 "taloneras": []}
         grupos[t.nombre]["taloneras"].append(t)
     return templates.TemplateResponse(request, "taloneras.html", {
-        "user": user, "taloneras": taloneras, "grupos": list(grupos.values())
+        "user": user, "taloneras": taloneras, "grupos": list(grupos.values()),
+        "error": error, "error_nombre": nombre
     })
 
 
@@ -165,6 +166,51 @@ async def enumeracion(request: Request, db: Session = Depends(get_db)):
         "stats": stats,
         "repetidos": repetidos,
     })
+
+
+@router.post("/{talonera_id}/editar")
+async def editar_talonera(
+    talonera_id: int, request: Request,
+    nombre: str = Form(...),
+    num_series: int = Form(3),
+    offset_series: int = Form(0),
+    numero_inicio: int = Form(...),
+    numero_fin: int = Form(...),
+    valor_cuota: float = Form(0.0),
+    db: Session = Depends(get_db)
+):
+    await auth_module.require_admin(request, db)
+    t = db.query(models.Talonera).get(talonera_id)
+    if not t:
+        raise HTTPException(404)
+    t.nombre = nombre
+    t.num_series = num_series
+    t.multiplicador = num_series // 3
+    t.offset_series = offset_series
+    t.numero_inicio = numero_inicio
+    t.numero_fin = numero_fin
+    t.valor_cuota = valor_cuota
+    db.commit()
+    return RedirectResponse("/taloneras/", status_code=302)
+
+
+@router.post("/{talonera_id}/eliminar")
+async def eliminar_talonera(talonera_id: int, request: Request, db: Session = Depends(get_db)):
+    await auth_module.require_admin(request, db)
+    t = db.query(models.Talonera).get(talonera_id)
+    if not t:
+        raise HTTPException(404)
+    vendidas = db.query(models.Boleta).filter(
+        models.Boleta.talonera_id == talonera_id,
+        models.Boleta.condicion == CondicionBoleta.VENDIDO
+    ).count()
+    if vendidas > 0:
+        return RedirectResponse(f"/taloneras/?error=tiene_vendidas&nombre={t.nombre}", status_code=302)
+    # Eliminar boletas y luego la talonera
+    db.query(models.Boleta).filter(models.Boleta.talonera_id == talonera_id).delete()
+    db.delete(t)
+    db.commit()
+    return RedirectResponse("/taloneras/", status_code=302)
 
 
 @router.get("/{talonera_id}/boletas", response_class=HTMLResponse)
