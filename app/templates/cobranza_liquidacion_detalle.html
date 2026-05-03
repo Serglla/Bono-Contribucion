@@ -1,11 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Liquidar Planilla{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center gap-2 mb-3">
+
+<div class="d-flex align-items-center gap-2 mb-2">
   <a href="/cobranza/liquidacion?mes={{ planilla.mes }}&anio={{ planilla.anio }}"
-     class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-left"></i>
-  </a>
+     class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
   <h5 class="fw-bold mb-0">
     Liquidación — {{ planilla.cobrador.nombre }}
     <span class="badge bg-secondary ms-1">P{{ planilla.numero }}</span>
@@ -14,115 +13,108 @@
 </div>
 
 {% if liquidacion %}
-<div class="alert alert-success d-flex align-items-center gap-2 mb-3 py-2">
+<div class="alert alert-success d-flex align-items-center gap-2 mb-2 py-2" style="font-size:.82rem;">
   <i class="bi bi-check-circle-fill"></i>
-  Planilla ya liquidada — {{ liquidacion.total_cuotas }} cuotas cobradas. Podés modificar y volver a guardar.
+  Planilla ya liquidada — {{ liquidacion.total_cuotas }} cuotas cobradas. Podés modificar y guardar de nuevo.
 </div>
 {% endif %}
 
 <!-- Leyenda -->
-<div class="d-flex gap-3 mb-2 align-items-center flex-wrap" style="font-size:0.78rem;">
-  <span><span class="cq-demo cq-venta">×</span> Cuota de venta</span>
-  <span><span class="cq-demo cq-historial">6</span> Cobrada en otro mes</span>
-  <span><span class="cq-demo cq-activa">{{ mes_actual }}</span> Cobrada este mes <small class="text-muted">(click para quitar)</small></span>
-  <span><span class="cq-demo cq-libre"></span> Pendiente <small class="text-muted">(click para marcar)</small></span>
+<div class="d-flex gap-3 mb-2 align-items-center flex-wrap" style="font-size:0.75rem; color:#444;">
+  <span><span class="lq-demo lq-venta">×</span> Venta</span>
+  <span><span class="lq-demo lq-hist">6</span> Otro mes</span>
+  <span><span class="lq-demo lq-mes">{{ mes_actual }}</span> Este mes <small class="text-muted">(click quita)</small></span>
+  <span><span class="lq-demo lq-libre"></span> Pendiente <small class="text-muted">(click marca)</small></span>
+  <span class="ms-auto fw-semibold text-danger">Cuotas marcadas: <span id="totalMarcadas">0</span></span>
 </div>
 
 <form method="post" action="/cobranza/liquidacion/{{ planilla.id }}/guardar" id="formLiq">
 
-  <!-- Resumen -->
-  <div class="card border-0 shadow-sm mb-3">
-    <div class="card-body py-2 d-flex align-items-center gap-4 flex-wrap">
-      <div><span class="text-muted small">Comisión</span><div class="fw-bold">{{ planilla.comision_pct }}%</div></div>
-      <div><span class="text-muted small">Boletas</span><div class="fw-bold">{{ boletas | length }}</div></div>
-      <div><span class="text-muted small">Cuotas marcadas</span><div class="fw-bold text-danger" id="totalMarcadas">0</div></div>
-    </div>
+  <!-- Inputs ocultos (uno por boleta real) -->
+  <div id="hiddenInputs">
+    {% for b in boletas %}
+    <input type="hidden" name="boleta_ids" value="{{ b.id }}">
+    <input type="hidden" name="cuotas_json" id="cj_{{ b.id }}"
+           value="{{ cuotas_mes_actual.get(b.id, []) | tojson }}">
+    {% endfor %}
   </div>
 
-  <!-- Grilla -->
-  <div class="card border-0 shadow-sm">
-    <div style="overflow-x:auto;">
-      <table id="tablaLiq" class="mb-0" style="border-collapse:collapse; table-layout:fixed; width:100%; font-size:0.75rem;">
-        <thead>
-          <tr style="background:#222; color:#fff; height:24px;">
-            <th style="width:52px; padding:2px 4px; border:1px solid #444; text-align:center;">N°</th>
-            <th style="min-width:130px; max-width:180px; padding:2px 6px; border:1px solid #444;">Socio</th>
-            {% for n in cuota_nums %}
-            <th style="width:26px; padding:1px; border:1px solid #444; text-align:center;">{{ n }}</th>
-            {% endfor %}
-          </tr>
-        </thead>
-        <tbody>
-          {% set cur_pata = namespace(val='') %}
-          {% for b in boletas %}
-            {% set tcolor = b.talonera.color if b.talonera else '#ffffff' %}
-            {% set hist = historial_map.get(b.id, {}) %}
-            {% set seleccion = cuotas_mes_actual.get(b.id, []) %}
+  <!-- Tabla grilla -->
+  <div style="overflow-x:auto; background:#fff; border:1.5px solid #888; border-radius:4px;">
+    <table id="tablaLiq" style="border-collapse:collapse; table-layout:fixed; font-size: 7.5pt; font-family:Arial,sans-serif;">
+      <colgroup>
+        {# Sección 1 #}
+        <col style="width:40px">
+        {% for n in cuota_nums %}<col style="width:22px">{% endfor %}
+        {# Sep #}
+        <col style="width:4px">
+        {# Sección 2 #}
+        <col style="width:40px">
+        {% for n in cuota_nums %}<col style="width:22px">{% endfor %}
+        {# Sep #}
+        <col style="width:4px">
+        {# Sección 3 #}
+        <col style="width:40px">
+        {% for n in cuota_nums %}<col style="width:22px">{% endfor %}
+      </colgroup>
+      <thead>
+        <tr style="height:20px; background:#333; color:#fff;">
+          <th style="border:1px solid #555; text-align:center; padding:0; font-size:6.5pt;">{{ col1_label }}</th>
+          {% for n in cuota_nums %}<th style="border:1px solid #555; text-align:center; padding:0; font-size:6pt;">{{ n }}</th>{% endfor %}
+          <th style="background:#111; border:none; padding:0;"></th>
+          <th style="border:1px solid #555; text-align:center; padding:0; font-size:6.5pt;">{{ col2_label }}</th>
+          {% for n in cuota_nums %}<th style="border:1px solid #555; text-align:center; padding:0; font-size:6pt;">{{ n }}</th>{% endfor %}
+          <th style="background:#111; border:none; padding:0;"></th>
+          <th style="border:1px solid #555; text-align:center; padding:0; font-size:6.5pt;">{{ col3_label }}</th>
+          {% for n in cuota_nums %}<th style="border:1px solid #555; text-align:center; padding:0; font-size:6pt;">{{ n }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
 
-            {# Separador de talonera #}
-            {% if b.talonera and b.talonera.nombre != cur_pata.val %}
-              {% set cur_pata.val = b.talonera.nombre %}
-              <tr>
-                <td colspan="{{ 2 + cuota_nums|length }}"
-                    style="background:{{ tcolor }}; color:#000; font-weight:900; font-size:7pt;
-                           padding:2px 6px; border-bottom:2px solid #555; letter-spacing:0.05em;">
-                  {{ b.talonera.nombre }}
-                </td>
-              </tr>
-            {% endif %}
+      {# ── Macro: renderiza una celda (label / boleta / vacía) ── #}
+      {%- macro render_cell(b) -%}
+        {%- if b is mapping -%}
+          {# Fila etiqueta PATA #}
+          <td style="background:{{ b.color }};font-weight:900;font-size:7pt;border-bottom:2px solid #555;border:1px solid #ccc;text-align:center;padding:0;">{{ b.pata }}</td>
+          {%- for n in cuota_nums %}<td style="background:{{ b.color }};border:1px solid #ccc;padding:0;"></td>{%- endfor -%}
+        {%- elif b -%}
+          {# Boleta real #}
+          {%- set hist = historial_map.get(b.id, {}) -%}
+          {%- set ant  = b.cuotas_anticipadas if b.cuotas_anticipadas else 1 -%}
+          <td style="font-weight:800;letter-spacing:-0.03em;text-align:center;border:1px solid #ccc;padding:0;">{{ "%04d"|format(b.numero_principal) }}</td>
+          {%- for n in cuota_nums -%}
+            {%- set hmes = hist.get(n|string, 0) -%}
+            {%- if n <= ant -%}
+              <td class="cq cq-venta" style="background:#222;color:#fff;font-weight:900;border:1px solid #ccc;text-align:center;padding:0;height:19px;">×</td>
+            {%- elif hmes > 0 and hmes != mes_actual -%}
+              <td class="cq cq-hist" style="background:#0d6efd18;color:#0d6efd;font-weight:700;border:1px solid #ccc;text-align:center;padding:0;height:19px;" title="Mes {{ hmes }}">{{ hmes }}</td>
+            {%- elif n in cuotas_mes_actual.get(b.id, []) -%}
+              <td class="cq cq-mes" data-bid="{{ b.id }}" data-cuota="{{ n }}" style="background:#dc354550;color:#c00;font-weight:900;border:1px solid #ccc;text-align:center;padding:0;height:19px;cursor:pointer;">{{ mes_actual }}</td>
+            {%- elif n <= b.cuotas_pactadas -%}
+              <td class="cq cq-libre" data-bid="{{ b.id }}" data-cuota="{{ n }}" style="border:1px solid #ccc;text-align:center;padding:0;height:19px;cursor:pointer;"></td>
+            {%- else -%}
+              <td class="cq" style="border:1px solid #ddd;padding:0;height:19px;background:#f5f5f5;"></td>
+            {%- endif -%}
+          {%- endfor -%}
+        {%- else -%}
+          {# Slot vacío #}
+          <td style="border:1px solid #ccc;padding:0;height:19px;"></td>
+          {%- for n in cuota_nums %}<td style="border:1px solid #ccc;padding:0;height:19px;"></td>{%- endfor -%}
+        {%- endif -%}
+      {%- endmacro -%}
 
-            <tr style="background:{{ tcolor }}20;" class="fila-boleta">
-              <td style="border:1px solid #ccc; padding:1px 3px; text-align:center;
-                         font-weight:800; font-family:monospace; font-size:0.73rem;">
-                {{ "%04d"|format(b.numero_principal) }}
-              </td>
-              <td style="border:1px solid #ccc; padding:1px 5px; white-space:nowrap;
-                         overflow:hidden; text-overflow:ellipsis; max-width:180px;">
-                {{ b.comprador.apellido_nombre if b.comprador else "—" }}
-              </td>
-              {% set ant = b.cuotas_anticipadas if b.cuotas_anticipadas else 1 %}
-              {% for n in cuota_nums %}
-                {% set hmes = hist.get(n|string, 0) %}
-                {% if n <= ant %}
-                  {# Cuota de venta — negra, no clickeable #}
-                  <td class="cq cq-venta"
-                      style="border:1px solid #ccc; padding:0; text-align:center;
-                             height:22px; background:#222; color:#fff; font-weight:900;">×</td>
-                {% elif hmes > 0 and hmes != mes_actual %}
-                  {# Pagada en otro mes — azul, no clickeable #}
-                  <td class="cq cq-historial"
-                      style="border:1px solid #ccc; padding:0; text-align:center;
-                             height:22px; background:#0d6efd22; color:#0d6efd; font-weight:700;"
-                      title="Cobrada en mes {{ hmes }}">{{ hmes }}</td>
-                {% elif n in seleccion %}
-                  {# Marcada para este mes — roja, clickeable para desmarcar #}
-                  <td class="cq cq-activa"
-                      data-bid="{{ b.id }}" data-cuota="{{ n }}"
-                      style="border:1px solid #ccc; padding:0; text-align:center;
-                             height:22px; background:#dc354555; color:#c00; font-weight:900; cursor:pointer;">{{ mes_actual }}</td>
-                {% elif n <= b.cuotas_pactadas %}
-                  {# Pendiente — clickeable #}
-                  <td class="cq cq-libre"
-                      data-bid="{{ b.id }}" data-cuota="{{ n }}"
-                      style="border:1px solid #ccc; padding:0; text-align:center;
-                             height:22px; cursor:pointer;"></td>
-                {% else %}
-                  {# Fuera del rango pactado — gris #}
-                  <td class="cq" style="border:1px solid #ccc; padding:0; height:22px; background:#f0f0f0;"></td>
-                {% endif %}
-              {% endfor %}
-              {# Inputs ocultos dentro de la fila (un td invisible) #}
-              <td style="display:none;">
-                <input type="hidden" name="boleta_ids" value="{{ b.id }}">
-                <input type="hidden" name="cuotas_json" id="cj_{{ b.id }}" value="{{ seleccion | tojson }}">
-              </td>
-            </tr>
-          {% else %}
-          <tr><td colspan="{{ 2 + cuota_nums|length }}" class="text-center text-muted py-3">Sin boletas en esta planilla.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+      {% for b1, b2, b3 in rows %}
+      <tr class="{% if loop.index % 10 == 0 and not loop.last %}blk-end{% endif %}">
+        {{ render_cell(b1) }}
+        <td style="background:#333;border:none;padding:0;"></td>
+        {{ render_cell(b2) }}
+        <td style="background:#333;border:none;padding:0;"></td>
+        {{ render_cell(b3) }}
+      </tr>
+      {% endfor %}
+
+      </tbody>
+    </table>
   </div>
 
   {% if boletas %}
@@ -138,76 +130,67 @@
 </form>
 
 <style>
-  /* Celdas demo de la leyenda */
-  .cq-demo {
-    display: inline-block; width: 22px; height: 18px; line-height: 18px;
-    text-align: center; font-size: 0.72rem; font-weight: 700;
-    border: 1px solid #ccc; vertical-align: middle; margin-right: 2px;
+  .lq-demo {
+    display:inline-block; width:18px; height:15px; line-height:15px;
+    text-align:center; font-size:7pt; font-weight:700;
+    border:1px solid #ccc; vertical-align:middle; margin-right:2px;
   }
-  .cq-demo.cq-venta    { background:#222; color:#fff; }
-  .cq-demo.cq-historial{ background:#0d6efd22; color:#0d6efd; }
-  .cq-demo.cq-activa   { background:#dc354555; color:#c00; }
-  .cq-demo.cq-libre    { background:#fff; }
+  .lq-venta { background:#222; color:#fff; }
+  .lq-hist  { background:#0d6efd18; color:#0d6efd; }
+  .lq-mes   { background:#dc354550; color:#c00; }
+  .lq-libre { background:#fff; }
 
-  /* Hover en celdas clickeables */
-  .cq.cq-libre:hover  { background: #dc354522 !important; }
-  .cq.cq-activa:hover { background: #dc354599 !important; }
-
-  /* Tabla compacta */
-  #tablaLiq { border: 1.5px solid #888; }
+  #tablaLiq .blk-end td { border-bottom: 2px solid #555 !important; }
+  #tablaLiq .cq-libre:hover { background:#dc354520 !important; }
+  #tablaLiq .cq-mes:hover   { background:#dc354599 !important; }
 </style>
 
 <script>
   const MES_ACTUAL = {{ mes_actual }};
 
-  // Inicializar selección desde datos del servidor
-  const seleccionados = {};
+  // Inicializar selección desde el servidor
+  const sel = {};
   {% for b in boletas %}
-  seleccionados[{{ b.id }}] = new Set({{ cuotas_mes_actual.get(b.id, []) | tojson }});
+  sel[{{ b.id }}] = new Set({{ cuotas_mes_actual.get(b.id, []) | tojson }});
   {% endfor %}
 
-  function actualizarHidden(bid) {
-    const arr = Array.from(seleccionados[bid]).sort((a, b) => a - b);
-    document.getElementById('cj_' + bid).value = JSON.stringify(arr);
+  function syncHidden(bid) {
+    const arr = Array.from(sel[bid]).sort((a,b) => a-b);
+    const el = document.getElementById('cj_' + bid);
+    if (el) el.value = JSON.stringify(arr);
   }
 
   function actualizarTotal() {
-    let total = 0;
-    for (const s of Object.values(seleccionados)) total += s.size;
-    document.getElementById('totalMarcadas').textContent = total;
+    let t = 0;
+    for (const s of Object.values(sel)) t += s.size;
+    document.getElementById('totalMarcadas').textContent = t;
   }
 
-  // Delegación de eventos en la tabla
   document.getElementById('tablaLiq').addEventListener('click', function(e) {
-    const td = e.target.closest('td.cq-libre, td.cq-activa');
+    const td = e.target.closest('td.cq-libre, td.cq-mes');
     if (!td) return;
-
-    const bid = parseInt(td.dataset.bid);
+    const bid   = parseInt(td.dataset.bid);
     const cuota = parseInt(td.dataset.cuota);
 
-    if (td.classList.contains('cq-activa')) {
-      // Desmarcar
-      seleccionados[bid].delete(cuota);
+    if (td.classList.contains('cq-mes')) {
+      sel[bid].delete(cuota);
       td.textContent = '';
-      td.classList.replace('cq-activa', 'cq-libre');
+      td.classList.replace('cq-mes', 'cq-libre');
       td.style.background = '';
       td.style.color = '';
       td.style.fontWeight = '';
     } else {
-      // Marcar
-      seleccionados[bid].add(cuota);
+      sel[bid].add(cuota);
       td.textContent = MES_ACTUAL;
-      td.classList.replace('cq-libre', 'cq-activa');
-      td.style.background = '#dc354555';
+      td.classList.replace('cq-libre', 'cq-mes');
+      td.style.background = '#dc354550';
       td.style.color = '#c00';
       td.style.fontWeight = '900';
     }
-
-    actualizarHidden(bid);
+    syncHidden(bid);
     actualizarTotal();
   });
 
-  // Total inicial
   actualizarTotal();
 </script>
 {% endblock %}

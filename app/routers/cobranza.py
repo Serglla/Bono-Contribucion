@@ -279,26 +279,86 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     liq = planilla.liquidacion
 
     # Construir historial y selección actual por boleta
-    historial_map = {}       # boleta_id -> {cuota_str: mes}
-    cuotas_mes_actual = {}   # boleta_id -> [cuota_nums pagados en planilla.mes]
+    historial_map = {}
+    cuotas_mes_actual = {}
     for b in boletas:
         h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
         historial_map[b.id] = h
         cuotas_mes_actual[b.id] = [int(k) for k, v in h.items() if v == planilla.mes]
 
-    max_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 12
-    cuota_nums = list(range(1, max_cuotas + 1))
+    # ── Mismo grid 3 columnas que la planilla ──────────────────────────────
+    def _get_pata(b):
+        if b and b.talonera:
+            nombre = b.talonera.nombre.upper()
+            for n in ("1","2","3","4","5","6","7","8","9"):
+                if f"PATA {n}" in nombre or nombre.endswith(n):
+                    return n
+        return "?"
+
+    def _get_color(b):
+        if b and b.talonera and b.talonera.color:
+            c = b.talonera.color.strip()
+            return c if c and c != "#ffffff" else "#cccccc"
+        return "#cccccc"
+
+    ROWS_PER_COL = 40
+    TOTAL = ROWS_PER_COL * 3
+    grid = [None] * TOTAL
+
+    pata_grupos, cur_pata, cur_grupo = [], None, []
+    for b in boletas:
+        p = _get_pata(b)
+        if p != cur_pata:
+            if cur_grupo: pata_grupos.append(cur_grupo)
+            cur_pata, cur_grupo = p, [b]
+        else:
+            cur_grupo.append(b)
+    if cur_grupo: pata_grupos.append(cur_grupo)
+
+    pos = 0
+    for i, grupo in enumerate(pata_grupos):
+        if i > 0:
+            new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
+            label_pos = new_block - 1
+            if 0 <= label_pos < TOTAL and grid[label_pos] is None:
+                grid[label_pos] = {"type":"label","pata":f"X{_get_pata(grupo[0])}","color":_get_color(grupo[0])}
+            pos = new_block
+        for b in grupo:
+            if pos < TOTAL:
+                grid[pos] = b; pos += 1
+
+    c1 = grid[0:ROWS_PER_COL]
+    c2 = grid[ROWS_PER_COL:ROWS_PER_COL*2]
+    c3 = grid[ROWS_PER_COL*2:ROWS_PER_COL*3]
+    rows = [(c1[i], c2[i], c3[i]) for i in range(ROWS_PER_COL)]
+
+    def _col_header(col):
+        for cell in col:
+            if isinstance(cell, dict): return cell["pata"]
+            elif cell:
+                p = _get_pata(cell)
+                if p != "?": return f"X{p}"
+        return ""
+
+    num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
+    num_cuotas = max(num_cuotas, 10)
+    cuota_nums = list(range(1, num_cuotas + 1))
 
     return templates.TemplateResponse(request, "cobranza_liquidacion_detalle.html", {
         "user": user,
         "planilla": planilla,
         "boletas": boletas,
+        "rows": rows,
+        "col1_label": _col_header(c1),
+        "col2_label": _col_header(c2),
+        "col3_label": _col_header(c3),
         "historial_map": historial_map,
         "cuotas_mes_actual": cuotas_mes_actual,
         "liquidacion": liq,
         "mes_nombre": MESES[planilla.mes - 1],
         "mes_actual": planilla.mes,
         "cuota_nums": cuota_nums,
+        "num_cuotas": num_cuotas,
     })
 
 
