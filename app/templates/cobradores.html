@@ -83,19 +83,21 @@
                   <div class="col-12">
                     <label class="form-label fw-semibold">Zonas que cobra</label>
                     {% if zonas %}
+                    {% set mis_zona_ids = c.zona_cobradores | map(attribute='zona_id') | list %}
                     <div class="border rounded p-3 bg-light" style="max-height:220px; overflow-y:auto;">
                       <div class="row g-2">
                         {% for z in zonas %}
+                        {% set otros = z.zona_cobradores | rejectattr('cobrador_id', 'equalto', c.id) | list %}
                         <div class="col-6 col-md-4">
                           <div class="form-check">
                             <input class="form-check-input" type="checkbox"
                                    name="zona_ids" value="{{ z.id }}"
                                    id="zona_e{{ c.id }}_{{ z.id }}"
-                                   {% if z.cobrador_id == c.id %}checked{% endif %}>
+                                   {% if z.id in mis_zona_ids %}checked{% endif %}>
                             <label class="form-check-label" for="zona_e{{ c.id }}_{{ z.id }}">
                               {{ z.nombre }}
-                              {% if z.cobrador_id and z.cobrador_id != c.id %}
-                                <span class="text-muted small">({{ z.cobrador.nombre }})</span>
+                              {% if otros %}
+                                <span class="text-muted small">({{ otros | map(attribute='cobrador') | map(attribute='nombre') | join(', ') }})</span>
                               {% endif %}
                             </label>
                           </div>
@@ -104,7 +106,7 @@
                       </div>
                     </div>
                     <div class="form-text text-muted">
-                      Las zonas marcadas con otro cobrador serán reasignadas a este.
+                      Una zona puede tener más de un cobrador activo simultáneamente.
                     </div>
                     {% else %}
                     <p class="text-muted small mb-0">No hay zonas creadas todavía.</p>
@@ -162,34 +164,4 @@
                 {% for z in zonas %}
                 <div class="col-6 col-md-4">
                   <div class="form-check">
-                    <input class="form-check-input" type="checkbox"
-                           name="zona_ids" value="{{ z.id }}"
-                           id="zona_n_{{ z.id }}">
-                    <label class="form-check-label" for="zona_n_{{ z.id }}">
-                      {{ z.nombre }}
-                      {% if z.cobrador %}
-                        <span class="text-muted small">({{ z.cobrador.nombre }})</span>
-                      {% endif %}
-                    </label>
-                  </div>
-                </div>
-                {% endfor %}
-              </div>
-            </div>
-            <div class="form-text text-muted">
-              Las zonas marcadas con otro cobrador serán reasignadas a este.
-            </div>
-            {% else %}
-            <p class="text-muted small mb-0">No hay zonas creadas todavía. Podés crearlas en la sección Zonas.</p>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="submit" class="btn btn-danger">Crear</button>
-      </div>
-    </form>
-  </div></div>
-</div>
-{% endblock %}
+    

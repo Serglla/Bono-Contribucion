@@ -23,16 +23,34 @@ async def listar(request: Request, db: Session = Depends(get_db)):
 
 
 def _actualizar_zonas(cobrador_id: int, zona_ids: List[int], db: Session):
-    """Desasigna todas las zonas anteriores del cobrador y asigna las nuevas."""
-    # Limpiar zonas que antes tenían este cobrador
-    db.query(models.Zona).filter(
-        models.Zona.cobrador_id == cobrador_id
-    ).update({"cobrador_id": None})
-    # Asignar las zonas seleccionadas a este cobrador
-    if zona_ids:
-        db.query(models.Zona).filter(
-            models.Zona.id.in_(zona_ids)
-        ).update({"cobrador_id": cobrador_id}, synchronize_session="fetch")
+    """Actualiza la asignación de zonas para este cobrador.
+    - Las zonas desmarcadas se eliminan de zona_cobradores (solo para este cobrador).
+    - Las zonas marcadas nuevas se agregan con timestamp actual.
+    - Otros cobradores de las mismas zonas NO se ven afectados.
+    """
+    from datetime import datetime
+    existentes = db.query(models.ZonaCobrador).filter(
+        models.ZonaCobrador.cobrador_id == cobrador_id
+    ).all()
+    existentes_ids = {zc.zona_id for zc in existentes}
+    nuevos_ids = set(zona_ids)
+
+    # Eliminar zonas que se desmarcaron
+    ids_a_eliminar = existentes_ids - nuevos_ids
+    if ids_a_eliminar:
+        db.query(models.ZonaCobrador).filter(
+            models.ZonaCobrador.cobrador_id == cobrador_id,
+            models.ZonaCobrador.zona_id.in_(ids_a_eliminar)
+        ).delete(synchronize_session="fetch")
+
+    # Agregar zonas nuevas
+    ids_a_agregar = nuevos_ids - existentes_ids
+    for zona_id in ids_a_agregar:
+        db.add(models.ZonaCobrador(
+            zona_id=zona_id,
+            cobrador_id=cobrador_id,
+            asignado_en=datetime.utcnow()
+        ))
 
 
 @router.post("/crear")
@@ -58,29 +76,4 @@ async def crear(
 @router.post("/{cid}/toggle")
 async def toggle(cid: int, request: Request, db: Session = Depends(get_db)):
     await auth_module.require_user(request, db)
-    c = db.query(models.Cobrador).get(cid)
-    if c:
-        c.activo = not c.activo
-        db.commit()
-    return RedirectResponse("/cobradores/", status_code=302)
-
-
-@router.post("/{cid}/editar")
-async def editar(
-    cid: int, request: Request,
-    nombre: str = Form(...),
-    telefono: str = Form(""),
-    comision_pct: float = Form(10.0),
-    db: Session = Depends(get_db)
-):
-    await auth_module.require_user(request, db)
-    form_data = await request.form()
-    zona_ids = [int(v) for v in form_data.getlist("zona_ids") if v]
-    c = db.query(models.Cobrador).get(cid)
-    if c:
-        c.nombre = nombre.strip().upper()
-        c.telefono = telefono.strip() or None
-        c.comision_pct = comision_pct
-        _actualizar_zonas(cid, zona_ids, db)
-        db.commit()
-    return RedirectResponse("/cobradores/", status_code=302)
+    c = db.query(models.Cobrador).g

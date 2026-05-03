@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Enum, D
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
+from datetime import datetime as _datetime
 from .database import Base
 
 
@@ -34,11 +35,35 @@ class Zona(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, unique=True, nullable=False)
     descripcion = Column(String)
-    cobrador_id = Column(Integer, ForeignKey("cobradores.id"), nullable=True)
+    # cobrador_id legacy column permanece en la DB pero ya no lo gestiona el ORM.
+    # La relación real es muchos-a-muchos via zona_cobradores.
     vendedor_id = Column(Integer, ForeignKey("vendedores.id"), nullable=True)
-    cobrador = relationship("Cobrador", back_populates="zonas")
     vendedor = relationship("Vendedor", back_populates="zonas")
     compradores = relationship("Comprador", back_populates="zona")
+    zona_cobradores = relationship(
+        "ZonaCobrador", back_populates="zona", cascade="all, delete-orphan"
+    )
+
+    @property
+    def cobrador_activo(self):
+        """Último cobrador asignado a esta zona (por timestamp asignado_en)."""
+        if not self.zona_cobradores:
+            return None
+        return max(
+            self.zona_cobradores,
+            key=lambda zc: zc.asignado_en or _datetime.min
+        ).cobrador
+
+    @property
+    def cobrador(self):
+        """Alias de cobrador_activo para compatibilidad."""
+        return self.cobrador_activo
+
+    @property
+    def cobrador_id(self):
+        """ID del último cobrador asignado a esta zona."""
+        c = self.cobrador_activo
+        return c.id if c else None
 
 
 class Vendedor(Base):
@@ -58,9 +83,16 @@ class Cobrador(Base):
     telefono = Column(String)
     activo = Column(Boolean, default=True)
     comision_pct = Column(Float, default=10.0)
-    zonas = relationship("Zona", back_populates="cobrador")
+    zona_cobradores = relationship(
+        "ZonaCobrador", back_populates="cobrador", cascade="all, delete-orphan"
+    )
     boletas = relationship("Boleta", back_populates="cobrador")
     planillas = relationship("Planilla", back_populates="cobrador", order_by="Planilla.numero")
+
+    @property
+    def zonas(self):
+        """Lista de zonas asignadas a este cobrador."""
+        return [zc.zona for zc in self.zona_cobradores]
 
 
 class Comprador(Base):
@@ -141,23 +173,4 @@ class Boleta(Base):
     cuotas_pactadas = Column(Integer, default=11)
     cuotas_anticipadas = Column(Integer, default=1)   # cuotas cobradas por el vendedor al momento de la venta
     cuotas_pagadas = Column(Integer, default=0)
-    total_pagado = Column(Float, default=0.0)
-    created_at = Column(DateTime, server_default=func.now())
-
-    talonera = relationship("Talonera", back_populates="boletas")
-    comprador = relationship("Comprador", back_populates="boletas")
-    cobrador = relationship("Cobrador", back_populates="boletas")
-    vendedor = relationship("Vendedor", back_populates="boletas")
-    planilla = relationship("Planilla", back_populates="boletas")
-
-
-class Sorteo(Base):
-    __tablename__ = "sorteos"
-    id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String)
-    tipo = Column(Enum(TipoSorteo), nullable=False)
-    cifras = Column(String, nullable=False)  # ej: "2", "2,3", "2,3,4"
-    fecha = Column(Date, nullable=False)
-    num_premios = Column(Integer, default=20)         # hasta qué premio se considera (1-20)
-    resultado_json = Column(String, nullable=True)  # JSON: ["1234","5678",...] hasta num_premios números
-    created_at = Column(DateTime, server_default=func.now())
+ 
