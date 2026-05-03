@@ -143,7 +143,7 @@ function completarFaltantes(tipo, btn, alertaId) {
           <td data-val="{% for boleta in c.boletas %}{{ boleta.numero_principal }}{% if boleta.numeros_adicionales %} {{ boleta.numeros_adicionales }}{% endif %} {% endfor %}">
             {% for boleta in c.boletas %}
               <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:0.68rem;">{{ boleta.talonera.nombre if boleta.talonera else "" }}</span>
-              <span class="badge bg-dark">{{ boleta.numero_principal }}</span>
+              <span class="badge bg-dark">{{ "%04d" % boleta.numero_principal }}</span>
             {% else %}
               <span class="text-muted">—</span>
             {% endfor %}
@@ -466,10 +466,10 @@ document.querySelectorAll('.input-upper').forEach(el => {
       fetch(`/taloneras/buscar-boleta/${num}`)
         .then(r => { if (!r.ok) throw new Error(); return r.json(); })
         .then(b => {
-          let badges = `<span class="badge bg-dark fs-6 me-1">${b.numero_principal}</span>`;
+          let badges = `<span class="badge bg-dark fs-6 me-1">${String(b.numero_principal).padStart(4, '0')}</span>`;
           if (b.numeros_adicionales)
             b.numeros_adicionales.split(', ').forEach(n =>
-              badges += `<span class="badge bg-secondary fs-6 me-1">${n}</span>`);
+              badges += `<span class="badge bg-secondary fs-6 me-1">${String(n.trim()).padStart(4, '0')}</span>`);
           badgesDiv.innerHTML = badges;
           talonBadge.textContent = b.talonera;
           infoDiv.classList.remove('d-none');
