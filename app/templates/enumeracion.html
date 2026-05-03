@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Enumeración — 0001 al 9999{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+  <a href="/taloneras/" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-grid-3x3-gap text-danger me-2"></i>Enumeración
+    <span class="text-muted fw-normal fs-5">— 0001 al 9999</span>
+  </h4>
+</div>
+
+<!-- Contadores -->
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <div class="enum-stat" style="--clr:#fd7e14; --txt:#fff;">
+    <span class="enum-stat-label">VENDIDOS</span>
+    <span class="enum-stat-val">{{ stats.get('VENDIDO', 0) }}</span>
+  </div>
+  <div class="enum-stat" style="--clr:#6c757d; --txt:#fff;">
+    <span class="enum-stat-label">SIN VENDER</span>
+    <span class="enum-stat-val">{{ stats.get('SIN_VENDER', 0) }}</span>
+  </div>
+  <div class="enum-stat" style="--clr:#198754; --txt:#fff;">
+    <span class="enum-stat-label">CAJA</span>
+    <span class="enum-stat-val">{{ stats.get('CAJA', 0) }}</span>
+  </div>
+  <div class="enum-stat" style="--clr:#0dcaf0; --txt:#000;">
+    <span class="enum-stat-label">EN COBRANZA</span>
+    <span class="enum-stat-val">{{ stats.get('EN_COBRANZA', 0) }}</span>
+  </div>
+  <div class="enum-stat" style="--clr:#dc3545; --txt:#fff;">
+    <span class="enum-stat-label">BAJA</span>
+    <span class="enum-stat-val">{{ stats.get('BAJA', 0) }}</span>
+  </div>
+  <div class="enum-stat" style="--clr:#dee2e6; --txt:#999; border:1px solid #adb5bd;">
+    <span class="enum-stat-label">SIN IMPRIMIR</span>
+    <span class="enum-stat-val">{{ stats.get('SIN_IMPRIMIR', 0) }}</span>
+  </div>
+  <div class="enum-stat" style="--clr:#fff3cd; --txt:#664d03; border:1px solid #ffc107;">
+    <span class="enum-stat-label">REPETIDOS</span>
+    <span class="enum-stat-val">{{ repetidos }}</span>
+  </div>
+</div>
+
+<!-- Leyenda compacta -->
+<div class="d-flex flex-wrap gap-3 mb-3" style="font-size:.72rem;">
+  <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#fd7e14;"></span> Vendido</span>
+  <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#6c757d;"></span> Sin vender</span>
+  <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#198754;"></span> Caja</span>
+  <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#0dcaf0;"></span> En cobranza</span>
+  <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#dc3545;"></span> Baja</span>
+  <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#f8f9fa; border:1px dashed #adb5bd;"></span> Sin imprimir</span>
+</div>
+
+<!-- Filtro rápido por condición -->
+<div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+  <span class="text-muted small">Filtrar:</span>
+  <button class="btn btn-sm btn-outline-secondary enum-filter active" data-filter="ALL">Todos</button>
+  <button class="btn btn-sm btn-outline-warning enum-filter" data-filter="VENDIDO">Vendidos</button>
+  <button class="btn btn-sm btn-outline-secondary enum-filter" data-filter="SIN_VENDER">Sin vender</button>
+  <button class="btn btn-sm btn-outline-success enum-filter" data-filter="CAJA">Caja</button>
+  <button class="btn btn-sm btn-outline-info enum-filter" data-filter="EN_COBRANZA">En cobranza</button>
+  <button class="btn btn-sm btn-outline-danger enum-filter" data-filter="BAJA">Baja</button>
+  <button class="btn btn-sm enum-filter" data-filter="SIN_IMPRIMIR"
+          style="border:1px dashed #adb5bd; color:#999;">Sin imprimir</button>
+</div>
+
+<!-- Cuadrícula de números -->
+<div class="enum-grid" id="enumGrid">
+  {% for item in numeros %}
+  <span class="enum-cell cond-{{ item.condicion }}"
+        title="{{ '%04d' % item.numero }} — {{ item.condicion.replace('_', ' ') }}"
+        data-cond="{{ item.condicion }}">
+    {{ '%04d' % item.numero }}
+  </span>
+  {% endfor %}
+</div>
+
+<style>
+/* Estadísticas */
+.enum-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--clr);
+  color: var(--txt);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: .75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.enum-stat-label { opacity: .85; font-weight: 500; }
+.enum-stat-val { font-size: .95rem; font-weight: 700; }
+
+/* Leyenda */
+.enum-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+/* Cuadrícula */
+.enum-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  font-family: monospace;
+  user-select: none;
+}
+.enum-cell {
+  width: 44px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  border-radius: 2px;
+  cursor: default;
+  transition: transform .1s, box-shadow .1s;
+}
+.enum-cell:hover {
+  transform: scale(1.3);
+  box-shadow: 0 2px 6px rgba(0,0,0,.3);
+  z-index: 10;
+  position: relative;
+}
+.cond-VENDIDO      { background: #fd7e14; color: #fff; }
+.cond-SIN_VENDER   { background: #e9ecef; color: #444; }
+.cond-CAJA         { background: #198754; color: #fff; }
+.cond-BAJA         { background: #dc3545; color: #fff; }
+.cond-EN_COBRANZA  { background: #0dcaf0; color: #000; }
+.cond-SIN_IMPRIMIR { background: #f8f9fa; color: #bbb; border: 1px dashed #ced4da; }
+
+.enum-cell.hidden { display: none; }
+</style>
+
+<script>
+document.querySelectorAll('.enum-filter').forEach(btn => {
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('.enum-filter').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    const filter = this.dataset.filter;
+    document.querySelectorAll('.enum-cell').forEach(cell => {
+      if (filter === 'ALL' || cell.dataset.cond === filter) {
+        cell.classList.remove('hidden');
+      } else {
+        cell.classList.add('hidden');
+      }
+    });
+  });
+});
+</script>
+
+{% endblock %}

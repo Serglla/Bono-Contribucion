@@ -124,6 +124,48 @@ async def boleta_info(talonera_id: int, numero: int, request: Request, db: Sessi
     })
 
 
+@router.get("/enumeracion", response_class=HTMLResponse)
+async def enumeracion(request: Request, db: Session = Depends(get_db)):
+    """Vista global: todos los números del 0001 al 9999 con su condición."""
+    user = await auth_module.require_user(request, db)
+
+    # Mapa numero_principal -> condicion para TODAS las boletas
+    boletas_dict: dict = {}
+    todas = db.query(models.Boleta).all()
+    for b in todas:
+        boletas_dict[b.numero_principal] = b.condicion.value
+
+    # Detectar repetidos: número_principal que también aparece como adicional de otra boleta
+    adicionales_set: set = set()
+    for b in todas:
+        if b.numeros_adicionales:
+            for parte in b.numeros_adicionales.split(","):
+                try:
+                    adicionales_set.add(int(parte.strip()))
+                except ValueError:
+                    pass
+    repetidos = sum(1 for n in boletas_dict if n in adicionales_set)
+
+    # Rango fijo 0001-9999
+    numeros = []
+    for n in range(1, 10000):
+        condicion = boletas_dict.get(n, "SIN_IMPRIMIR")
+        numeros.append({"numero": n, "condicion": condicion})
+
+    # Estadísticas
+    stats: dict = {}
+    for item in numeros:
+        c = item["condicion"]
+        stats[c] = stats.get(c, 0) + 1
+
+    return templates.TemplateResponse(request, "enumeracion.html", {
+        "user": user,
+        "numeros": numeros,
+        "stats": stats,
+        "repetidos": repetidos,
+    })
+
+
 @router.get("/{talonera_id}/boletas", response_class=HTMLResponse)
 async def boletas(
     talonera_id: int, request: Request, db: Session = Depends(get_db),
