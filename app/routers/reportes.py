@@ -16,7 +16,7 @@ router = APIRouter(prefix="/reportes", tags=["reportes"])
 async def dashboard(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
 
-    taloneras = db.query(models.Talonera).all()
+    taloneras = db.query(models.Talonera).order_by(models.Talonera.nombre).all()
 
     # Agrupar taloneras por nombre (ej: todas las "PATA 1" en una sola fila)
     grupos: dict = {}
