@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Editar Socio{% endblock %}
 {% block content %}
-{% set num_guia = comprador.boletas[0].numero_principal if comprador.boletas else comprador.id %}
+{% set num_guia = "%04d" % comprador.boletas[0].numero_principal if comprador.boletas else comprador.id %}
 
 <div class="d-flex align-items-center gap-2 mb-2">
   <a href="/compradores/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Volver</a>
@@ -21,10 +21,10 @@
         <label class="form-label fw-semibold text-danger mb-1" style="font-size:.8rem;">BOLETAS ASIGNADAS</label>
         {% for b in comprador.boletas %}
         <div class="d-flex align-items-center gap-2 mb-1 px-2 py-1 rounded border bg-light">
-          <span class="badge bg-dark">{{ b.numero_principal }}</span>
+          <span class="badge bg-dark">{{ "%04d" % b.numero_principal }}</span>
           {% if b.numeros_adicionales %}
             {% for n in b.numeros_adicionales.split(', ') %}
-            <span class="badge bg-secondary">{{ n }}</span>
+            <span class="badge bg-secondary">{{ "%04d" % n|int }}</span>
             {% endfor %}
           {% endif %}
           <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.65rem;">{{ b.talonera.nombre if b.talonera else "" }}</span>
@@ -182,9 +182,9 @@
     fetch(`/taloneras/buscar-boleta/${num}`)
       .then(r => { if (!r.ok) throw new Error(); return r.json(); })
       .then(b => {
-        let badges = `<span class="badge bg-dark me-1">${b.numero_principal}</span>`;
+        let badges = `<span class="badge bg-dark me-1">${String(b.numero_principal).padStart(4, '0')}</span>`;
         if (b.numeros_adicionales)
-          b.numeros_adicionales.split(', ').forEach(n => badges += `<span class="badge bg-secondary me-1">${n}</span>`);
+          b.numeros_adicionales.split(', ').forEach(n => badges += `<span class="badge bg-secondary me-1">${String(n.trim()).padStart(4, '0')}</span>`);
         badgesDiv.innerHTML = badges;
         talonBadge.textContent = b.talonera;
         hiddenId.value = b.id;
