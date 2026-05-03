@@ -76,4 +76,29 @@ async def crear(
 @router.post("/{cid}/toggle")
 async def toggle(cid: int, request: Request, db: Session = Depends(get_db)):
     await auth_module.require_user(request, db)
-    c = db.query(models.Cobrador).g
+    c = db.query(models.Cobrador).get(cid)
+    if c:
+        c.activo = not c.activo
+        db.commit()
+    return RedirectResponse("/cobradores/", status_code=302)
+
+
+@router.post("/{cid}/editar")
+async def editar(
+    cid: int, request: Request,
+    nombre: str = Form(...),
+    telefono: str = Form(""),
+    comision_pct: float = Form(10.0),
+    db: Session = Depends(get_db)
+):
+    await auth_module.require_user(request, db)
+    form_data = await request.form()
+    zona_ids = [int(v) for v in form_data.getlist("zona_ids") if v]
+    c = db.query(models.Cobrador).get(cid)
+    if c:
+        c.nombre = nombre.strip().upper()
+        c.telefono = telefono.strip() or None
+        c.comision_pct = comision_pct
+        _actualizar_zonas(cid, zona_ids, db)
+        db.commit()
+    return RedirectResponse("/cobradores/", status_code=302)

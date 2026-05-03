@@ -30,13 +30,28 @@ class User(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class ZonaCobrador(Base):
+    """Tabla de asociacion zona <-> cobrador (muchos-a-muchos con timestamp).
+    Una zona puede tener multiples cobradores activos al mismo tiempo.
+    El 'precargado' al cargar un socio es el de asignado_en mas reciente.
+    IMPORTANTE: debe definirse ANTES de Zona y Cobrador para que SQLAlchemy
+    resuelva las referencias de string correctamente.
+    """
+    __tablename__ = "zona_cobradores"
+    zona_id = Column(Integer, ForeignKey("zonas.id"), primary_key=True)
+    cobrador_id = Column(Integer, ForeignKey("cobradores.id"), primary_key=True)
+    asignado_en = Column(DateTime, default=_datetime.utcnow)
+    zona = relationship("Zona", back_populates="zona_cobradores")
+    cobrador = relationship("Cobrador", back_populates="zona_cobradores")
+
+
 class Zona(Base):
     __tablename__ = "zonas"
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, unique=True, nullable=False)
     descripcion = Column(String)
     # cobrador_id legacy column permanece en la DB pero ya no lo gestiona el ORM.
-    # La relación real es muchos-a-muchos via zona_cobradores.
+    # La relacion real es muchos-a-muchos via zona_cobradores.
     vendedor_id = Column(Integer, ForeignKey("vendedores.id"), nullable=True)
     vendedor = relationship("Vendedor", back_populates="zonas")
     compradores = relationship("Comprador", back_populates="zona")
@@ -46,7 +61,7 @@ class Zona(Base):
 
     @property
     def cobrador_activo(self):
-        """Último cobrador asignado a esta zona (por timestamp asignado_en)."""
+        """Ultimo cobrador asignado a esta zona (por timestamp asignado_en)."""
         if not self.zona_cobradores:
             return None
         return max(
@@ -61,7 +76,7 @@ class Zona(Base):
 
     @property
     def cobrador_id(self):
-        """ID del último cobrador asignado a esta zona."""
+        """ID del ultimo cobrador asignado a esta zona."""
         c = self.cobrador_activo
         return c.id if c else None
 
@@ -124,7 +139,7 @@ class Planilla(Base):
     __tablename__ = "planillas"
     id = Column(Integer, primary_key=True, index=True)
     cobrador_id = Column(Integer, ForeignKey("cobradores.id"), nullable=False)
-    numero = Column(Integer, nullable=False)  # secuencial por cobrador: 1, 2, 3...
+    numero = Column(Integer, nullable=False)
     mes = Column(Integer, nullable=False)
     anio = Column(Integer, nullable=False)
     comision_pct = Column(Float, default=10.0)
@@ -139,8 +154,8 @@ class Liquidacion(Base):
     id = Column(Integer, primary_key=True, index=True)
     planilla_id = Column(Integer, ForeignKey("planillas.id"), nullable=True, unique=True)
     fecha = Column(Date, nullable=False)
-    total_cuotas = Column(Integer, default=0)   # cuotas cobradas en este mes
-    monto_total = Column(Float, default=0.0)    # total recaudado
+    total_cuotas = Column(Integer, default=0)
+    monto_total = Column(Float, default=0.0)
     comision = Column(Float, default=0.0)
     neto = Column(Float, default=0.0)
     created_at = Column(DateTime, server_default=func.now())
@@ -153,7 +168,7 @@ class LiquidacionDetalle(Base):
     id = Column(Integer, primary_key=True, index=True)
     liquidacion_id = Column(Integer, ForeignKey("liquidaciones.id"), nullable=False)
     boleta_id = Column(Integer, ForeignKey("boletas.id"), nullable=False)
-    cuotas_cobradas = Column(Integer, default=0)  # cuotas cobradas en este mes
+    cuotas_cobradas = Column(Integer, default=0)
     liquidacion = relationship("Liquidacion", back_populates="detalles")
     boleta = relationship("Boleta")
 
@@ -171,6 +186,25 @@ class Boleta(Base):
     fecha_venta = Column(Date)
     condicion = Column(Enum(CondicionBoleta), default=CondicionBoleta.SIN_VENDER)
     cuotas_pactadas = Column(Integer, default=11)
-    cuotas_anticipadas = Column(Integer, default=1)   # cuotas cobradas por el vendedor al momento de la venta
+    cuotas_anticipadas = Column(Integer, default=1)
     cuotas_pagadas = Column(Integer, default=0)
- 
+    total_pagado = Column(Float, default=0.0)
+    created_at = Column(DateTime, server_default=func.now())
+
+    talonera = relationship("Talonera", back_populates="boletas")
+    comprador = relationship("Comprador", back_populates="boletas")
+    cobrador = relationship("Cobrador", back_populates="boletas")
+    vendedor = relationship("Vendedor", back_populates="boletas")
+    planilla = relationship("Planilla", back_populates="boletas")
+
+
+class Sorteo(Base):
+    __tablename__ = "sorteos"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String)
+    tipo = Column(Enum(TipoSorteo), nullable=False)
+    cifras = Column(String, nullable=False)
+    fecha = Column(Date, nullable=False)
+    num_premios = Column(Integer, default=20)
+    resultado_json = Column(String, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
