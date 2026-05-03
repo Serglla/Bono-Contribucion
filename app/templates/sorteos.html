@@ -180,15 +180,36 @@
           </div>
         </div>
 
-        <!-- Fecha -->
-        <div class="mb-3">
+        <!-- Fecha (MENSUAL / FINAL) -->
+        <div class="mb-3" id="bloqueUnaFecha">
           <label class="form-label fw-semibold">
             Fecha *
             <small class="text-muted ms-1">
               <i class="bi bi-calendar-check"></i> Próximo sábado precargado
             </small>
           </label>
-          <input type="date" name="fecha" id="inputFechaSorteo" class="form-control" required>
+          <input type="date" name="fecha" id="inputFechaSorteo" class="form-control">
+        </div>
+
+        <!-- Fecha rango (SEMANAL) -->
+        <div class="mb-3 d-none" id="bloqueRangoFecha">
+          <label class="form-label fw-semibold">
+            Rango de fechas *
+            <small class="text-muted ms-1">
+              <i class="bi bi-calendar-range"></i> Se crearán todos los sábados entre estas fechas
+            </small>
+          </label>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="flex-fill">
+              <label class="form-label small text-muted mb-1">Desde</label>
+              <input type="date" name="fecha_desde" id="inputFechaDesde" class="form-control">
+            </div>
+            <div class="flex-fill">
+              <label class="form-label small text-muted mb-1">Hasta</label>
+              <input type="date" name="fecha_hasta" id="inputFechaHasta" class="form-control">
+            </div>
+          </div>
+          <div id="previzSabados" class="mt-2 text-muted small"></div>
         </div>
 
         <!-- Hasta qué premio -->
@@ -270,14 +291,87 @@
 
 <script>
   // --- Próximo sábado como fecha por defecto ---
-  function proximoSabado() {
-    const hoy = new Date();
+  function proximoSabado(desde) {
+    const hoy = desde ? new Date(desde + 'T12:00:00') : new Date();
     const dia = hoy.getDay();
     const diasHastaSabado = dia === 6 ? 7 : (6 - dia);
     hoy.setDate(hoy.getDate() + diasHastaSabado);
     return hoy.toISOString().split('T')[0];
   }
-  document.getElementById('inputFechaSorteo').value = proximoSabado();
+
+  function sabadosEnRango(desde, hasta) {
+    const result = [];
+    if (!desde || !hasta) return result;
+    let d = new Date(desde + 'T12:00:00');
+    const fin = new Date(hasta + 'T12:00:00');
+    // avanzar al primer sábado
+    while (d.getDay() !== 6) d.setDate(d.getDate() + 1);
+    while (d <= fin) {
+      result.push(d.toISOString().split('T')[0]);
+      d.setDate(d.getDate() + 7);
+    }
+    return result;
+  }
+
+  function formatFecha(iso) {
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  }
+
+  function actualizarPreviz() {
+    const desde = document.getElementById('inputFechaDesde').value;
+    const hasta = document.getElementById('inputFechaHasta').value;
+    const div = document.getElementById('previzSabados');
+    const sabs = sabadosEnRango(desde, hasta);
+    if (!desde || !hasta) { div.textContent = ''; return; }
+    if (sabs.length === 0) {
+      div.innerHTML = '<span class="text-warning">⚠️ No hay sábados en ese rango.</span>';
+    } else {
+      div.innerHTML = `<i class="bi bi-check-circle-fill text-success me-1"></i>Se crearán <strong>${sabs.length}</strong> sorteo(s): ${sabs.map(formatFecha).join(', ')}`;
+    }
+  }
+
+  // Precargar valores iniciales
+  const proxSab = proximoSabado();
+  document.getElementById('inputFechaSorteo').value = proxSab;
+  document.getElementById('inputFechaDesde').value = proxSab;
+  document.getElementById('inputFechaHasta').value = proxSab;
+  actualizarPreviz();
+
+  // Alternar bloques según tipo
+  function actualizarModoFecha() {
+    const tipo = document.querySelector('input[name="tipo"]:checked')?.value;
+    const bloqueUno = document.getElementById('bloqueUnaFecha');
+    const bloqueRango = document.getElementById('bloqueRangoFecha');
+    const inputUno = document.getElementById('inputFechaSorteo');
+    const inputDesde = document.getElementById('inputFechaDesde');
+    const inputHasta = document.getElementById('inputFechaHasta');
+    if (tipo === 'SEMANAL') {
+      bloqueUno.classList.add('d-none');
+      bloqueRango.classList.remove('d-none');
+      inputUno.removeAttribute('required');
+      inputDesde.setAttribute('required', '');
+      inputHasta.setAttribute('required', '');
+    } else {
+      bloqueUno.classList.remove('d-none');
+      bloqueRango.classList.add('d-none');
+      inputUno.setAttribute('required', '');
+      inputDesde.removeAttribute('required');
+      inputHasta.removeAttribute('required');
+    }
+  }
+
+  document.querySelectorAll('input[name="tipo"]').forEach(r =>
+    r.addEventListener('change', actualizarModoFecha));
+  actualizarModoFecha();
+
+  document.getElementById('inputFechaDesde').addEventListener('change', function() {
+    // Si hasta < desde, ajustar hasta
+    const hasta = document.getElementById('inputFechaHasta');
+    if (hasta.value && hasta.value < this.value) hasta.value = this.value;
+    actualizarPreviz();
+  });
+  document.getElementById('inputFechaHasta').addEventListener('change', actualizarPreviz);
 
   // --- Validar cifras ---
   document.querySelector('#modalNuevo form').addEventListener('submit', function(e) {
@@ -286,8 +380,19 @@
     if (checked.length === 0) {
       e.preventDefault();
       errorEl.style.display = 'block';
-    } else {
-      errorEl.style.display = 'none';
+      return;
+    }
+    errorEl.style.display = 'none';
+    // Validar que haya al menos un sábado si es SEMANAL
+    const tipo = document.querySelector('input[name="tipo"]:checked')?.value;
+    if (tipo === 'SEMANAL') {
+      const desde = document.getElementById('inputFechaDesde').value;
+      const hasta = document.getElementById('inputFechaHasta').value;
+      if (sabadosEnRango(desde, hasta).length === 0) {
+        e.preventDefault();
+        document.getElementById('previzSabados').innerHTML =
+          '<span class="text-danger">⚠️ No hay sábados en ese rango. Corregí las fechas.</span>';
+      }
     }
   });
 

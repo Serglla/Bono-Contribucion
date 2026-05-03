@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from typing import Optional, List
-from datetime import date as date_type
+from datetime import date as date_type, timedelta
 from pydantic import BaseModel
 import json
 
@@ -21,27 +21,65 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "sorteos.html", {"user": user, "sorteos": sorteos})
 
 
+def _sabados_entre(desde: date_type, hasta: date_type) -> List[date_type]:
+    """Devuelve todos los sábados entre dos fechas inclusive."""
+    fechas = []
+    d = desde
+    # avanzar al primer sábado (weekday 5)
+    while d.weekday() != 5:
+        d += timedelta(days=1)
+    while d <= hasta:
+        fechas.append(d)
+        d += timedelta(days=7)
+    return fechas
+
+
 @router.post("/crear")
 async def crear(
     request: Request,
     nombre: str = Form(""),
     tipo: str = Form(...),
     cifras: List[str] = Form(...),
-    fecha: str = Form(...),
+    fecha: Optional[str] = Form(None),
+    fecha_desde: Optional[str] = Form(None),
+    fecha_hasta: Optional[str] = Form(None),
     num_premios: int = Form(20),
     db: Session = Depends(get_db)
 ):
     await auth_module.require_user(request, db)
     cifras_str = ",".join(sorted(set(cifras), key=lambda x: int(x)))
-    s = models.Sorteo(
-        nombre=nombre.strip() or None,
-        tipo=models.TipoSorteo(tipo),
-        cifras=cifras_str,
-        fecha=date_type.fromisoformat(fecha),
-        num_premios=max(1, min(20, num_premios)),
-    )
-    db.add(s)
-    db.commit()
+    num_p = max(1, min(20, num_premios))
+
+    # Semanal con rango → crear uno por cada sábado
+    if tipo == "SEMANAL" and fecha_desde and fecha_hasta:
+        d_desde = date_type.fromisoformat(fecha_desde)
+        d_hasta = date_type.fromisoformat(fecha_hasta)
+        sabados = _sabados_entre(d_desde, d_hasta)
+        for sab in sabados:
+            s = models.Sorteo(
+                nombre=nombre.strip() or None,
+                tipo=models.TipoSorteo(tipo),
+                cifras=cifras_str,
+                fecha=sab,
+                num_premios=num_p,
+            )
+            db.add(s)
+        db.commit()
+    else:
+        # Mensual, Final o Semanal con fecha única
+        fecha_val = fecha or fecha_desde
+        if not fecha_val:
+            return RedirectResponse("/sorteos/", status_code=302)
+        s = models.Sorteo(
+            nombre=nombre.strip() or None,
+            tipo=models.TipoSorteo(tipo),
+            cifras=cifras_str,
+            fecha=date_type.fromisoformat(fecha_val),
+            num_premios=num_p,
+        )
+        db.add(s)
+        db.commit()
+
     return RedirectResponse("/sorteos/", status_code=302)
 
 
