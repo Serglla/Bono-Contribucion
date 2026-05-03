@@ -200,6 +200,16 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion liquidaciones planilla_id nullable: {e}")
 
+        # Migrar historial_cuotas en boletas
+        try:
+            cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
+            if "historial_cuotas" not in cols_boletas:
+                db.execute(text("ALTER TABLE boletas ADD COLUMN historial_cuotas TEXT"))
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion historial_cuotas: {e}")
+
         # Migrar enum tiposorteo en PostgreSQL para agregar valor CONTADO
         try:
             dialect = engine.dialect.name

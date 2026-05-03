@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import date
 from typing import List, Optional
+import json
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..models import CondicionBoleta
@@ -275,27 +276,36 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
                .order_by(models.Boleta.numero_principal)
                .all())
 
-    # Detalles de liquidación ya existentes
     liq = planilla.liquidacion
-    detalles_map = {}
-    if liq:
-        for d in liq.detalles:
-            detalles_map[d.boleta_id] = d.cuotas_cobradas
+
+    # Construir historial y selección actual por boleta
+    historial_map = {}       # boleta_id -> {cuota_str: mes}
+    cuotas_mes_actual = {}   # boleta_id -> [cuota_nums pagados en planilla.mes]
+    for b in boletas:
+        h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+        historial_map[b.id] = h
+        cuotas_mes_actual[b.id] = [int(k) for k, v in h.items() if v == planilla.mes]
+
+    max_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 12
+    cuota_nums = list(range(1, max_cuotas + 1))
 
     return templates.TemplateResponse(request, "cobranza_liquidacion_detalle.html", {
         "user": user,
         "planilla": planilla,
         "boletas": boletas,
-        "detalles_map": detalles_map,
+        "historial_map": historial_map,
+        "cuotas_mes_actual": cuotas_mes_actual,
         "liquidacion": liq,
         "mes_nombre": MESES[planilla.mes - 1],
+        "mes_actual": planilla.mes,
+        "cuota_nums": cuota_nums,
     })
 
 
 @router.post("/liquidacion/{planilla_id}/guardar")
 async def liquidacion_guardar(request: Request, planilla_id: int,
                                boleta_ids: List[int] = Form(...),
-                               cuotas_cobradas: List[int] = Form(...),
+                               cuotas_json: List[str] = Form(...),
                                db: Session = Depends(get_db)):
     await auth_module.require_user(request, db)
     planilla = db.query(models.Planilla).get(planilla_id)
@@ -313,23 +323,34 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     db.query(models.LiquidacionDetalle).filter_by(liquidacion_id=liq.id).delete()
 
     total_cuotas = 0
-    for bid, cobradas in zip(boleta_ids, cuotas_cobradas):
+    for bid, cjson in zip(boleta_ids, cuotas_json):
+        cuotas_nuevas = json.loads(cjson)   # lista de enteros, ej: [2, 3, 4]
+        boleta = db.query(models.Boleta).get(bid)
+        if not boleta:
+            continue
+
+        # Actualizar historial_cuotas: quitar entradas del mes actual y reemplazar
+        historial = json.loads(boleta.historial_cuotas) if boleta.historial_cuotas else {}
+        historial = {k: v for k, v in historial.items() if v != planilla.mes}
+        for cn in cuotas_nuevas:
+            historial[str(cn)] = planilla.mes
+        boleta.historial_cuotas = json.dumps(historial)
+
+        # cuotas_pagadas = anticipadas + todas las del historial
+        boleta.cuotas_pagadas = min(
+            boleta.cuotas_anticipadas + len(historial),
+            boleta.cuotas_pactadas
+        )
+
+        cobradas = len(cuotas_nuevas)
         if cobradas > 0:
             db.add(models.LiquidacionDetalle(
                 liquidacion_id=liq.id,
                 boleta_id=bid,
                 cuotas_cobradas=cobradas,
             ))
-            # Actualizar cuotas_pagadas en la boleta
-            boleta = db.query(models.Boleta).get(bid)
-            if boleta:
-                boleta.cuotas_pagadas = min(
-                    boleta.cuotas_anticipadas + cobradas,
-                    boleta.cuotas_pactadas
-                )
-            total_cuotas += cobradas
+        total_cuotas += cobradas
 
-    # Calcular totales (sin monto por ahora, se puede agregar precio por cuota después)
     liq.total_cuotas = total_cuotas
     liq.fecha = date.today()
     db.commit()

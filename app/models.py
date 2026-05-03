@@ -190,6 +190,7 @@ class Boleta(Base):
     cuotas_pactadas = Column(Integer, default=11)
     cuotas_anticipadas = Column(Integer, default=1)
     cuotas_pagadas = Column(Integer, default=0)
+    historial_cuotas = Column(String, nullable=True)  # JSON: {"cuota_num": mes_pagado}
     total_pagado = Column(Float, default=0.0)
     created_at = Column(DateTime, server_default=func.now())
 
