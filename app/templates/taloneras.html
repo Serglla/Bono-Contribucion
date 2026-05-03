@@ -33,7 +33,11 @@
           {% endif %}
         </div>
         <p class="text-muted small mb-1">Multiplicador: <strong>×{{ g.multiplicador }}</strong> &nbsp;|&nbsp; <strong>{{ g.num_series }}</strong> números por boleta</p>
-        <p class="text-muted small mb-2">{{ g.taloneras | length }} tanda{% if g.taloneras|length != 1 %}s{% endif %}</p>
+        <p class="text-muted small mb-1">{{ g.taloneras | length }} tanda{% if g.taloneras|length != 1 %}s{% endif %}
+          {% if g.taloneras[0].valor_cuota and g.taloneras[0].valor_cuota > 0 %}
+          &nbsp;|&nbsp; Cuota: <strong>${{ "%.0f"|format(g.taloneras[0].valor_cuota) }}</strong>
+          {% endif %}
+        </p>
         <div class="d-flex flex-column gap-1">
           {% for t in g.taloneras %}
           <div class="d-flex align-items-center gap-2">
@@ -83,44 +87,70 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
 
 {% if user.is_admin %}
 <div class="modal fade" id="modalNueva" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog">
     <div class="modal-content">
       <form method="post" action="/taloneras/crear" id="formNuevaTalonera">
         <div class="modal-header">
-          <h5 class="modal-title">Nueva Talonera</h5>
+          <h5 class="modal-title"><i class="bi bi-journal-plus text-danger me-2"></i>Nueva Talonera</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
 
-          <!-- Paso 1: elegir número de series -->
-          <div class="mb-3">
-            <label class="form-label fw-semibold">N° por boleta</label>
-            <select id="selNumSeries" name="num_series" class="form-select" style="max-width:220px;">
-              <option value="3">3 números → PATA 1</option>
-              <option value="6">6 números → PATA 2</option>
-              <option value="9">9 números → PATA 3</option>
-              <option value="12">12 números → PATA 4</option>
-              <option value="15">15 números → PATA 5</option>
-              <option value="18">18 números → PATA 6</option>
-            </select>
+          <div class="row g-3">
+
+            <!-- N° por boleta -->
+            <div class="col-12">
+              <label class="form-label fw-semibold">N° por boleta</label>
+              <select id="selNumSeries" name="num_series" class="form-select">
+                <option value="3">3 números — PATA 1</option>
+                <option value="6">6 números — PATA 2</option>
+                <option value="9">9 números — PATA 3</option>
+                <option value="12">12 números — PATA 4</option>
+                <option value="15">15 números — PATA 5</option>
+                <option value="18">18 números — PATA 6</option>
+              </select>
+            </div>
+
+            <!-- Nombre -->
+            <div class="col-12">
+              <label class="form-label fw-semibold">Nombre</label>
+              <input type="text" id="inputNombre" name="nombre" class="form-control" required>
+              <div class="form-text">Se sugiere automáticamente según el tipo de PATA.</div>
+            </div>
+
+            <!-- Número inicio + Cantidad -->
+            <div class="col-6">
+              <label class="form-label fw-semibold">N° inicio</label>
+              <input type="number" id="inputInicio" name="numero_inicio" class="form-control" min="1" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Cantidad de números</label>
+              <input type="number" id="inputCantidad" name="cantidad" class="form-control" min="1" required>
+            </div>
+
+            <!-- Offset entre series -->
+            <div class="col-6">
+              <label class="form-label fw-semibold">Offset entre series</label>
+              <input type="number" id="inputOffset" name="offset_series" class="form-control" min="0" value="0">
+              <div class="form-text">Diferencia entre el inicio de cada serie.</div>
+            </div>
+
+            <!-- Valor cuota -->
+            <div class="col-6">
+              <label class="form-label fw-semibold">Valor de la cuota $</label>
+              <input type="number" name="valor_cuota" class="form-control" min="0" step="0.01" value="0" placeholder="0.00">
+            </div>
+
+            <!-- Preview del rango -->
+            <div class="col-12">
+              <div id="previewRango" class="alert alert-secondary py-2 mb-0 small d-none"></div>
+            </div>
+
           </div>
-
-          <!-- Nombre auto-generado (oculto, editable si hace falta) -->
-          <div class="mb-3">
-            <label class="form-label">Nombre de la talonera</label>
-            <input type="text" id="inputNombre" name="nombre" class="form-control" required style="max-width:220px;">
-          </div>
-
-          <!-- Campos de series (se generan dinámicamente con JS) -->
-          <div id="seriesContainer" class="row g-2 mt-1"></div>
-
-          <!-- Info calculada -->
-          <p class="text-muted small mt-2 mb-0" id="offsetInfo"></p>
-
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="submit" class="btn btn-danger">Crear</button>
+          <button type="submit" class="btn btn-danger"><i class="bi bi-check-lg me-1"></i>Crear</button>
         </div>
       </form>
     </div>
@@ -129,104 +159,51 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
 
 <script>
 (function () {
-  const sel        = document.getElementById('selNumSeries');
-  const nombreInput = document.getElementById('inputNombre');
-  const container  = document.getElementById('seriesContainer');
-  const offsetInfo = document.getElementById('offsetInfo');
+  const sel      = document.getElementById('selNumSeries');
+  const nombre   = document.getElementById('inputNombre');
+  const inicio   = document.getElementById('inputInicio');
+  const cantidad = document.getElementById('inputCantidad');
+  const offset   = document.getElementById('inputOffset');
+  const preview  = document.getElementById('previewRango');
 
   function pataNum(n) { return n / 3; }
 
-  // Devuelve la cantidad de boletas definida por la Serie 1, o null si no está completa
-  function getCantidad() {
-    const ini = parseInt(container.querySelector('.serie-inicio[data-idx="1"]')?.value);
-    const fin = parseInt(container.querySelector('.serie-fin[data-idx="1"]')?.value);
-    if (!isNaN(ini) && !isNaN(fin) && fin >= ini) return fin - ini + 1;
-    return null;
+  function actualizarNombre() {
+    nombre.value = 'PATA ' + pataNum(parseInt(sel.value));
   }
 
-  // Auto-rellena el N° Fin de una serie (idx >= 2) según la cantidad de la Serie 1
-  function autoFin(idx) {
-    const cant = getCantidad();
-    const iniEl = container.querySelector(`.serie-inicio[data-idx="${idx}"]`);
-    const finEl = container.querySelector(`.serie-fin[data-idx="${idx}"]`);
-    if (!iniEl || !finEl) return;
-    const ini = parseInt(iniEl.value);
-    if (cant && !isNaN(ini)) {
-      finEl.value = ini + cant - 1;
-      finEl.classList.add('text-muted');
+  function actualizarPreview() {
+    const ini  = parseInt(inicio.value);
+    const cant = parseInt(cantidad.value);
+    const off  = parseInt(offset.value) || 0;
+    const ns   = parseInt(sel.value);
+    if (!isNaN(ini) && !isNaN(cant) && cant > 0) {
+      const fin = ini + cant - 1;
+      let txt = `Rango: <strong>${String(ini).padStart(4,'0')}</strong> → <strong>${String(fin).padStart(4,'0')}</strong> (${cant} boletas)`;
+      if (ns > 3 && off > 0) {
+        txt += `<br>Series: `;
+        const partes = [];
+        for (let i = 0; i < ns; i++) partes.push(String(ini + off * i).padStart(4,'0'));
+        txt += partes.join(' / ');
+      }
+      preview.innerHTML = txt;
+      preview.classList.remove('d-none');
     } else {
-      finEl.value = '';
-    }
-    calcOffset();
-  }
-
-  // Recalcula el fin de TODAS las series 2+ (útil cuando cambia la Serie 1)
-  function recalcTodas() {
-    const n = parseInt(sel.value);
-    for (let j = 2; j <= n; j++) autoFin(j);
-    calcOffset();
-  }
-
-  function calcOffset() {
-    const inicios = [...container.querySelectorAll('.serie-inicio')]
-      .map(e => parseInt(e.value)).filter(v => !isNaN(v));
-    const cant = getCantidad();
-    if (inicios.length >= 2 && cant) {
-      const offset = inicios[1] - inicios[0];
-      offsetInfo.textContent = `${cant} boletas por serie · Offset entre series: ${offset}`;
-    } else if (cant) {
-      offsetInfo.textContent = `${cant} boletas por serie`;
-    } else {
-      offsetInfo.textContent = '';
+      preview.classList.add('d-none');
     }
   }
 
-  function render() {
-    const n = parseInt(sel.value);
-    nombreInput.value = 'PATA ' + pataNum(n);
-    container.innerHTML = '';
+  sel.addEventListener('change', () => { actualizarNombre(); actualizarPreview(); });
+  inicio.addEventListener('input', actualizarPreview);
+  cantidad.addEventListener('input', actualizarPreview);
+  offset.addEventListener('input', actualizarPreview);
 
-    for (let i = 1; i <= n; i++) {
-      const esAuto = i > 1;
-      const col = document.createElement('div');
-      col.className = 'col-12';
-      col.innerHTML = `
-        <div class="card border-0 bg-light px-3 py-2 mb-1">
-          <div class="row g-2 align-items-center">
-            <div class="col-auto">
-              <span class="badge bg-dark">Serie ${i}</span>
-            </div>
-            <div class="col">
-              <label class="form-label mb-0 small">N° Inicio</label>
-              <input type="number" name="serie_inicio" class="form-control form-control-sm serie-inicio"
-                     data-idx="${i}" required>
-            </div>
-            <div class="col">
-              <label class="form-label mb-0 small">
-                N° Fin${esAuto ? ' <span class="badge bg-success-subtle text-success border border-success" style="font-size:.65rem;">auto</span>' : ''}
-              </label>
-              <input type="number" name="serie_fin" class="form-control form-control-sm serie-fin"
-                     data-idx="${i}" ${esAuto ? 'readonly style="background:#f8fff8;"' : ''} required>
-            </div>
-          </div>
-        </div>`;
-      container.appendChild(col);
-    }
+  document.getElementById('modalNueva').addEventListener('show.bs.modal', () => {
+    actualizarNombre();
+    preview.classList.add('d-none');
+  });
 
-    // Serie 1: cuando cambia inicio o fin, recalcular todas las demás
-    container.querySelector('.serie-inicio[data-idx="1"]').addEventListener('input', recalcTodas);
-    container.querySelector('.serie-fin[data-idx="1"]').addEventListener('input', recalcTodas);
-
-    // Series 2+: cuando cambia el inicio, auto-calcular su fin
-    for (let i = 2; i <= n; i++) {
-      const idx = i;
-      container.querySelector(`.serie-inicio[data-idx="${idx}"]`).addEventListener('input', () => autoFin(idx));
-    }
-  }
-
-  sel.addEventListener('change', render);
-  document.getElementById('modalNueva').addEventListener('show.bs.modal', render);
-  render();
+  actualizarNombre();
 })();
 </script>
 {% endif %}

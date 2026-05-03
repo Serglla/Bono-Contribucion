@@ -124,6 +124,16 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion color taloneras: {e}")
 
+        # Migrar columna valor_cuota en taloneras
+        try:
+            cols_taloneras = [c["name"] for c in inspector.get_columns("taloneras")]
+            if "valor_cuota" not in cols_taloneras:
+                db.execute(text("ALTER TABLE taloneras ADD COLUMN valor_cuota REAL DEFAULT 0.0"))
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion valor_cuota taloneras: {e}")
+
         # Migrar columna cuotas_anticipadas en boletas
         try:
             cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
