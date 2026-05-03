@@ -13,6 +13,7 @@
   <button class="btn btn-sm btn-danger filtro-tipo active" data-tipo="TODOS">Todos</button>
   <button class="btn btn-sm btn-outline-secondary filtro-tipo" data-tipo="SEMANAL">Semanales</button>
   <button class="btn btn-sm btn-outline-secondary filtro-tipo" data-tipo="MENSUAL">Mensuales</button>
+  <button class="btn btn-sm btn-outline-secondary filtro-tipo" data-tipo="CONTADO">Al contado</button>
   <button class="btn btn-sm btn-outline-secondary filtro-tipo" data-tipo="FINAL">Final</button>
 
   <div class="ms-auto d-flex align-items-center gap-2">
@@ -46,6 +47,8 @@
               <span class="badge" style="background:#0d6efd;">Semanal</span>
             {% elif s.tipo.value == "MENSUAL" %}
               <span class="badge" style="background:#198754;">Mensual</span>
+            {% elif s.tipo.value == "CONTADO" %}
+              <span class="badge" style="background:#fd7e14;">Al contado</span>
             {% else %}
               <span class="badge" style="background:#dc3545;">Final</span>
             {% endif %}
@@ -146,6 +149,13 @@
                      value="MENSUAL">
               <label class="form-check-label" for="tipoMensual">
                 <span class="badge" style="background:#198754;">Mensual</span>
+              </label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="tipo" id="tipoContado"
+                     value="CONTADO">
+              <label class="form-check-label" for="tipoContado">
+                <span class="badge" style="background:#fd7e14;">Al contado</span>
               </label>
             </div>
             <div class="form-check form-check-inline">

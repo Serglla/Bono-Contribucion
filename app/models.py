@@ -9,6 +9,7 @@ from .database import Base
 class TipoSorteo(str, enum.Enum):
     SEMANAL = "SEMANAL"
     MENSUAL = "MENSUAL"
+    CONTADO = "CONTADO"
     FINAL = "FINAL"
 
 

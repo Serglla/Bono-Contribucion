@@ -200,6 +200,16 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion liquidaciones planilla_id nullable: {e}")
 
+        # Migrar enum tiposorteo en PostgreSQL para agregar valor CONTADO
+        try:
+            dialect = engine.dialect.name
+            if dialect == "postgresql":
+                db.execute(text("ALTER TYPE tiposorteo ADD VALUE IF NOT EXISTS 'CONTADO' AFTER 'MENSUAL'"))
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion tiposorteo CONTADO: {e}")
+
         if not db.query(models.User).filter_by(username="admin").first():
             import logging
             logging.getLogger(__name__).warning(
