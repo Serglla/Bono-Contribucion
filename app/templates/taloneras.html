@@ -98,22 +98,15 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
 
           <!-- Fila superior: N° series + Nombre + Valor cuota -->
           <div class="d-flex gap-3 mb-4">
-            <div style="flex:0 0 200px;">
+            <div style="flex:0 0 160px;">
               <label class="form-label fw-semibold">N° de series por boleta</label>
-              <select id="selNumSeries" name="num_series" class="form-select">
-                <option value="1">1 serie</option>
-                <option value="2">2 series</option>
-                <option value="3" selected>3 series — PATA 1</option>
-                <option value="4">4 series</option>
-                <option value="5">5 series</option>
-                <option value="6">6 series — PATA 2</option>
-                <option value="9">9 series — PATA 3</option>
-                <option value="12">12 series — PATA 4</option>
-              </select>
+              <input type="text" inputmode="numeric" id="selNumSeries" name="num_series"
+                     class="form-control" value="3" placeholder="Ej: 3" required>
+              <div class="form-text" id="pataHint">PATA 1</div>
             </div>
             <div style="flex:1;">
               <label class="form-label fw-semibold">Nombre</label>
-              <input type="text" id="inputNombre" name="nombre" class="form-control" required placeholder="PATA 1">
+              <input type="text" id="inputNombre" name="nombre" class="form-control" required placeholder="Ej: PATA 1">
             </div>
             <div style="flex:0 0 140px;">
               <label class="form-label fw-semibold">Valor cuota $</label>
@@ -195,7 +188,11 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
 
   function render() {
     var ns = parseInt(sel.value);
-    nombreEl.value = PATA_NAMES[ns] || '';
+    if (isNaN(ns) || ns < 1) return;
+    // Sugerir nombre solo si coincide con PATA o está vacío
+    if (PATA_NAMES[ns] && (!nombreEl.value || Object.values(PATA_NAMES).indexOf(nombreEl.value) !== -1)) {
+      nombreEl.value = PATA_NAMES[ns];
+    }
     container.innerHTML = '';
     for (var i = 0; i < ns; i++) {
       var esAuto = (i > 0);
@@ -231,7 +228,27 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
     }
   }
 
-  sel.addEventListener('change', render);
+  // Al escribir N° de series: redibujar con debounce, sugerir nombre
+  var debounceTimer;
+  sel.addEventListener('input', function() {
+    var ns = parseInt(sel.value);
+    var hint = document.getElementById('pataHint');
+    if (PATA_NAMES[ns]) {
+      hint.textContent = PATA_NAMES[ns];
+      hint.classList.remove('d-none');
+      // Solo sugerir nombre si está vacío o era una sugerencia anterior
+      if (!nombreEl.value || Object.values(PATA_NAMES).indexOf(nombreEl.value) !== -1) {
+        nombreEl.value = PATA_NAMES[ns];
+      }
+    } else {
+      hint.textContent = ns >= 1 ? ns + ' series' : '';
+    }
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(function() {
+      if (ns >= 1 && ns <= 30) render();
+    }, 400);
+  });
+
   document.getElementById('modalNueva').addEventListener('show.bs.modal', function() {
     render();
     preview.classList.add('d-none');
