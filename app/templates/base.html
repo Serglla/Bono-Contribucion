@@ -59,6 +59,9 @@
       <a class="nav-link {% if request.url.path.startswith('/auth/usuarios') %}active{% endif %}" href="/auth/usuarios">
         <i class="bi bi-person-lock me-2"></i>Usuarios
       </a>
+      <a class="nav-link {% if request.url.path.startswith('/backup') %}active{% endif %}" href="/backup/">
+        <i class="bi bi-database-fill-down me-2"></i>Backup
+      </a>
       {% endif %}
     </nav>
     <div class="mt-auto pt-4 ps-2">

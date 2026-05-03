@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .database import engine, get_db
 from . import models, auth as auth_module
-from .routers import auth, compradores, taloneras, vendedores, cobradores, reportes, zonas, sorteos, cobranza
+from .routers import auth, compradores, taloneras, vendedores, cobradores, reportes, zonas, sorteos, cobranza, backup
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -24,6 +24,7 @@ app.include_router(reportes.router)
 app.include_router(zonas.router)
 app.include_router(sorteos.router)
 app.include_router(cobranza.router)
+app.include_router(backup.router)
 
 
 @app.get("/health")
