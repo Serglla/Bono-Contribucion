@@ -18,7 +18,22 @@ router = APIRouter(prefix="/sorteos", tags=["sorteos"])
 async def listar(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
     sorteos = db.query(models.Sorteo).order_by(models.Sorteo.fecha.desc()).all()
-    return templates.TemplateResponse(request, "sorteos.html", {"user": user, "sorteos": sorteos})
+
+    # Último sorteo por tipo (el primero en la lista desc ya es el más reciente)
+    ultima_por_tipo: dict = {}
+    for s in sorteos:
+        tipo = s.tipo.value
+        if tipo not in ultima_por_tipo:
+            ultima_por_tipo[tipo] = {
+                "fecha": s.fecha.isoformat(),
+                "num_premios": s.num_premios or 20,
+            }
+
+    return templates.TemplateResponse(request, "sorteos.html", {
+        "user": user,
+        "sorteos": sorteos,
+        "ultima_por_tipo": ultima_por_tipo,
+    })
 
 
 def _sabados_entre(desde: date_type, hasta: date_type) -> List[date_type]:

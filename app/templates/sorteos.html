@@ -136,29 +136,29 @@
         <!-- Tipo -->
         <div class="mb-3">
           <label class="form-label fw-semibold">Tipo *</label>
-          <div class="d-flex gap-2 flex-wrap">
-            <div class="form-check form-check-inline">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;">
+            <div class="form-check">
               <input class="form-check-input" type="radio" name="tipo" id="tipoSemanal"
                      value="SEMANAL" required>
               <label class="form-check-label" for="tipoSemanal">
                 <span class="badge" style="background:#0d6efd;">Semanal</span>
               </label>
             </div>
-            <div class="form-check form-check-inline">
+            <div class="form-check">
               <input class="form-check-input" type="radio" name="tipo" id="tipoMensual"
                      value="MENSUAL">
               <label class="form-check-label" for="tipoMensual">
                 <span class="badge" style="background:#198754;">Mensual</span>
               </label>
             </div>
-            <div class="form-check form-check-inline">
+            <div class="form-check">
               <input class="form-check-input" type="radio" name="tipo" id="tipoContado"
                      value="CONTADO">
               <label class="form-check-label" for="tipoContado">
                 <span class="badge" style="background:#fd7e14;">Al contado</span>
               </label>
             </div>
-            <div class="form-check form-check-inline">
+            <div class="form-check">
               <input class="form-check-input" type="radio" name="tipo" id="tipoFinal"
                      value="FINAL">
               <label class="form-check-label" for="tipoFinal">
@@ -300,7 +300,10 @@
 </style>
 
 <script>
-  // --- Próximo sábado como fecha por defecto ---
+  // --- Datos del último sorteo por tipo (desde el servidor) ---
+  const ultimaPorTipo = {{ ultima_por_tipo | tojson }};
+
+  // --- Utilidades de fecha ---
   function proximoSabado(desde) {
     const hoy = desde ? new Date(desde + 'T12:00:00') : new Date();
     const dia = hoy.getDay();
@@ -309,12 +312,51 @@
     return hoy.toISOString().split('T')[0];
   }
 
+  function sumarMeses(isoDate, meses) {
+    const d = new Date(isoDate + 'T12:00:00');
+    d.setMonth(d.getMonth() + meses);
+    return d.toISOString().split('T')[0];
+  }
+
+  // Último sábado del mes (year, month 0-indexed)
+  function ultimoSabadoDelMes(year, month) {
+    let d = new Date(year, month + 1, 0); // último día del mes
+    while (d.getDay() !== 6) d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  }
+
+  // Fecha sugerida según tipo
+  function fechaSugerida(tipo) {
+    const u = ultimaPorTipo[tipo];
+    if (tipo === 'SEMANAL') {
+      return u ? proximoSabado(u.fecha) : proximoSabado(null);
+    }
+    if (tipo === 'MENSUAL' || tipo === 'CONTADO') {
+      if (u) return sumarMeses(u.fecha, 1);
+      const hoy = new Date();
+      return new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1)
+               .toISOString().split('T')[0];
+    }
+    if (tipo === 'FINAL') {
+      let base;
+      if (u) {
+        const d = new Date(u.fecha + 'T12:00:00');
+        d.setMonth(d.getMonth() + 1);
+        base = { y: d.getFullYear(), m: d.getMonth() };
+      } else {
+        const hoy = new Date();
+        base = { y: hoy.getFullYear(), m: hoy.getMonth() + 1 };
+      }
+      return ultimoSabadoDelMes(base.y, base.m);
+    }
+    return proximoSabado(null);
+  }
+
   function sabadosEnRango(desde, hasta) {
     const result = [];
     if (!desde || !hasta) return result;
     let d = new Date(desde + 'T12:00:00');
     const fin = new Date(hasta + 'T12:00:00');
-    // avanzar al primer sábado
     while (d.getDay() !== 6) d.setDate(d.getDate() + 1);
     while (d <= fin) {
       result.push(d.toISOString().split('T')[0]);
@@ -341,42 +383,53 @@
     }
   }
 
-  // Precargar valores iniciales
-  const proxSab = proximoSabado();
-  document.getElementById('inputFechaSorteo').value = proxSab;
-  document.getElementById('inputFechaDesde').value = proxSab;
-  document.getElementById('inputFechaHasta').value = proxSab;
-  actualizarPreviz();
-
-  // Alternar bloques según tipo
+  // --- Alternar bloques según tipo + fecha inteligente + num_premios ---
   function actualizarModoFecha() {
     const tipo = document.querySelector('input[name="tipo"]:checked')?.value;
-    const bloqueUno = document.getElementById('bloqueUnaFecha');
+    if (!tipo) return;
+
+    const bloqueUno   = document.getElementById('bloqueUnaFecha');
     const bloqueRango = document.getElementById('bloqueRangoFecha');
-    const inputUno = document.getElementById('inputFechaSorteo');
-    const inputDesde = document.getElementById('inputFechaDesde');
-    const inputHasta = document.getElementById('inputFechaHasta');
+    const inputUno    = document.getElementById('inputFechaSorteo');
+    const inputDesde  = document.getElementById('inputFechaDesde');
+    const inputHasta  = document.getElementById('inputFechaHasta');
+    const inputPremios = document.querySelector('input[name="num_premios"]');
+
+    // Actualizar num_premios con el último guardado para este tipo
+    if (ultimaPorTipo[tipo]) {
+      inputPremios.value = ultimaPorTipo[tipo].num_premios;
+    } else {
+      inputPremios.value = 20;
+    }
+
     if (tipo === 'SEMANAL') {
       bloqueUno.classList.add('d-none');
       bloqueRango.classList.remove('d-none');
       inputUno.removeAttribute('required');
       inputDesde.setAttribute('required', '');
       inputHasta.setAttribute('required', '');
+      const sug = fechaSugerida('SEMANAL');
+      inputDesde.value = sug;
+      inputHasta.value = sug;
+      actualizarPreviz();
     } else {
       bloqueUno.classList.remove('d-none');
       bloqueRango.classList.add('d-none');
       inputUno.setAttribute('required', '');
       inputDesde.removeAttribute('required');
       inputHasta.removeAttribute('required');
+      inputUno.value = fechaSugerida(tipo);
     }
   }
 
   document.querySelectorAll('input[name="tipo"]').forEach(r =>
     r.addEventListener('change', actualizarModoFecha));
+
+  // Seleccionar SEMANAL por defecto y disparar la lógica
+  document.getElementById('tipoSemanal').checked = true;
   actualizarModoFecha();
 
   document.getElementById('inputFechaDesde').addEventListener('change', function() {
-    // Si hasta < desde, ajustar hasta
     const hasta = document.getElementById('inputFechaHasta');
     if (hasta.value && hasta.value < this.value) hasta.value = this.value;
     actualizarPreviz();
@@ -393,7 +446,6 @@
       return;
     }
     errorEl.style.display = 'none';
-    // Validar que haya al menos un sábado si es SEMANAL
     const tipo = document.querySelector('input[name="tipo"]:checked')?.value;
     if (tipo === 'SEMANAL') {
       const desde = document.getElementById('inputFechaDesde').value;
