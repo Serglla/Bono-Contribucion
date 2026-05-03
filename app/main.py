@@ -108,6 +108,16 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion cuotas_anticipadas: {e}")
 
+        # Migrar columna comision_pct en cobradores
+        try:
+            cols_cob = [c["name"] for c in inspector.get_columns("cobradores")]
+            if "comision_pct" not in cols_cob:
+                db.execute(text("ALTER TABLE cobradores ADD COLUMN comision_pct REAL DEFAULT 10.0"))
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion comision_pct cobradores: {e}")
+
         # Migrar columna comision_pct en planillas
         try:
             cols_planillas = [c["name"] for c in inspector.get_columns("planillas")]
@@ -155,6 +165,16 @@ def create_default_admin():
         except Exception as e:
             db.rollback()
             print(f"Migracion liquidaciones planilla_id nullable: {e}")
+
+        # Migrar columna comision_pct en cobradores
+        try:
+            cols_cob = [c["name"] for c in inspector.get_columns("cobradores")]
+            if "comision_pct" not in cols_cob:
+                db.execute(text("ALTER TABLE cobradores ADD COLUMN comision_pct REAL DEFAULT 10.0"))
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion comision_pct cobradores: {e}")
 
         # liquidaciones y liquidacion_detalles se crean por create_all
 
