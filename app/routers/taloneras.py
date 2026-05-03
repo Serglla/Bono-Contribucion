@@ -48,22 +48,23 @@ async def crear(
     request: Request,
     nombre: str = Form(...),
     num_series: int = Form(3),
-    numero_inicio: int = Form(...),
-    cantidad: int = Form(...),
-    offset_series: int = Form(0),
+    serie_inicio: List[int] = Form(...),
+    serie_fin: List[int] = Form(...),
     valor_cuota: float = Form(0.0),
     db: Session = Depends(get_db)
 ):
     await auth_module.require_admin(request, db)
     multiplicador = num_series // 3
-    numero_fin = numero_inicio + cantidad - 1
+    offset = (serie_inicio[1] - serie_inicio[0]) if len(serie_inicio) >= 2 else 0
+    numero_inicio = serie_inicio[0] if serie_inicio else None
+    numero_fin = serie_fin[0] if serie_fin else None
     t = models.Talonera(
         nombre=nombre,
         multiplicador=multiplicador,
         numero_inicio=numero_inicio,
         numero_fin=numero_fin,
         num_series=num_series,
-        offset_series=offset_series,
+        offset_series=offset,
         valor_cuota=valor_cuota,
     )
     db.add(t)

@@ -87,7 +87,7 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
 
 {% if user.is_admin %}
 <div class="modal fade" id="modalNueva" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="/taloneras/crear" id="formNuevaTalonera">
         <div class="modal-header">
@@ -96,57 +96,37 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
         </div>
         <div class="modal-body">
 
-          <div class="row g-3">
-
-            <!-- N° por boleta -->
-            <div class="col-12">
-              <label class="form-label fw-semibold">N° por boleta</label>
+          <!-- Fila superior: N° series + Nombre + Valor cuota -->
+          <div class="d-flex gap-3 mb-4">
+            <div style="flex:0 0 200px;">
+              <label class="form-label fw-semibold">N° de series por boleta</label>
               <select id="selNumSeries" name="num_series" class="form-select">
-                <option value="3">3 números — PATA 1</option>
-                <option value="6">6 números — PATA 2</option>
-                <option value="9">9 números — PATA 3</option>
-                <option value="12">12 números — PATA 4</option>
-                <option value="15">15 números — PATA 5</option>
-                <option value="18">18 números — PATA 6</option>
+                <option value="1">1 serie</option>
+                <option value="2">2 series</option>
+                <option value="3" selected>3 series — PATA 1</option>
+                <option value="4">4 series</option>
+                <option value="5">5 series</option>
+                <option value="6">6 series — PATA 2</option>
+                <option value="9">9 series — PATA 3</option>
+                <option value="12">12 series — PATA 4</option>
               </select>
             </div>
-
-            <!-- Nombre -->
-            <div class="col-12">
+            <div style="flex:1;">
               <label class="form-label fw-semibold">Nombre</label>
-              <input type="text" id="inputNombre" name="nombre" class="form-control" required>
-              <div class="form-text">Se sugiere automáticamente según el tipo de PATA.</div>
+              <input type="text" id="inputNombre" name="nombre" class="form-control" required placeholder="PATA 1">
             </div>
-
-            <!-- Número inicio + Cantidad -->
-            <div class="col-6">
-              <label class="form-label fw-semibold">N° inicio</label>
-              <input type="number" id="inputInicio" name="numero_inicio" class="form-control" min="1" required>
+            <div style="flex:0 0 140px;">
+              <label class="form-label fw-semibold">Valor cuota $</label>
+              <input type="text" inputmode="decimal" name="valor_cuota" class="form-control" value="0" placeholder="0">
             </div>
-            <div class="col-6">
-              <label class="form-label fw-semibold">Cantidad de números</label>
-              <input type="number" id="inputCantidad" name="cantidad" class="form-control" min="1" required>
-            </div>
-
-            <!-- Offset entre series -->
-            <div class="col-6">
-              <label class="form-label fw-semibold">Offset entre series</label>
-              <input type="number" id="inputOffset" name="offset_series" class="form-control" min="0" value="0">
-              <div class="form-text">Diferencia entre el inicio de cada serie.</div>
-            </div>
-
-            <!-- Valor cuota -->
-            <div class="col-6">
-              <label class="form-label fw-semibold">Valor de la cuota $</label>
-              <input type="number" name="valor_cuota" class="form-control" min="0" step="0.01" value="0" placeholder="0.00">
-            </div>
-
-            <!-- Preview del rango -->
-            <div class="col-12">
-              <div id="previewRango" class="alert alert-secondary py-2 mb-0 small d-none"></div>
-            </div>
-
           </div>
+
+          <!-- Series generadas dinámicamente -->
+          <div id="seriesContainer"></div>
+
+          <!-- Preview info -->
+          <div id="previewInfo" class="alert alert-secondary py-2 small d-none mt-2"></div>
+
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -159,51 +139,104 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
 
 <script>
 (function () {
-  const sel      = document.getElementById('selNumSeries');
-  const nombre   = document.getElementById('inputNombre');
-  const inicio   = document.getElementById('inputInicio');
-  const cantidad = document.getElementById('inputCantidad');
-  const offset   = document.getElementById('inputOffset');
-  const preview  = document.getElementById('previewRango');
+  var sel       = document.getElementById('selNumSeries');
+  var nombreEl  = document.getElementById('inputNombre');
+  var container = document.getElementById('seriesContainer');
+  var preview   = document.getElementById('previewInfo');
 
-  function pataNum(n) { return n / 3; }
+  var PATA_NAMES = { 3: 'PATA 1', 6: 'PATA 2', 9: 'PATA 3', 12: 'PATA 4', 15: 'PATA 5', 18: 'PATA 6' };
 
-  function actualizarNombre() {
-    nombre.value = 'PATA ' + pataNum(parseInt(sel.value));
+  function pad4(n) { return isNaN(n) ? '????' : String(n).padStart(4, '0'); }
+
+  function getCantidad() {
+    var ini = parseInt(container.querySelector('.s-inicio[data-idx="0"]') && container.querySelector('.s-inicio[data-idx="0"]').value);
+    var fin = parseInt(container.querySelector('.s-fin[data-idx="0"]') && container.querySelector('.s-fin[data-idx="0"]').value);
+    if (!isNaN(ini) && !isNaN(fin) && fin >= ini) return fin - ini + 1;
+    return null;
+  }
+
+  function recalcFines() {
+    var cant = getCantidad();
+    var ns = parseInt(sel.value);
+    for (var i = 1; i < ns; i++) {
+      var iniEl = container.querySelector('.s-inicio[data-idx="' + i + '"]');
+      var finEl = container.querySelector('.s-fin[data-idx="' + i + '"]');
+      if (!iniEl || !finEl) continue;
+      var ini = parseInt(iniEl.value);
+      if (cant && !isNaN(ini)) {
+        finEl.value = ini + cant - 1;
+      } else {
+        finEl.value = '';
+      }
+    }
+    actualizarPreview();
   }
 
   function actualizarPreview() {
-    const ini  = parseInt(inicio.value);
-    const cant = parseInt(cantidad.value);
-    const off  = parseInt(offset.value) || 0;
-    const ns   = parseInt(sel.value);
-    if (!isNaN(ini) && !isNaN(cant) && cant > 0) {
-      const fin = ini + cant - 1;
-      let txt = `Rango: <strong>${String(ini).padStart(4,'0')}</strong> → <strong>${String(fin).padStart(4,'0')}</strong> (${cant} boletas)`;
-      if (ns > 3 && off > 0) {
-        txt += `<br>Series: `;
-        const partes = [];
-        for (let i = 0; i < ns; i++) partes.push(String(ini + off * i).padStart(4,'0'));
-        txt += partes.join(' / ');
+    var ns = parseInt(sel.value);
+    var ini0 = parseInt(container.querySelector('.s-inicio[data-idx="0"]') && container.querySelector('.s-inicio[data-idx="0"]').value);
+    var fin0 = parseInt(container.querySelector('.s-fin[data-idx="0"]') && container.querySelector('.s-fin[data-idx="0"]').value);
+    if (!isNaN(ini0) && !isNaN(fin0) && fin0 >= ini0) {
+      var cant = fin0 - ini0 + 1;
+      var partes = [];
+      for (var i = 0; i < ns; i++) {
+        var iniEl = container.querySelector('.s-inicio[data-idx="' + i + '"]');
+        var finEl = container.querySelector('.s-fin[data-idx="' + i + '"]');
+        if (iniEl && finEl && iniEl.value && finEl.value) {
+          partes.push(pad4(parseInt(iniEl.value)) + '→' + pad4(parseInt(finEl.value)));
+        }
       }
-      preview.innerHTML = txt;
+      preview.innerHTML = '<strong>' + cant + ' boletas por serie</strong>' + (partes.length > 1 ? ' &nbsp;|&nbsp; ' + partes.join(' &nbsp; ') : (partes.length === 1 ? ' &nbsp;|&nbsp; ' + partes[0] : ''));
       preview.classList.remove('d-none');
     } else {
       preview.classList.add('d-none');
     }
   }
 
-  sel.addEventListener('change', () => { actualizarNombre(); actualizarPreview(); });
-  inicio.addEventListener('input', actualizarPreview);
-  cantidad.addEventListener('input', actualizarPreview);
-  offset.addEventListener('input', actualizarPreview);
+  function render() {
+    var ns = parseInt(sel.value);
+    nombreEl.value = PATA_NAMES[ns] || '';
+    container.innerHTML = '';
+    for (var i = 0; i < ns; i++) {
+      var esAuto = (i > 0);
+      var row = document.createElement('div');
+      row.className = 'card border-0 bg-light px-3 py-2 mb-2';
+      row.innerHTML =
+        '<div class="d-flex align-items-center gap-3">' +
+          '<span class="badge bg-dark" style="min-width:60px;">Serie ' + (i + 1) + '</span>' +
+          '<div style="flex:1;">' +
+            '<label class="form-label mb-1 small fw-semibold">N° inicio</label>' +
+            '<input type="text" inputmode="numeric" name="serie_inicio" class="form-control form-control-sm s-inicio" data-idx="' + i + '" required placeholder="0000">' +
+          '</div>' +
+          '<div style="flex:1;">' +
+            '<label class="form-label mb-1 small fw-semibold">N° fin' + (esAuto ? ' <span class="badge bg-success-subtle text-success border border-success" style="font-size:.6rem;">auto</span>' : '') + '</label>' +
+            '<input type="text" inputmode="numeric" name="serie_fin" class="form-control form-control-sm s-fin" data-idx="' + i + '"' + (esAuto ? ' readonly style="background:#f0fff4; color:#555;"' : ' required') + ' placeholder="0000">' +
+          '</div>' +
+        '</div>';
+      container.appendChild(row);
+    }
 
-  document.getElementById('modalNueva').addEventListener('show.bs.modal', () => {
-    actualizarNombre();
+    // Serie 0: inicio y fin son manuales, al cambiar cualquiera recalcula el resto
+    var ini0 = container.querySelector('.s-inicio[data-idx="0"]');
+    var fin0 = container.querySelector('.s-fin[data-idx="0"]');
+    ini0.addEventListener('input', recalcFines);
+    fin0.addEventListener('input', recalcFines);
+
+    // Series 1+: al cambiar inicio, recalcular su fin
+    for (var j = 1; j < ns; j++) {
+      (function(idx) {
+        var iniEl = container.querySelector('.s-inicio[data-idx="' + idx + '"]');
+        if (iniEl) iniEl.addEventListener('input', recalcFines);
+      })(j);
+    }
+  }
+
+  sel.addEventListener('change', render);
+  document.getElementById('modalNueva').addEventListener('show.bs.modal', function() {
+    render();
     preview.classList.add('d-none');
   });
-
-  actualizarNombre();
+  render();
 })();
 </script>
 {% endif %}
