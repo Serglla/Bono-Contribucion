@@ -359,6 +359,23 @@ async def generar_boletas(
     return RedirectResponse(f"/taloneras/{talonera_id}/boletas", status_code=302)
 
 
+@router.post("/boletas/{boleta_id}/condicion")
+async def cambiar_condicion_boleta(
+    boleta_id: int, request: Request,
+    condicion: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'taloneras', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    b = db.query(models.Boleta).get(boleta_id)
+    if not b:
+        raise HTTPException(404)
+    b.condicion = CondicionBoleta(condicion)
+    db.commit()
+    return JSONResponse({"ok": True, "condicion": b.condicion.value})
+
+
 @router.post("/boletas/{boleta_id}/eliminar")
 async def eliminar_boleta(boleta_id: int, request: Request, db: Session = Depends(get_db)):
     _perm_user = await auth_module.require_user(request, db)

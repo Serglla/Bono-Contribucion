@@ -56,7 +56,13 @@
           <td>{{ b.cuotas_pagadas }}/{{ b.cuotas_pactadas }}</td>
           <td>{{ "{:,.0f}".format(b.total_pagado) if b.total_pagado else "—" }}</td>
           <td>
-            <span class="badge badge-{{ b.condicion.value.lower() }}">{{ b.condicion.value }}</span>
+            <select class="cond-select cond-{{ b.condicion.value.lower() }}"
+                    data-boleta-id="{{ b.id }}"
+                    onchange="cambiarCondicion(this)">
+              {% for cond in condiciones %}
+              <option value="{{ cond }}" {% if b.condicion.value == cond %}selected{% endif %}>{{ cond }}</option>
+              {% endfor %}
+            </select>
           </td>
           <td>
             <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
@@ -194,5 +200,49 @@
   </div>
 </div>
 {% endif %}
+
+<style>
+.cond-select {
+  border: none;
+  border-radius: 0.35em;
+  padding: 2px 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: center;
+}
+.cond-select:focus { box-shadow: 0 0 0 2px rgba(0,0,0,.15); }
+.cond-vendido     { background:#198754; color:#fff; }
+.cond-caja        { background:#0d6efd; color:#fff; }
+.cond-baja        { background:#6c757d; color:#fff; }
+.cond-en_cobranza { background:#fd7e14; color:#fff; }
+.cond-sin_vender  { background:#495057; color:#fff; }
+</style>
+
+<script>
+function cambiarCondicion(sel) {
+  const boletaId = sel.dataset.boletaId;
+  const condicion = sel.value;
+  sel.className = 'cond-select cond-' + condicion.toLowerCase();
+  const fd = new FormData();
+  fd.append('condicion', condicion);
+  fetch(`/taloneras/boletas/${boletaId}/condicion`, {
+    method: 'POST',
+    body: fd,
+    credentials: 'include'
+  }).then(r => {
+    if (!r.ok) {
+      alert('Error al actualizar la condición');
+      location.reload();
+    }
+  }).catch(() => {
+    alert('Error de red');
+    location.reload();
+  });
+}
+</script>
 
 {% endblock %}
