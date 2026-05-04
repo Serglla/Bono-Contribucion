@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Form
+from fastapi import HTTPException,  APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import List, Optional
 
@@ -13,6 +13,8 @@ router = APIRouter(prefix="/cobradores", tags=["cobradores"])
 @router.get("/", response_class=HTMLResponse)
 async def listar(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobradores', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
     cobradores = db.query(models.Cobrador).order_by(models.Cobrador.nombre).all()
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     return templates.TemplateResponse(request, "cobradores.html", {
@@ -61,7 +63,9 @@ async def crear(
     comision_pct: float = Form(10.0),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'cobradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     form_data = await request.form()
     zona_ids = [int(v) for v in form_data.getlist("zona_ids") if v]
     c = models.Cobrador(nombre=nombre.strip().upper(), telefono=telefono.strip() or None,
@@ -75,7 +79,9 @@ async def crear(
 
 @router.post("/{cid}/toggle")
 async def toggle(cid: int, request: Request, db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'cobradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     c = db.query(models.Cobrador).get(cid)
     if c:
         c.activo = not c.activo
@@ -91,7 +97,9 @@ async def editar(
     comision_pct: float = Form(10.0),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'cobradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     form_data = await request.form()
     zona_ids = [int(v) for v in form_data.getlist("zona_ids") if v]
     c = db.query(models.Cobrador).get(cid)

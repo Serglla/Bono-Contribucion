@@ -1,4 +1,5 @@
 import os
+import json
 import bcrypt
 from datetime import datetime, timedelta
 from typing import Optional
@@ -11,6 +12,18 @@ from .database import get_db
 
 import logging as _logging
 _log = _logging.getLogger(__name__)
+
+# Secciones del sistema con su clave y nombre legible
+SECCIONES = [
+    ("reportes",   "Dashboard"),
+    ("taloneras",  "Taloneras"),
+    ("compradores","Socios"),
+    ("vendedores", "Vendedores"),
+    ("cobradores", "Cobradores"),
+    ("zonas",      "Zonas"),
+    ("sorteos",    "Sorteos"),
+    ("cobranza",   "Cobranza"),
+]
 
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
 if SECRET_KEY == "dev-secret-key-change-in-production":
@@ -77,3 +90,51 @@ async def require_admin(request: Request, db: Session = Depends(get_db)):
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="Solo administradores")
     return user
+
+
+# ---------------------------------------------------------------------------
+# Permisos por sección
+# ---------------------------------------------------------------------------
+
+def get_user_permissions(user) -> dict:
+    """Devuelve el dict de permisos del usuario.
+    Para admins, otorga todo. Para usuarios sin permisos configurados, deniega todo.
+    """
+    if user is None:
+        return {s: {"ver": False, "editar": False} for s, _ in SECCIONES}
+    if user.is_admin:
+        return {s: {"ver": True, "editar": True} for s, _ in SECCIONES}
+    if not user.permissions:
+        return {s: {"ver": False, "editar": False} for s, _ in SECCIONES}
+    try:
+        perms = json.loads(user.permissions)
+        # Asegurar que todas las secciones y acciones existan
+        for s, _ in SECCIONES:
+            if s not in perms:
+                perms[s] = {"ver": False, "editar": False}
+            perms[s].setdefault("ver", False)
+            perms[s].setdefault("editar", False)
+        return perms
+    except Exception:
+        return {s: {"ver": False, "editar": False} for s, _ in SECCIONES}
+
+
+def has_permission(user, section: str, action: str = "ver") -> bool:
+    """Verifica si el usuario tiene permiso para una sección y acción dadas."""
+    if user is None:
+        return False
+    if user.is_admin:
+        return True
+    perms = get_user_permissions(user)
+    return perms.get(section, {}).get(action, False)
+
+
+def permisos_dict_from_form(form_data: dict) -> str:
+    """Construye el JSON de permisos a partir de los datos del formulario."""
+    perms = {}
+    for seccion, _ in SECCIONES:
+        perms[seccion] = {
+            "ver":    form_data.get(f"{seccion}_ver") == "on",
+            "editar": form_data.get(f"{seccion}_editar") == "on",
+        }
+    return json.dumps(perms)

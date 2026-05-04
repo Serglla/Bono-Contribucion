@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Form
+from fastapi import HTTPException,  APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from typing import Optional, List
 from datetime import date as date_type, timedelta
@@ -17,6 +17,8 @@ router = APIRouter(prefix="/sorteos", tags=["sorteos"])
 @router.get("/", response_class=HTMLResponse)
 async def listar(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
     sorteos = db.query(models.Sorteo).order_by(models.Sorteo.fecha.asc()).all()
 
     # Último sorteo por tipo (lista asc → el último visto por tipo es el más reciente)
@@ -60,7 +62,9 @@ async def crear(
     num_premios: int = Form(20),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     cifras_str = ",".join(sorted(set(cifras), key=lambda x: int(x)))
     num_p = max(1, min(20, num_premios))
 
@@ -109,7 +113,9 @@ async def editar(
     num_premios: int = Form(20),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     s = db.query(models.Sorteo).get(sid)
     if not s:
         return RedirectResponse("/sorteos/", status_code=302)
@@ -126,7 +132,9 @@ async def editar(
 
 @router.post("/{sid}/eliminar")
 async def eliminar(sid: int, request: Request, db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     s = db.query(models.Sorteo).get(sid)
     if s:
         db.delete(s)
@@ -137,6 +145,8 @@ async def eliminar(sid: int, request: Request, db: Session = Depends(get_db)):
 @router.get("/{sid}/ganadores", response_class=HTMLResponse)
 async def ver_ganadores(sid: int, request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
     s = db.query(models.Sorteo).get(sid)
 
     if not s:
@@ -247,30 +257,11 @@ class ResultadoPayload(BaseModel):
 @router.post("/{sid}/guardar-resultado")
 async def guardar_resultado(sid: int, payload: ResultadoPayload, request: Request, db: Session = Depends(get_db)):
     """Guarda los 20 números del resultado ingresados manualmente."""
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     s = db.query(models.Sorteo).get(sid)
     if not s:
         return JSONResponse({"ok": False, "error": "Sorteo no encontrado"}, status_code=404)
 
-    # Normalizar: asegurarse de que sean strings de 4 dígitos
-    numeros = [str(n).zfill(4)[:4] for n in payload.numeros[:20]]
-    s.resultado_json = json.dumps(numeros)
-    db.commit()
-    return JSONResponse({"ok": True})
-
-
-@router.post("/{sid}/buscar-resultado")
-async def buscar_resultado(sid: int, request: Request, db: Session = Depends(get_db)):
-    """Busca y guarda los resultados de la Tómbola Nocturna de Entre Ríos para este sorteo."""
-    await auth_module.require_user(request, db)
-    s = db.query(models.Sorteo).get(sid)
-    if not s:
-        return JSONResponse({"ok": False, "error": "Sorteo no encontrado"}, status_code=404)
-
-    resultado = await buscar_resultado_tombola(s.fecha)
-
-    if resultado["ok"]:
-        s.resultado_json = json.dumps(resultado["numeros"])
-        db.commit()
-
-    return JSONResponse(resultado)
+    # Normaliza

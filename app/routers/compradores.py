@@ -27,6 +27,8 @@ router = APIRouter(prefix="/compradores", tags=["compradores"])
 @router.get("/", response_class=HTMLResponse)
 async def listar(request: Request, db: Session = Depends(get_db), q: str = "", pata: str = ""):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
 
     # Base query: compradores que tengan al menos una boleta
     query = db.query(models.Comprador).join(models.Zona, isouter=True)
@@ -200,7 +202,9 @@ async def crear(
     cuotas_anticipadas: Optional[int] = Form(None),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     zona = _resolver_zona(_parse_zona_id(zona_id), zona_nueva, db)
 
     # ── Vínculo zona ↔ vendedor (una zona tiene un solo vendedor) ─────────
@@ -250,6 +254,8 @@ async def crear(
 @router.get("/{comprador_id}/editar", response_class=HTMLResponse)
 async def editar_form(comprador_id: int, request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
     c = db.query(models.Comprador).get(comprador_id)
     if not c:
         raise HTTPException(404)
@@ -281,7 +287,9 @@ async def editar(
     condicion: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     c = db.query(models.Comprador).get(comprador_id)
     if not c:
         raise HTTPException(404)
@@ -360,7 +368,9 @@ async def actualizar_cuotas(
     cuotas_pagadas: int = Form(...),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     b = db.query(models.Boleta).filter(models.Boleta.id == boleta_id).first()
     if not b:
         from fastapi.responses import JSONResponse
@@ -373,7 +383,9 @@ async def actualizar_cuotas(
 
 @router.post("/{comprador_id}/eliminar")
 async def eliminar(comprador_id: int, request: Request, db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     c = db.query(models.Comprador).get(comprador_id)
     if c:
         for b in c.boletas:

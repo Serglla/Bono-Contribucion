@@ -28,6 +28,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String, nullable=False)
     is_admin = Column(Boolean, default=False)
+    permissions = Column(String, nullable=True)  # JSON: {"seccion": {"ver": bool, "editar": bool}}
     created_at = Column(DateTime, server_default=func.now())
 
 

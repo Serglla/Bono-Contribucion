@@ -230,6 +230,41 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion tiposorteo CONTADO: {e}")
 
+        # Migrar columna permissions en users
+        try:
+            cols_users = [c["name"] for c in inspector.get_columns("users")]
+            if "permissions" not in cols_users:
+                db.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT"))
+                db.commit()
+                print("Migracion permissions users: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion permissions users: {e}")
+
+        if not db.query(models.User).filter_by(username="admin").first():
+            import logging
+            logging.getLogger(__name__).warning(
+                "Creando usuario admin con contrasena por defecto 'admin123'"
+            )
+            admin = models.User(
+                username="admin",
+                email="admin@bomberos.com",
+                hashed_password=auth_module.hash_password("admin123"),
+                is_admin=True
+            )
+            db.add(admin)
+            db.commit()
+    finally:
+        db.close()
+s")]
+            if "permissions" not in cols_users:
+                db.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT"))
+                db.commit()
+                print("Migracion permissions users: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion permissions users: {e}")
+
         if not db.query(models.User).filter_by(username="admin").first():
             import logging
             logging.getLogger(__name__).warning(

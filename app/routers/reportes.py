@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import HTTPException,  APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
 from sqlalchemy.orm import Session
@@ -15,6 +15,8 @@ router = APIRouter(prefix="/reportes", tags=["reportes"])
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'reportes', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
 
     taloneras = db.query(models.Talonera).order_by(models.Talonera.nombre).all()
 

@@ -16,6 +16,8 @@ router = APIRouter(prefix="/taloneras", tags=["taloneras"])
 @router.get("/", response_class=HTMLResponse)
 async def listar(request: Request, db: Session = Depends(get_db), error: str = "", nombre: str = ""):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'taloneras', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
     taloneras = db.query(models.Talonera).order_by(models.Talonera.multiplicador, models.Talonera.numero_inicio).all()
     # Agrupar por nombre para la vista
     grupos: dict = {}
@@ -130,6 +132,8 @@ async def boleta_info(talonera_id: int, numero: int, request: Request, db: Sessi
 async def enumeracion(request: Request, db: Session = Depends(get_db)):
     """Vista global: todos los números del 0001 al 9999 con su condición."""
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'taloneras', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
 
     # Mapa numero_principal -> condicion para TODAS las boletas
     boletas_dict: dict = {}
@@ -219,6 +223,8 @@ async def boletas(
     condicion: str = "", q: str = ""
 ):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'taloneras', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
     talonera = db.query(models.Talonera).get(talonera_id)
     if not talonera:
         raise HTTPException(404)
@@ -255,7 +261,9 @@ async def crear_boleta(
     total_pagado: float = Form(0.0),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'taloneras', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     talonera = db.query(models.Talonera).get(talonera_id)
     fecha = date.fromisoformat(fecha_venta) if fecha_venta else None
     # Auto-calcular números adicionales según la configuración de la talonera
@@ -292,7 +300,9 @@ async def editar_boleta(
     total_pagado: float = Form(0.0),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'taloneras', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     b = db.query(models.Boleta).get(boleta_id)
     if not b:
         raise HTTPException(404)
@@ -351,7 +361,9 @@ async def generar_boletas(
 
 @router.post("/boletas/{boleta_id}/eliminar")
 async def eliminar_boleta(boleta_id: int, request: Request, db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'taloneras', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     b = db.query(models.Boleta).get(boleta_id)
     if b:
         talonera_id = b.talonera_id

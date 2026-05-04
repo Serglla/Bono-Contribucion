@@ -30,6 +30,8 @@ def _pata_valor(boleta) -> int:
 async def index(request: Request, db: Session = Depends(get_db),
                 mes: int = Query(default=0), anio: int = Query(default=0)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
 
     hoy = date.today()
     if not mes:  mes  = hoy.month
@@ -71,7 +73,9 @@ async def armar_planilla(request: Request, cobrador_id: int,
                          mes: int = Form(...), anio: int = Form(...),
                          comision_pct: float = Form(10.0),
                          db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
 
     cobrador = db.query(models.Cobrador).get(cobrador_id)
     if not cobrador:
@@ -110,6 +114,8 @@ async def armar_planilla(request: Request, cobrador_id: int,
 async def emplanillado(request: Request, db: Session = Depends(get_db),
                         mes: int = Query(default=0), anio: int = Query(default=0)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
     hoy = date.today()
     if not mes:  mes  = hoy.month
     if not anio: anio = hoy.year
@@ -179,7 +185,9 @@ async def planilla_editar_form(request: Request, planilla_id: int,
 @router.post("/planilla/{planilla_id}/editar")
 async def planilla_editar_guardar(request: Request, planilla_id: int,
                                   db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     planilla = db.query(models.Planilla).get(planilla_id)
     if not planilla:
         raise HTTPException(404)
@@ -210,7 +218,9 @@ async def planilla_editar_guardar(request: Request, planilla_id: int,
 @router.post("/planilla/{planilla_id}/eliminar")
 async def planilla_eliminar(request: Request, planilla_id: int,
                             db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     planilla = db.query(models.Planilla).get(planilla_id)
     if not planilla:
         raise HTTPException(404)
@@ -242,6 +252,8 @@ async def planilla_eliminar(request: Request, planilla_id: int,
 async def liquidacion_index(request: Request, db: Session = Depends(get_db),
                              mes: int = Query(default=0), anio: int = Query(default=0)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
     hoy = date.today()
     if not mes:  mes  = hoy.month
     if not anio: anio = hoy.year
@@ -266,6 +278,8 @@ async def liquidacion_index(request: Request, db: Session = Depends(get_db),
 async def liquidacion_detalle(request: Request, planilla_id: int,
                                db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
     planilla = db.query(models.Planilla).get(planilla_id)
     if not planilla:
         raise HTTPException(404)
@@ -367,7 +381,9 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
                                boleta_ids: List[int] = Form(...),
                                cuotas_json: List[str] = Form(...),
                                db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     planilla = db.query(models.Planilla).get(planilla_id)
     if not planilla:
         raise HTTPException(404)
@@ -423,6 +439,8 @@ async def planilla(request: Request, cobrador_id: int,
                    mes: int = Query(default=0), anio: int = Query(default=0),
                    db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
 
     hoy = date.today()
     if not mes:  mes  = hoy.month

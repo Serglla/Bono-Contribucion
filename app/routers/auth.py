@@ -10,7 +10,6 @@ from ..database import get_db
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.get_current_user(request, db)
@@ -46,7 +45,12 @@ async def logout():
 async def usuarios_page(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_admin(request, db)
     usuarios = db.query(models.User).all()
-    return templates.TemplateResponse(request, "usuarios.html", {"user": user, "usuarios": usuarios})
+    return templates.TemplateResponse(request, "usuarios.html", {
+        "user": user,
+        "usuarios": usuarios,
+        "secciones": auth_module.SECCIONES,
+        "get_user_permissions": auth_module.get_user_permissions,
+    })
 
 
 @router.post("/usuarios/crear")
@@ -61,13 +65,31 @@ async def crear_usuario(
     await auth_module.require_admin(request, db)
     if db.query(models.User).filter(models.User.username == username).first():
         raise HTTPException(400, "Usuario ya existe")
+    form_data = dict(await request.form())
+    perms_json = auth_module.permisos_dict_from_form(form_data) if not is_admin else None
     nuevo = models.User(
         username=username,
         email=email or None,
         hashed_password=auth_module.hash_password(password),
-        is_admin=is_admin
+        is_admin=is_admin,
+        permissions=perms_json,
     )
     db.add(nuevo)
+    db.commit()
+    return RedirectResponse("/auth/usuarios", status_code=302)
+
+
+@router.post("/usuarios/{user_id}/permisos")
+async def actualizar_permisos(user_id: int, request: Request, db: Session = Depends(get_db)):
+    """Actualiza los permisos de un usuario (solo admin)."""
+    await auth_module.require_admin(request, db)
+    u = db.query(models.User).get(user_id)
+    if not u:
+        raise HTTPException(404, "Usuario no encontrado")
+    if u.is_admin:
+        raise HTTPException(400, "No se pueden restringir permisos a un administrador")
+    form_data = dict(await request.form())
+    u.permissions = auth_module.permisos_dict_from_form(form_data)
     db.commit()
     return RedirectResponse("/auth/usuarios", status_code=302)
 

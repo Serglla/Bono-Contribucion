@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Form
+from fastapi import HTTPException,  APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
 
@@ -14,6 +14,8 @@ router = APIRouter(prefix="/zonas", tags=["zonas"])
 @router.get("/", response_class=HTMLResponse)
 async def listar(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'zonas', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
     return templates.TemplateResponse(request, "zonas.html", {"user": user, "zonas": zonas, "vendedores": vendedores})
@@ -26,7 +28,9 @@ async def crear(
     descripcion: str = Form(""),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'zonas', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     z = models.Zona(nombre=nombre.strip(), descripcion=descripcion.strip() or None)
     db.add(z)
     db.commit()
@@ -39,7 +43,9 @@ async def asignar_vendedor(
     vendedor_id: Optional[int] = Form(None),
     db: Session = Depends(get_db)
 ):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'zonas', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     z = db.query(models.Zona).get(zid)
     if z:
         z.vendedor_id = vendedor_id or None
@@ -49,7 +55,9 @@ async def asignar_vendedor(
 
 @router.post("/{zid}/eliminar")
 async def eliminar(zid: int, request: Request, db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'zonas', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     z = db.query(models.Zona).get(zid)
     if z:
         for comp in z.compradores:

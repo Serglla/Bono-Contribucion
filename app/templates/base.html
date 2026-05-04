@@ -30,30 +30,46 @@
       <small>Bomberos 2026-2027</small>
     </div>
     <nav class="nav flex-column">
+      {% if has_permission(user, 'reportes', 'ver') %}
       <a class="nav-link {% if request.url.path.startswith('/reportes') %}active{% endif %}" href="/reportes/">
         <i class="bi bi-bar-chart-fill me-2"></i>Dashboard
       </a>
+      {% endif %}
+      {% if has_permission(user, 'taloneras', 'ver') %}
       <a class="nav-link {% if request.url.path.startswith('/taloneras') %}active{% endif %}" href="/taloneras/">
         <i class="bi bi-journal-text me-2"></i>Taloneras
       </a>
+      {% endif %}
+      {% if has_permission(user, 'compradores', 'ver') %}
       <a class="nav-link {% if request.url.path.startswith('/compradores') %}active{% endif %}" href="/compradores/">
         <i class="bi bi-people-fill me-2"></i>Socios
       </a>
+      {% endif %}
+      {% if has_permission(user, 'vendedores', 'ver') %}
       <a class="nav-link {% if request.url.path.startswith('/vendedores') %}active{% endif %}" href="/vendedores/">
         <i class="bi bi-person-badge me-2"></i>Vendedores
       </a>
+      {% endif %}
+      {% if has_permission(user, 'cobradores', 'ver') %}
       <a class="nav-link {% if request.url.path.startswith('/cobradores') %}active{% endif %}" href="/cobradores/">
         <i class="bi bi-cash-coin me-2"></i>Cobradores
       </a>
+      {% endif %}
+      {% if has_permission(user, 'zonas', 'ver') %}
       <a class="nav-link {% if request.url.path.startswith('/zonas') %}active{% endif %}" href="/zonas/">
         <i class="bi bi-geo-alt-fill me-2"></i>Zonas
       </a>
+      {% endif %}
+      {% if has_permission(user, 'sorteos', 'ver') %}
       <a class="nav-link {% if request.url.path.startswith('/sorteos') %}active{% endif %}" href="/sorteos/">
         <i class="bi bi-trophy-fill me-2"></i>Sorteos
       </a>
+      {% endif %}
+      {% if has_permission(user, 'cobranza', 'ver') %}
       <a class="nav-link {% if request.url.path.startswith('/cobranza') %}active{% endif %}" href="/cobranza/">
         <i class="bi bi-wallet2 me-2"></i>Cobranza
       </a>
+      {% endif %}
       {% if user and user.is_admin %}
       <hr class="text-secondary">
       <a class="nav-link {% if request.url.path.startswith('/auth/usuarios') %}active{% endif %}" href="/auth/usuarios">
