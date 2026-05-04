@@ -65,6 +65,124 @@
   </div>
 </div>
 
+<!-- Entrega a Caja -->
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-white d-flex align-items-center gap-2">
+    <i class="bi bi-box-arrow-in-down text-danger fs-5"></i>
+    <span class="fw-semibold">Entrega a Caja</span>
+    <span class="text-muted small ms-1">— pasá boletas de SIN_VENDER a CAJA por rango</span>
+  </div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      Solo se modifican las boletas con condición <strong>SIN_VENDER</strong>.
+      Las que ya están vendidas, en baja o en cobranza no se tocan.
+    </p>
+    <div class="row g-2 align-items-end flex-wrap">
+      <div class="col-auto">
+        <label class="form-label fw-semibold mb-1">PATA</label>
+        <select id="ec-pata" class="form-select" style="min-width:130px;">
+          {% for g in grupos_talonera %}
+          <option value="{{ g }}">{{ g }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label fw-semibold mb-1">Desde</label>
+        <input type="number" id="ec-desde" class="form-control text-center" style="width:90px;" min="1" placeholder="0900">
+      </div>
+      <div class="col-auto d-flex align-items-end pb-1 text-muted">al</div>
+      <div class="col-auto">
+        <label class="form-label fw-semibold mb-1">Hasta</label>
+        <input type="number" id="ec-hasta" class="form-control text-center" style="width:90px;" min="1" placeholder="0999">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-danger" id="ec-btn" onclick="entregarCaja()">
+          <i class="bi bi-box-arrow-in-down me-1"></i>Pasar a CAJA
+        </button>
+      </div>
+    </div>
+
+    <div id="ec-resultado" class="mt-3"></div>
+
+    <!-- Historial de sesión -->
+    <div id="ec-historial-wrap" class="mt-3" style="display:none;">
+      <div class="text-muted small fw-semibold mb-1">Historial de esta sesión</div>
+      <div id="ec-historial" class="d-flex flex-column gap-1"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function entregarCaja() {
+  const pata  = document.getElementById('ec-pata').value;
+  const desde = parseInt(document.getElementById('ec-desde').value);
+  const hasta = parseInt(document.getElementById('ec-hasta').value);
+  const btn   = document.getElementById('ec-btn');
+  const res   = document.getElementById('ec-resultado');
+
+  if (!desde || !hasta) { res.innerHTML = alerta('warning','Completá el rango'); return; }
+  if (hasta < desde)    { res.innerHTML = alerta('warning','El número final debe ser ≥ al inicial'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Procesando…';
+
+  try {
+    const fd = new FormData();
+    fd.append('talonera_nombre', pata);
+    fd.append('desde', desde);
+    fd.append('hasta', hasta);
+
+    const r    = await fetch('/vendedores/entrega-caja', { method:'POST', body:fd, credentials:'include' });
+    const data = await r.json();
+
+    if (data.ok) {
+      const label = data.actualizadas === 0
+        ? `<span class="text-warning">Sin cambios</span> — ninguna boleta estaba en SIN_VENDER en ese rango`
+        : `<strong>${data.actualizadas}</strong> boleta(s) pasadas a <span class="badge bg-primary">CAJA</span>`;
+      res.innerHTML = alerta('success', `${label} &nbsp;<span class="text-muted">(${pata} · ${String(desde).padStart(4,'0')} – ${String(hasta).padStart(4,'0')})</span>`);
+      agregarHistorial(pata, desde, hasta, data.actualizadas);
+      // Limpiar campos para el siguiente ingreso rápido
+      document.getElementById('ec-desde').value = '';
+      document.getElementById('ec-hasta').value = '';
+      document.getElementById('ec-desde').focus();
+    } else {
+      res.innerHTML = alerta('danger', data.error || 'Error al procesar');
+    }
+  } catch(e) {
+    res.innerHTML = alerta('danger', 'Error de red');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-box-arrow-in-down me-1"></i>Pasar a CAJA';
+  }
+}
+
+function alerta(tipo, msg) {
+  const ico = tipo === 'success' ? 'check-circle' : tipo === 'warning' ? 'exclamation-triangle' : 'x-circle';
+  return `<div class="alert alert-${tipo} py-2 mb-0 small"><i class="bi bi-${ico} me-1"></i>${msg}</div>`;
+}
+
+function agregarHistorial(pata, desde, hasta, cant) {
+  const wrap = document.getElementById('ec-historial-wrap');
+  const hist = document.getElementById('ec-historial');
+  wrap.style.display = '';
+  const now  = new Date().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
+  const item = document.createElement('div');
+  item.className = 'text-muted small';
+  item.innerHTML = `<span class="text-secondary">${now}</span> · <strong>${pata}</strong> `
+    + `${String(desde).padStart(4,'0')}–${String(hasta).padStart(4,'0')} `
+    + `→ <strong class="${cant > 0 ? 'text-success' : 'text-warning'}">${cant} boleta(s)</strong> a CAJA`;
+  hist.prepend(item);
+}
+
+// Enter en Desde salta a Hasta; Enter en Hasta ejecuta
+document.getElementById('ec-desde').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('ec-hasta').focus(); }
+});
+document.getElementById('ec-hasta').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); entregarCaja(); }
+});
+</script>
+
 <div class="modal fade" id="modalNuevo" tabindex="-1">
   <div class="modal-dialog"><div class="modal-content">
     <form method="post" action="/vendedores/crear">
