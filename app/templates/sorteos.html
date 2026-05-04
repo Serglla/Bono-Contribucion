@@ -53,7 +53,12 @@
               <span class="badge" style="background:#dc3545;">Final</span>
             {% endif %}
           </td>
-          <td>{{ s.nombre or "—" }}</td>
+          <td>
+            {{ s.nombre or "—" }}
+            {% if s.descripcion %}
+              <div class="text-muted small" style="font-size:0.75rem;">{{ s.descripcion }}</div>
+            {% endif %}
+          </td>
           <td>
             {% for c in cifras_list %}
               <span class="badge bg-secondary">{{ c }} cifras</span>
@@ -94,6 +99,17 @@
                 <i class="bi bi-trophy-fill"></i>
               </a>
             {% endif %}
+            <button class="btn btn-sm btn-outline-secondary me-1 btn-editar-sorteo"
+                    data-sid="{{ s.id }}"
+                    data-nombre="{{ s.nombre or '' }}"
+                    data-descripcion="{{ s.descripcion or '' }}"
+                    data-tipo="{{ s.tipo.value }}"
+                    data-cifras="{{ s.cifras }}"
+                    data-fecha="{{ s.fecha.strftime('%Y-%m-%d') }}"
+                    data-numpremios="{{ s.num_premios or 20 }}"
+                    title="Editar sorteo">
+              <i class="bi bi-gear"></i>
+            </button>
             <button class="btn btn-sm btn-outline-primary me-1 btn-cargar-resultado"
                     data-sid="{{ s.id }}"
                     data-fecha="{{ s.fecha.strftime('%d/%m/%Y') }}"
@@ -246,6 +262,105 @@
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="submit" class="btn btn-danger">
           <i class="bi bi-trophy-fill me-1"></i>Crear sorteo
+        </button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<!-- Modal Editar Sorteo -->
+<div class="modal fade" id="modalEditar" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <form method="post" id="formEditar">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-gear me-2 text-secondary"></i>Editar Sorteo
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <!-- Tipo -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Tipo *</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="tipo" id="editTipoSemanal" value="SEMANAL" required>
+              <label class="form-check-label" for="editTipoSemanal"><span class="badge" style="background:#0d6efd;">Semanal</span></label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="tipo" id="editTipoMensual" value="MENSUAL">
+              <label class="form-check-label" for="editTipoMensual"><span class="badge" style="background:#198754;">Mensual</span></label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="tipo" id="editTipoContado" value="CONTADO">
+              <label class="form-check-label" for="editTipoContado"><span class="badge" style="background:#fd7e14;">Al contado</span></label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="tipo" id="editTipoFinal" value="FINAL">
+              <label class="form-check-label" for="editTipoFinal"><span class="badge" style="background:#dc3545;">Final</span></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cifras -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Cifras * <small class="text-muted">(podés elegir más de una)</small></label>
+          <div class="d-flex gap-3">
+            <div class="form-check">
+              <input class="form-check-input edit-cifras-check" type="checkbox" name="cifras" id="editCifras2" value="2">
+              <label class="form-check-label" for="editCifras2">2 cifras</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input edit-cifras-check" type="checkbox" name="cifras" id="editCifras3" value="3">
+              <label class="form-check-label" for="editCifras3">3 cifras</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input edit-cifras-check" type="checkbox" name="cifras" id="editCifras4" value="4">
+              <label class="form-check-label" for="editCifras4">4 cifras</label>
+            </div>
+          </div>
+          <div id="editCifrasError" style="display:none; color:#dc3545; font-size:0.875em;">
+            Seleccioná al menos una opción.
+          </div>
+        </div>
+
+        <!-- Fecha -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Fecha *</label>
+          <input type="date" name="fecha" id="editFecha" class="form-control" required>
+        </div>
+
+        <!-- Hasta qué premio -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Premios a considerar *</label>
+          <div class="d-flex align-items-center gap-2">
+            <span class="text-muted small">Del 1° al</span>
+            <input type="number" name="num_premios" id="editNumPremios" class="form-control form-control-sm"
+                   min="1" max="20" value="20" style="width:70px;" required>
+            <span class="text-muted small">° premio</span>
+          </div>
+        </div>
+
+        <!-- Nombre -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Nombre <small class="text-muted">(opcional)</small></label>
+          <input type="text" name="nombre" id="editNombre" class="form-control"
+                 placeholder="Ej: Sorteo Semana 1 Mayo, Sorteo Mayo...">
+        </div>
+
+        <!-- Descripción -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Descripción <small class="text-muted">(opcional)</small></label>
+          <input type="text" name="descripcion" id="editDescripcion" class="form-control"
+                 placeholder="Ej: Gran Final Bono 2026...">
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-dark">
+          <i class="bi bi-save me-1"></i>Guardar cambios
         </button>
       </div>
     </form>
@@ -617,6 +732,55 @@
     document.getElementById('filtrFecha').value = '';
     filtroFechaActual = '';
     aplicarFiltros();
+  });
+
+  // --- Modal Editar Sorteo ---
+  document.querySelectorAll('.btn-editar-sorteo').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const sid = this.dataset.sid;
+      const cifras = this.dataset.cifras.split(',');
+
+      // Acción del form
+      document.getElementById('formEditar').action = `/sorteos/${sid}/editar`;
+
+      // Tipo
+      document.querySelectorAll('input[name="tipo"]', document.getElementById('formEditar')).forEach(r => {
+        r.checked = r.value === this.dataset.tipo;
+      });
+      // Hack: seleccionar por valor dentro del modal
+      document.querySelectorAll('#modalEditar input[name="tipo"]').forEach(r => {
+        r.checked = r.value === this.dataset.tipo;
+      });
+
+      // Cifras
+      document.querySelectorAll('.edit-cifras-check').forEach(cb => {
+        cb.checked = cifras.includes(cb.value);
+      });
+
+      // Fecha
+      document.getElementById('editFecha').value = this.dataset.fecha;
+
+      // Num premios
+      document.getElementById('editNumPremios').value = this.dataset.numpremios;
+
+      // Nombre y descripción
+      document.getElementById('editNombre').value = this.dataset.nombre;
+      document.getElementById('editDescripcion').value = this.dataset.descripcion;
+
+      // Limpiar error cifras
+      document.getElementById('editCifrasError').style.display = 'none';
+
+      new bootstrap.Modal(document.getElementById('modalEditar')).show();
+    });
+  });
+
+  // Validar cifras al guardar edición
+  document.getElementById('formEditar').addEventListener('submit', function(e) {
+    const checked = document.querySelectorAll('.edit-cifras-check:checked');
+    if (checked.length === 0) {
+      e.preventDefault();
+      document.getElementById('editCifrasError').style.display = 'block';
+    }
   });
 </script>
 {% endblock %}

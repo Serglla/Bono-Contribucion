@@ -205,6 +205,7 @@ class Sorteo(Base):
     __tablename__ = "sorteos"
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String)
+    descripcion = Column(String, nullable=True)
     tipo = Column(Enum(TipoSorteo), nullable=False)
     cifras = Column(String, nullable=False)
     fecha = Column(Date, nullable=False)

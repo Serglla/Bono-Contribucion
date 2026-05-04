@@ -101,6 +101,16 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion resultado_json: {e}")
 
+        # Migrar columna descripcion en sorteos
+        try:
+            cols_sorteos = [c["name"] for c in inspector.get_columns("sorteos")]
+            if "descripcion" not in cols_sorteos:
+                db.execute(text("ALTER TABLE sorteos ADD COLUMN descripcion TEXT"))
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion descripcion sorteos: {e}")
+
         # Migrar cifras de entero a string en sorteos existentes
         try:
             rows = db.execute(text("SELECT id, cifras FROM sorteos")).fetchall()

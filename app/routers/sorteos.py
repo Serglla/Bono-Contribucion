@@ -97,6 +97,33 @@ async def crear(
     return RedirectResponse("/sorteos/", status_code=302)
 
 
+@router.post("/{sid}/editar")
+async def editar(
+    sid: int,
+    request: Request,
+    nombre: str = Form(""),
+    descripcion: str = Form(""),
+    tipo: str = Form(...),
+    cifras: List[str] = Form(...),
+    fecha: str = Form(...),
+    num_premios: int = Form(20),
+    db: Session = Depends(get_db)
+):
+    await auth_module.require_user(request, db)
+    s = db.query(models.Sorteo).get(sid)
+    if not s:
+        return RedirectResponse("/sorteos/", status_code=302)
+
+    s.nombre = nombre.strip() or None
+    s.descripcion = descripcion.strip() or None
+    s.tipo = models.TipoSorteo(tipo)
+    s.cifras = ",".join(sorted(set(cifras), key=lambda x: int(x)))
+    s.fecha = date_type.fromisoformat(fecha)
+    s.num_premios = max(1, min(20, num_premios))
+    db.commit()
+    return RedirectResponse("/sorteos/", status_code=302)
+
+
 @router.post("/{sid}/eliminar")
 async def eliminar(sid: int, request: Request, db: Session = Depends(get_db)):
     await auth_module.require_user(request, db)
