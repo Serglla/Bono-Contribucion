@@ -103,14 +103,96 @@
     </div>
 
     <div id="ec-resultado" class="mt-3"></div>
+  </div>
 
-    <!-- Historial de sesión -->
-    <div id="ec-historial-wrap" class="mt-3" style="display:none;">
-      <div class="text-muted small fw-semibold mb-1">Historial de esta sesión</div>
-      <div id="ec-historial" class="d-flex flex-column gap-1"></div>
+  <!-- Historial persistente -->
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0 small" id="ec-tabla">
+      <thead class="table-light">
+        <tr>
+          <th>Fecha</th><th>PATA</th><th>Desde</th><th>Hasta</th>
+          <th>Boletas</th><th>Observación</th><th>Usuario</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="ec-tbody">
+        {% for e in entregas %}
+        <tr id="ec-row-{{ e.id }}">
+          <td class="text-muted">{{ e.fecha.strftime('%d/%m/%y %H:%M') }}</td>
+          <td><span class="badge bg-danger">{{ e.talonera_nombre }}</span></td>
+          <td class="fw-semibold">{{ '%04d'|format(e.desde) }}</td>
+          <td class="fw-semibold">{{ '%04d'|format(e.hasta) }}</td>
+          <td><span class="badge bg-primary">{{ e.boletas_afectadas }}</span></td>
+          <td class="text-muted fst-italic">{{ e.observacion or "—" }}</td>
+          <td class="text-muted">{{ e.usuario.username if e.usuario else "—" }}</td>
+          <td class="text-end">
+            <button class="btn btn-sm btn-outline-primary" title="Editar"
+                    data-bs-toggle="modal" data-bs-target="#modalEditarEntrega{{ e.id }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <form method="post" action="/vendedores/entrega-caja/{{ e.id }}/eliminar"
+                  class="d-inline" onsubmit="return confirm('¿Eliminar este registro?')">
+              <button class="btn btn-sm btn-outline-danger" title="Eliminar">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-3">Sin registros</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">{{ entregas|length }} entrega(s) registrada(s)</div>
+</div>
+
+<!-- Modales editar entregas -->
+{% for e in entregas %}
+<div class="modal fade" id="modalEditarEntrega{{ e.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/vendedores/entrega-caja/{{ e.id }}/editar">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Editar Entrega #{{ e.id }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small mb-3">
+            Editá los datos del registro. <strong>Las boletas ya modificadas no se revierten.</strong>
+          </p>
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="form-label fw-semibold">PATA</label>
+              <select name="talonera_nombre" class="form-select">
+                {% for g in grupos_talonera %}
+                <option value="{{ g }}" {% if e.talonera_nombre == g %}selected{% endif %}>{{ g }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Desde</label>
+              <input type="number" name="desde" class="form-control" value="{{ e.desde }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Hasta</label>
+              <input type="number" name="hasta" class="form-control" value="{{ e.hasta }}" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Observación</label>
+              <input type="text" name="observacion" class="form-control"
+                     value="{{ e.observacion or '' }}" placeholder="Opcional…">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-danger">Guardar</button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
+{% endfor %}
 
 <script>
 async function entregarCaja() {
@@ -140,7 +222,7 @@ async function entregarCaja() {
         ? `<span class="text-warning">Sin cambios</span> — ninguna boleta estaba en SIN_VENDER en ese rango`
         : `<strong>${data.actualizadas}</strong> boleta(s) pasadas a <span class="badge bg-primary">CAJA</span>`;
       res.innerHTML = alerta('success', `${label} &nbsp;<span class="text-muted">(${pata} · ${String(desde).padStart(4,'0')} – ${String(hasta).padStart(4,'0')})</span>`);
-      agregarHistorial(pata, desde, hasta, data.actualizadas);
+      agregarFilaTabla(pata, desde, hasta, data.actualizadas, data.entrega_id);
       // Limpiar campos para el siguiente ingreso rápido
       document.getElementById('ec-desde').value = '';
       document.getElementById('ec-hasta').value = '';
@@ -161,17 +243,31 @@ function alerta(tipo, msg) {
   return `<div class="alert alert-${tipo} py-2 mb-0 small"><i class="bi bi-${ico} me-1"></i>${msg}</div>`;
 }
 
-function agregarHistorial(pata, desde, hasta, cant) {
-  const wrap = document.getElementById('ec-historial-wrap');
-  const hist = document.getElementById('ec-historial');
-  wrap.style.display = '';
-  const now  = new Date().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
-  const item = document.createElement('div');
-  item.className = 'text-muted small';
-  item.innerHTML = `<span class="text-secondary">${now}</span> · <strong>${pata}</strong> `
-    + `${String(desde).padStart(4,'0')}–${String(hasta).padStart(4,'0')} `
-    + `→ <strong class="${cant > 0 ? 'text-success' : 'text-warning'}">${cant} boleta(s)</strong> a CAJA`;
-  hist.prepend(item);
+function agregarFilaTabla(pata, desde, hasta, cant, id) {
+  const tbody = document.getElementById('ec-tbody');
+  // Quitar fila "Sin registros" si existe
+  const vacia = tbody.querySelector('td[colspan]');
+  if (vacia) vacia.closest('tr').remove();
+
+  const now = new Date().toLocaleString('es-AR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+  const d = String(desde).padStart(4,'0');
+  const h = String(hasta).padStart(4,'0');
+  const tr = document.createElement('tr');
+  tr.id = `ec-row-${id}`;
+  tr.innerHTML = `
+    <td class="text-muted">${now}</td>
+    <td><span class="badge bg-danger">${pata}</span></td>
+    <td class="fw-semibold">${d}</td>
+    <td class="fw-semibold">${h}</td>
+    <td><span class="badge bg-primary">${cant}</span></td>
+    <td class="text-muted fst-italic">—</td>
+    <td class="text-muted">—</td>
+    <td class="text-end">
+      <button class="btn btn-sm btn-outline-primary" title="Recargar para editar" onclick="location.reload()">
+        <i class="bi bi-pencil"></i>
+      </button>
+    </td>`;
+  tbody.prepend(tr);
 }
 
 // Enter en Desde salta a Hasta; Enter en Hasta ejecuta

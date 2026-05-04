@@ -230,6 +230,27 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion tiposorteo CONTADO: {e}")
 
+        # Crear tabla entregas_caja
+        try:
+            if "entregas_caja" not in inspector.get_table_names():
+                db.execute(text(
+                    "CREATE TABLE entregas_caja ("
+                    "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "  talonera_nombre TEXT NOT NULL,"
+                    "  desde INTEGER NOT NULL,"
+                    "  hasta INTEGER NOT NULL,"
+                    "  boletas_afectadas INTEGER DEFAULT 0,"
+                    "  observacion TEXT,"
+                    "  fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+                    "  usuario_id INTEGER REFERENCES users(id)"
+                    ")"
+                ))
+                db.commit()
+                print("Migracion entregas_caja: tabla creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion entregas_caja: {e}")
+
         # Migrar columna permissions en users
         try:
             cols_users = [c["name"] for c in inspector.get_columns("users")]

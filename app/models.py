@@ -202,6 +202,19 @@ class Boleta(Base):
     planilla = relationship("Planilla", back_populates="boletas")
 
 
+class EntregaCaja(Base):
+    __tablename__ = "entregas_caja"
+    id               = Column(Integer, primary_key=True, index=True)
+    talonera_nombre  = Column(String, nullable=False)
+    desde            = Column(Integer, nullable=False)
+    hasta            = Column(Integer, nullable=False)
+    boletas_afectadas = Column(Integer, default=0)
+    observacion      = Column(String, nullable=True)
+    fecha            = Column(DateTime, default=_datetime.utcnow)
+    usuario_id       = Column(Integer, ForeignKey("users.id"), nullable=True)
+    usuario          = relationship("User")
+
+
 class Sorteo(Base):
     __tablename__ = "sorteos"
     id = Column(Integer, primary_key=True, index=True)
