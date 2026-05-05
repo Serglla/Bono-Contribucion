@@ -290,6 +290,28 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion permissions users: {e}")
 
+        # Migrar columna es_jefe_equipo en vendedores
+        try:
+            cols_vend = [c["name"] for c in inspector.get_columns("vendedores")]
+            if "es_jefe_equipo" not in cols_vend:
+                db.execute(text("ALTER TABLE vendedores ADD COLUMN es_jefe_equipo BOOLEAN DEFAULT FALSE"))
+                db.commit()
+                print("Migracion es_jefe_equipo vendedores: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion es_jefe_equipo vendedores: {e}")
+
+        # Migrar columna vendedor_id en entregas_caja
+        try:
+            cols_ec = [c["name"] for c in inspector.get_columns("entregas_caja")]
+            if "vendedor_id" not in cols_ec:
+                db.execute(text("ALTER TABLE entregas_caja ADD COLUMN vendedor_id INTEGER REFERENCES vendedores(id)"))
+                db.commit()
+                print("Migracion vendedor_id entregas_caja: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion vendedor_id entregas_caja: {e}")
+
         if not db.query(models.User).filter_by(username="admin").first():
             import logging
             logging.getLogger(__name__).warning(

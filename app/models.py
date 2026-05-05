@@ -89,6 +89,7 @@ class Vendedor(Base):
     nombre = Column(String, unique=True, nullable=False)
     telefono = Column(String)
     activo = Column(Boolean, default=True)
+    es_jefe_equipo = Column(Boolean, default=False)
     boletas = relationship("Boleta", back_populates="vendedor")
     zonas = relationship("Zona", back_populates="vendedor")
 
@@ -224,7 +225,9 @@ class EntregaCaja(Base):
     observacion      = Column(String, nullable=True)
     fecha            = Column(DateTime, default=_datetime.utcnow)
     usuario_id       = Column(Integer, ForeignKey("users.id"), nullable=True)
+    vendedor_id      = Column(Integer, ForeignKey("vendedores.id"), nullable=True)
     usuario          = relationship("User")
+    vendedor         = relationship("Vendedor")
 
 
 class Sorteo(Base):

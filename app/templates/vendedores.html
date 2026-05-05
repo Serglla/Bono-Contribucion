@@ -8,18 +8,64 @@
   </button>
 </div>
 
+{% if not jefe %}
+<div class="alert alert-warning py-2 small mb-3">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  No hay jefe de equipo definido. Las entregas a caja no se asignarán a ningún vendedor hasta que lo configures.
+</div>
+{% endif %}
+
+<!-- Tabla de vendedores -->
 <div class="card border-0 shadow-sm">
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
-        <tr><th>Nombre</th><th>Teléfono</th><th>Boletas</th><th>Estado</th><th></th></tr>
+        <tr>
+          <th>Nombre</th>
+          <th>Teléfono</th>
+          <th class="text-center" title="En Caja">📦 Caja</th>
+          <th class="text-center" title="En Baja">🔴 Baja</th>
+          <th class="text-center" title="Vendidos">✅ Vend.</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
       </thead>
       <tbody>
         {% for v in vendedores %}
+        {% set s = stats[v.id] %}
         <tr>
-          <td class="fw-semibold">{{ v.nombre }}</td>
+          <td>
+            <span class="fw-semibold">{{ v.nombre }}</span>
+            {% if v.es_jefe_equipo %}
+            <span class="badge bg-warning text-dark ms-1"><i class="bi bi-star-fill me-1"></i>Jefe</span>
+            {% endif %}
+          </td>
           <td>{{ v.telefono or "—" }}</td>
-          <td><span class="badge bg-secondary">{{ v.boletas|length }}</span></td>
+          <td class="text-center">
+            {% if s.caja > 0 %}
+            <button class="btn btn-sm btn-outline-primary py-0 px-2"
+                    onclick="toggleDetalle({{ v.id }})"
+                    title="Ver números en caja">
+              {{ s.caja }}
+            </button>
+            {% else %}
+            <span class="text-muted">0</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if s.baja > 0 %}
+            <span class="badge bg-danger-subtle text-danger">{{ s.baja }}</span>
+            {% else %}
+            <span class="text-muted">0</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if s.vendido > 0 %}
+            <span class="badge bg-success-subtle text-success">{{ s.vendido }}</span>
+            {% else %}
+            <span class="text-muted">0</span>
+            {% endif %}
+          </td>
           <td>
             <form method="post" action="/vendedores/{{ v.id }}/toggle" class="d-inline">
               <button class="btn btn-sm {% if v.activo %}btn-success{% else %}btn-secondary{% endif %}">
@@ -27,9 +73,41 @@
               </button>
             </form>
           </td>
-          <td>
+          <td class="text-end">
+            <!-- Marcar/desmarcar jefe -->
+            <form method="post" action="/vendedores/{{ v.id }}/toggle-jefe" class="d-inline">
+              <button class="btn btn-sm {% if v.es_jefe_equipo %}btn-warning{% else %}btn-outline-secondary{% endif %}"
+                      title="{% if v.es_jefe_equipo %}Quitar como jefe de equipo{% else %}Marcar como jefe de equipo{% endif %}">
+                <i class="bi bi-star{% if v.es_jefe_equipo %}-fill{% endif %}"></i>
+              </button>
+            </form>
             <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
                     data-bs-target="#modalEditar{{ v.id }}"><i class="bi bi-pencil"></i></button>
+          </td>
+        </tr>
+        <!-- Fila de detalle expandible: números en CAJA por pata -->
+        <tr id="detalle-{{ v.id }}" style="display:none;">
+          <td colspan="7" class="p-0">
+            <div class="bg-light border-top border-bottom px-3 py-2">
+              <p class="small fw-semibold mb-2 text-primary">
+                <i class="bi bi-box-arrow-in-down me-1"></i>Números en CAJA — {{ v.nombre }}
+              </p>
+              {% if s.caja_por_pata %}
+                {% for pata, nums in s.caja_por_pata.items() %}
+                <div class="mb-2">
+                  <span class="badge bg-danger me-2">{{ pata }}</span>
+                  <span class="small text-muted">{{ nums|length }} número(s):</span>
+                  <div class="d-flex flex-wrap gap-1 mt-1">
+                    {% for n in nums %}
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size:0.75rem;">{{ '%04d'|format(n) }}</span>
+                    {% endfor %}
+                  </div>
+                </div>
+                {% endfor %}
+              {% else %}
+                <p class="text-muted small mb-0">Sin números en caja.</p>
+              {% endif %}
+            </div>
           </td>
         </tr>
         <!-- Modal Editar -->
@@ -58,7 +136,7 @@
           </div></div>
         </div>
         {% else %}
-        <tr><td colspan="5" class="text-center text-muted py-4">Sin vendedores</td></tr>
+        <tr><td colspan="7" class="text-center text-muted py-4">Sin vendedores</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -75,7 +153,8 @@
   <div class="card-body">
     <p class="text-muted small mb-3">
       Solo se modifican las boletas con condición <strong>SIN_VENDER</strong>.
-      Las que ya están vendidas, en baja o en cobranza no se tocan.
+      Si no elegís vendedor, se asignan al <strong>jefe de equipo</strong>
+      {% if jefe %}(<span class="text-danger fw-semibold">{{ jefe.nombre }}</span>){% endif %}.
     </p>
     <div class="row g-2 align-items-end flex-wrap">
       <div class="col-auto">
@@ -96,6 +175,19 @@
         <input type="number" id="ec-hasta" class="form-control text-center" style="width:90px;" min="1" placeholder="0999">
       </div>
       <div class="col-auto">
+        <label class="form-label fw-semibold mb-1">Vendedor</label>
+        <select id="ec-vendedor" class="form-select" style="min-width:160px;">
+          <option value="">
+            {% if jefe %}★ {{ jefe.nombre }} (jefe){% else %}— Sin jefe definido —{% endif %}
+          </option>
+          {% for v in vendedores %}
+          {% if v.activo and not v.es_jefe_equipo %}
+          <option value="{{ v.id }}">{{ v.nombre }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
         <button class="btn btn-danger" id="ec-btn" onclick="entregarCaja()">
           <i class="bi bi-box-arrow-in-down me-1"></i>Pasar a CAJA
         </button>
@@ -111,7 +203,7 @@
       <thead class="table-light">
         <tr>
           <th>Fecha</th><th>PATA</th><th>Desde</th><th>Hasta</th>
-          <th>Boletas</th><th>Observación</th><th>Usuario</th><th></th>
+          <th>Boletas</th><th>Vendedor</th><th>Observación</th><th>Usuario</th><th></th>
         </tr>
       </thead>
       <tbody id="ec-tbody">
@@ -122,6 +214,14 @@
           <td class="fw-semibold">{{ '%04d'|format(e.desde) }}</td>
           <td class="fw-semibold">{{ '%04d'|format(e.hasta) }}</td>
           <td><span class="badge bg-primary">{{ e.boletas_afectadas }}</span></td>
+          <td>
+            {% if e.vendedor %}
+              <span class="fw-semibold text-danger">{{ e.vendedor.nombre }}</span>
+              {% if e.vendedor.es_jefe_equipo %}<i class="bi bi-star-fill text-warning ms-1" title="Jefe"></i>{% endif %}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
           <td class="text-muted fst-italic">{{ e.observacion or "—" }}</td>
           <td class="text-muted">{{ e.usuario.username if e.usuario else "—" }}</td>
           <td class="text-end">
@@ -138,7 +238,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-3">Sin registros</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-3">Sin registros</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -178,6 +278,17 @@
               <input type="number" name="hasta" class="form-control" value="{{ e.hasta }}" required>
             </div>
             <div class="col-12">
+              <label class="form-label fw-semibold">Vendedor</label>
+              <select name="vendedor_id" class="form-select">
+                <option value="">— Sin cambiar —</option>
+                {% for v in vendedores %}
+                <option value="{{ v.id }}" {% if e.vendedor_id == v.id %}selected{% endif %}>
+                  {{ v.nombre }}{% if v.es_jefe_equipo %} ★{% endif %}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
               <label class="form-label">Observación</label>
               <input type="text" name="observacion" class="form-control"
                      value="{{ e.observacion or '' }}" placeholder="Opcional…">
@@ -195,12 +306,22 @@
 {% endfor %}
 
 <script>
+function toggleDetalle(vid) {
+  const row = document.getElementById('detalle-' + vid);
+  if (row.style.display === 'none') {
+    row.style.display = '';
+  } else {
+    row.style.display = 'none';
+  }
+}
+
 async function entregarCaja() {
-  const pata  = document.getElementById('ec-pata').value;
-  const desde = parseInt(document.getElementById('ec-desde').value);
-  const hasta = parseInt(document.getElementById('ec-hasta').value);
-  const btn   = document.getElementById('ec-btn');
-  const res   = document.getElementById('ec-resultado');
+  const pata     = document.getElementById('ec-pata').value;
+  const desde    = parseInt(document.getElementById('ec-desde').value);
+  const hasta    = parseInt(document.getElementById('ec-hasta').value);
+  const vendedor = document.getElementById('ec-vendedor').value;
+  const btn      = document.getElementById('ec-btn');
+  const res      = document.getElementById('ec-resultado');
 
   if (!desde || !hasta) { res.innerHTML = alerta('warning','Completá el rango'); return; }
   if (hasta < desde)    { res.innerHTML = alerta('warning','El número final debe ser ≥ al inicial'); return; }
@@ -213,17 +334,18 @@ async function entregarCaja() {
     fd.append('talonera_nombre', pata);
     fd.append('desde', desde);
     fd.append('hasta', hasta);
+    if (vendedor) fd.append('vendedor_id', vendedor);
 
     const r    = await fetch('/vendedores/entrega-caja', { method:'POST', body:fd, credentials:'include' });
     const data = await r.json();
 
     if (data.ok) {
+      const vendNombre = data.vendedor_nombre ? `<strong>${data.vendedor_nombre}</strong>` : '<em>sin vendedor</em>';
       const label = data.actualizadas === 0
         ? `<span class="text-warning">Sin cambios</span> — ninguna boleta estaba en SIN_VENDER en ese rango`
-        : `<strong>${data.actualizadas}</strong> boleta(s) pasadas a <span class="badge bg-primary">CAJA</span>`;
+        : `<strong>${data.actualizadas}</strong> boleta(s) pasadas a <span class="badge bg-primary">CAJA</span> → ${vendNombre}`;
       res.innerHTML = alerta('success', `${label} &nbsp;<span class="text-muted">(${pata} · ${String(desde).padStart(4,'0')} – ${String(hasta).padStart(4,'0')})</span>`);
-      agregarFilaTabla(pata, desde, hasta, data.actualizadas, data.entrega_id);
-      // Limpiar campos para el siguiente ingreso rápido
+      agregarFilaTabla(pata, desde, hasta, data.actualizadas, data.entrega_id, data.vendedor_nombre);
       document.getElementById('ec-desde').value = '';
       document.getElementById('ec-hasta').value = '';
       document.getElementById('ec-desde').focus();
@@ -243,9 +365,8 @@ function alerta(tipo, msg) {
   return `<div class="alert alert-${tipo} py-2 mb-0 small"><i class="bi bi-${ico} me-1"></i>${msg}</div>`;
 }
 
-function agregarFilaTabla(pata, desde, hasta, cant, id) {
+function agregarFilaTabla(pata, desde, hasta, cant, id, vendNombre) {
   const tbody = document.getElementById('ec-tbody');
-  // Quitar fila "Sin registros" si existe
   const vacia = tbody.querySelector('td[colspan]');
   if (vacia) vacia.closest('tr').remove();
 
@@ -260,6 +381,7 @@ function agregarFilaTabla(pata, desde, hasta, cant, id) {
     <td class="fw-semibold">${d}</td>
     <td class="fw-semibold">${h}</td>
     <td><span class="badge bg-primary">${cant}</span></td>
+    <td class="fw-semibold text-danger">${vendNombre || '—'}</td>
     <td class="text-muted fst-italic">—</td>
     <td class="text-muted">—</td>
     <td class="text-end">
