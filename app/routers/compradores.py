@@ -251,6 +251,28 @@ async def crear(
     return RedirectResponse("/compradores/", status_code=302)
 
 
+def _derivar_condicion(boleta) -> str:
+    """Calcula la condición de una boleta a partir de su estado real.
+    Reglas (en orden de prioridad):
+      - BAJA: si la condición actual es BAJA (sticky, requiere acción manual)
+      - CAJA (Al contado): si todas las cuotas están pagas
+      - EN_COBRANZA: si tiene cobrador asignado Y está emplanillado
+      - VENDIDO (Activo): si tiene comprador y fecha de venta
+      - SIN_VENDER: cualquier otro caso
+    """
+    if not boleta:
+        return "SIN_VENDER"
+    if boleta.condicion and boleta.condicion.value == "BAJA":
+        return "BAJA"
+    if (boleta.cuotas_pactadas or 0) > 0 and (boleta.cuotas_pagadas or 0) >= boleta.cuotas_pactadas:
+        return "CAJA"
+    if boleta.cobrador_id and boleta.planilla_id:
+        return "EN_COBRANZA"
+    if boleta.comprador_id and boleta.fecha_venta:
+        return "VENDIDO"
+    return "SIN_VENDER"
+
+
 @router.get("/{comprador_id}/editar", response_class=HTMLResponse)
 async def editar_form(comprador_id: int, request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
@@ -262,12 +284,14 @@ async def editar_form(comprador_id: int, request: Request, db: Session = Depends
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
     cobradores = db.query(models.Cobrador).filter(models.Cobrador.activo == True).order_by(models.Cobrador.nombre).all()
+    cond_derivada = _derivar_condicion(c.boletas[0]) if c.boletas else "SIN_VENDER"
     return templates.TemplateResponse(request, "comprador_editar.html", {
         "user": user,
         "comprador": c,
         "zonas": zonas,
         "vendedores": vendedores,
         "cobradores": cobradores,
+        "cond_derivada": cond_derivada,
     })
 
 
@@ -299,14 +323,18 @@ async def editar(
     c.zona_id = zona
     c.telefono = telefono.strip() or None
 
-    # Actualizar condición en todas las boletas existentes
-    if condicion:
-        try:
-            cond_enum = CondicionBoleta(condicion)
-            for b_exist in c.boletas:
-                b_exist.condicion = cond_enum
-        except ValueError:
-            pass
+    # Si el usuario marca BAJA explícitamente, queda BAJA (sticky).
+    # Si no, la condición se re-deriva al final basada en el estado real.
+    marcar_baja = (condicion == "BAJA")
+    reactivar = (condicion == "REACTIVAR")
+    if marcar_baja:
+        for b_exist in c.boletas:
+            b_exist.condicion = CondicionBoleta.BAJA
+    elif reactivar:
+        # Limpiar BAJA — se re-derivará al final
+        for b_exist in c.boletas:
+            if b_exist.condicion == CondicionBoleta.BAJA:
+                b_exist.condicion = CondicionBoleta.SIN_VENDER
 
     # Actualizar vendedor en todas las boletas existentes
     if vendedor_id:
@@ -356,8 +384,17 @@ async def editar(
                 b.cuotas_pagadas = cuotas_anticipadas
             if effective_cobrador_id:
                 b.cobrador_id = effective_cobrador_id
-            if b.condicion == CondicionBoleta.SIN_VENDER:
-                b.condicion = CondicionBoleta.VENDIDO
+
+    # Re-derivar condición al final (salvo BAJA explícita que ya quedó seteada)
+    if not marcar_baja:
+        for b_exist in c.boletas:
+            if b_exist.condicion != CondicionBoleta.BAJA:
+                derivada = _derivar_condicion(b_exist)
+                try:
+                    b_exist.condicion = CondicionBoleta(derivada)
+                except ValueError:
+                    pass
+
     db.commit()
     return RedirectResponse("/compradores/", status_code=302)
 
