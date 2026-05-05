@@ -123,15 +123,6 @@
           <input type="date" name="fecha_compra" class="form-control form-control-sm"
                  value="{{ comprador.boletas[0].fecha_venta.isoformat() if comprador.boletas and comprador.boletas[0].fecha_venta else '' }}">
         </div>
-        <div class="col-4">
-          <label class="form-label mb-1" style="font-size:.8rem;" title="Cuotas cobradas por el vendedor al momento de la venta">Cuotas al contado</label>
-          {% set ant_actual = comprador.boletas[0].cuotas_anticipadas if comprador.boletas else 1 %}
-          <select name="cuotas_anticipadas" class="form-select form-select-sm">
-            {% for n in range(1, 13) %}
-            <option value="{{ n }}" {% if n == ant_actual %}selected{% endif %}>{{ n }}</option>
-            {% endfor %}
-          </select>
-        </div>
       </div>
 
       <!-- Agregar boleta -->
