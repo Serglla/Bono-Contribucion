@@ -19,9 +19,21 @@ async def listar(request: Request, db: Session = Depends(get_db), error: str = "
     if not auth_module.has_permission(user, 'taloneras', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
     taloneras = db.query(models.Talonera).order_by(models.Talonera.multiplicador, models.Talonera.numero_inicio).all()
-    # Agrupar por nombre para la vista
+    # Agrupar por nombre para la vista — separamos COMUN de CONTADO
     grupos: dict = {}
+    grupos_contado: list = []
     for t in taloneras:
+        if (t.tipo or "COMUN") == "CONTADO":
+            # Calcular cuántos números fueron asignados a boletas comunes
+            asignados = db.query(models.Boleta).filter(
+                models.Boleta.talonera_especial_id == t.id
+            ).count()
+            grupos_contado.append({
+                "talonera": t,
+                "asignados": asignados,
+                "rango": (t.numero_fin or 0) - (t.numero_inicio or 0) + 1 if t.numero_inicio and t.numero_fin else 0,
+            })
+            continue
         if t.nombre not in grupos:
             grupos[t.nombre] = {"nombre": t.nombre, "num_series": t.num_series,
                                 "multiplicador": t.multiplicador, "color": t.color or "#ffffff",
@@ -29,6 +41,7 @@ async def listar(request: Request, db: Session = Depends(get_db), error: str = "
         grupos[t.nombre]["taloneras"].append(t)
     return templates.TemplateResponse(request, "taloneras.html", {
         "user": user, "taloneras": taloneras, "grupos": list(grupos.values()),
+        "grupos_contado": grupos_contado,
         "error": error, "error_nombre": nombre
     })
 
@@ -69,6 +82,37 @@ async def crear(
         num_series=num_series,
         offset_series=offset,
         valor_cuota=valor_cuota,
+        tipo="COMUN",
+    )
+    db.add(t)
+    db.commit()
+    return RedirectResponse("/taloneras/", status_code=302)
+
+
+@router.post("/crear-contado")
+async def crear_contado(
+    request: Request,
+    nombre: str = Form(...),
+    numero_inicio: int = Form(...),
+    numero_fin: int = Form(...),
+    color: str = Form("#fff8e1"),
+    db: Session = Depends(get_db)
+):
+    """Crear talonera tipo CONTADO — pool de números especiales para pago al contado.
+    No tiene series ni offset; es una secuencia simple de números."""
+    await auth_module.require_admin(request, db)
+    if numero_fin < numero_inicio:
+        return RedirectResponse("/taloneras/?error=rango_invalido", status_code=302)
+    t = models.Talonera(
+        nombre=nombre.strip() or "CONTADO",
+        multiplicador=1,
+        numero_inicio=numero_inicio,
+        numero_fin=numero_fin,
+        num_series=1,
+        offset_series=0,
+        color=color or "#fff8e1",
+        valor_cuota=0.0,
+        tipo="CONTADO",
     )
     db.add(t)
     db.commit()
@@ -198,12 +242,44 @@ async def editar_talonera(
     return RedirectResponse("/taloneras/", status_code=302)
 
 
+@router.post("/{talonera_id}/editar-contado")
+async def editar_talonera_contado(
+    talonera_id: int, request: Request,
+    nombre: str = Form(...),
+    numero_inicio: int = Form(...),
+    numero_fin: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Editar nombre/rango de una talonera CONTADO."""
+    await auth_module.require_admin(request, db)
+    t = db.query(models.Talonera).get(talonera_id)
+    if not t or (t.tipo or "COMUN") != "CONTADO":
+        raise HTTPException(404)
+    if numero_fin < numero_inicio:
+        return RedirectResponse("/taloneras/?error=rango_invalido", status_code=302)
+    t.nombre = nombre
+    t.numero_inicio = numero_inicio
+    t.numero_fin = numero_fin
+    db.commit()
+    return RedirectResponse("/taloneras/", status_code=302)
+
+
 @router.post("/{talonera_id}/eliminar")
 async def eliminar_talonera(talonera_id: int, request: Request, db: Session = Depends(get_db)):
     await auth_module.require_admin(request, db)
     t = db.query(models.Talonera).get(talonera_id)
     if not t:
         raise HTTPException(404)
+    # Talonera CONTADO: solo se puede eliminar si no hay números asignados
+    if (t.tipo or "COMUN") == "CONTADO":
+        asignados = db.query(models.Boleta).filter(
+            models.Boleta.talonera_especial_id == talonera_id
+        ).count()
+        if asignados > 0:
+            return RedirectResponse(f"/taloneras/?error=contado_asignados&nombre={t.nombre}", status_code=302)
+        db.delete(t)
+        db.commit()
+        return RedirectResponse("/taloneras/", status_code=302)
     vendidas = db.query(models.Boleta).filter(
         models.Boleta.talonera_id == talonera_id,
         models.Boleta.condicion == CondicionBoleta.VENDIDO

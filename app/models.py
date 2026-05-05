@@ -135,7 +135,12 @@ class Talonera(Base):
     activa = Column(Boolean, default=True)
     color = Column(String, default="#ffffff")
     valor_cuota = Column(Float, default=0.0)
-    boletas = relationship("Boleta", back_populates="talonera")
+    # Tipo de talonera: "COMUN" (por defecto) o "CONTADO" (talonera especial para pagos al contado)
+    # Una talonera CONTADO no representa boletas reales — es un pool de números
+    # que se asignan a boletas comunes cuando se paga al contado.
+    tipo = Column(String, default="COMUN", nullable=False)
+    boletas = relationship("Boleta", back_populates="talonera",
+                           foreign_keys="Boleta.talonera_id")
 
 
 class Planilla(Base):
@@ -193,9 +198,16 @@ class Boleta(Base):
     cuotas_pagadas = Column(Integer, default=0)
     historial_cuotas = Column(String, nullable=True)  # JSON: {"cuota_num": mes_pagado}
     total_pagado = Column(Float, default=0.0)
+    # Talonera especial CONTADO: cuando el socio paga al contado, recibe un
+    # número de una talonera tipo CONTADO. numero_especial es el número asignado,
+    # talonera_especial_id apunta a la talonera CONTADO de la cual salió.
+    numero_especial = Column(Integer, nullable=True, index=True)
+    talonera_especial_id = Column(Integer, ForeignKey("taloneras.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
-    talonera = relationship("Talonera", back_populates="boletas")
+    talonera = relationship("Talonera", back_populates="boletas",
+                            foreign_keys=[talonera_id])
+    talonera_especial = relationship("Talonera", foreign_keys=[talonera_especial_id])
     comprador = relationship("Comprador", back_populates="boletas")
     cobrador = relationship("Cobrador", back_populates="boletas")
     vendedor = relationship("Vendedor", back_populates="boletas")

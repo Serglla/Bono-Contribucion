@@ -144,6 +144,34 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion valor_cuota taloneras: {e}")
 
+        # Migrar columna tipo en taloneras (COMUN/CONTADO) — talonera especial pago al contado
+        try:
+            cols_taloneras = [c["name"] for c in inspector.get_columns("taloneras")]
+            if "tipo" not in cols_taloneras:
+                db.execute(text("ALTER TABLE taloneras ADD COLUMN tipo VARCHAR DEFAULT 'COMUN'"))
+                db.commit()
+                db.execute(text("UPDATE taloneras SET tipo = 'COMUN' WHERE tipo IS NULL"))
+                db.commit()
+                print("Migracion tipo taloneras: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion tipo taloneras: {e}")
+
+        # Migrar columnas numero_especial y talonera_especial_id en boletas
+        try:
+            cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
+            if "numero_especial" not in cols_boletas:
+                db.execute(text("ALTER TABLE boletas ADD COLUMN numero_especial INTEGER"))
+                db.commit()
+                print("Migracion numero_especial boletas: columna creada OK")
+            if "talonera_especial_id" not in cols_boletas:
+                db.execute(text("ALTER TABLE boletas ADD COLUMN talonera_especial_id INTEGER REFERENCES taloneras(id)"))
+                db.commit()
+                print("Migracion talonera_especial_id boletas: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion numero_especial/talonera_especial_id boletas: {e}")
+
         # Migrar columna cuotas_anticipadas en boletas
         try:
             cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]

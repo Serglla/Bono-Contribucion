@@ -8,6 +8,9 @@
       <i class="bi bi-grid-3x3-gap me-1"></i>Enumeración
     </a>
     {% if user.is_admin %}
+    <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#modalNuevaContado">
+      <i class="bi bi-star-fill me-1"></i>Nueva Talonera Especial
+    </button>
     <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNueva">
       <i class="bi bi-plus-lg me-1"></i>Nueva Talonera
     </button>
@@ -22,6 +25,76 @@
   Primero editá los socios correspondientes y cambiá sus boletas.
   <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
+{% endif %}
+
+{% if error == 'contado_asignados' %}
+<div class="alert alert-warning alert-dismissible fade show" role="alert">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  No se puede eliminar la talonera especial <strong>{{ error_nombre }}</strong> porque tiene números ya asignados a boletas pagadas al contado.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+{% if error == 'rango_invalido' %}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  El rango ingresado no es válido (el N° fin debe ser mayor o igual al N° inicio).
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+{% if grupos_contado %}
+<div class="mb-4">
+  <h6 class="text-warning fw-bold mb-2">
+    <i class="bi bi-star-fill me-1"></i>Talonera Especial — Pago al Contado
+  </h6>
+  <div class="row g-3">
+    {% for gc in grupos_contado %}
+    {% set t = gc.talonera %}
+    <div class="col-md-4">
+      <div class="card border-0 shadow-sm h-100" style="border-left: 5px solid #ffc107 !important; background: #fffdf5;">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <span class="badge bg-warning text-dark mb-1" style="font-size:.65rem;">ESPECIAL CONTADO</span>
+              <h5 class="card-title fw-bold text-warning-emphasis mb-0">{{ t.nombre }}</h5>
+            </div>
+            {% if user.is_admin %}
+            <div class="d-flex gap-1">
+              <button class="btn btn-sm btn-outline-primary py-0 px-2 btn-editar-contado"
+                      style="font-size:.7rem;" title="Editar talonera especial"
+                      data-id="{{ t.id }}"
+                      data-nombre="{{ t.nombre }}"
+                      data-inicio="{{ t.numero_inicio }}"
+                      data-fin="{{ t.numero_fin }}">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="btn btn-sm btn-outline-danger py-0 px-2 btn-eliminar"
+                      style="font-size:.7rem;" title="Eliminar talonera especial"
+                      data-id="{{ t.id }}"
+                      data-nombre="{{ t.nombre }}"
+                      data-vendidas="{{ gc.asignados }}"
+                      data-tipo="CONTADO">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+            {% endif %}
+          </div>
+          <p class="text-muted small mb-1">
+            Rango: <strong>{{ '%04d'|format(t.numero_inicio) }} → {{ '%04d'|format(t.numero_fin) }}</strong>
+          </p>
+          <p class="text-muted small mb-0">
+            <i class="bi bi-check2-circle text-success me-1"></i>{{ gc.asignados }} asignado{{ '' if gc.asignados == 1 else 's' }}
+            &nbsp;/&nbsp;
+            <span class="text-muted">{{ gc.rango }} disponibles</span>
+          </p>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+<hr class="my-4">
 {% endif %}
 
 <div class="row g-3">
@@ -189,12 +262,29 @@ document.querySelectorAll('.btn-eliminar').forEach(function(btn) {
   btn.addEventListener('click', function() {
     var d = this.dataset;
     if (parseInt(d.vendidas) > 0) {
-      alert('No se puede eliminar "' + d.nombre + '" porque tiene ' + d.vendidas + ' boleta(s) vendida(s).\nPrimero editá los socios y cambiá sus boletas.');
+      if (d.tipo === 'CONTADO') {
+        alert('No se puede eliminar la talonera especial "' + d.nombre + '" porque tiene ' + d.vendidas + ' número(s) ya asignados a boletas pagadas al contado.');
+      } else {
+        alert('No se puede eliminar "' + d.nombre + '" porque tiene ' + d.vendidas + ' boleta(s) vendida(s).\nPrimero editá los socios y cambiá sus boletas.');
+      }
       return;
     }
     document.getElementById('elimNombre').textContent  = d.nombre;
     document.getElementById('formEliminar').action     = '/taloneras/' + d.id + '/eliminar';
     var modal = new bootstrap.Modal(document.getElementById('modalEliminar'));
+    modal.show();
+  });
+});
+
+// Botón editar talonera CONTADO
+document.querySelectorAll('.btn-editar-contado').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var d = this.dataset;
+    document.getElementById('editContadoNombre').value = d.nombre;
+    document.getElementById('editContadoInicio').value = d.inicio;
+    document.getElementById('editContadoFin').value    = d.fin;
+    document.getElementById('formEditarContado').action = '/taloneras/' + d.id + '/editar-contado';
+    var modal = new bootstrap.Modal(document.getElementById('modalEditarContado'));
     modal.show();
   });
 });
@@ -223,6 +313,86 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
 </script>
 
 {% if user.is_admin %}
+<!-- Modal NUEVA TALONERA ESPECIAL CONTADO -->
+<div class="modal fade" id="modalNuevaContado" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/taloneras/crear-contado" id="formNuevaContado">
+        <div class="modal-header" style="background:#fff8e1;">
+          <h5 class="modal-title">
+            <i class="bi bi-star-fill text-warning me-2"></i>Nueva Talonera Especial — Pago al Contado
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning small mb-3 py-2">
+            <i class="bi bi-info-circle me-1"></i>
+            Esta talonera no se vende: es un pool de números que se asignan automáticamente a los socios que pagan al contado.
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Nombre</label>
+            <input type="text" name="nombre" class="form-control" value="CONTADO" required>
+          </div>
+          <div class="d-flex gap-3 mb-3">
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">N° inicio</label>
+              <input type="text" inputmode="numeric" name="numero_inicio" class="form-control" placeholder="Ej: 100" required>
+            </div>
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">N° fin</label>
+              <input type="text" inputmode="numeric" name="numero_fin" class="form-control" placeholder="Ej: 999" required>
+            </div>
+          </div>
+          <input type="hidden" name="color" value="#fff8e1">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-warning"><i class="bi bi-check-lg me-1"></i>Crear</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal EDITAR TALONERA ESPECIAL CONTADO -->
+<div class="modal fade" id="modalEditarContado" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" id="formEditarContado">
+        <div class="modal-header" style="background:#fff8e1;">
+          <h5 class="modal-title">
+            <i class="bi bi-pencil text-warning me-2"></i>Editar Talonera Especial
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Nombre</label>
+            <input type="text" name="nombre" id="editContadoNombre" class="form-control" required>
+          </div>
+          <div class="d-flex gap-3 mb-2">
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">N° inicio</label>
+              <input type="text" inputmode="numeric" name="numero_inicio" id="editContadoInicio" class="form-control" required>
+            </div>
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">N° fin</label>
+              <input type="text" inputmode="numeric" name="numero_fin" id="editContadoFin" class="form-control" required>
+            </div>
+          </div>
+          <p class="text-muted small mb-0">
+            <i class="bi bi-info-circle me-1"></i>Los números ya asignados a boletas se mantienen aunque cambies el rango.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Guardar cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="modalNueva" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
