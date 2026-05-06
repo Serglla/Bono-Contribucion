@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Enum, DateTime, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, deferred
 from sqlalchemy.sql import func
 import enum
 from datetime import datetime as _datetime
@@ -160,7 +160,7 @@ class Talonera(Base):
     activa = Column(Boolean, default=True)
     color = Column(String, default="#ffffff")
     valor_cuota = Column(Float, default=0.0)
-    num_cuotas  = Column(Integer, default=12)   # cantidad de cuotas mensuales de la talonera
+    num_cuotas  = deferred(Column(Integer, default=12))  # cantidad de cuotas mensuales; deferred=no rompe SELECT si aún no existe la columna
     # Tipo de talonera: "COMUN" (por defecto) o "CONTADO" (talonera especial para pagos al contado)
     # Una talonera CONTADO no representa boletas reales — es un pool de números
     # que se asignan a boletas comunes cuando se paga al contado.
