@@ -49,14 +49,14 @@ def create_default_admin():
         inspector = inspect(engine)
 
         # Asegurar columna legacy cobrador_id en zonas
-        cols = [c["name"] for c in inspector.get_columns("zonas")]
-        if "cobrador_id" not in cols:
-            try:
+        try:
+            cols = [c["name"] for c in inspector.get_columns("zonas")]
+            if "cobrador_id" not in cols:
                 db.execute(text("ALTER TABLE zonas ADD COLUMN cobrador_id INTEGER REFERENCES cobradores(id)"))
                 db.commit()
-            except Exception as e:
-                db.rollback()
-                print(f"Migracion cobrador_id: {e}")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion cobrador_id: {e}")
 
         # Crear tabla zona_cobradores (muchos-a-muchos con timestamp)
         try:

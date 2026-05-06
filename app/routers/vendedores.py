@@ -25,11 +25,13 @@ def _stats_bulk(db):
     stats = {}
     for vid, cond, cnt in rows:
         if vid not in stats:
-            stats[vid] = {"caja": 0, "vendido": 0}
+            stats[vid] = {"caja": 0, "vendido": 0, "baja": 0}
         if cond == CondicionBoleta.CAJA:
             stats[vid]["caja"] = cnt
         elif cond == CondicionBoleta.VENDIDO:
             stats[vid]["vendido"] = cnt
+        elif cond == CondicionBoleta.BAJA:
+            stats[vid]["baja"] = cnt
     return stats
 
 
