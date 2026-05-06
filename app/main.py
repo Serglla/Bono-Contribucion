@@ -364,6 +364,21 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion num_cuotas taloneras: {e}")
 
+        # Migrar num_digitos en taloneras (cantidad de cifras del numero, default 3)
+        try:
+            _dialect = engine.dialect.name
+            if _dialect == "postgresql":
+                db.execute(text("ALTER TABLE taloneras ADD COLUMN IF NOT EXISTS num_digitos INTEGER DEFAULT 3"))
+            else:
+                cols_tal = [c["name"] for c in inspector.get_columns("taloneras")]
+                if "num_digitos" not in cols_tal:
+                    db.execute(text("ALTER TABLE taloneras ADD COLUMN num_digitos INTEGER DEFAULT 3"))
+            db.commit()
+            print("Migracion num_digitos taloneras: OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion num_digitos taloneras: {e}")
+
         # Migrar cuota_1_total en liquidaciones_vendedor
         try:
             _dialect = engine.dialect.name

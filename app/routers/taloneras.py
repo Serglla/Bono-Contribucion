@@ -95,14 +95,18 @@ async def crear_contado(
     nombre: str = Form(...),
     numero_inicio: int = Form(...),
     numero_fin: int = Form(...),
+    num_digitos: int = Form(3),
     color: str = Form("#fff8e1"),
     db: Session = Depends(get_db)
 ):
     """Crear talonera tipo CONTADO — pool de números especiales para pago al contado.
-    No tiene series ni offset; es una secuencia simple de números."""
+    No tiene series ni offset; es una secuencia simple de números.
+    `num_digitos` define la cantidad de cifras con la que se muestran los números
+    (default 3 → "001", 4 → "0001"). Se acota a [1, 6]."""
     await auth_module.require_admin(request, db)
     if numero_fin < numero_inicio:
         return RedirectResponse("/taloneras/?error=rango_invalido", status_code=302)
+    nd = max(1, min(int(num_digitos or 3), 6))
     t = models.Talonera(
         nombre=nombre.strip() or "CONTADO",
         multiplicador=1,
@@ -113,6 +117,7 @@ async def crear_contado(
         color=color or "#fff8e1",
         valor_cuota=0.0,
         tipo="CONTADO",
+        num_digitos=nd,
     )
     db.add(t)
     db.commit()
@@ -248,9 +253,10 @@ async def editar_talonera_contado(
     nombre: str = Form(...),
     numero_inicio: int = Form(...),
     numero_fin: int = Form(...),
+    num_digitos: int = Form(3),
     db: Session = Depends(get_db)
 ):
-    """Editar nombre/rango de una talonera CONTADO."""
+    """Editar nombre/rango/cifras de una talonera CONTADO."""
     await auth_module.require_admin(request, db)
     t = db.query(models.Talonera).get(talonera_id)
     if not t or (t.tipo or "COMUN") != "CONTADO":
@@ -260,6 +266,7 @@ async def editar_talonera_contado(
     t.nombre = nombre
     t.numero_inicio = numero_inicio
     t.numero_fin = numero_fin
+    t.num_digitos = max(1, min(int(num_digitos or 3), 6))
     db.commit()
     return RedirectResponse("/taloneras/", status_code=302)
 

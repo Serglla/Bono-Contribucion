@@ -66,7 +66,8 @@
                       data-id="{{ t.id }}"
                       data-nombre="{{ t.nombre }}"
                       data-inicio="{{ t.numero_inicio }}"
-                      data-fin="{{ t.numero_fin }}">
+                      data-fin="{{ t.numero_fin }}"
+                      data-digitos="{{ t.num_digitos or 3 }}">
                 <i class="bi bi-pencil"></i>
               </button>
               <button class="btn btn-sm btn-outline-danger py-0 px-2 btn-eliminar"
@@ -80,8 +81,10 @@
             </div>
             {% endif %}
           </div>
+          {% set _nd = t.num_digitos or 3 %}
+          {% set _fmt = '%0' ~ _nd ~ 'd' %}
           <p class="text-muted small mb-1">
-            Rango: <strong>{{ '%04d'|format(t.numero_inicio) }} → {{ '%04d'|format(t.numero_fin) }}</strong>
+            Rango: <strong>{{ _fmt|format(t.numero_inicio) }} → {{ _fmt|format(t.numero_fin) }}</strong>
           </p>
           <p class="text-muted small mb-0">
             <i class="bi bi-check2-circle text-success me-1"></i>{{ gc.asignados }} asignado{{ '' if gc.asignados == 1 else 's' }}
@@ -280,14 +283,32 @@ document.querySelectorAll('.btn-eliminar').forEach(function(btn) {
 document.querySelectorAll('.btn-editar-contado').forEach(function(btn) {
   btn.addEventListener('click', function() {
     var d = this.dataset;
-    document.getElementById('editContadoNombre').value = d.nombre;
-    document.getElementById('editContadoInicio').value = d.inicio;
-    document.getElementById('editContadoFin').value    = d.fin;
+    document.getElementById('editContadoNombre').value  = d.nombre;
+    document.getElementById('editContadoInicio').value  = d.inicio;
+    document.getElementById('editContadoFin').value     = d.fin;
+    document.getElementById('editContadoDigitos').value = d.digitos || 3;
     document.getElementById('formEditarContado').action = '/taloneras/' + d.id + '/editar-contado';
     var modal = new bootstrap.Modal(document.getElementById('modalEditarContado'));
     modal.show();
   });
 });
+
+// Hint dinámico de cifras en el modal Nueva Talonera Especial
+(function() {
+  var inp  = document.getElementById('contadoNumDigitos');
+  var hint = document.getElementById('contadoDigitosHint');
+  if (!inp || !hint) return;
+  function refresh() {
+    var n = parseInt(inp.value);
+    if (!isNaN(n) && n >= 1 && n <= 6) {
+      hint.textContent = 'Ej: ' + '1'.padStart(n, '0');
+    } else {
+      hint.textContent = '';
+    }
+  }
+  inp.addEventListener('input', refresh);
+  refresh();
+})();
 
 // Color picker
 document.querySelectorAll('.color-picker').forEach(function(picker) {
@@ -329,9 +350,17 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
             <i class="bi bi-info-circle me-1"></i>
             Esta talonera no se vende: es un pool de números que se asignan automáticamente a los socios que pagan al contado.
           </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Nombre</label>
-            <input type="text" name="nombre" class="form-control" value="CONTADO" required>
+          <div class="d-flex gap-3 mb-3">
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">Nombre</label>
+              <input type="text" name="nombre" class="form-control" value="CONTADO" required>
+            </div>
+            <div style="flex:0 0 130px;">
+              <label class="form-label fw-semibold">Cifras del N°</label>
+              <input type="number" min="1" max="6" name="num_digitos" id="contadoNumDigitos"
+                     class="form-control" value="3" required>
+              <div class="form-text" id="contadoDigitosHint">Ej: 001</div>
+            </div>
           </div>
           <div class="d-flex gap-3 mb-3">
             <div style="flex:1;">
@@ -366,9 +395,16 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Nombre</label>
-            <input type="text" name="nombre" id="editContadoNombre" class="form-control" required>
+          <div class="d-flex gap-3 mb-3">
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">Nombre</label>
+              <input type="text" name="nombre" id="editContadoNombre" class="form-control" required>
+            </div>
+            <div style="flex:0 0 130px;">
+              <label class="form-label fw-semibold">Cifras del N°</label>
+              <input type="number" min="1" max="6" name="num_digitos" id="editContadoDigitos"
+                     class="form-control" value="3" required>
+            </div>
           </div>
           <div class="d-flex gap-3 mb-2">
             <div style="flex:1;">

@@ -56,6 +56,7 @@
 - **Migraciones PostgreSQL**: usar `ALTER TABLE x ADD COLUMN IF NOT EXISTS ...` (no soportado en SQLite → detectar dialect con `engine.dialect.name`)
 - **Jinja2 + dicts**: acceso por punto (`s.clave`) en Jinja2 lanza `UndefinedError` si la clave no existe en el dict — siempre incluir todas las claves en el dict o usar `s.get("clave", 0)`
 - **_stats_bulk**: el dict de stats DEBE incluir la clave `"baja"` aunque sea 0, porque el template accede a `s.baja`
+- **Sandbox bash mount stale**: a veces el mount /sessions/.../mnt/ no sincroniza con los Edit del file tool; confiar en lo que devuelve Read y verificar contenido con grep si bash da errores raros
 
 ---
 
@@ -126,8 +127,35 @@ SIN_VENDER
 - `GET /vendedores/{vid}/detalle`: boletas agrupadas por PATA + `pendientes_json` (JSON de boletas para el modal)
 - `POST /vendedores/{vid}/liquidar`: acepta boleta_ids seleccionados, nuevo modelo de comisión
 - `POST /vendedores/{vid}/toggle-jefe`: marca jefe (primero resetea todos, luego activa el nuevo)
-- `POST /vendedores/entrega-caja`: SIN_VENDER → CAJA, asigna vendedor (default: jefe de equipo)
+- `POST /vendedores/entrega-caja`: SIN_VENDER → CAJA + REASIGNAR entre vendedores en CAJA (sin liquidar)
 - `POST /vendedores/entrega-caja/{id}/editar` y `eliminar`: gestión del historial de entregas
+
+#### Entrega a Caja — actualizado 06/05/2026 (tarde)
+**Comportamiento dual:**
+1. Boletas en SIN_VENDER → pasan a CAJA con el vendedor elegido (cuenta como `nuevas`)
+2. Boletas en CAJA sin `liquidacion_vendedor_id` y con vendedor distinto → reasigna al nuevo vendedor (cuenta como `reasignadas`). NO toca las liquidadas.
+
+**No ensucia historial:** si `total = nuevas + reasignadas == 0`, hace `db.rollback()` y NO crea fila en EntregaCaja.
+
+**Respuesta JSON:**
+```json
+{
+  "ok": true,
+  "nuevas": int,
+  "reasignadas": int,
+  "total": int,
+  "actualizadas": int,        // backward compat = total
+  "entrega_id": int|null,
+  "vendedor_nombre": str|null,
+  "vendedor_id": int,
+  "vendedores_origen": [int]  // ids de vendedores que perdieron boletas
+}
+```
+
+**Frontend (vendedores.html):**
+- Mensaje: `X nueva(s) SIN_VENDER → CAJA · Y reasignada(s) a HUGO · Z total`
+- Suma al destino + resta a `vendedores_origen` en vivo (sin reload)
+- `actualizarCajaCell(vid, n)` maneja n negativo: si llega a 0 elimina el badge y muestra guion
 
 #### Templates vendedores
 - `vendedores.html`: tabla limpia, doble-click → detalle, badge jefe, stats por vendor, historial entregas
@@ -213,4 +241,4 @@ SIN_VENDER
 - **Liquidación vendedor**: pendiente configurar `num_cuotas` en cada talonera desde la UI de taloneras (por ahora default 12)
 
 ---
-*Última actualización: 06 de mayo de 2026 — Modal liquidación rediseñado (selección manual de boletas), nuevo modelo de comisión (cuota 1 + % cuotas + % contado sobre valor total talonera), fix 500 en lista vendedores (s.baja en Jinja2), fixes de migraciones PostgreSQL.*
+*Última actualización: 06 de mayo de 2026 (tarde) — Entrega a Caja ahora reasigna boletas en CAJA entre vendedores (sin tocar liquidadas), no crea historial vacío cuando total=0, frontend actualiza celdas de origen y destino en vivo. Modal liquidación rediseñado (selección manual de boletas), nuevo modelo de comisión (cuota 1 + % cuotas + % contado sobre valor total talonera).*

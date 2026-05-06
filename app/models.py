@@ -165,6 +165,11 @@ class Talonera(Base):
     # Una talonera CONTADO no representa boletas reales — es un pool de números
     # que se asignan a boletas comunes cuando se paga al contado.
     tipo = Column(String, default="COMUN", nullable=False)
+    # Cantidad de cifras con la que se formatean los números de esta talonera
+    # (p.ej. 3 -> "001", 4 -> "0001"). Usado principalmente por taloneras CONTADO,
+    # donde el rango puede ser más chico que el rango de boletas comunes (0001-9999).
+    # deferred=True para que el SELECT no rompa si la columna aún no existe en la DB.
+    num_digitos = deferred(Column(Integer, default=3))
     boletas = relationship("Boleta", back_populates="talonera",
                            foreign_keys="Boleta.talonera_id")
 
