@@ -51,7 +51,10 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     taloneras = db.query(models.Talonera).order_by(
         models.Talonera.nombre, models.Talonera.numero_inicio
     ).all()
-    grupos_talonera = list(dict.fromkeys(t.nombre for t in taloneras))
+    # Solo taloneras COMUN en el dropdown de Entrega a Caja (CONTADO no tiene boletas propias)
+    grupos_talonera = list(dict.fromkeys(
+        t.nombre for t in taloneras if (t.tipo or "COMUN") == "COMUN"
+    ))
     entregas = db.query(models.EntregaCaja).order_by(
         models.EntregaCaja.fecha.desc()
     ).limit(200).all()
@@ -370,7 +373,4 @@ async def editar(
         raise HTTPException(403, "Sin permiso")
     v = db.query(models.Vendedor).get(vid)
     if v:
-        v.nombre = nombre.strip().upper()
-        v.telefono = telefono.strip() or None
-        db.commit()
-    return RedirectResponse("/vendedores/", status_code=302)
+        v.nombre = nombre.
