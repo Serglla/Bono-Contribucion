@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
+import json
 from .. import models, auth as auth_module
 from ..models import CondicionBoleta
 from ..templates_config import templates
@@ -93,22 +94,19 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                   if b.condicion == CondicionBoleta.CAJA
                   and b.liquidacion_vendedor_id is None]
 
-    # Preview de liquidacion por PATA
-    liq_preview = {}
-    for b in pendientes:
-        pata = b.talonera.nombre if b.talonera else "?"
-        vc   = b.talonera.valor_cuota if b.talonera else 0.0
-        if pata not in liq_preview:
-            liq_preview[pata] = {"valor_cuota": vc, "cuotas": 0, "contados": 0}
-        if b.numero_especial is not None:
-            liq_preview[pata]["contados"] += 1
-        else:
-            liq_preview[pata]["cuotas"] += 1
-
-    total_cuotas   = sum(p["cuotas"]   for p in liq_preview.values())
-    total_contados = sum(p["contados"] for p in liq_preview.values())
-    monto_cuotas   = sum(p["cuotas"]   * p["valor_cuota"] for p in liq_preview.values())
-    monto_contados = sum(p["contados"] * p["valor_cuota"] for p in liq_preview.values())
+    # Datos individuales de cada boleta pendiente → para el modal de selección manual
+    pendientes_json = json.dumps([
+        {
+            "id":         b.id,
+            "num":        b.numero_principal,
+            "pata":       b.talonera.nombre     if b.talonera else "?",
+            "color":      b.talonera.color      if b.talonera else "#cccccc",
+            "valor_cuota":b.talonera.valor_cuota if b.talonera else 0.0,
+            "num_cuotas": (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 12),
+            "contado":    b.numero_especial is not None,
+        }
+        for b in sorted(pendientes, key=lambda x: (x.talonera.nombre if x.talonera else "", x.numero_principal))
+    ])
 
     liquidaciones = db.query(models.LiquidacionVendedor).filter_by(
         vendedor_id=vid
@@ -118,11 +116,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
 
     return templates.TemplateResponse(request, "vendedor_detalle.html", {
         "user": user, "v": v, "patas": patas,
-        "liq_preview": liq_preview,
-        "total_cuotas": total_cuotas,
-        "total_contados": total_contados,
-        "monto_cuotas": monto_cuotas,
-        "monto_contados": monto_contados,
+        "pendientes_json": pendientes_json,
         "liquidaciones": liquidaciones,
         "can_edit": can_edit,
         "pendientes_count": len(pendientes),
@@ -133,14 +127,14 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
 async def liquidar(
     vid: int,
     request: Request,
-    comision_cuotas_pct: float = Form(5.0),
-    comision_contados_pct: float = Form(10.0),
-    observacion: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    """Liquida al vendedor por las boletas que tiene en CAJA (sin liquidar previa).
-    Registra la liquidacion y marca esas boletas con el id de liquidacion.
-    Los datos del comprador se cargan despues en el sistema (-> VENDIDO).
+    """Liquida al vendedor por las boletas seleccionadas manualmente.
+    Modelo de comision:
+      - Cuotas: el vendedor se queda con cuota 1 (= valor_cuota por boleta)
+                + comision_cuotas_pct% sobre el monto de cuotas
+      - Contados: comision_contados_pct% sobre el valor TOTAL de la talonera
+                  (num_cuotas × valor_cuota) por boleta contado
     """
     _perm_user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(_perm_user, "vendedores", "editar"):
@@ -149,28 +143,51 @@ async def liquidar(
     if not v:
         raise HTTPException(404)
 
-    # Boletas CAJA sin liquidar = las que el vendedor trajo de vuelta
-    pendientes = db.query(models.Boleta).filter(
+    form = await request.form()
+    boleta_ids_raw = form.getlist("boleta_ids")
+    comision_cuotas_pct   = float(form.get("comision_cuotas_pct",   5.0))
+    comision_contados_pct = float(form.get("comision_contados_pct", 30.0))
+    observacion           = (form.get("observacion") or "").strip()
+
+    if not boleta_ids_raw:
+        return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
+
+    boleta_ids = [int(x) for x in boleta_ids_raw]
+
+    # Verificar que las boletas pertenezcan al vendedor y estén en CAJA sin liquidar
+    boletas_sel = db.query(models.Boleta).filter(
+        models.Boleta.id.in_(boleta_ids),
         models.Boleta.vendedor_id == vid,
         models.Boleta.condicion == CondicionBoleta.CAJA,
         models.Boleta.liquidacion_vendedor_id.is_(None),
     ).all()
 
-    if not pendientes:
+    if not boletas_sel:
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
-    cuotas   = [b for b in pendientes if b.numero_especial is None]
-    contados = [b for b in pendientes if b.numero_especial is not None]
+    cuotas   = [b for b in boletas_sel if b.numero_especial is None]
+    contados = [b for b in boletas_sel if b.numero_especial is not None]
 
-    monto_cuotas   = sum((b.talonera.valor_cuota if b.talonera else 0) for b in cuotas)
-    monto_contados = sum((b.talonera.valor_cuota if b.talonera else 0) for b in contados)
-    com_cuotas     = round(monto_cuotas   * comision_cuotas_pct   / 100, 2)
+    # Cuota 1: lo que el vendedor ya cobró directamente del comprador (valor_cuota × N)
+    cuota_1_total  = sum((b.talonera.valor_cuota if b.talonera else 0.0) for b in cuotas)
+
+    # Comisión adicional sobre cuotas (% sobre monto de cuotas)
+    monto_cuotas   = sum((b.talonera.valor_cuota if b.talonera else 0.0) for b in cuotas)
+    com_cuotas     = round(monto_cuotas * comision_cuotas_pct / 100, 2)
+
+    # Comisión contado: % sobre el valor TOTAL de la talonera (num_cuotas × valor_cuota)
+    monto_contados = sum(
+        ((b.talonera.num_cuotas or 12) * (b.talonera.valor_cuota if b.talonera else 0.0))
+        for b in contados
+    )
     com_contados   = round(monto_contados * comision_contados_pct / 100, 2)
-    total          = round(com_cuotas + com_contados, 2)
+
+    total = round(cuota_1_total + com_cuotas + com_contados, 2)
 
     liq = models.LiquidacionVendedor(
         vendedor_id=vid,
         cuotas_vendidas=len(cuotas),
+        cuota_1_total=cuota_1_total,
         monto_cuotas=monto_cuotas,
         comision_cuotas_pct=comision_cuotas_pct,
         comision_cuotas=com_cuotas,
@@ -179,13 +196,13 @@ async def liquidar(
         comision_contados_pct=comision_contados_pct,
         comision_contados=com_contados,
         total_comision=total,
-        observacion=observacion.strip() or None,
+        observacion=observacion or None,
     )
     db.add(liq)
     db.flush()
 
     # Marcar boletas: conservan condicion CAJA hasta que se cargue el comprador
-    for b in pendientes:
+    for b in boletas_sel:
         b.liquidacion_vendedor_id = liq.id
     db.commit()
 

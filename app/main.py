@@ -349,6 +349,29 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion liquidacion_vendedor_id boletas: {e}")
 
+        # Migrar num_cuotas en taloneras
+        try:
+            cols_tal = [c["name"] for c in inspector.get_columns("taloneras")]
+            if "num_cuotas" not in cols_tal:
+                db.execute(text("ALTER TABLE taloneras ADD COLUMN num_cuotas INTEGER DEFAULT 12"))
+                db.commit()
+                print("Migracion num_cuotas taloneras: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion num_cuotas taloneras: {e}")
+
+        # Migrar cuota_1_total en liquidaciones_vendedor
+        try:
+            cols_liq = [c["name"] for c in inspector.get_columns("liquidaciones_vendedor")]
+            if "cuota_1_total" not in cols_liq:
+                db.execute(text("ALTER TABLE liquidaciones_vendedor ADD COLUMN cuota_1_total REAL DEFAULT 0.0"))
+                db.commit()
+                print("Migracion cuota_1_total liquidaciones_vendedor: columna creada OK")
+            # Actualizar comision_contados_pct default a 30 para nuevas filas (no afecta existentes)
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion cuota_1_total liquidaciones_vendedor: {e}")
+
 
         if not db.query(models.User).filter_by(username="admin").first():
             import logging

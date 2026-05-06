@@ -103,17 +103,18 @@ class LiquidacionVendedor(Base):
     vendedor_id = Column(Integer, ForeignKey("vendedores.id"), nullable=False)
     fecha = Column(DateTime, default=_datetime.utcnow)
     # Cuotas
-    cuotas_vendidas = Column(Integer, default=0)
-    monto_cuotas = Column(Float, default=0.0)
-    comision_cuotas_pct = Column(Float, default=5.0)
-    comision_cuotas = Column(Float, default=0.0)
+    cuotas_vendidas    = Column(Integer, default=0)
+    cuota_1_total      = Column(Float, default=0.0)   # valor cuota 1 × n boletas (el vendedor ya lo tiene)
+    monto_cuotas       = Column(Float, default=0.0)
+    comision_cuotas_pct= Column(Float, default=5.0)
+    comision_cuotas    = Column(Float, default=0.0)
     # Contados
-    contados_vendidos = Column(Integer, default=0)
-    monto_contados = Column(Float, default=0.0)
-    comision_contados_pct = Column(Float, default=10.0)
-    comision_contados = Column(Float, default=0.0)
+    contados_vendidos  = Column(Integer, default=0)
+    monto_contados     = Column(Float, default=0.0)   # num_cuotas × valor_cuota × n boletas
+    comision_contados_pct = Column(Float, default=30.0)
+    comision_contados  = Column(Float, default=0.0)
     # Total
-    total_comision = Column(Float, default=0.0)
+    total_comision     = Column(Float, default=0.0)
     observacion = Column(String, nullable=True)
     vendedor = relationship("Vendedor", back_populates="liquidaciones")
 
@@ -159,6 +160,7 @@ class Talonera(Base):
     activa = Column(Boolean, default=True)
     color = Column(String, default="#ffffff")
     valor_cuota = Column(Float, default=0.0)
+    num_cuotas  = Column(Integer, default=12)   # cantidad de cuotas mensuales de la talonera
     # Tipo de talonera: "COMUN" (por defecto) o "CONTADO" (talonera especial para pagos al contado)
     # Una talonera CONTADO no representa boletas reales — es un pool de números
     # que se asignan a boletas comunes cuando se paga al contado.

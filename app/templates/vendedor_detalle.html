@@ -172,11 +172,11 @@
         <tr>
           <th>Fecha</th>
           <th class="text-center">Cuotas</th>
-          <th class="text-end">Monto</th>
-          <th class="text-center">Com. %</th>
+          <th class="text-end">Cuota 1</th>
+          <th class="text-center">Com.%</th>
           <th class="text-center">Contados</th>
-          <th class="text-end">Monto</th>
-          <th class="text-center">Com. %</th>
+          <th class="text-end">Monto total</th>
+          <th class="text-center">Com.%</th>
           <th class="text-end fw-semibold text-success">Total</th>
           <th>Obs.</th>
         </tr>
@@ -186,7 +186,7 @@
         <tr>
           <td class="text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
           <td class="text-center">{{ liq.cuotas_vendidas }}</td>
-          <td class="text-end">${{ '%.2f'|format(liq.monto_cuotas) }}</td>
+          <td class="text-end">${{ '%.2f'|format(liq.cuota_1_total or 0) }}</td>
           <td class="text-center text-muted">{{ liq.comision_cuotas_pct }}%</td>
           <td class="text-center">{{ liq.contados_vendidos }}</td>
           <td class="text-end">${{ '%.2f'|format(liq.monto_contados) }}</td>
@@ -204,78 +204,79 @@
 {# ══════════ MODAL LIQUIDAR ══════════ #}
 {% if can_edit and pendientes_count > 0 %}
 <div class="modal fade" id="modalLiquidar" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
-      <form method="post" action="/vendedores/{{ v.id }}/liquidar">
+      <form method="post" action="/vendedores/{{ v.id }}/liquidar" id="formLiquidar">
         <div class="modal-header">
           <h5 class="modal-title"><i class="bi bi-cash-coin me-2 text-success"></i>Liquidar — {{ v.nombre }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body" style="max-height:75vh;overflow-y:auto;">
 
-          {% if liq_preview %}
-          <table class="table table-sm align-middle mb-4 small">
-            <thead class="table-light">
-              <tr>
-                <th>PATA</th>
-                <th class="text-center">Cuotas</th>
-                <th class="text-center">Contados</th>
-                <th class="text-end">Valor cuota</th>
-                <th class="text-end">Monto cuotas</th>
-                <th class="text-end">Monto contados</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for pata, d in liq_preview.items() %}
-              <tr>
-                <td><span class="badge bg-danger">{{ pata }}</span></td>
-                <td class="text-center fw-semibold">{{ d.cuotas }}</td>
-                <td class="text-center fw-semibold text-warning">{{ d.contados }}</td>
-                <td class="text-end text-muted">${{ '%.2f'|format(d.valor_cuota) }}</td>
-                <td class="text-end">${{ '%.2f'|format(d.cuotas * d.valor_cuota) }}</td>
-                <td class="text-end">${{ '%.2f'|format(d.contados * d.valor_cuota) }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-            <tfoot class="table-light fw-semibold">
-              <tr>
-                <td>TOTAL</td>
-                <td class="text-center">{{ total_cuotas }}</td>
-                <td class="text-center">{{ total_contados }}</td>
-                <td></td>
-                <td class="text-end">${{ '%.2f'|format(monto_cuotas) }}</td>
-                <td class="text-end">${{ '%.2f'|format(monto_contados) }}</td>
-              </tr>
-            </tfoot>
-          </table>
-          {% endif %}
+          {# ── Selección de boletas por PATA ── #}
+          <div class="small fw-semibold text-muted mb-2">
+            <i class="bi bi-check2-square me-1"></i>Seleccioná las boletas a incluir en esta liquidación:
+          </div>
+          <div class="mb-2 d-flex gap-2">
+            <button type="button" class="btn btn-outline-primary btn-sm py-0"
+                    onclick="toggleTodo(true)">
+              <i class="bi bi-check-all"></i> Seleccionar todo
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0"
+                    onclick="toggleTodo(false)">
+              <i class="bi bi-x-lg"></i> Deseleccionar todo
+            </button>
+          </div>
+          <div id="seccionPatas"></div>
 
-          <div class="row g-3 mb-3">
+          {# ── Comisiones ── #}
+          <div class="row g-3 mb-3 mt-1">
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Comisión cuotas (%)</label>
+              <label class="form-label fw-semibold small">Comisión cuotas (% adicional sobre cuota 1)</label>
               <div class="input-group input-group-sm">
                 <input type="number" name="comision_cuotas_pct" id="inp-com-cuotas"
                        class="form-control" value="5" min="0" max="100" step="0.1"
                        oninput="recalcular()">
                 <span class="input-group-text">%</span>
               </div>
-              <div class="text-muted small mt-1">Comisión: <strong id="lbl-com-cuotas">$0.00</strong></div>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Comisión contados (%)</label>
+              <label class="form-label fw-semibold small">Comisión contado (% sobre valor total talonera)</label>
               <div class="input-group input-group-sm">
                 <input type="number" name="comision_contados_pct" id="inp-com-contados"
-                       class="form-control" value="10" min="0" max="100" step="0.1"
+                       class="form-control" value="30" min="0" max="100" step="0.1"
                        oninput="recalcular()">
                 <span class="input-group-text">%</span>
               </div>
-              <div class="text-muted small mt-1">Comisión: <strong id="lbl-com-contados">$0.00</strong></div>
+            </div>
+          </div>
+
+          {# ── Resumen de cálculo ── #}
+          <div class="card border-0 bg-light mb-3">
+            <div class="card-body py-2 small">
+              <table class="table table-sm table-borderless mb-0" style="font-size:.82rem;">
+                <tbody>
+                  <tr>
+                    <td class="text-muted">Cuota 1 (<span id="lbl-n-cuotas">0</span> boletas × valor cuota)</td>
+                    <td class="text-end fw-semibold" id="lbl-cuota1">$0,00</td>
+                  </tr>
+                  <tr>
+                    <td class="text-muted">+ Comisión adicional cuotas (<span id="lbl-pct-cuotas">5</span>%)</td>
+                    <td class="text-end" id="lbl-com-cuotas">$0,00</td>
+                  </tr>
+                  <tr>
+                    <td class="text-muted">+ Comisión contado (<span id="lbl-n-contados">0</span> boletas · <span id="lbl-pct-contados">30</span>% del total talonera)</td>
+                    <td class="text-end" id="lbl-com-contados">$0,00</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
           <div class="alert alert-success py-3 text-center mb-3">
             <div class="small text-muted mb-1">Total a pagar al vendedor</div>
-            <div class="fs-3 fw-bold" id="lbl-total">$0.00</div>
+            <div class="fs-3 fw-bold" id="lbl-total">$0,00</div>
+            <div class="small text-muted mt-1"><span id="lbl-sel-count">0</span> boletas seleccionadas</div>
           </div>
 
           <div>
@@ -286,7 +287,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="submit" class="btn btn-success">
+          <button type="submit" class="btn btn-success" id="btnConfirmar" disabled>
             <i class="bi bi-check-circle me-1"></i>Confirmar liquidación
           </button>
         </div>
@@ -297,20 +298,170 @@
 {% endif %}
 
 <script>
-const MCuotas   = {{ monto_cuotas }};
-const MContados = {{ monto_contados }};
-function fmt(n) { return '$' + n.toFixed(2); }
-function recalcular() {
-  const pC = parseFloat(document.getElementById('inp-com-cuotas')?.value)   || 0;
-  const pK = parseFloat(document.getElementById('inp-com-contados')?.value) || 0;
-  const cC = MCuotas   * pC / 100;
-  const cK = MContados * pK / 100;
-  const el = id => document.getElementById(id);
-  if (el('lbl-com-cuotas'))   el('lbl-com-cuotas').textContent   = fmt(cC);
-  if (el('lbl-com-contados')) el('lbl-com-contados').textContent = fmt(cK);
-  if (el('lbl-total'))        el('lbl-total').textContent        = fmt(cC + cK);
+const PENDIENTES = {{ pendientes_json | safe }};
+
+function fmt(n) {
+  return '$' + n.toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
 }
-document.addEventListener('DOMContentLoaded', recalcular);
-document.getElementById('modalLiquidar')?.addEventListener('shown.bs.modal', recalcular);
+
+function agruparPorPata(lista) {
+  const grupos = {};
+  lista.forEach(b => {
+    if (!grupos[b.pata]) grupos[b.pata] = { color: b.color, boletas: [] };
+    grupos[b.pata].boletas.push(b);
+  });
+  return grupos;
+}
+
+function actualizarEstiloBadge(badge, checked, esContado) {
+  if (checked) {
+    if (esContado) {
+      badge.style.background = '#fff3cd';
+      badge.style.color = '#856404';
+      badge.style.border = '1px solid #ffc10780';
+    } else {
+      badge.style.background = '#d1e7dd';
+      badge.style.color = '#146c43';
+      badge.style.border = '1px solid #20c99740';
+    }
+  } else {
+    badge.style.background = '#e7f1ff';
+    badge.style.color = '#0d6efd';
+    badge.style.border = '1px solid #0d6efd40';
+  }
+}
+
+function renderPatas() {
+  const contenedor = document.getElementById('seccionPatas');
+  if (!contenedor) return;
+  const grupos = agruparPorPata(PENDIENTES);
+
+  let html = '';
+  for (const [pata, data] of Object.entries(grupos)) {
+    const colorBg  = data.color + '20';
+    const colorBdr = data.color;
+    html += `
+    <div class="card border-0 shadow-sm mb-2">
+      <div class="card-header py-1 d-flex align-items-center gap-2"
+           style="background:${colorBg};border-left:4px solid ${colorBdr};">
+        <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">${pata}</span>
+        <span class="text-muted small" id="cnt-${pata}">0 / ${data.boletas.length}</span>
+        <div class="ms-auto d-flex gap-1">
+          <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2"
+                  style="font-size:.72rem;" onclick="togglePata('${pata}', true)">
+            <i class="bi bi-check-all"></i> Todo
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                  style="font-size:.72rem;" onclick="togglePata('${pata}', false)">
+            <i class="bi bi-x"></i> Ninguno
+          </button>
+        </div>
+      </div>
+      <div class="card-body py-2">
+        <div class="d-flex flex-wrap gap-1">`;
+
+    data.boletas.forEach(b => {
+      const icono = b.contado ? '<i class="bi bi-star-fill" style="font-size:.6rem;color:#ffc107;vertical-align:middle;"></i> ' : '';
+      const title = b.contado ? 'Contado — total talonera: $' + (b.num_cuotas * b.valor_cuota).toLocaleString('es-AR') : 'Cuota — valor cuota 1: $' + b.valor_cuota.toLocaleString('es-AR');
+      html += `
+          <label title="${title}" style="margin:0;cursor:pointer;">
+            <input type="checkbox" name="boleta_ids" value="${b.id}"
+                   data-pata="${pata}" data-contado="${b.contado}"
+                   data-vc="${b.valor_cuota}" data-nc="${b.num_cuotas}"
+                   class="d-none boleta-chk" onchange="onChkChange(this)">
+            <span class="badge" style="font-size:.8rem;cursor:pointer;
+                  background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;
+                  user-select:none;">
+              ${icono}${String(b.num).padStart(4,'0')}
+            </span>
+          </label>`;
+    });
+
+    html += `
+        </div>
+      </div>
+    </div>`;
+  }
+  contenedor.innerHTML = html;
+}
+
+function onChkChange(chk) {
+  const badge = chk.nextElementSibling;
+  actualizarEstiloBadge(badge, chk.checked, chk.dataset.contado === 'true');
+  actualizarContadorPata(chk.dataset.pata);
+  recalcular();
+}
+
+function actualizarContadorPata(pata) {
+  const chks = document.querySelectorAll(`.boleta-chk[data-pata="${pata}"]`);
+  const sel  = [...chks].filter(c => c.checked).length;
+  const lbl  = document.getElementById(`cnt-${pata}`);
+  if (lbl) lbl.textContent = `${sel} / ${chks.length}`;
+}
+
+function togglePata(pata, estado) {
+  document.querySelectorAll(`.boleta-chk[data-pata="${pata}"]`).forEach(chk => {
+    chk.checked = estado;
+    actualizarEstiloBadge(chk.nextElementSibling, estado, chk.dataset.contado === 'true');
+  });
+  actualizarContadorPata(pata);
+  recalcular();
+}
+
+function toggleTodo(estado) {
+  const grupos = agruparPorPata(PENDIENTES);
+  Object.keys(grupos).forEach(pata => togglePata(pata, estado));
+}
+
+function recalcular() {
+  const pctCuotas   = parseFloat(document.getElementById('inp-com-cuotas')?.value)   || 0;
+  const pctContados = parseFloat(document.getElementById('inp-com-contados')?.value) || 0;
+
+  let nCuotas = 0, cuota1 = 0, montoCuotas = 0;
+  let nContados = 0, montoContados = 0;
+
+  document.querySelectorAll('.boleta-chk:checked').forEach(chk => {
+    const vc = parseFloat(chk.dataset.vc) || 0;
+    const nc = parseInt(chk.dataset.nc)   || 12;
+    if (chk.dataset.contado === 'true') {
+      nContados++;
+      montoContados += nc * vc;
+    } else {
+      nCuotas++;
+      cuota1      += vc;
+      montoCuotas += vc;
+    }
+  });
+
+  const comCuotas   = montoCuotas   * pctCuotas   / 100;
+  const comContados = montoContados * pctContados / 100;
+  const total       = cuota1 + comCuotas + comContados;
+  const nSel        = nCuotas + nContados;
+
+  const el = id => document.getElementById(id);
+  if (el('lbl-n-cuotas'))     el('lbl-n-cuotas').textContent    = nCuotas;
+  if (el('lbl-n-contados'))   el('lbl-n-contados').textContent  = nContados;
+  if (el('lbl-pct-cuotas'))   el('lbl-pct-cuotas').textContent  = pctCuotas;
+  if (el('lbl-pct-contados')) el('lbl-pct-contados').textContent= pctContados;
+  if (el('lbl-cuota1'))       el('lbl-cuota1').textContent      = fmt(cuota1);
+  if (el('lbl-com-cuotas'))   el('lbl-com-cuotas').textContent  = fmt(comCuotas);
+  if (el('lbl-com-contados')) el('lbl-com-contados').textContent= fmt(comContados);
+  if (el('lbl-total'))        el('lbl-total').textContent       = fmt(total);
+  if (el('lbl-sel-count'))    el('lbl-sel-count').textContent   = nSel;
+
+  const btnConf = document.getElementById('btnConfirmar');
+  if (btnConf) btnConf.disabled = nSel === 0;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderPatas();
+  recalcular();
+});
+document.getElementById('modalLiquidar')?.addEventListener('shown.bs.modal', () => {
+  if (!document.getElementById('seccionPatas')?.children.length) {
+    renderPatas();
+  }
+  recalcular();
+});
 </script>
 {% endblock %}
