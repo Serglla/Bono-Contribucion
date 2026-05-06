@@ -13,25 +13,30 @@ router = APIRouter(prefix="/vendedores", tags=["vendedores"])
 
 
 def _stats_bulk(db):
-    """Un solo query SQL con conteos por vendedor y condicion."""
+    """Un solo query SQL con conteos por vendedor y condicion.
+    Para CAJA distingue entre sin liquidar y liquidado-pendiente-comprador,
+    usando func.count(col) que solo cuenta valores no-NULL.
+    """
     rows = db.query(
         models.Boleta.vendedor_id,
         models.Boleta.condicion,
-        func.count(models.Boleta.id)
+        func.count(models.Boleta.id).label("total"),
+        func.count(models.Boleta.liquidacion_vendedor_id).label("con_liq")
     ).filter(
         models.Boleta.vendedor_id.isnot(None)
     ).group_by(models.Boleta.vendedor_id, models.Boleta.condicion).all()
 
     stats = {}
-    for vid, cond, cnt in rows:
+    for vid, cond, total, con_liq in rows:
         if vid not in stats:
-            stats[vid] = {"caja": 0, "vendido": 0, "baja": 0}
+            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0}
         if cond == CondicionBoleta.CAJA:
-            stats[vid]["caja"] = cnt
+            stats[vid]["caja"] = total - con_liq       # CAJA sin liquidar
+            stats[vid]["liq_pendiente"] = con_liq      # CAJA con liq, pendiente comprador
         elif cond == CondicionBoleta.VENDIDO:
-            stats[vid]["vendido"] = cnt
+            stats[vid]["vendido"] = total
         elif cond == CondicionBoleta.BAJA:
-            stats[vid]["baja"] = cnt
+            stats[vid]["baja"] = total
     return stats
 
 
