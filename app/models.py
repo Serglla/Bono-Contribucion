@@ -262,4 +262,7 @@ class Sorteo(Base):
     descripcion = Column(String, nullable=True)
     tipo = Column(Enum(TipoSorteo), nullable=False)
     cifras = Column(String, nullable=False)
-    fecha = Colu
+    fecha = Column(Date, nullable=False)
+    num_premios = Column(Integer, default=20)
+    resultado_json = Column(String, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
