@@ -28,122 +28,122 @@
 </div>
 {% elif msg == 'sin_pendientes' %}
 <div class="alert alert-warning py-2 small mb-3">
-  <i class="bi bi-exclamation-triangle me-1"></i>No hay boletas vendidas pendientes de liquidar.
+  <i class="bi bi-exclamation-triangle me-1"></i>No hay boletas en caja pendientes de liquidar.
 </div>
 {% endif %}
 
-{# ══════════ TARJETAS RESUMEN ══════════ #}
-{% set total_caja    = patas.values() | map(attribute='boletas') | sum(start=[]) | selectattr('cond','eq','CAJA') | list | length %}
-{% set total_vend    = patas.values() | map(attribute='boletas') | sum(start=[]) | selectattr('cond','eq','VENDIDO') | selectattr('liq','eq',false) | list | length %}
-{% set total_liq     = patas.values() | map(attribute='boletas') | sum(start=[]) | selectattr('cond','eq','VENDIDO') | selectattr('liq','eq',true) | list | length %}
-{% set total_baja    = patas.values() | map(attribute='boletas') | sum(start=[]) | selectattr('cond','eq','BAJA') | list | length %}
+{# ══════════ CONTEOS desde patas ══════════ #}
+{# Estados:
+   CAJA + no liq  → en mano del vendedor (pendiente liquidar)
+   CAJA + liq     → liquidado, pendiente que se cargue el comprador
+   VENDIDO        → ya cargado en el sistema con datos del comprador
+#}
+{% set ns = namespace(en_caja=0, liq_pend_comp=0, en_sistema=0) %}
+{% for pata_nombre, pata_data in patas.items() %}
+  {% for b in pata_data.boletas %}
+    {% if b.cond == 'CAJA' and not b.liq %}{% set ns.en_caja = ns.en_caja + 1 %}{% endif %}
+    {% if b.cond == 'CAJA' and b.liq %}{% set ns.liq_pend_comp = ns.liq_pend_comp + 1 %}{% endif %}
+    {% if b.cond == 'VENDIDO' %}{% set ns.en_sistema = ns.en_sistema + 1 %}{% endif %}
+  {% endfor %}
+{% endfor %}
 
+{# ══════════ TARJETAS RESUMEN ══════════ #}
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-4">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div class="fs-3 fw-bold text-primary">{{ total_caja }}</div>
-      <div class="small text-muted">En Caja</div>
+      <div class="fs-3 fw-bold text-primary">{{ ns.en_caja }}</div>
+      <div class="small text-muted">En caja — sin liquidar</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-4">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div class="fs-3 fw-bold text-success">{{ total_vend }}</div>
-      <div class="small text-muted">Vendido (sin liquidar)</div>
+      <div class="fs-3 fw-bold text-success">{{ ns.liq_pend_comp }}</div>
+      <div class="small text-muted">Liquidado — pend. comprador</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-4">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div class="fs-3 fw-bold" style="color:#0d6efd99;">{{ total_liq }}</div>
-      <div class="small text-muted">Liquidado</div>
+      <div class="fs-3 fw-bold" style="color:#6c8ebf;">{{ ns.en_sistema }}</div>
+      <div class="small text-muted">En sistema</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="card border-0 shadow-sm text-center py-3">
-      <div class="fs-3 fw-bold text-danger">{{ total_baja }}</div>
-      <div class="small text-muted">Baja</div>
-    </div>
-  </div>
+</div>
+
+{# ══════════ BOTÓN LIQUIDAR ══════════ #}
+<div class="mb-4 d-flex align-items-center gap-3">
+  {% if can_edit and pendientes_count > 0 %}
+  <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalLiquidar">
+    <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
+    <span class="badge bg-white text-success ms-1">{{ pendientes_count }} boleta(s)</span>
+  </button>
+  {% else %}
+  <button class="btn btn-outline-secondary" disabled title="Sin boletas en caja pendientes de liquidar">
+    <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
+  </button>
+  <span class="text-muted small">
+    {% if pendientes_count == 0 %}Sin boletas en caja para liquidar.{% endif %}
+  </span>
+  {% endif %}
 </div>
 
 {# ══════════ LEYENDA ══════════ #}
 <div class="d-flex flex-wrap gap-3 mb-3 small align-items-center">
   <span class="fw-semibold text-muted">Leyenda:</span>
-  <span><span class="badge" style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;">0000</span> En Caja</span>
-  <span><span class="badge" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;">0000</span> Vendido</span>
-  <span><span class="badge bg-primary">0000</span> Liquidado</span>
-  <span><span class="badge" style="background:#f8d7da;color:#842029;border:1px solid #f5c2c740;">0000</span> Baja</span>
-  <span><span class="badge" style="background:#fff3cd;color:#664d03;border:1px solid #ffca2c40;">★</span> Contado</span>
+  <span><span class="badge" style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;">0000</span> En caja (sin liquidar)</span>
+  <span><span class="badge" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;">0000</span> Liquidado — pend. comprador</span>
+  <span><span class="badge bg-primary" style="opacity:.6;">0000</span> En sistema</span>
+  <span><i class="bi bi-star-fill text-warning"></i> Contado</span>
 </div>
-
-{# ══════════ BOTÓN LIQUIDAR ══════════ #}
-{% if can_edit and (total_vend > 0) %}
-<div class="mb-4">
-  <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalLiquidar">
-    <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
-    <span class="badge bg-white text-success ms-1">{{ total_vend }} boletas</span>
-  </button>
-</div>
-{% elif can_edit %}
-<div class="mb-4">
-  <button class="btn btn-outline-secondary" disabled>
-    <i class="bi bi-cash-coin me-2"></i>Sin boletas vendidas para liquidar
-  </button>
-</div>
-{% endif %}
 
 {# ══════════ SECCIONES POR PATA ══════════ #}
 {% if patas %}
   {% for pata_nombre, pata_data in patas.items() %}
+  {% set ns2 = namespace(tiene=false) %}
+  {% for b in pata_data.boletas %}
+    {% if b.cond in ['CAJA', 'VENDIDO'] %}{% set ns2.tiene = true %}{% endif %}
+  {% endfor %}
+  {% if ns2.tiene %}
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-header d-flex align-items-center gap-2 py-2"
          style="background:{{ pata_data.color }}30; border-left: 4px solid {{ pata_data.color }};">
       <span class="badge" style="background:{{ pata_data.color }};color:#333;border:1px solid #0003;">{{ pata_nombre }}</span>
-      {% set en_caja  = pata_data.boletas | selectattr('cond','eq','CAJA') | list | length %}
-      {% set en_vend  = pata_data.boletas | selectattr('cond','eq','VENDIDO') | selectattr('liq','eq',false) | list | length %}
-      {% set en_liq   = pata_data.boletas | selectattr('cond','eq','VENDIDO') | selectattr('liq','eq',true) | list | length %}
-      {% set en_baja  = pata_data.boletas | selectattr('cond','eq','BAJA') | list | length %}
+      {# conteos por estado para la cabecera #}
+      {% set ns3 = namespace(nc=0, nl=0, nv=0) %}
+      {% for b in pata_data.boletas %}
+        {% if b.cond == 'CAJA' and not b.liq %}{% set ns3.nc = ns3.nc + 1 %}{% endif %}
+        {% if b.cond == 'CAJA' and b.liq %}{% set ns3.nl = ns3.nl + 1 %}{% endif %}
+        {% if b.cond == 'VENDIDO' %}{% set ns3.nv = ns3.nv + 1 %}{% endif %}
+      {% endfor %}
       <span class="text-muted small">
-        {% if en_caja %}  <span class="text-primary">{{ en_caja }} en caja</span>{% endif %}
-        {% if en_vend %}  · <span class="text-success">{{ en_vend }} vendidos</span>{% endif %}
-        {% if en_liq %}   · <span class="text-primary-emphasis">{{ en_liq }} liquidados</span>{% endif %}
-        {% if en_baja %}  · <span class="text-danger">{{ en_baja }} baja</span>{% endif %}
+        {% if ns3.nc > 0 %}<span class="text-primary">{{ ns3.nc }} en caja</span>{% endif %}
+        {% if ns3.nl > 0 %}{% if ns3.nc > 0 %} · {% endif %}<span class="text-success">{{ ns3.nl }} liquidado(s)</span>{% endif %}
+        {% if ns3.nv > 0 %}{% if ns3.nc > 0 or ns3.nl > 0 %} · {% endif %}<span style="color:#6c8ebf;">{{ ns3.nv }} en sistema</span>{% endif %}
       </span>
     </div>
     <div class="card-body py-3">
       <div class="d-flex flex-wrap gap-1">
         {% for b in pata_data.boletas %}
-          {% if b.cond == 'CAJA' %}
-            {# Azul outline = en caja #}
-            <span class="badge {% if b.contado %}border border-warning{% endif %}"
-                  style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;font-size:.8rem;"
-                  title="En Caja{% if b.contado %} · Contado{% endif %}">
-              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.6rem;color:#ffc107;"></i>{% endif %}
-              {{ '%04d'|format(b.num) }}
-            </span>
-          {% elif b.cond == 'VENDIDO' and not b.liq %}
-            {# Verde outline = vendido sin liquidar #}
-            <span class="badge {% if b.contado %}border border-warning{% endif %}"
-                  style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;"
-                  title="Vendido (pendiente liquidar){% if b.contado %} · Contado{% endif %}">
-              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.6rem;color:#ffc107;"></i>{% endif %}
-              {{ '%04d'|format(b.num) }}
-            </span>
-          {% elif b.cond == 'VENDIDO' and b.liq %}
-            {# Azul sólido = liquidado #}
-            <span class="badge bg-primary" style="font-size:.8rem;opacity:.7;"
-                  title="Vendido y liquidado{% if b.contado %} · Contado{% endif %}">
-              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.6rem;color:#ffc107;"></i>{% endif %}
-              {{ '%04d'|format(b.num) }}
-            </span>
-          {% elif b.cond == 'BAJA' %}
-            {# Rojo = baja #}
+          {% if b.cond == 'CAJA' and not b.liq %}
+            {# En caja — sin liquidar → azul claro #}
             <span class="badge"
-                  style="background:#f8d7da;color:#842029;border:1px solid #f5c2c740;font-size:.8rem;"
-                  title="Baja">
+                  style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;font-size:.8rem;"
+                  title="En caja{% if b.contado %} · Contado{% endif %}">
+              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
               {{ '%04d'|format(b.num) }}
             </span>
-          {% else %}
-            <span class="badge bg-secondary" style="font-size:.8rem;opacity:.5;" title="{{ b.cond }}">
+          {% elif b.cond == 'CAJA' and b.liq %}
+            {# Liquidado — pendiente comprador → verde #}
+            <span class="badge"
+                  style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;"
+                  title="Liquidado — pendiente comprador{% if b.contado %} · Contado{% endif %}">
+              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
+              {{ '%04d'|format(b.num) }}
+            </span>
+          {% elif b.cond == 'VENDIDO' %}
+            {# En sistema → azul opaco #}
+            <span class="badge bg-primary" style="font-size:.8rem;opacity:.55;"
+                  title="En sistema{% if b.contado %} · Contado{% endif %}">
+              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffd966;"></i>{% endif %}
               {{ '%04d'|format(b.num) }}
             </span>
           {% endif %}
@@ -151,6 +151,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
   {% endfor %}
 {% else %}
   <div class="text-center text-muted py-5">
@@ -170,9 +171,13 @@
       <thead class="table-light">
         <tr>
           <th>Fecha</th>
-          <th class="text-center">Cuotas</th><th class="text-end">Monto cuotas</th><th class="text-center">Com. %</th>
-          <th class="text-center">Contados</th><th class="text-end">Monto cont.</th><th class="text-center">Com. %</th>
-          <th class="text-end fw-semibold">Total comisión</th>
+          <th class="text-center">Cuotas</th>
+          <th class="text-end">Monto</th>
+          <th class="text-center">Com. %</th>
+          <th class="text-center">Contados</th>
+          <th class="text-end">Monto</th>
+          <th class="text-center">Com. %</th>
+          <th class="text-end fw-semibold text-success">Total</th>
           <th>Obs.</th>
         </tr>
       </thead>
@@ -197,6 +202,7 @@
 {% endif %}
 
 {# ══════════ MODAL LIQUIDAR ══════════ #}
+{% if can_edit and pendientes_count > 0 %}
 <div class="modal fade" id="modalLiquidar" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -207,13 +213,12 @@
         </div>
         <div class="modal-body">
 
-          {# Tabla previa por PATA #}
           {% if liq_preview %}
           <table class="table table-sm align-middle mb-4 small">
             <thead class="table-light">
               <tr>
                 <th>PATA</th>
-                <th class="text-center">Cuotas vendidas</th>
+                <th class="text-center">Cuotas</th>
                 <th class="text-center">Contados</th>
                 <th class="text-end">Valor cuota</th>
                 <th class="text-end">Monto cuotas</th>
@@ -234,17 +239,17 @@
             </tbody>
             <tfoot class="table-light fw-semibold">
               <tr>
-                <td colspan="2">TOTAL</td>
+                <td>TOTAL</td>
+                <td class="text-center">{{ total_cuotas }}</td>
                 <td class="text-center">{{ total_contados }}</td>
                 <td></td>
-                <td class="text-end" id="liq-monto-cuotas">${{ '%.2f'|format(monto_cuotas) }}</td>
-                <td class="text-end" id="liq-monto-contados">${{ '%.2f'|format(monto_contados) }}</td>
+                <td class="text-end">${{ '%.2f'|format(monto_cuotas) }}</td>
+                <td class="text-end">${{ '%.2f'|format(monto_contados) }}</td>
               </tr>
             </tfoot>
           </table>
           {% endif %}
 
-          {# Comisiones #}
           <div class="row g-3 mb-3">
             <div class="col-md-6">
               <label class="form-label fw-semibold">Comisión cuotas (%)</label>
@@ -254,9 +259,7 @@
                        oninput="recalcular()">
                 <span class="input-group-text">%</span>
               </div>
-              <div class="text-muted small mt-1">
-                Comisión: <strong id="lbl-com-cuotas">$0.00</strong>
-              </div>
+              <div class="text-muted small mt-1">Comisión: <strong id="lbl-com-cuotas">$0.00</strong></div>
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Comisión contados (%)</label>
@@ -266,20 +269,19 @@
                        oninput="recalcular()">
                 <span class="input-group-text">%</span>
               </div>
-              <div class="text-muted small mt-1">
-                Comisión: <strong id="lbl-com-contados">$0.00</strong>
-              </div>
+              <div class="text-muted small mt-1">Comisión: <strong id="lbl-com-contados">$0.00</strong></div>
             </div>
           </div>
 
           <div class="alert alert-success py-3 text-center mb-3">
-            <div class="small text-muted mb-1">Total a pagar</div>
+            <div class="small text-muted mb-1">Total a pagar al vendedor</div>
             <div class="fs-3 fw-bold" id="lbl-total">$0.00</div>
           </div>
 
           <div>
             <label class="form-label small">Observación (opcional)</label>
-            <input type="text" name="observacion" class="form-control form-control-sm" placeholder="ej: Liquidación julio 2026">
+            <input type="text" name="observacion" class="form-control form-control-sm"
+                   placeholder="ej: Liquidación julio 2026">
           </div>
         </div>
         <div class="modal-footer">
@@ -292,19 +294,21 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 <script>
 const MCuotas   = {{ monto_cuotas }};
 const MContados = {{ monto_contados }};
 function fmt(n) { return '$' + n.toFixed(2); }
 function recalcular() {
-  const pCuotas   = parseFloat(document.getElementById('inp-com-cuotas').value)   || 0;
-  const pContados = parseFloat(document.getElementById('inp-com-contados').value) || 0;
-  const cCuotas   = MCuotas   * pCuotas   / 100;
-  const cContados = MContados * pContados / 100;
-  document.getElementById('lbl-com-cuotas').textContent   = fmt(cCuotas);
-  document.getElementById('lbl-com-contados').textContent = fmt(cContados);
-  document.getElementById('lbl-total').textContent        = fmt(cCuotas + cContados);
+  const pC = parseFloat(document.getElementById('inp-com-cuotas')?.value)   || 0;
+  const pK = parseFloat(document.getElementById('inp-com-contados')?.value) || 0;
+  const cC = MCuotas   * pC / 100;
+  const cK = MContados * pK / 100;
+  const el = id => document.getElementById(id);
+  if (el('lbl-com-cuotas'))   el('lbl-com-cuotas').textContent   = fmt(cC);
+  if (el('lbl-com-contados')) el('lbl-com-contados').textContent = fmt(cK);
+  if (el('lbl-total'))        el('lbl-total').textContent        = fmt(cC + cK);
 }
 document.addEventListener('DOMContentLoaded', recalcular);
 document.getElementById('modalLiquidar')?.addEventListener('shown.bs.modal', recalcular);

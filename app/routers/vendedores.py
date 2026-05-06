@@ -1,9 +1,8 @@
 from fastapi import HTTPException, APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case
+from sqlalchemy import func
 from typing import Optional
-from datetime import date as _date
 from .. import models, auth as auth_module
 from ..models import CondicionBoleta
 from ..templates_config import templates
@@ -25,15 +24,11 @@ def _stats_bulk(db):
     stats = {}
     for vid, cond, cnt in rows:
         if vid not in stats:
-            stats[vid] = {"caja": 0, "baja": 0, "vendido": 0, "sin_vender": 0}
+            stats[vid] = {"caja": 0, "vendido": 0}
         if cond == CondicionBoleta.CAJA:
             stats[vid]["caja"] = cnt
-        elif cond == CondicionBoleta.BAJA:
-            stats[vid]["baja"] = cnt
         elif cond == CondicionBoleta.VENDIDO:
             stats[vid]["vendido"] = cnt
-        elif cond == CondicionBoleta.SIN_VENDER:
-            stats[vid]["sin_vender"] = cnt
     return stats
 
 
@@ -73,33 +68,33 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     if not v:
         raise HTTPException(404, "Vendedor no encontrado")
 
-    # Todas las boletas de este vendedor
     boletas = db.query(models.Boleta).filter_by(vendedor_id=vid).all()
 
-    # Agrupar por pata (talonera.nombre) + condicion
-    patas = {}  # { nombre_pata: { "color": "#..", "boletas": [{"num":n, "cond":..., "liq":bool}] } }
+    # Agrupar por pata
+    patas = {}
     for b in boletas:
         pata_nombre = b.talonera.nombre if b.talonera else "?"
         pata_color  = b.talonera.color  if b.talonera else "#ffffff"
         if pata_nombre not in patas:
             patas[pata_nombre] = {"color": pata_color, "boletas": []}
         patas[pata_nombre]["boletas"].append({
-            "num": b.numero_principal,
-            "cond": b.condicion.value if b.condicion else "?",
-            "liq": b.liquidacion_vendedor_id is not None,
+            "num":     b.numero_principal,
+            "cond":    b.condicion.value if b.condicion else "?",
+            "liq":     b.liquidacion_vendedor_id is not None,
             "contado": b.numero_especial is not None,
         })
-
-    # Ordenar boletas por numero
     for p in patas:
         patas[p]["boletas"].sort(key=lambda x: x["num"])
 
-    # Calcular previsualizacion de liquidacion (VENDIDO sin liquidar)
+    # Boletas CAJA sin liquidar = las que el vendedor aun tiene en mano
+    # Boletas CAJA con liq_id  = vendidas por el vendedor, pendientes de cargar comprador
+    # Boletas VENDIDO           = ya cargadas en el sistema con datos del comprador
     pendientes = [b for b in boletas
-                  if b.condicion == CondicionBoleta.VENDIDO
+                  if b.condicion == CondicionBoleta.CAJA
                   and b.liquidacion_vendedor_id is None]
 
-    liq_preview = {}  # { pata_nombre: { valor_cuota, cuotas, contados } }
+    # Preview de liquidacion por PATA
+    liq_preview = {}
     for b in pendientes:
         pata = b.talonera.nombre if b.talonera else "?"
         vc   = b.talonera.valor_cuota if b.talonera else 0.0
@@ -110,12 +105,11 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         else:
             liq_preview[pata]["cuotas"] += 1
 
-    total_cuotas  = sum(p["cuotas"]   for p in liq_preview.values())
+    total_cuotas   = sum(p["cuotas"]   for p in liq_preview.values())
     total_contados = sum(p["contados"] for p in liq_preview.values())
-    monto_cuotas  = sum(p["cuotas"]   * p["valor_cuota"] for p in liq_preview.values())
-    monto_contados= sum(p["contados"] * p["valor_cuota"] for p in liq_preview.values())
+    monto_cuotas   = sum(p["cuotas"]   * p["valor_cuota"] for p in liq_preview.values())
+    monto_contados = sum(p["contados"] * p["valor_cuota"] for p in liq_preview.values())
 
-    # Historial de liquidaciones anteriores
     liquidaciones = db.query(models.LiquidacionVendedor).filter_by(
         vendedor_id=vid
     ).order_by(models.LiquidacionVendedor.fecha.desc()).all()
@@ -123,9 +117,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     can_edit = auth_module.has_permission(user, "vendedores", "editar")
 
     return templates.TemplateResponse(request, "vendedor_detalle.html", {
-        "user": user,
-        "v": v,
-        "patas": patas,
+        "user": user, "v": v, "patas": patas,
         "liq_preview": liq_preview,
         "total_cuotas": total_cuotas,
         "total_contados": total_contados,
@@ -133,6 +125,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         "monto_contados": monto_contados,
         "liquidaciones": liquidaciones,
         "can_edit": can_edit,
+        "pendientes_count": len(pendientes),
     })
 
 
@@ -145,6 +138,10 @@ async def liquidar(
     observacion: str = Form(""),
     db: Session = Depends(get_db),
 ):
+    """Liquida al vendedor por las boletas que tiene en CAJA (sin liquidar previa).
+    Registra la liquidacion y marca esas boletas con el id de liquidacion.
+    Los datos del comprador se cargan despues en el sistema (-> VENDIDO).
+    """
     _perm_user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(_perm_user, "vendedores", "editar"):
         raise HTTPException(403, "Sin permiso")
@@ -152,10 +149,10 @@ async def liquidar(
     if not v:
         raise HTTPException(404)
 
-    # Boletas VENDIDO sin liquidar para este vendedor
+    # Boletas CAJA sin liquidar = las que el vendedor trajo de vuelta
     pendientes = db.query(models.Boleta).filter(
         models.Boleta.vendedor_id == vid,
-        models.Boleta.condicion == CondicionBoleta.VENDIDO,
+        models.Boleta.condicion == CondicionBoleta.CAJA,
         models.Boleta.liquidacion_vendedor_id.is_(None),
     ).all()
 
@@ -185,9 +182,9 @@ async def liquidar(
         observacion=observacion.strip() or None,
     )
     db.add(liq)
-    db.flush()  # obtener liq.id
+    db.flush()
 
-    # Marcar boletas como liquidadas
+    # Marcar boletas: conservan condicion CAJA hasta que se cargue el comprador
     for b in pendientes:
         b.liquidacion_vendedor_id = liq.id
     db.commit()
@@ -254,8 +251,7 @@ async def entrega_caja(
 
 @router.post("/entrega-caja/{entrega_id}/editar")
 async def editar_entrega(
-    entrega_id: int,
-    request: Request,
+    entrega_id: int, request: Request,
     talonera_nombre: str = Form(...),
     desde: int = Form(...),
     hasta: int = Form(...),
@@ -340,8 +336,7 @@ async def toggle(vid: int, request: Request, db: Session = Depends(get_db)):
 
 @router.post("/{vid}/editar")
 async def editar(
-    vid: int,
-    request: Request,
+    vid: int, request: Request,
     nombre: str = Form(...),
     telefono: str = Form(""),
     db: Session = Depends(get_db),
