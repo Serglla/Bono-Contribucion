@@ -373,4 +373,7 @@ async def editar(
         raise HTTPException(403, "Sin permiso")
     v = db.query(models.Vendedor).get(vid)
     if v:
-        v.nombre = nombre.
+        v.nombre = nombre.strip().upper()
+        v.telefono = telefono.strip() or None
+        db.commit()
+    return RedirectResponse("/vendedores/", status_code=302)
