@@ -12,6 +12,7 @@ from ..database import get_db
 router = APIRouter(prefix="/vendedores", tags=["vendedores"])
 
 
+
 def _stats_bulk(db):
     """Un solo query SQL con conteos por vendedor y condicion.
     Para CAJA distingue entre sin liquidar y liquidado-pendiente-comprador,
@@ -244,22 +245,60 @@ async def entrega_caja(
     if not talonera_ids:
         return JSONResponse({"ok": False, "error": "Talonera no encontrada"}, status_code=404)
 
+    # 1) SIN_VENDER -> CAJA (asigna vendedor)
     update_data = {"condicion": CondicionBoleta.CAJA}
     if vendedor_id:
         update_data["vendedor_id"] = vendedor_id
 
-    actualizadas = db.query(models.Boleta).filter(
+    nuevas = db.query(models.Boleta).filter(
         models.Boleta.talonera_id.in_(talonera_ids),
         models.Boleta.numero_principal >= desde,
         models.Boleta.numero_principal <= hasta,
         models.Boleta.condicion == CondicionBoleta.SIN_VENDER,
     ).update(update_data, synchronize_session=False)
 
+    # 2) Reasignar boletas que ya estan en CAJA sin liquidar a otro vendedor.
+    #    Solo si se especifico vendedor_id; no se tocan las liquidadas.
+    reasignadas = 0
+    vendedores_origen = []  # ids de vendedores que perdieron boletas (para refrescar UI)
+    if vendedor_id:
+        q_reasign = db.query(models.Boleta).filter(
+            models.Boleta.talonera_id.in_(talonera_ids),
+            models.Boleta.numero_principal >= desde,
+            models.Boleta.numero_principal <= hasta,
+            models.Boleta.condicion == CondicionBoleta.CAJA,
+            models.Boleta.liquidacion_vendedor_id.is_(None),
+            (models.Boleta.vendedor_id.is_(None)) | (models.Boleta.vendedor_id != vendedor_id),
+        )
+        # capturo los vendedores origen ANTES del update
+        vendedores_origen = [
+            vid for (vid,) in q_reasign.with_entities(models.Boleta.vendedor_id).distinct().all()
+            if vid is not None
+        ]
+        reasignadas = q_reasign.update({"vendedor_id": vendedor_id}, synchronize_session=False)
+
+    total = nuevas + reasignadas
+
+    # No ensuciar el historial si no hubo movimientos
+    if total == 0:
+        db.rollback()
+        return JSONResponse({
+            "ok": True,
+            "nuevas": 0,
+            "reasignadas": 0,
+            "total": 0,
+            "actualizadas": 0,  # backward compat
+            "entrega_id": None,
+            "vendedor_nombre": None,
+            "vendedor_id": vendedor_id,
+            "vendedores_origen": [],
+        })
+
     entrega = models.EntregaCaja(
         talonera_nombre=talonera_nombre,
         desde=desde,
         hasta=hasta,
-        boletas_afectadas=actualizadas,
+        boletas_afectadas=total,
         usuario_id=_perm_user.id,
         vendedor_id=vendedor_id,
     )
@@ -270,10 +309,14 @@ async def entrega_caja(
     vend_nombre = entrega.vendedor.nombre if entrega.vendedor else None
     return JSONResponse({
         "ok": True,
-        "actualizadas": actualizadas,
+        "nuevas": nuevas,
+        "reasignadas": reasignadas,
+        "total": total,
+        "actualizadas": total,  # backward compat
         "entrega_id": entrega.id,
         "vendedor_nombre": vend_nombre,
         "vendedor_id": vendedor_id,
+        "vendedores_origen": vendedores_origen,
     })
 
 

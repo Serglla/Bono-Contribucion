@@ -322,13 +322,30 @@ async function entregarCaja() {
     const r = await fetch('/vendedores/entrega-caja', { method:'POST', body:fd, credentials:'include' });
     const data = await r.json();
     if (data.ok) {
+      const total = (typeof data.total === 'number') ? data.total : data.actualizadas;
+      const nuevas = data.nuevas ?? data.actualizadas ?? 0;
+      const reasignadas = data.reasignadas ?? 0;
       const vnom = data.vendedor_nombre ? `<strong>${data.vendedor_nombre}</strong>` : '<em>sin asignar</em>';
-      const lbl  = data.actualizadas === 0
-        ? '<span class="text-warning">Sin cambios</span> — ninguna estaba en SIN_VENDER'
-        : `<strong>${data.actualizadas}</strong> boleta(s) → <span class="badge bg-primary">CAJA</span> → ${vnom}`;
-      res.innerHTML = alerta('success', `${lbl} <span class="text-muted">(${pata} · ${p4(desde)}–${p4(hasta)})</span>`);
-      addRow(pata, desde, hasta, data.actualizadas, data.entrega_id, data.vendedor_nombre);
-      if (data.actualizadas > 0 && data.vendedor_id) actualizarCajaCell(data.vendedor_id, data.actualizadas);
+      const rango = `<span class="text-muted">(${pata} · ${p4(desde)}–${p4(hasta)})</span>`;
+      if (total === 0) {
+        res.innerHTML = alerta('warning',
+          `<span>Sin cambios</span> — ninguna boleta para mover (ya estaban liquidadas, vendidas o asignadas a ${vnom}) ${rango}`);
+      } else {
+        const partes = [];
+        if (nuevas > 0) partes.push(`<strong>${nuevas}</strong> nueva(s) SIN_VENDER → CAJA`);
+        if (reasignadas > 0) partes.push(`<strong>${reasignadas}</strong> reasignada(s) a ${vnom}`);
+        const lbl = partes.join(' · ') + ` <span class="badge bg-primary">${total} total</span>`;
+        res.innerHTML = alerta('success', `${lbl} ${rango}`);
+        addRow(pata, desde, hasta, total, data.entrega_id, data.vendedor_nombre);
+        // Sumar al destino
+        if (data.vendedor_id) actualizarCajaCell(data.vendedor_id, total);
+        // Restar a los vendedores origen (los que perdieron boletas en la reasignacion)
+        if (Array.isArray(data.vendedores_origen)) {
+          data.vendedores_origen.forEach(vid => {
+            if (vid && vid !== data.vendedor_id) actualizarCajaCell(vid, -reasignadas);
+          });
+        }
+      }
       document.getElementById('ec-desde').value = '';
       document.getElementById('ec-hasta').value = '';
       document.getElementById('ec-desde').focus();
@@ -349,8 +366,20 @@ function actualizarCajaCell(vid, n) {
   const badge = cell.querySelector('.caja-sin-liq');
   const vacio = cell.querySelector('.caja-vacio');
   if (badge) {
-    badge.textContent = parseInt(badge.textContent || '0') + n;
-  } else {
+    const nuevo = parseInt(badge.textContent || '0') + n;
+    if (nuevo > 0) {
+      badge.textContent = nuevo;
+    } else {
+      badge.remove();
+      // Si no quedan otros badges en la celda, mostrar guion
+      if (!cell.querySelector('.badge') && !cell.querySelector('.caja-vacio')) {
+        const span = document.createElement('span');
+        span.className = 'text-muted caja-vacio';
+        span.textContent = '—';
+        cell.appendChild(span);
+      }
+    }
+  } else if (n > 0) {
     if (vacio) vacio.remove();
     const a = document.createElement('a');
     a.href = `/vendedores/${vid}/detalle`;
