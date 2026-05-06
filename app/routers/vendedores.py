@@ -273,6 +273,7 @@ async def entrega_caja(
         "actualizadas": actualizadas,
         "entrega_id": entrega.id,
         "vendedor_nombre": vend_nombre,
+        "vendedor_id": vendedor_id,
     })
 
 

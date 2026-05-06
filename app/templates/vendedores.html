@@ -51,14 +51,14 @@
             {% endif %}
           </td>
           <td class="text-muted">{{ v.telefono or "—" }}</td>
-          <td class="text-center">
+          <td class="text-center" id="caja-cell-{{ v.id }}">
             {% if s.caja > 0 %}
-            <a href="/vendedores/{{ v.id }}/detalle" class="badge bg-primary text-decoration-none" title="En caja — sin liquidar">{{ s.caja }}</a>
+            <a href="/vendedores/{{ v.id }}/detalle" class="badge bg-primary text-decoration-none caja-sin-liq" title="En caja — sin liquidar">{{ s.caja }}</a>
             {% endif %}
             {% if s.liq_pendiente > 0 %}
-            <a href="/vendedores/{{ v.id }}/detalle" class="badge text-decoration-none ms-1" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;" title="Liquidado — pendiente comprador">{{ s.liq_pendiente }}</a>
+            <a href="/vendedores/{{ v.id }}/detalle" class="badge text-decoration-none ms-1 caja-liq-pend" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;" title="Liquidado — pendiente comprador">{{ s.liq_pendiente }}</a>
             {% endif %}
-            {% if s.caja == 0 and s.liq_pendiente == 0 %}<span class="text-muted small">—</span>{% endif %}
+            {% if s.caja == 0 and s.liq_pendiente == 0 %}<span class="text-muted small caja-vacio">—</span>{% endif %}
           </td>
           <td class="text-center">
             {% if s.baja > 0 %}
@@ -328,6 +328,7 @@ async function entregarCaja() {
         : `<strong>${data.actualizadas}</strong> boleta(s) → <span class="badge bg-primary">CAJA</span> → ${vnom}`;
       res.innerHTML = alerta('success', `${lbl} <span class="text-muted">(${pata} · ${p4(desde)}–${p4(hasta)})</span>`);
       addRow(pata, desde, hasta, data.actualizadas, data.entrega_id, data.vendedor_nombre);
+      if (data.actualizadas > 0 && data.vendedor_id) actualizarCajaCell(data.vendedor_id, data.actualizadas);
       document.getElementById('ec-desde').value = '';
       document.getElementById('ec-hasta').value = '';
       document.getElementById('ec-desde').focus();
@@ -342,6 +343,23 @@ async function entregarCaja() {
   }
 }
 const p4 = n => String(n).padStart(4,'0');
+function actualizarCajaCell(vid, n) {
+  const cell = document.getElementById(`caja-cell-${vid}`);
+  if (!cell) return;
+  const badge = cell.querySelector('.caja-sin-liq');
+  const vacio = cell.querySelector('.caja-vacio');
+  if (badge) {
+    badge.textContent = parseInt(badge.textContent || '0') + n;
+  } else {
+    if (vacio) vacio.remove();
+    const a = document.createElement('a');
+    a.href = `/vendedores/${vid}/detalle`;
+    a.className = 'badge bg-primary text-decoration-none caja-sin-liq';
+    a.title = 'En caja — sin liquidar';
+    a.textContent = n;
+    cell.insertBefore(a, cell.firstChild);
+  }
+}
 function alerta(t,m) {
   const i = t==='success'?'check-circle':t==='warning'?'exclamation-triangle':'x-circle';
   return `<div class="alert alert-${t} py-2 mb-0 small"><i class="bi bi-${i} me-1"></i>${m}</div>`;
