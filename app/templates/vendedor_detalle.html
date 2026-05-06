@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+{% block title %}{{ v.nombre }} — Detalle{% endblock %}
+{% block content %}
+
+{# ══════════ HEADER ══════════ #}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a href="/vendedores/" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h4 class="fw-bold mb-0">
+      {{ v.nombre }}
+      {% if v.es_jefe_equipo %}
+      <span class="badge bg-warning text-dark ms-1" style="font-size:.7rem;">
+        <i class="bi bi-star-fill me-1"></i>Jefe de equipo
+      </span>
+      {% endif %}
+    </h4>
+    <small class="text-muted">{{ v.telefono or "Sin teléfono" }}</small>
+  </div>
+</div>
+
+{# ══════════ MENSAJES ══════════ #}
+{% set msg = request.query_params.get('msg') %}
+{% if msg == 'liquidado' %}
+<div class="alert alert-success py-2 small mb-3">
+  <i class="bi bi-check-circle me-1"></i>Liquidación registrada correctamente.
+</div>
+{% elif msg == 'sin_pendientes' %}
+<div class="alert alert-warning py-2 small mb-3">
+  <i class="bi bi-exclamation-triangle me-1"></i>No hay boletas vendidas pendientes de liquidar.
+</div>
+{% endif %}
+
+{# ══════════ TARJETAS RESUMEN ══════════ #}
+{% set total_caja    = patas.values() | map(attribute='boletas') | sum(start=[]) | selectattr('cond','eq','CAJA') | list | length %}
+{% set total_vend    = patas.values() | map(attribute='boletas') | sum(start=[]) | selectattr('cond','eq','VENDIDO') | selectattr('liq','eq',false) | list | length %}
+{% set total_liq     = patas.values() | map(attribute='boletas') | sum(start=[]) | selectattr('cond','eq','VENDIDO') | selectattr('liq','eq',true) | list | length %}
+{% set total_baja    = patas.values() | map(attribute='boletas') | sum(start=[]) | selectattr('cond','eq','BAJA') | list | length %}
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-3 fw-bold text-primary">{{ total_caja }}</div>
+      <div class="small text-muted">En Caja</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-3 fw-bold text-success">{{ total_vend }}</div>
+      <div class="small text-muted">Vendido (sin liquidar)</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-3 fw-bold" style="color:#0d6efd99;">{{ total_liq }}</div>
+      <div class="small text-muted">Liquidado</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-3 fw-bold text-danger">{{ total_baja }}</div>
+      <div class="small text-muted">Baja</div>
+    </div>
+  </div>
+</div>
+
+{# ══════════ LEYENDA ══════════ #}
+<div class="d-flex flex-wrap gap-3 mb-3 small align-items-center">
+  <span class="fw-semibold text-muted">Leyenda:</span>
+  <span><span class="badge" style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;">0000</span> En Caja</span>
+  <span><span class="badge" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;">0000</span> Vendido</span>
+  <span><span class="badge bg-primary">0000</span> Liquidado</span>
+  <span><span class="badge" style="background:#f8d7da;color:#842029;border:1px solid #f5c2c740;">0000</span> Baja</span>
+  <span><span class="badge" style="background:#fff3cd;color:#664d03;border:1px solid #ffca2c40;">★</span> Contado</span>
+</div>
+
+{# ══════════ BOTÓN LIQUIDAR ══════════ #}
+{% if can_edit and (total_vend > 0) %}
+<div class="mb-4">
+  <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalLiquidar">
+    <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
+    <span class="badge bg-white text-success ms-1">{{ total_vend }} boletas</span>
+  </button>
+</div>
+{% elif can_edit %}
+<div class="mb-4">
+  <button class="btn btn-outline-secondary" disabled>
+    <i class="bi bi-cash-coin me-2"></i>Sin boletas vendidas para liquidar
+  </button>
+</div>
+{% endif %}
+
+{# ══════════ SECCIONES POR PATA ══════════ #}
+{% if patas %}
+  {% for pata_nombre, pata_data in patas.items() %}
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-header d-flex align-items-center gap-2 py-2"
+         style="background:{{ pata_data.color }}30; border-left: 4px solid {{ pata_data.color }};">
+      <span class="badge" style="background:{{ pata_data.color }};color:#333;border:1px solid #0003;">{{ pata_nombre }}</span>
+      {% set en_caja  = pata_data.boletas | selectattr('cond','eq','CAJA') | list | length %}
+      {% set en_vend  = pata_data.boletas | selectattr('cond','eq','VENDIDO') | selectattr('liq','eq',false) | list | length %}
+      {% set en_liq   = pata_data.boletas | selectattr('cond','eq','VENDIDO') | selectattr('liq','eq',true) | list | length %}
+      {% set en_baja  = pata_data.boletas | selectattr('cond','eq','BAJA') | list | length %}
+      <span class="text-muted small">
+        {% if en_caja %}  <span class="text-primary">{{ en_caja }} en caja</span>{% endif %}
+        {% if en_vend %}  · <span class="text-success">{{ en_vend }} vendidos</span>{% endif %}
+        {% if en_liq %}   · <span class="text-primary-emphasis">{{ en_liq }} liquidados</span>{% endif %}
+        {% if en_baja %}  · <span class="text-danger">{{ en_baja }} baja</span>{% endif %}
+      </span>
+    </div>
+    <div class="card-body py-3">
+      <div class="d-flex flex-wrap gap-1">
+        {% for b in pata_data.boletas %}
+          {% if b.cond == 'CAJA' %}
+            {# Azul outline = en caja #}
+            <span class="badge {% if b.contado %}border border-warning{% endif %}"
+                  style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;font-size:.8rem;"
+                  title="En Caja{% if b.contado %} · Contado{% endif %}">
+              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.6rem;color:#ffc107;"></i>{% endif %}
+              {{ '%04d'|format(b.num) }}
+            </span>
+          {% elif b.cond == 'VENDIDO' and not b.liq %}
+            {# Verde outline = vendido sin liquidar #}
+            <span class="badge {% if b.contado %}border border-warning{% endif %}"
+                  style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;"
+                  title="Vendido (pendiente liquidar){% if b.contado %} · Contado{% endif %}">
+              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.6rem;color:#ffc107;"></i>{% endif %}
+              {{ '%04d'|format(b.num) }}
+            </span>
+          {% elif b.cond == 'VENDIDO' and b.liq %}
+            {# Azul sólido = liquidado #}
+            <span class="badge bg-primary" style="font-size:.8rem;opacity:.7;"
+                  title="Vendido y liquidado{% if b.contado %} · Contado{% endif %}">
+              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.6rem;color:#ffc107;"></i>{% endif %}
+              {{ '%04d'|format(b.num) }}
+            </span>
+          {% elif b.cond == 'BAJA' %}
+            {# Rojo = baja #}
+            <span class="badge"
+                  style="background:#f8d7da;color:#842029;border:1px solid #f5c2c740;font-size:.8rem;"
+                  title="Baja">
+              {{ '%04d'|format(b.num) }}
+            </span>
+          {% else %}
+            <span class="badge bg-secondary" style="font-size:.8rem;opacity:.5;" title="{{ b.cond }}">
+              {{ '%04d'|format(b.num) }}
+            </span>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+    Este vendedor no tiene boletas asignadas.
+  </div>
+{% endif %}
+
+{# ══════════ HISTORIAL LIQUIDACIONES ══════════ #}
+{% if liquidaciones %}
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-white py-2 fw-semibold small">
+    <i class="bi bi-receipt text-success me-1"></i>Historial de liquidaciones
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 small" style="font-size:.82rem;">
+      <thead class="table-light">
+        <tr>
+          <th>Fecha</th>
+          <th class="text-center">Cuotas</th><th class="text-end">Monto cuotas</th><th class="text-center">Com. %</th>
+          <th class="text-center">Contados</th><th class="text-end">Monto cont.</th><th class="text-center">Com. %</th>
+          <th class="text-end fw-semibold">Total comisión</th>
+          <th>Obs.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for liq in liquidaciones %}
+        <tr>
+          <td class="text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
+          <td class="text-center">{{ liq.cuotas_vendidas }}</td>
+          <td class="text-end">${{ '%.2f'|format(liq.monto_cuotas) }}</td>
+          <td class="text-center text-muted">{{ liq.comision_cuotas_pct }}%</td>
+          <td class="text-center">{{ liq.contados_vendidos }}</td>
+          <td class="text-end">${{ '%.2f'|format(liq.monto_contados) }}</td>
+          <td class="text-center text-muted">{{ liq.comision_contados_pct }}%</td>
+          <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_comision) }}</td>
+          <td class="text-muted fst-italic">{{ liq.observacion or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════ MODAL LIQUIDAR ══════════ #}
+<div class="modal fade" id="modalLiquidar" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/vendedores/{{ v.id }}/liquidar">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-cash-coin me-2 text-success"></i>Liquidar — {{ v.nombre }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+
+          {# Tabla previa por PATA #}
+          {% if liq_preview %}
+          <table class="table table-sm align-middle mb-4 small">
+            <thead class="table-light">
+              <tr>
+                <th>PATA</th>
+                <th class="text-center">Cuotas vendidas</th>
+                <th class="text-center">Contados</th>
+                <th class="text-end">Valor cuota</th>
+                <th class="text-end">Monto cuotas</th>
+                <th class="text-end">Monto contados</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for pata, d in liq_preview.items() %}
+              <tr>
+                <td><span class="badge bg-danger">{{ pata }}</span></td>
+                <td class="text-center fw-semibold">{{ d.cuotas }}</td>
+                <td class="text-center fw-semibold text-warning">{{ d.contados }}</td>
+                <td class="text-end text-muted">${{ '%.2f'|format(d.valor_cuota) }}</td>
+                <td class="text-end">${{ '%.2f'|format(d.cuotas * d.valor_cuota) }}</td>
+                <td class="text-end">${{ '%.2f'|format(d.contados * d.valor_cuota) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot class="table-light fw-semibold">
+              <tr>
+                <td colspan="2">TOTAL</td>
+                <td class="text-center">{{ total_contados }}</td>
+                <td></td>
+                <td class="text-end" id="liq-monto-cuotas">${{ '%.2f'|format(monto_cuotas) }}</td>
+                <td class="text-end" id="liq-monto-contados">${{ '%.2f'|format(monto_contados) }}</td>
+              </tr>
+            </tfoot>
+          </table>
+          {% endif %}
+
+          {# Comisiones #}
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Comisión cuotas (%)</label>
+              <div class="input-group input-group-sm">
+                <input type="number" name="comision_cuotas_pct" id="inp-com-cuotas"
+                       class="form-control" value="5" min="0" max="100" step="0.1"
+                       oninput="recalcular()">
+                <span class="input-group-text">%</span>
+              </div>
+              <div class="text-muted small mt-1">
+                Comisión: <strong id="lbl-com-cuotas">$0.00</strong>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Comisión contados (%)</label>
+              <div class="input-group input-group-sm">
+                <input type="number" name="comision_contados_pct" id="inp-com-contados"
+                       class="form-control" value="10" min="0" max="100" step="0.1"
+                       oninput="recalcular()">
+                <span class="input-group-text">%</span>
+              </div>
+              <div class="text-muted small mt-1">
+                Comisión: <strong id="lbl-com-contados">$0.00</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="alert alert-success py-3 text-center mb-3">
+            <div class="small text-muted mb-1">Total a pagar</div>
+            <div class="fs-3 fw-bold" id="lbl-total">$0.00</div>
+          </div>
+
+          <div>
+            <label class="form-label small">Observación (opcional)</label>
+            <input type="text" name="observacion" class="form-control form-control-sm" placeholder="ej: Liquidación julio 2026">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-success">
+            <i class="bi bi-check-circle me-1"></i>Confirmar liquidación
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const MCuotas   = {{ monto_cuotas }};
+const MContados = {{ monto_contados }};
+function fmt(n) { return '$' + n.toFixed(2); }
+function recalcular() {
+  const pCuotas   = parseFloat(document.getElementById('inp-com-cuotas').value)   || 0;
+  const pContados = parseFloat(document.getElementById('inp-com-contados').value) || 0;
+  const cCuotas   = MCuotas   * pCuotas   / 100;
+  const cContados = MContados * pContados / 100;
+  document.getElementById('lbl-com-cuotas').textContent   = fmt(cCuotas);
+  document.getElementById('lbl-com-contados').textContent = fmt(cContados);
+  document.getElementById('lbl-total').textContent        = fmt(cCuotas + cContados);
+}
+document.addEventListener('DOMContentLoaded', recalcular);
+document.getElementById('modalLiquidar')?.addEventListener('shown.bs.modal', recalcular);
+</script>
+{% endblock %}

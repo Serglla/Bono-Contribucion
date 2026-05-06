@@ -92,7 +92,30 @@ class Vendedor(Base):
     es_jefe_equipo = Column(Boolean, default=False)
     boletas = relationship("Boleta", back_populates="vendedor")
     zonas = relationship("Zona", back_populates="vendedor")
+    liquidaciones = relationship("LiquidacionVendedor", back_populates="vendedor")
 
+
+
+class LiquidacionVendedor(Base):
+    """Liquidacion de comision a un vendedor por boletas vendidas."""
+    __tablename__ = "liquidaciones_vendedor"
+    id = Column(Integer, primary_key=True, index=True)
+    vendedor_id = Column(Integer, ForeignKey("vendedores.id"), nullable=False)
+    fecha = Column(DateTime, default=_datetime.utcnow)
+    # Cuotas
+    cuotas_vendidas = Column(Integer, default=0)
+    monto_cuotas = Column(Float, default=0.0)
+    comision_cuotas_pct = Column(Float, default=5.0)
+    comision_cuotas = Column(Float, default=0.0)
+    # Contados
+    contados_vendidos = Column(Integer, default=0)
+    monto_contados = Column(Float, default=0.0)
+    comision_contados_pct = Column(Float, default=10.0)
+    comision_contados = Column(Float, default=0.0)
+    # Total
+    total_comision = Column(Float, default=0.0)
+    observacion = Column(String, nullable=True)
+    vendedor = relationship("Vendedor", back_populates="liquidaciones")
 
 class Cobrador(Base):
     __tablename__ = "cobradores"
@@ -204,6 +227,7 @@ class Boleta(Base):
     # talonera_especial_id apunta a la talonera CONTADO de la cual salió.
     numero_especial = Column(Integer, nullable=True, index=True)
     talonera_especial_id = Column(Integer, ForeignKey("taloneras.id"), nullable=True)
+    liquidacion_vendedor_id = Column(Integer, ForeignKey("liquidaciones_vendedor.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     talonera = relationship("Talonera", back_populates="boletas",
@@ -213,6 +237,7 @@ class Boleta(Base):
     cobrador = relationship("Cobrador", back_populates="boletas")
     vendedor = relationship("Vendedor", back_populates="boletas")
     planilla = relationship("Planilla", back_populates="boletas")
+    liquidacion_vendedor = relationship("LiquidacionVendedor")
 
 
 class EntregaCaja(Base):
@@ -237,7 +262,4 @@ class Sorteo(Base):
     descripcion = Column(String, nullable=True)
     tipo = Column(Enum(TipoSorteo), nullable=False)
     cifras = Column(String, nullable=False)
-    fecha = Column(Date, nullable=False)
-    num_premios = Column(Integer, default=20)
-    resultado_json = Column(String, nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
+    fecha = Colu

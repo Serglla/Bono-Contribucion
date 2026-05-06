@@ -312,6 +312,44 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion vendedor_id entregas_caja: {e}")
 
+        # Crear tabla liquidaciones_vendedor
+        try:
+            if "liquidaciones_vendedor" not in inspector.get_table_names():
+                db.execute(text(
+                    "CREATE TABLE liquidaciones_vendedor ("
+                    "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "  vendedor_id INTEGER NOT NULL REFERENCES vendedores(id),"
+                    "  fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+                    "  cuotas_vendidas INTEGER DEFAULT 0,"
+                    "  monto_cuotas REAL DEFAULT 0.0,"
+                    "  comision_cuotas_pct REAL DEFAULT 5.0,"
+                    "  comision_cuotas REAL DEFAULT 0.0,"
+                    "  contados_vendidos INTEGER DEFAULT 0,"
+                    "  monto_contados REAL DEFAULT 0.0,"
+                    "  comision_contados_pct REAL DEFAULT 10.0,"
+                    "  comision_contados REAL DEFAULT 0.0,"
+                    "  total_comision REAL DEFAULT 0.0,"
+                    "  observacion TEXT"
+                    ")"
+                ))
+                db.commit()
+                print("Migracion liquidaciones_vendedor: tabla creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion liquidaciones_vendedor: {e}")
+
+        # Migrar liquidacion_vendedor_id en boletas
+        try:
+            cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
+            if "liquidacion_vendedor_id" not in cols_boletas:
+                db.execute(text("ALTER TABLE boletas ADD COLUMN liquidacion_vendedor_id INTEGER REFERENCES liquidaciones_vendedor(id)"))
+                db.commit()
+                print("Migracion liquidacion_vendedor_id boletas: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion liquidacion_vendedor_id boletas: {e}")
+
+
         if not db.query(models.User).filter_by(username="admin").first():
             import logging
             logging.getLogger(__name__).warning(
