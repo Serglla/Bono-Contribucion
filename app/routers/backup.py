@@ -89,17 +89,19 @@ async def descargar_backup(request: Request, db: Session = Depends(get_db)):
     await auth_module.require_user(request, db)
 
     data = {
-        "vendedores":          _export_table(db, models.Vendedor),
-        "cobradores":          _export_table(db, models.Cobrador),
-        "zonas":               _export_table(db, models.Zona),
-        "zona_cobradores":     _export_zona_cobradores(db),
-        "taloneras":           _export_table(db, models.Talonera),
-        "compradores":         _export_table(db, models.Comprador),
-        "boletas":             _export_table(db, models.Boleta),
-        "sorteos":             _export_table(db, models.Sorteo),
-        "planillas":           _export_table(db, models.Planilla),
-        "liquidaciones":       _export_table(db, models.Liquidacion),
+        "vendedores":           _export_table(db, models.Vendedor),
+        "cobradores":           _export_table(db, models.Cobrador),
+        "zonas":                _export_table(db, models.Zona),
+        "zona_cobradores":      _export_zona_cobradores(db),
+        "taloneras":            _export_table(db, models.Talonera),
+        "compradores":          _export_table(db, models.Comprador),
+        "boletas":              _export_table(db, models.Boleta),
+        "sorteos":              _export_table(db, models.Sorteo),
+        "planillas":            _export_table(db, models.Planilla),
+        "liquidaciones":        _export_table(db, models.Liquidacion),
         "liquidacion_detalles": _export_table(db, models.LiquidacionDetalle),
+        "liquidaciones_vendedor": _export_table(db, models.LiquidacionVendedor),
+        "entregas_caja":        _export_table(db, models.EntregaCaja),
     }
 
     buf = io.BytesIO()
@@ -167,6 +169,8 @@ async def restaurar_backup(
             planillas_data       = leer("planillas.json")
             liquidaciones_data   = leer("liquidaciones.json")
             liq_det_data         = leer("liquidacion_detalles.json")
+            liq_vend_data        = leer("liquidaciones_vendedor.json")
+            entregas_data        = leer("entregas_caja.json")
 
     except Exception as e:
         return templates.TemplateResponse(request, "backup.html", {
@@ -185,6 +189,7 @@ async def restaurar_backup(
 
         # Limpiar tablas en orden inverso de dependencias
         for tabla in [
+            "entregas_caja", "liquidaciones_vendedor",
             "liquidacion_detalles", "liquidaciones", "boletas",
             "planillas", "compradores", "zona_cobradores",
             "zonas", "cobradores", "vendedores", "taloneras", "sorteos",
@@ -213,14 +218,22 @@ async def restaurar_backup(
                                                     "num_premios", "resultado_json"])
         insertar("planillas",   planillas_data,   ["id", "cobrador_id", "numero", "mes", "anio",
                                                     "comision_pct", "fecha_creacion"])
+        insertar("liquidaciones_vendedor", liq_vend_data,
+                 ["id", "vendedor_id", "fecha", "cuotas_vendidas", "cuota_1_total", "monto_cuotas",
+                  "comision_cuotas_pct", "comision_cuotas", "contados_vendidos", "monto_contados",
+                  "comision_contados_pct", "comision_contados", "total_comision", "observacion"])
         insertar("boletas",     boletas_data,     ["id", "talonera_id", "numero_principal", "numeros_adicionales",
                                                     "comprador_id", "cobrador_id", "vendedor_id", "planilla_id",
                                                     "fecha_venta", "condicion", "cuotas_pactadas",
-                                                    "cuotas_anticipadas", "cuotas_pagadas", "total_pagado"])
+                                                    "cuotas_anticipadas", "cuotas_pagadas", "total_pagado",
+                                                    "liquidacion_vendedor_id"])
         insertar("liquidaciones", liquidaciones_data,
                  ["id", "planilla_id", "fecha", "total_cuotas", "monto_total", "comision", "neto"])
         insertar("liquidacion_detalles", liq_det_data,
                  ["id", "liquidacion_id", "boleta_id", "cuotas_cobradas"])
+        insertar("entregas_caja", entregas_data,
+                 ["id", "talonera_nombre", "desde", "hasta", "boletas_afectadas",
+                  "observacion", "fecha", "usuario_id", "vendedor_id"])
 
         if dialect == "sqlite":
             db.execute(text("PRAGMA foreign_keys = ON"))
