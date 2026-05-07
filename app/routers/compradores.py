@@ -371,6 +371,70 @@ async def editar(
             except (ValueError, TypeError):
                 pass
 
+    # ── Modalidad CONTADO (ETAPA 2) ────────────────────────────────────────
+    # Por boleta:
+    #   modalidad_<id> = "cuotas" | "1pago" | "2pagos"
+    #   te_<id>  / ne_<id>   = talonera_especial_id  / numero_especial   (CONTADO)
+    #   te2_<id> / ne2_<id>  = talonera_especial_2_id / numero_especial_2 (CONTADO 2 VECES)
+    # Reglas:
+    #   - cuotas: limpia ambos slots
+    #   - 1pago : asigna slot1 (CONTADO) y slot2 (CONTADO 2 VECES)
+    #   - 2pagos: asigna solo slot2 (CONTADO 2 VECES); slot1 queda vacio
+    # Validacion: si el numero ya esta asignado a OTRA boleta para esa talonera,
+    # se rechaza (silencioso) y no se persiste.
+    def _to_int(x):
+        try:
+            v = int(x)
+            return v if v > 0 else None
+        except (ValueError, TypeError):
+            return None
+
+    def _esta_libre(num: int, talonera_id: int, except_boleta_id: int) -> bool:
+        """¿Está libre este número (no asignado a otra boleta) para esa talonera?"""
+        if not num or not talonera_id:
+            return False
+        q = db.query(models.Boleta).filter(
+            models.Boleta.id != except_boleta_id,
+            (
+                ((models.Boleta.talonera_especial_id == talonera_id) &
+                 (models.Boleta.numero_especial == num)) |
+                ((models.Boleta.talonera_especial_2_id == talonera_id) &
+                 (models.Boleta.numero_especial_2 == num))
+            ),
+        ).first()
+        return q is None
+
+    for b_exist in c.boletas:
+        modal = (form_data.get(f"modalidad_{b_exist.id}") or "").strip().lower()
+        if modal not in ("cuotas", "1pago", "2pagos"):
+            continue  # no se mando, no tocamos
+        te1 = _to_int(form_data.get(f"te_{b_exist.id}"))
+        ne1 = _to_int(form_data.get(f"ne_{b_exist.id}"))
+        te2 = _to_int(form_data.get(f"te2_{b_exist.id}"))
+        ne2 = _to_int(form_data.get(f"ne2_{b_exist.id}"))
+
+        if modal == "cuotas":
+            b_exist.numero_especial = None
+            b_exist.talonera_especial_id = None
+            b_exist.numero_especial_2 = None
+            b_exist.talonera_especial_2_id = None
+        elif modal == "1pago":
+            # slot 1
+            if te1 and ne1 and _esta_libre(ne1, te1, b_exist.id):
+                b_exist.numero_especial = ne1
+                b_exist.talonera_especial_id = te1
+            # slot 2
+            if te2 and ne2 and _esta_libre(ne2, te2, b_exist.id):
+                b_exist.numero_especial_2 = ne2
+                b_exist.talonera_especial_2_id = te2
+        elif modal == "2pagos":
+            # solo slot 2
+            b_exist.numero_especial = None
+            b_exist.talonera_especial_id = None
+            if te2 and ne2 and _esta_libre(ne2, te2, b_exist.id):
+                b_exist.numero_especial_2 = ne2
+                b_exist.talonera_especial_2_id = te2
+
     # Agregar nueva boleta si se buscó una
     if boleta_id:
         b = db.query(models.Boleta).get(boleta_id)
@@ -542,6 +606,137 @@ async def exportar_excel(request: Request, db: Session = Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+@router.get("/boleta/{boleta_id}/contado-disponibles")
+async def contado_disponibles(boleta_id: int, request: Request, db: Session = Depends(get_db)):
+    """Devuelve los numeros CONTADO y CONTADO 2 VECES que el vendedor de la
+    boleta tiene en mano (entregados via EntregaCaja menos los ya asignados a
+    cualquier boleta). Usado por la pantalla de editar comprador para que el
+    operador elija manualmente que numero del pool del vendedor le corresponde
+    a este socio segun la modalidad de pago.
+    Respuesta:
+      {
+        "ok": true,
+        "vendedor_id": int|null,
+        "vendedor_nombre": str|null,
+        "current": {"numero_especial": int|null, "talonera_especial_id": int|null,
+                    "numero_especial_2": int|null, "talonera_especial_2_id": int|null},
+        "taloneras_contado": [
+          {"id": int, "nombre": str, "color": str, "num_digitos": int,
+           "rol": "CONTADO"|"CONTADO_2"|"OTRO",
+           "numeros_libres": [int, ...]},
+          ...
+        ]
+      }
+    rol se infiere por el nombre: si el nombre normalizado contiene "2" => CONTADO_2,
+    si arranca con "CONTADO" sin numero => CONTADO, sino OTRO.
+    """
+    from fastapi.responses import JSONResponse
+    await auth_module.require_user(request, db)
+    b = db.query(models.Boleta).get(boleta_id)
+    if not b:
+        raise HTTPException(404, "Boleta no encontrada")
+
+    vid = b.vendedor_id
+    v = db.query(models.Vendedor).get(vid) if vid else None
+
+    # Taloneras CONTADO existentes
+    taloneras_c = db.query(models.Talonera).filter(models.Talonera.tipo == "CONTADO").all()
+
+    def _rol(nombre: str) -> str:
+        import re as _re
+        nm = (nombre or "").strip().upper()
+        if not nm.startswith("CONTADO"):
+            return "OTRO"
+        m = _re.search(r"(\d+)", nm)
+        if m and int(m.group(1)) >= 2:
+            return "CONTADO_2"
+        return "CONTADO"
+
+    # Entregas de este vendedor para taloneras CONTADO
+    entregas_v = []
+    if vid:
+        entregas_v = db.query(models.EntregaCaja).filter_by(vendedor_id=vid).all()
+
+    # Map nombre normalizado -> talonera para hacer match con entregas
+    norm_map = {(t.nombre or "").strip().lower(): t for t in taloneras_c}
+
+    # Para cada talonera CONTADO, computar los numeros entregados a este vendedor
+    out_taloneras = []
+    for t in taloneras_c:
+        nombre_norm = (t.nombre or "").strip().lower()
+        rangos = []
+        for e in entregas_v:
+            if (e.talonera_nombre or "").strip().lower() == nombre_norm:
+                rangos.append((int(e.desde), int(e.hasta)))
+        nums_entregados = set()
+        for d, h in rangos:
+            if h < d:
+                continue
+            nums_entregados.update(range(d, h + 1))
+        if not nums_entregados:
+            # El vendedor no tiene numeros de esta talonera; si la boleta YA
+            # tiene asignado un numero de esta talonera lo incluimos igual.
+            asignados_aqui = set()
+            if b.talonera_especial_id == t.id and b.numero_especial:
+                asignados_aqui.add(b.numero_especial)
+            if b.talonera_especial_2_id == t.id and b.numero_especial_2:
+                asignados_aqui.add(b.numero_especial_2)
+            if not asignados_aqui:
+                continue
+            libres = sorted(asignados_aqui)
+        else:
+            # Numeros ya asignados a alguna boleta para esta talonera
+            asignados_rows = db.query(
+                models.Boleta.numero_especial,
+                models.Boleta.talonera_especial_id,
+                models.Boleta.numero_especial_2,
+                models.Boleta.talonera_especial_2_id,
+                models.Boleta.id,
+            ).filter(
+                ((models.Boleta.talonera_especial_id == t.id) &
+                 models.Boleta.numero_especial.isnot(None)) |
+                ((models.Boleta.talonera_especial_2_id == t.id) &
+                 models.Boleta.numero_especial_2.isnot(None))
+            ).all()
+            asignados_otros = set()
+            for ne, tei, ne2, tei2, bid in asignados_rows:
+                if bid == b.id:
+                    continue  # no contar lo que ya asigne a esta misma boleta
+                if tei == t.id and ne is not None:
+                    asignados_otros.add(int(ne))
+                if tei2 == t.id and ne2 is not None:
+                    asignados_otros.add(int(ne2))
+            libres = sorted(nums_entregados - asignados_otros)
+
+        out_taloneras.append({
+            "id": t.id,
+            "nombre": t.nombre,
+            "color": t.color or "#fff8e1",
+            "num_digitos": t.num_digitos or 3,
+            "rol": _rol(t.nombre),
+            "numeros_libres": libres,
+        })
+
+    # Orden: CONTADO primero, CONTADO_2 segundo, OTRO al final
+    out_taloneras.sort(key=lambda x: (
+        0 if x["rol"] == "CONTADO" else 1 if x["rol"] == "CONTADO_2" else 2,
+        x["nombre"],
+    ))
+
+    return JSONResponse({
+        "ok": True,
+        "vendedor_id": vid,
+        "vendedor_nombre": v.nombre if v else None,
+        "current": {
+            "numero_especial": b.numero_especial,
+            "talonera_especial_id": b.talonera_especial_id,
+            "numero_especial_2": b.numero_especial_2,
+            "talonera_especial_2_id": b.talonera_especial_2_id,
+        },
+        "taloneras_contado": out_taloneras,
+    })
 
 
 @router.get("/{comprador_id}/detalle")

@@ -19,22 +19,66 @@
       <div class="mb-3">
         <label class="form-label fw-semibold text-danger mb-1" style="font-size:.8rem;">BOLETAS ASIGNADAS</label>
         {% for b in comprador.boletas %}
-        <div class="d-flex align-items-center gap-2 mb-1 px-2 py-1 rounded border bg-light">
-          <span class="badge bg-dark">{{ "%04d" % b.numero_principal }}</span>
-          {% if b.numeros_adicionales %}
-            {% for n in b.numeros_adicionales.split(', ') %}
-            <span class="badge bg-secondary">{{ "%04d" % n|int }}</span>
-            {% endfor %}
-          {% endif %}
-          <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.65rem;">{{ b.talonera.nombre if b.talonera else "" }}</span>
-          <div class="ms-auto d-flex align-items-center gap-2">
-            <span class="small text-muted">Cuotas pagas:</span>
-            <input type="number" name="cpag_{{ b.id }}"
-                   value="{{ b.cuotas_pagadas or 0 }}"
-                   min="0" max="{{ b.cuotas_pactadas or 12 }}"
-                   class="form-control form-control-sm text-center fw-bold"
-                   style="width:56px;">
-            <span class="small text-muted">/ {{ b.cuotas_pactadas }}</span>
+        {% set _mod = '1pago' if (b.numero_especial and b.numero_especial_2) else ('2pagos' if b.numero_especial_2 else 'cuotas') %}
+        <div class="boleta-wrap mb-2 border rounded bg-light">
+          <div class="d-flex align-items-center gap-2 px-2 py-1">
+            <span class="badge bg-dark">{{ "%04d" % b.numero_principal }}</span>
+            {% if b.numeros_adicionales %}
+              {% for n in b.numeros_adicionales.split(', ') %}
+              <span class="badge bg-secondary">{{ "%04d" % n|int }}</span>
+              {% endfor %}
+            {% endif %}
+            <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.65rem;">{{ b.talonera.nombre if b.talonera else "" }}</span>
+            <div class="ms-auto d-flex align-items-center gap-2">
+              <span class="small text-muted">Cuotas pagas:</span>
+              <input type="number" name="cpag_{{ b.id }}"
+                     value="{{ b.cuotas_pagadas or 0 }}"
+                     min="0" max="{{ b.cuotas_pactadas or 12 }}"
+                     class="form-control form-control-sm text-center fw-bold"
+                     style="width:56px;">
+              <span class="small text-muted">/ {{ b.cuotas_pactadas }}</span>
+            </div>
+          </div>
+
+          <!-- Bloque CONTADO (ETAPA 2) -->
+          <div class="contado-block px-2 py-2 border-top bg-white"
+               data-boleta="{{ b.id }}"
+               data-current-ne="{{ b.numero_especial or '' }}"
+               data-current-te="{{ b.talonera_especial_id or '' }}"
+               data-current-ne2="{{ b.numero_especial_2 or '' }}"
+               data-current-te2="{{ b.talonera_especial_2_id or '' }}">
+            <div class="d-flex align-items-center gap-3 flex-wrap small">
+              <span class="text-muted fw-semibold">Modalidad de pago:</span>
+              <div class="form-check form-check-inline mb-0">
+                <input type="radio" class="form-check-input mod-radio" name="modalidad_{{ b.id }}" id="mod_c_{{ b.id }}" value="cuotas" {% if _mod == 'cuotas' %}checked{% endif %}>
+                <label class="form-check-label" for="mod_c_{{ b.id }}">En cuotas</label>
+              </div>
+              <div class="form-check form-check-inline mb-0">
+                <input type="radio" class="form-check-input mod-radio" name="modalidad_{{ b.id }}" id="mod_1_{{ b.id }}" value="1pago" {% if _mod == '1pago' %}checked{% endif %}>
+                <label class="form-check-label" for="mod_1_{{ b.id }}">1 sólo pago <span class="text-muted">(CONTADO + CONTADO 2 VECES)</span></label>
+              </div>
+              <div class="form-check form-check-inline mb-0">
+                <input type="radio" class="form-check-input mod-radio" name="modalidad_{{ b.id }}" id="mod_2_{{ b.id }}" value="2pagos" {% if _mod == '2pagos' %}checked{% endif %}>
+                <label class="form-check-label" for="mod_2_{{ b.id }}">2 pagos <span class="text-muted">(CONTADO 2 VECES)</span></label>
+              </div>
+            </div>
+            <div class="row g-2 mt-1 selectores-contado d-none">
+              <div class="col-md-6 slot-1">
+                <label class="form-label small mb-1 fw-semibold text-warning-emphasis"><i class="bi bi-star-fill text-warning"></i> CONTADO</label>
+                <div class="d-flex gap-1">
+                  <select class="form-select form-select-sm sel-talonera-1" name="te_{{ b.id }}"></select>
+                  <select class="form-select form-select-sm sel-numero-1" name="ne_{{ b.id }}"></select>
+                </div>
+              </div>
+              <div class="col-md-6 slot-2">
+                <label class="form-label small mb-1 fw-semibold text-warning-emphasis"><i class="bi bi-star-fill text-warning"></i><i class="bi bi-star-fill text-warning"></i> CONTADO 2 VECES</label>
+                <div class="d-flex gap-1">
+                  <select class="form-select form-select-sm sel-talonera-2" name="te2_{{ b.id }}"></select>
+                  <select class="form-select form-select-sm sel-numero-2" name="ne2_{{ b.id }}"></select>
+                </div>
+              </div>
+            </div>
+            <div class="contado-status small text-muted mt-1"></div>
           </div>
         </div>
         {% endfor %}
@@ -197,6 +241,118 @@
       this.setSelectionRange(p, p);
     });
   });
+
+  // ════════════════ CONTADO (ETAPA 2) ════════════════
+  function fmtN(n, nd) {
+    return String(n).padStart(nd || 3, '0');
+  }
+  function fillTaloneras(sel, taloneras) {
+    sel.innerHTML = '';
+    if (!taloneras.length) {
+      const o = document.createElement('option');
+      o.value = '';
+      o.textContent = '— sin taloneras —';
+      o.disabled = true;
+      sel.appendChild(o);
+      return;
+    }
+    for (const t of taloneras) {
+      const o = document.createElement('option');
+      o.value = String(t.id);
+      const cnt = t.numeros_libres.length;
+      o.textContent = t.nombre + (cnt ? ` (${cnt} libres)` : ' (sin libres)');
+      sel.appendChild(o);
+    }
+  }
+  function refreshNumbers(selTal, selNum, taloneras, currentNe) {
+    const tid = parseInt(selTal.value);
+    const t = taloneras.find(x => x.id === tid);
+    selNum.innerHTML = '';
+    const optEmpty = document.createElement('option');
+    optEmpty.value = '';
+    optEmpty.textContent = '— elegí número —';
+    selNum.appendChild(optEmpty);
+    if (!t) return;
+    const nd = t.num_digitos || 3;
+    let nums = (t.numeros_libres || []).slice();
+    // Si la boleta ya tenía un número y no está en libres (porque está reservado para sí misma), agregarlo
+    if (currentNe && !nums.includes(currentNe)) nums.push(currentNe);
+    nums.sort((a,b) => a-b);
+    for (const n of nums) {
+      const o = document.createElement('option');
+      o.value = String(n);
+      o.textContent = fmtN(n, nd);
+      if (n === currentNe) o.selected = true;
+      selNum.appendChild(o);
+    }
+  }
+  async function initContadoBlock(block) {
+    const bid = block.dataset.boleta;
+    const curNe  = block.dataset.currentNe  ? parseInt(block.dataset.currentNe)  : null;
+    const curTe  = block.dataset.currentTe  ? parseInt(block.dataset.currentTe)  : null;
+    const curNe2 = block.dataset.currentNe2 ? parseInt(block.dataset.currentNe2) : null;
+    const curTe2 = block.dataset.currentTe2 ? parseInt(block.dataset.currentTe2) : null;
+
+    const status     = block.querySelector('.contado-status');
+    const selectores = block.querySelector('.selectores-contado');
+    const slot1      = block.querySelector('.slot-1');
+    const slot2      = block.querySelector('.slot-2');
+    const sel1Tal    = block.querySelector('.sel-talonera-1');
+    const sel1Num    = block.querySelector('.sel-numero-1');
+    const sel2Tal    = block.querySelector('.sel-talonera-2');
+    const sel2Num    = block.querySelector('.sel-numero-2');
+
+    function applyModal() {
+      const mod = block.querySelector('.mod-radio:checked')?.value || 'cuotas';
+      if (mod === 'cuotas') {
+        selectores.classList.add('d-none');
+      } else if (mod === '1pago') {
+        selectores.classList.remove('d-none');
+        slot1.classList.remove('d-none');
+        slot2.classList.remove('d-none');
+      } else { // 2pagos
+        selectores.classList.remove('d-none');
+        slot1.classList.add('d-none');
+        slot2.classList.remove('d-none');
+      }
+    }
+    block.querySelectorAll('.mod-radio').forEach(r => r.addEventListener('change', applyModal));
+    applyModal();
+
+    status.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Cargando pool del vendedor…';
+    let data;
+    try {
+      const r = await fetch(`/compradores/boleta/${bid}/contado-disponibles`, { credentials: 'include' });
+      data = await r.json();
+    } catch (e) {
+      status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error de red cargando pool';
+      return;
+    }
+    if (!data.ok) {
+      status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error: ' + (data.error || '');
+      return;
+    }
+    if (!data.vendedor_id) {
+      status.innerHTML = '<i class="bi bi-info-circle"></i> Esta boleta no tiene vendedor — no puede asignarse CONTADO.';
+      return;
+    }
+    status.innerHTML = `<i class="bi bi-person-fill"></i> Pool de <strong>${data.vendedor_nombre || ''}</strong>`;
+
+    const tCONTADO  = data.taloneras_contado.filter(t => t.rol === 'CONTADO' || t.rol === 'OTRO');
+    const tCONTADO2 = data.taloneras_contado.filter(t => t.rol === 'CONTADO_2');
+
+    fillTaloneras(sel1Tal, tCONTADO);
+    fillTaloneras(sel2Tal, tCONTADO2);
+
+    if (curTe)  sel1Tal.value = String(curTe);
+    if (curTe2) sel2Tal.value = String(curTe2);
+
+    sel1Tal.addEventListener('change', () => refreshNumbers(sel1Tal, sel1Num, tCONTADO,  curNe));
+    sel2Tal.addEventListener('change', () => refreshNumbers(sel2Tal, sel2Num, tCONTADO2, curNe2));
+    refreshNumbers(sel1Tal, sel1Num, tCONTADO,  curNe);
+    refreshNumbers(sel2Tal, sel2Num, tCONTADO2, curNe2);
+  }
+  document.querySelectorAll('.contado-block').forEach(initContadoBlock);
 })();
 </script>
 <style>

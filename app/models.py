@@ -232,14 +232,22 @@ class Boleta(Base):
     # Talonera especial CONTADO: cuando el socio paga al contado, recibe un
     # número de una talonera tipo CONTADO. numero_especial es el número asignado,
     # talonera_especial_id apunta a la talonera CONTADO de la cual salió.
+    # Slot 1 (numero_especial / talonera_especial_id) = sorteo "CONTADO"
+    # Slot 2 (numero_especial_2 / talonera_especial_2_id) = sorteo "CONTADO 2 VECES"
+    # Reglas:
+    #   - Pago en 1 sola cuota → ambos slots asignados (CONTADO + CONTADO 2 VECES)
+    #   - Pago en 2 cuotas    → solo slot 2 asignado (CONTADO 2 VECES)
     numero_especial = Column(Integer, nullable=True, index=True)
     talonera_especial_id = Column(Integer, ForeignKey("taloneras.id"), nullable=True)
+    numero_especial_2 = deferred(Column(Integer, nullable=True, index=True))
+    talonera_especial_2_id = deferred(Column(Integer, ForeignKey("taloneras.id"), nullable=True))
     liquidacion_vendedor_id = Column(Integer, ForeignKey("liquidaciones_vendedor.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     talonera = relationship("Talonera", back_populates="boletas",
                             foreign_keys=[talonera_id])
     talonera_especial = relationship("Talonera", foreign_keys=[talonera_especial_id])
+    talonera_especial_2 = relationship("Talonera", foreign_keys=[talonera_especial_2_id])
     comprador = relationship("Comprador", back_populates="boletas")
     cobrador = relationship("Cobrador", back_populates="boletas")
     vendedor = relationship("Vendedor", back_populates="boletas")

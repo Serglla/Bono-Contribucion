@@ -145,7 +145,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             "num":     b.numero_principal,
             "cond":    b.condicion.value if b.condicion else "?",
             "liq":     b.liquidacion_vendedor_id is not None,
-            "contado": b.numero_especial is not None,
+            "contado": (b.numero_especial is not None) or (b.numero_especial_2 is not None),
         })
     for p in patas:
         patas[p]["boletas"].sort(key=lambda x: x["num"])
@@ -185,11 +185,24 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         if not nums_entregados:
             continue
         # Numeros del pool ya asignados a alguna boleta (vendido al contado)
-        asignados_rows = db.query(models.Boleta.numero_especial).filter(
-            models.Boleta.talonera_especial_id == t.id,
-            models.Boleta.numero_especial.in_(list(nums_entregados)),
+        # Mira ambos slots: numero_especial (slot 1) y numero_especial_2 (slot 2)
+        asignados_rows = db.query(
+            models.Boleta.numero_especial,
+            models.Boleta.talonera_especial_id,
+            models.Boleta.numero_especial_2,
+            models.Boleta.talonera_especial_2_id,
+        ).filter(
+            ((models.Boleta.talonera_especial_id == t.id) &
+             (models.Boleta.numero_especial.isnot(None))) |
+            ((models.Boleta.talonera_especial_2_id == t.id) &
+             (models.Boleta.numero_especial_2.isnot(None)))
         ).all()
-        nums_asignados = {r[0] for r in asignados_rows if r[0] is not None}
+        nums_asignados = set()
+        for ne, tei, ne2, tei2 in asignados_rows:
+            if tei == t.id and ne is not None and ne in nums_entregados:
+                nums_asignados.add(int(ne))
+            if tei2 == t.id and ne2 is not None and ne2 in nums_entregados:
+                nums_asignados.add(int(ne2))
         pendientes_pool = sorted(nums_entregados - nums_asignados)
         if not pendientes_pool:
             continue
@@ -204,14 +217,22 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             })
         patas[nombre_c]["boletas"].sort(key=lambda x: x["num"])
 
-    # Ordenar las PATAs: primero las que tienen numero (PATA 1, 2, 3, ...)
-    # ordenadas numericamente; luego las demas (ej: CONTADO, VOLAS) alfabeticamente.
+    # Orden jerarquico de las PATAs:
+    #   1) PATA con numero (PATA 1, 2, 3, ...) ordenadas numericamente
+    #   2) Otras COMUN (ej: VOLAS) alfabeticamente
+    #   3) CONTADO y CONTADO N VECES al final, "CONTADO" primero, luego por su numero
     import re as _re
     def _pata_sort_key(nombre: str):
-        m = _re.search(r"(\d+)", nombre or "")
-        if m:
-            return (0, int(m.group(1)), nombre or "")
-        return (1, 0, nombre or "")
+        nm = (nombre or "").strip()
+        up = nm.upper()
+        m = _re.search(r"(\d+)", nm)
+        num = int(m.group(1)) if m else 0
+        if up.startswith("PATA"):
+            return (0, num, up)
+        if up.startswith("CONTADO"):
+            # "CONTADO" solo => 1 (primero), "CONTADO 2 VECES" => 2, etc.
+            return (2, num if num > 0 else 1, up)
+        return (1, num, up)
     patas = dict(sorted(patas.items(), key=lambda kv: _pata_sort_key(kv[0])))
 
     # Boletas CAJA sin liquidar = las que el vendedor aun tiene en mano

@@ -172,6 +172,28 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion numero_especial/talonera_especial_id boletas: {e}")
 
+        # Migrar columnas numero_especial_2 y talonera_especial_2_id en boletas
+        # (slot 2 = sorteo CONTADO 2 VECES, ETAPA 2 de talonera especial)
+        try:
+            cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
+            if engine.dialect.name == "postgresql":
+                db.execute(text("ALTER TABLE boletas ADD COLUMN IF NOT EXISTS numero_especial_2 INTEGER"))
+                db.execute(text("ALTER TABLE boletas ADD COLUMN IF NOT EXISTS talonera_especial_2_id INTEGER REFERENCES taloneras(id)"))
+                db.commit()
+                print("Migracion numero_especial_2/talonera_especial_2_id boletas (PG): OK")
+            else:
+                if "numero_especial_2" not in cols_boletas:
+                    db.execute(text("ALTER TABLE boletas ADD COLUMN numero_especial_2 INTEGER"))
+                    db.commit()
+                    print("Migracion numero_especial_2 boletas: columna creada OK")
+                if "talonera_especial_2_id" not in cols_boletas:
+                    db.execute(text("ALTER TABLE boletas ADD COLUMN talonera_especial_2_id INTEGER REFERENCES taloneras(id)"))
+                    db.commit()
+                    print("Migracion talonera_especial_2_id boletas: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion numero_especial_2/talonera_especial_2_id boletas: {e}")
+
         # Migrar columna cuotas_anticipadas en boletas
         try:
             cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
