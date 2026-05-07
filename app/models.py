@@ -113,8 +113,14 @@ class LiquidacionVendedor(Base):
     monto_contados     = Column(Float, default=0.0)   # num_cuotas × valor_cuota × n boletas
     comision_contados_pct = Column(Float, default=30.0)
     comision_contados  = Column(Float, default=0.0)
-    # Total
-    total_comision     = Column(Float, default=0.0)
+    # Cuotas extras cobradas (cuota 2, 3, ... que el vendedor cobró directamente al socio)
+    cuotas_extras_cantidad = deferred(Column(Integer, default=0))
+    cuotas_extras_valor    = deferred(Column(Float, default=0.0))   # valor de cada cuota extra (referencial)
+    cuotas_extras_monto    = deferred(Column(Float, default=0.0))   # cantidad × valor
+    comision_cuotas_extras = deferred(Column(Float, default=0.0))   # cuotas_extras_monto × comision_cuotas_pct%
+    # Totales
+    total_comision     = Column(Float, default=0.0)   # legacy: se mantiene como total de comision pagada al vendedor
+    total_a_rendir     = deferred(Column(Float, default=0.0))   # NUEVO: lo que el vendedor entrega a la org
     observacion = Column(String, nullable=True)
     vendedor = relationship("Vendedor", back_populates="liquidaciones")
 

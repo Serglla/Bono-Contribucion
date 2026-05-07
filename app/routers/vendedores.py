@@ -395,12 +395,16 @@ async def liquidar(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Liquida al vendedor por las boletas seleccionadas manualmente.
-    Modelo de comision:
-      - Cuotas: el vendedor se queda con cuota 1 (= valor_cuota por boleta)
-                + comision_cuotas_pct% sobre el monto de cuotas
-      - Contados: comision_contados_pct% sobre el valor TOTAL de la talonera
-                  (num_cuotas × valor_cuota) por boleta contado
+    """Liquida al vendedor: registra lo que el vendedor RINDE a la organización.
+    Modelo:
+      - Cuota 1 (boletas en cuotas): YA la tiene el vendedor en mano. NO entra al rinde.
+      - Boletas al CONTADO (incluye CONTADO 2 VECES): el vendedor cobró el total de la
+        talonera (num_cuotas × valor_cuota). Rinde el total MENOS comision_contados_pct%.
+      - Cuotas extras cobradas (cuota 2, 3, ... que el vendedor cobró directo al socio):
+        rinde el monto cobrado MENOS comision_cuotas_pct%.
+
+    Total a rendir = monto_contados × (1 - %contado/100)
+                   + cuotas_extras_monto × (1 - %cuotas/100)
     """
     _perm_user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(_perm_user, "vendedores", "editar"):
@@ -413,33 +417,37 @@ async def liquidar(
     boleta_ids_raw = form.getlist("boleta_ids")
     comision_cuotas_pct   = float(form.get("comision_cuotas_pct",   5.0))
     comision_contados_pct = float(form.get("comision_contados_pct", 30.0))
+    cuotas_extras_cantidad = int(float(form.get("cuotas_extras_cantidad", 0) or 0))
+    cuotas_extras_valor    = float(form.get("cuotas_extras_valor", 0) or 0)
     observacion           = (form.get("observacion") or "").strip()
 
-    if not boleta_ids_raw:
+    if not boleta_ids_raw and cuotas_extras_cantidad == 0:
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
-    boleta_ids = [int(x) for x in boleta_ids_raw]
+    boleta_ids = [int(x) for x in boleta_ids_raw] if boleta_ids_raw else []
 
     # Verificar que las boletas pertenezcan al vendedor y estén en CAJA sin liquidar
-    boletas_sel = db.query(models.Boleta).filter(
-        models.Boleta.id.in_(boleta_ids),
-        models.Boleta.vendedor_id == vid,
-        models.Boleta.condicion == CondicionBoleta.CAJA,
-        models.Boleta.liquidacion_vendedor_id.is_(None),
-    ).all()
+    boletas_sel = []
+    if boleta_ids:
+        boletas_sel = db.query(models.Boleta).filter(
+            models.Boleta.id.in_(boleta_ids),
+            models.Boleta.vendedor_id == vid,
+            models.Boleta.condicion == CondicionBoleta.CAJA,
+            models.Boleta.liquidacion_vendedor_id.is_(None),
+        ).all()
 
-    if not boletas_sel:
+    if not boletas_sel and cuotas_extras_cantidad == 0:
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
     cuotas   = [b for b in boletas_sel if b.numero_especial is None]
     contados = [b for b in boletas_sel if b.numero_especial is not None]
 
-    # Cuota 1: lo que el vendedor ya cobró directamente del comprador (valor_cuota × N)
+    # Cuota 1 (informativa): el vendedor YA la cobró directo del socio. NO se le paga ni se le cobra.
     cuota_1_total  = sum((b.talonera.valor_cuota if b.talonera else 0.0) for b in cuotas)
 
-    # Comisión adicional sobre cuotas (% sobre monto de cuotas)
-    monto_cuotas   = sum((b.talonera.valor_cuota if b.talonera else 0.0) for b in cuotas)
-    com_cuotas     = round(monto_cuotas * comision_cuotas_pct / 100, 2)
+    # Monto de cuotas (referencial — coincide con cuota_1_total porque es 1 cuota por boleta)
+    monto_cuotas   = cuota_1_total
+    com_cuotas     = 0.0  # ya no se calcula sobre cuota 1; la comisión de cuotas se aplica sobre EXTRAS
 
     # Comisión contado: % sobre el valor TOTAL de la talonera (num_cuotas × valor_cuota)
     monto_contados = sum(
@@ -448,7 +456,18 @@ async def liquidar(
     )
     com_contados   = round(monto_contados * comision_contados_pct / 100, 2)
 
-    total = round(cuota_1_total + com_cuotas + com_contados, 2)
+    # Cuotas extras: input manual (cantidad × valor)
+    cuotas_extras_monto = round(cuotas_extras_cantidad * cuotas_extras_valor, 2)
+    com_cuotas_extras   = round(cuotas_extras_monto * comision_cuotas_pct / 100, 2)
+
+    # Total a rendir = lo que el vendedor entrega a la organización
+    total_rendir = round(
+        (monto_contados - com_contados) + (cuotas_extras_monto - com_cuotas_extras),
+        2
+    )
+
+    # total_comision (legacy) = suma de comisiones que se queda el vendedor (sin cuota 1)
+    total_comision_legacy = round(com_contados + com_cuotas_extras, 2)
 
     liq = models.LiquidacionVendedor(
         vendedor_id=vid,
@@ -461,7 +480,12 @@ async def liquidar(
         monto_contados=monto_contados,
         comision_contados_pct=comision_contados_pct,
         comision_contados=com_contados,
-        total_comision=total,
+        cuotas_extras_cantidad=cuotas_extras_cantidad,
+        cuotas_extras_valor=cuotas_extras_valor,
+        cuotas_extras_monto=cuotas_extras_monto,
+        comision_cuotas_extras=com_cuotas_extras,
+        total_comision=total_comision_legacy,
+        total_a_rendir=total_rendir,
         observacion=observacion or None,
     )
     db.add(liq)

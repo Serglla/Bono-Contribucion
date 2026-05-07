@@ -319,13 +319,14 @@
       <thead class="table-light">
         <tr>
           <th>Fecha</th>
-          <th class="text-center">Cuotas</th>
-          <th class="text-end">Cuota 1</th>
-          <th class="text-center">Com.%</th>
+          <th class="text-center" title="Boletas vendidas en cuotas (cuota 1 ya en mano del vendedor)">Cuotas</th>
           <th class="text-center">Contados</th>
-          <th class="text-end">Monto total</th>
-          <th class="text-center">Com.%</th>
-          <th class="text-end fw-semibold text-success">Total</th>
+          <th class="text-end">Monto contados</th>
+          <th class="text-center">% Cont.</th>
+          <th class="text-center" title="Cuotas extras cobradas (cuota 2, 3, ...)">Extras</th>
+          <th class="text-end">Monto extras</th>
+          <th class="text-center">% Cuot.</th>
+          <th class="text-end fw-semibold text-success" title="Total que el vendedor rinde a la organización">Total rinde</th>
           <th>Obs.</th>
         </tr>
       </thead>
@@ -334,12 +335,13 @@
         <tr>
           <td class="text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
           <td class="text-center">{{ liq.cuotas_vendidas }}</td>
-          <td class="text-end">${{ '%.2f'|format(liq.cuota_1_total or 0) }}</td>
-          <td class="text-center text-muted">{{ liq.comision_cuotas_pct }}%</td>
           <td class="text-center">{{ liq.contados_vendidos }}</td>
-          <td class="text-end">${{ '%.2f'|format(liq.monto_contados) }}</td>
+          <td class="text-end">${{ '%.2f'|format(liq.monto_contados or 0) }}</td>
           <td class="text-center text-muted">{{ liq.comision_contados_pct }}%</td>
-          <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_comision) }}</td>
+          <td class="text-center">{{ liq.cuotas_extras_cantidad or 0 }}</td>
+          <td class="text-end">${{ '%.2f'|format(liq.cuotas_extras_monto or 0) }}</td>
+          <td class="text-center text-muted">{{ liq.comision_cuotas_pct }}%</td>
+          <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_a_rendir or 0) }}</td>
           <td class="text-muted fst-italic">{{ liq.observacion or "—" }}</td>
         </tr>
         {% endfor %}
@@ -377,10 +379,37 @@
           </div>
           <div id="seccionPatas"></div>
 
+          {# ── Cuotas extras cobradas ── #}
+          <div class="card border-warning-subtle border mb-3">
+            <div class="card-body py-2">
+              <div class="small fw-semibold text-muted mb-2">
+                <i class="bi bi-currency-dollar text-warning me-1"></i>
+                Cuotas extras cobradas (cuota 2, 3, ... cobradas por el vendedor al socio)
+              </div>
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label small mb-0">Cantidad de cuotas extras</label>
+                  <input type="number" name="cuotas_extras_cantidad" id="inp-extras-cant"
+                         class="form-control form-control-sm" value="0" min="0" step="1"
+                         oninput="recalcular()">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small mb-0">Valor de cada cuota</label>
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text">$</span>
+                    <input type="number" name="cuotas_extras_valor" id="inp-extras-valor"
+                           class="form-control" value="0" min="0" step="0.01"
+                           oninput="recalcular()">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {# ── Comisiones ── #}
           <div class="row g-3 mb-3 mt-1">
             <div class="col-md-6">
-              <label class="form-label fw-semibold small">Comisión cuotas (% adicional sobre cuota 1)</label>
+              <label class="form-label fw-semibold small">Comisión cuotas extras (% sobre lo cobrado)</label>
               <div class="input-group input-group-sm">
                 <input type="number" name="comision_cuotas_pct" id="inp-com-cuotas"
                        class="form-control" value="5" min="0" max="100" step="0.1"
@@ -404,17 +433,25 @@
             <div class="card-body py-2 small">
               <table class="table table-sm table-borderless mb-0" style="font-size:.82rem;">
                 <tbody>
-                  <tr>
-                    <td class="text-muted">Cuota 1 (<span id="lbl-n-cuotas">0</span> boletas × valor cuota)</td>
-                    <td class="text-end fw-semibold" id="lbl-cuota1">$0,00</td>
+                  <tr class="text-muted fst-italic">
+                    <td>Cuota 1 (<span id="lbl-n-cuotas">0</span> boletas) — <span class="text-success">ya en mano del vendedor</span></td>
+                    <td class="text-end" id="lbl-cuota1">$0,00</td>
                   </tr>
                   <tr>
-                    <td class="text-muted">+ Comisión adicional cuotas (<span id="lbl-pct-cuotas">5</span>%)</td>
-                    <td class="text-end" id="lbl-com-cuotas">$0,00</td>
+                    <td>Contados cobrados (<span id="lbl-n-contados">0</span> boletas · total talonera)</td>
+                    <td class="text-end" id="lbl-monto-contados">$0,00</td>
                   </tr>
-                  <tr>
-                    <td class="text-muted">+ Comisión contado (<span id="lbl-n-contados">0</span> boletas · <span id="lbl-pct-contados">30</span>% del total talonera)</td>
+                  <tr class="text-danger">
+                    <td>− Comisión contado (<span id="lbl-pct-contados">30</span>%)</td>
                     <td class="text-end" id="lbl-com-contados">$0,00</td>
+                  </tr>
+                  <tr>
+                    <td>Cuotas extras cobradas (<span id="lbl-n-extras">0</span> cuotas)</td>
+                    <td class="text-end" id="lbl-monto-extras">$0,00</td>
+                  </tr>
+                  <tr class="text-danger">
+                    <td>− Comisión cuotas extras (<span id="lbl-pct-cuotas">5</span>%)</td>
+                    <td class="text-end" id="lbl-com-extras">$0,00</td>
                   </tr>
                 </tbody>
               </table>
@@ -422,7 +459,7 @@
           </div>
 
           <div class="alert alert-success py-3 text-center mb-3">
-            <div class="small text-muted mb-1">Total a pagar al vendedor</div>
+            <div class="small text-muted mb-1">Total que rinde el vendedor a la organización</div>
             <div class="fs-3 fw-bold" id="lbl-total">$0,00</div>
             <div class="small text-muted mt-1"><span id="lbl-sel-count">0</span> boletas seleccionadas</div>
           </div>
@@ -626,8 +663,10 @@ function toggleTodo(estado) {
 function recalcular() {
   const pctCuotas   = parseFloat(document.getElementById('inp-com-cuotas')?.value)   || 0;
   const pctContados = parseFloat(document.getElementById('inp-com-contados')?.value) || 0;
+  const extrasCant  = parseInt(document.getElementById('inp-extras-cant')?.value)    || 0;
+  const extrasValor = parseFloat(document.getElementById('inp-extras-valor')?.value) || 0;
 
-  let nCuotas = 0, cuota1 = 0, montoCuotas = 0;
+  let nCuotas = 0, cuota1 = 0;
   let nContados = 0, montoContados = 0;
 
   document.querySelectorAll('.boleta-chk:checked').forEach(chk => {
@@ -638,29 +677,34 @@ function recalcular() {
       montoContados += nc * vc;
     } else {
       nCuotas++;
-      cuota1      += vc;
-      montoCuotas += vc;
+      cuota1 += vc;
     }
   });
 
-  const comCuotas   = montoCuotas   * pctCuotas   / 100;
+  const montoExtras = extrasCant * extrasValor;
   const comContados = montoContados * pctContados / 100;
-  const total       = cuota1 + comCuotas + comContados;
+  const comExtras   = montoExtras   * pctCuotas   / 100;
+  // Total a rendir = (lo cobrado al contado - comision) + (cuotas extras - comision)
+  const totalRinde  = (montoContados - comContados) + (montoExtras - comExtras);
   const nSel        = nCuotas + nContados;
+  const habilitar   = (nSel > 0) || (extrasCant > 0 && extrasValor > 0);
 
   const el = id => document.getElementById(id);
-  if (el('lbl-n-cuotas'))     el('lbl-n-cuotas').textContent    = nCuotas;
-  if (el('lbl-n-contados'))   el('lbl-n-contados').textContent  = nContados;
-  if (el('lbl-pct-cuotas'))   el('lbl-pct-cuotas').textContent  = pctCuotas;
-  if (el('lbl-pct-contados')) el('lbl-pct-contados').textContent= pctContados;
-  if (el('lbl-cuota1'))       el('lbl-cuota1').textContent      = fmt(cuota1);
-  if (el('lbl-com-cuotas'))   el('lbl-com-cuotas').textContent  = fmt(comCuotas);
-  if (el('lbl-com-contados')) el('lbl-com-contados').textContent= fmt(comContados);
-  if (el('lbl-total'))        el('lbl-total').textContent       = fmt(total);
-  if (el('lbl-sel-count'))    el('lbl-sel-count').textContent   = nSel;
+  if (el('lbl-n-cuotas'))      el('lbl-n-cuotas').textContent    = nCuotas;
+  if (el('lbl-n-contados'))    el('lbl-n-contados').textContent  = nContados;
+  if (el('lbl-n-extras'))      el('lbl-n-extras').textContent    = extrasCant;
+  if (el('lbl-pct-cuotas'))    el('lbl-pct-cuotas').textContent  = pctCuotas;
+  if (el('lbl-pct-contados'))  el('lbl-pct-contados').textContent= pctContados;
+  if (el('lbl-cuota1'))        el('lbl-cuota1').textContent      = fmt(cuota1);
+  if (el('lbl-monto-contados'))el('lbl-monto-contados').textContent = fmt(montoContados);
+  if (el('lbl-com-contados'))  el('lbl-com-contados').textContent= fmt(comContados);
+  if (el('lbl-monto-extras'))  el('lbl-monto-extras').textContent= fmt(montoExtras);
+  if (el('lbl-com-extras'))    el('lbl-com-extras').textContent  = fmt(comExtras);
+  if (el('lbl-total'))         el('lbl-total').textContent       = fmt(totalRinde);
+  if (el('lbl-sel-count'))     el('lbl-sel-count').textContent   = nSel;
 
   const btnConf = document.getElementById('btnConfirmar');
-  if (btnConf) btnConf.disabled = nSel === 0;
+  if (btnConf) btnConf.disabled = !habilitar;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
