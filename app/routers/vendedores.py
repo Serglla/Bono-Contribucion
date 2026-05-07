@@ -156,17 +156,27 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     # nombre de la talonera CONTADO. Mientras no se asignen a una boleta
     # (numero_especial) permanecen en mano del vendedor, pero NO son
     # liquidables (no tienen valor_cuota propio).
-    contado_taloneras = {
-        t.nombre: t for t in taloneras if (t.tipo or "COMUN") == "CONTADO"
-    }
+    # Match case-insensitive y con trim por si el nombre se cargo distinto
+    # entre la talonera y la entrega (ej. "CONTADO 2 VECES" vs "CONTADO 2 veces").
+    contado_taloneras_norm: dict = {}
+    for t in taloneras:
+        if (t.tipo or "COMUN") == "CONTADO":
+            key = (t.nombre or "").strip().lower()
+            contado_taloneras_norm[key] = t
     ranges_por_talonera: dict = {}
     for e in entregas_vendedor:
-        if e.talonera_nombre in contado_taloneras:
-            ranges_por_talonera.setdefault(e.talonera_nombre, []).append(
+        nm = (e.talonera_nombre or "").strip().lower()
+        t_match = contado_taloneras_norm.get(nm)
+        if t_match:
+            # Agrupamos por el nombre canonico (el de la talonera actual)
+            ranges_por_talonera.setdefault(t_match.nombre, []).append(
                 (int(e.desde), int(e.hasta))
             )
     for nombre_c, rangos in ranges_por_talonera.items():
-        t = contado_taloneras[nombre_c]
+        # Re-localizamos la talonera por su nombre canonico
+        t = next((x for x in taloneras if x.nombre == nombre_c), None)
+        if t is None:
+            continue
         nums_entregados = set()
         for d, h in rangos:
             if h < d:
