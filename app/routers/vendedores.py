@@ -497,8 +497,61 @@ async def entrega_caja(
     vendedores_origen = []  # ids de vendedores que perdieron boletas (para refrescar UI)
 
     if es_contado:
-        # Entrega de talonera especial: usar el tamaño del rango como "boletas afectadas"
+        # Entrega de talonera especial: registra el rango en el pool del vendedor.
+        # Si algún número del rango ya estaba en el pool de OTRO vendedor, hay que
+        # quitárselo (resta de intervalos sobre sus EntregaCaja existentes).
         nuevas = max(0, hasta - desde + 1)
+
+        if vendedor_id and nuevas > 0:
+            # Buscar entregas CONTADO de la misma talonera_nombre que pertenezcan
+            # a OTRO vendedor y solapen con [desde, hasta].
+            talonera_nombre_norm = talonera_nombre.strip().lower()
+            otras_entregas = db.query(models.EntregaCaja).filter(
+                models.EntregaCaja.talonera_nombre.ilike(talonera_nombre_norm),
+                models.EntregaCaja.vendedor_id.isnot(None),
+                models.EntregaCaja.vendedor_id != vendedor_id,
+                models.EntregaCaja.hasta >= desde,
+                models.EntregaCaja.desde <= hasta,
+            ).all()
+
+            for e in otras_entregas:
+                ed, eh = int(e.desde), int(e.hasta)
+                if ed >= desde and eh <= hasta:
+                    # Rango completamente dentro del nuevo → eliminar
+                    if e.vendedor_id not in vendedores_origen:
+                        vendedores_origen.append(e.vendedor_id)
+                    db.delete(e)
+                elif ed < desde and eh <= hasta:
+                    # Solapamiento por la derecha → recortar hasta
+                    if e.vendedor_id not in vendedores_origen:
+                        vendedores_origen.append(e.vendedor_id)
+                    e.hasta = desde - 1
+                    e.boletas_afectadas = max(0, e.hasta - e.desde + 1)
+                elif ed >= desde and eh > hasta:
+                    # Solapamiento por la izquierda → avanzar desde
+                    if e.vendedor_id not in vendedores_origen:
+                        vendedores_origen.append(e.vendedor_id)
+                    e.desde = hasta + 1
+                    e.boletas_afectadas = max(0, e.hasta - e.desde + 1)
+                else:
+                    # Rango interno: el nuevo rango está contenido dentro de e
+                    # Hay que partir e en dos fragmentos
+                    if e.vendedor_id not in vendedores_origen:
+                        vendedores_origen.append(e.vendedor_id)
+                    # Fragmento izquierdo: [ed, desde-1]
+                    e.hasta = desde - 1
+                    e.boletas_afectadas = max(0, e.hasta - e.desde + 1)
+                    # Fragmento derecho: [hasta+1, eh]
+                    nuevo_frag = models.EntregaCaja(
+                        talonera_nombre=e.talonera_nombre,
+                        desde=hasta + 1,
+                        hasta=eh,
+                        boletas_afectadas=max(0, eh - (hasta + 1) + 1),
+                        vendedor_id=e.vendedor_id,
+                        usuario_id=e.usuario_id,
+                        observacion=e.observacion,
+                    )
+                    db.add(nuevo_frag)
     else:
         # 1) SIN_VENDER -> CAJA (asigna vendedor)
         update_data = {"condicion": CondicionBoleta.CAJA}
