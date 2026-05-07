@@ -69,8 +69,21 @@
   </div>
 </div>
 
-{# ══════════ BOTÓN LIQUIDAR ══════════ #}
-<div class="mb-4 d-flex align-items-center gap-3">
+{# ══════════ BOTONES DE ACCIÓN ══════════ #}
+{# Orden del flujo: 1° Entregar a caja  →  2° Liquidar vendedor #}
+<div class="mb-4 d-flex align-items-center flex-wrap gap-2">
+  {% if can_edit %}
+  <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalEntregarCaja">
+    <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
+  </button>
+  {% else %}
+  <button class="btn btn-outline-secondary" disabled>
+    <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
+  </button>
+  {% endif %}
+
+  <i class="bi bi-arrow-right text-muted mx-1"></i>
+
   {% if can_edit and pendientes_count > 0 %}
   <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalLiquidar">
     <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
@@ -159,6 +172,140 @@
     Este vendedor no tiene boletas asignadas.
   </div>
 {% endif %}
+
+{# ══════════ HISTORIAL ENTREGAS A CAJA (filtradas por vendedor) ══════════ #}
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-white py-2 fw-semibold small d-flex align-items-center gap-2">
+    <i class="bi bi-box-arrow-in-down text-danger"></i>
+    <span>Entregas a caja recibidas</span>
+    <span class="text-muted small">— solo de {{ v.nombre }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 small" style="font-size:.8rem;">
+      <thead class="table-light">
+        <tr>
+          <th>Fecha</th>
+          <th>PATA</th>
+          <th>Desde</th>
+          <th>Hasta</th>
+          <th class="text-center">Boletas</th>
+          <th>Obs.</th>
+          <th>Usuario</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="ec-tbody-vendedor">
+        {% for e in entregas_vendedor %}
+        {% set _es_cont = e.talonera_nombre in nombres_contado %}
+        <tr id="ec-row-{{ e.id }}">
+          <td class="text-muted">{{ e.fecha.strftime('%d/%m/%y %H:%M') }}</td>
+          <td>
+            {% if _es_cont %}
+            <span class="badge bg-warning text-dark" title="Talonera especial — Contado">
+              <i class="bi bi-star-fill me-1"></i>{{ e.talonera_nombre }}
+            </span>
+            {% else %}
+            <span class="badge bg-danger">{{ e.talonera_nombre }}</span>
+            {% endif %}
+          </td>
+          <td class="fw-semibold">{{ '%04d'|format(e.desde) }}</td>
+          <td class="fw-semibold">{{ '%04d'|format(e.hasta) }}</td>
+          <td class="text-center">
+            <span class="badge {% if _es_cont %}bg-warning text-dark{% else %}bg-primary{% endif %}">
+              {{ e.boletas_afectadas }}
+            </span>
+          </td>
+          <td class="text-muted fst-italic">{{ e.observacion or "—" }}</td>
+          <td class="text-muted">{{ e.usuario.username if e.usuario else "—" }}</td>
+          <td class="text-end" style="white-space:nowrap;">
+            {% if can_edit %}
+            <button class="btn btn-sm btn-outline-primary" style="padding:1px 6px;"
+                    data-bs-toggle="modal" data-bs-target="#modalEditarEntrega{{ e.id }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <form method="post" action="/vendedores/entrega-caja/{{ e.id }}/eliminar"
+                  class="d-inline" onsubmit="return confirm('Eliminar entrega?')">
+              <button class="btn btn-sm btn-outline-danger" style="padding:1px 6px;">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-3">Sin entregas registradas para este vendedor.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small py-2">{{ entregas_vendedor|length }} entrega(s) registrada(s)</div>
+</div>
+
+{# Modales de edición de cada entrega del vendedor #}
+{% for e in entregas_vendedor %}
+<div class="modal fade" id="modalEditarEntrega{{ e.id }}" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <form method="post" action="/vendedores/entrega-caja/{{ e.id }}/editar">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Editar Entrega #{{ e.id }}</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3"><strong>Las boletas ya modificadas no se revierten.</strong></p>
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="form-label small fw-semibold">PATA</label>
+            <select name="talonera_nombre" class="form-select form-select-sm">
+              {% if grupos_talonera %}
+              <optgroup label="Comunes">
+                {% for g in grupos_talonera %}
+                <option value="{{ g }}" {% if e.talonera_nombre == g %}selected{% endif %}>{{ g }}</option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+              {% if grupos_contado %}
+              <optgroup label="★ Especiales — Contado">
+                {% for c in grupos_contado %}
+                <option value="{{ c.nombre }}" {% if e.talonera_nombre == c.nombre %}selected{% endif %}>★ {{ c.label }}</option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-semibold">Desde</label>
+            <input type="number" name="desde" class="form-control form-control-sm" value="{{ e.desde }}" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-semibold">Hasta</label>
+            <input type="number" name="hasta" class="form-control form-control-sm" value="{{ e.hasta }}" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label small fw-semibold">Vendedor</label>
+            <select name="vendedor_id" class="form-select form-select-sm">
+              <option value="">— Sin cambiar —</option>
+              {% for vv in vendedores_all %}
+              <option value="{{ vv.id }}" {% if e.vendedor_id == vv.id %}selected{% endif %}>
+                {{ vv.nombre }}{% if vv.es_jefe_equipo %} ★{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label small">Observación</label>
+            <input type="text" name="observacion" class="form-control form-control-sm"
+                   value="{{ e.observacion or '' }}" placeholder="Opcional…">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-danger">Guardar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endfor %}
 
 {# ══════════ HISTORIAL LIQUIDACIONES ══════════ #}
 {% if liquidaciones %}
@@ -297,8 +444,70 @@
 </div>
 {% endif %}
 
+{# ══════════ MODAL ENTREGAR A CAJA ══════════ #}
+{% if can_edit %}
+<div class="modal fade" id="modalEntregarCaja" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-box-arrow-in-down text-danger me-2"></i>
+          Entregar a Caja — {{ v.nombre }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">
+          Pasa boletas de <strong>SIN_VENDER</strong> → <strong>CAJA</strong> a nombre de
+          <strong class="text-danger">{{ v.nombre }}</strong>.
+          Si las boletas ya están en caja de otro vendedor (no liquidadas), se reasignan.
+          En taloneras especiales <i class="bi bi-star-fill text-warning"></i> se registra el rango sin tocar boletas.
+        </p>
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="form-label small fw-semibold mb-1">PATA</label>
+            <select id="ec2-pata" class="form-select form-select-sm">
+              {% if grupos_talonera %}
+              <optgroup label="Comunes">
+                {% for g in grupos_talonera %}<option value="{{ g }}">{{ g }}</option>{% endfor %}
+              </optgroup>
+              {% endif %}
+              {% if grupos_contado %}
+              <optgroup label="★ Especiales — Contado">
+                {% for c in grupos_contado %}
+                <option value="{{ c.nombre }}" data-contado="1"
+                        data-inicio="{{ c.inicio }}" data-fin="{{ c.fin }}">★ {{ c.label }}</option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-semibold mb-1">Desde</label>
+            <input type="number" id="ec2-desde" class="form-control form-control-sm text-center" min="1">
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-semibold mb-1">Hasta</label>
+            <input type="number" id="ec2-hasta" class="form-control form-control-sm text-center" min="1">
+          </div>
+        </div>
+        <div id="ec2-resultado" class="mt-3"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-danger" id="ec2-btn" onclick="entregarCajaVendedor()">
+          <i class="bi bi-box-arrow-in-down me-1"></i>Pasar a CAJA
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <script>
 const PENDIENTES = {{ pendientes_json | safe }};
+const VENDEDOR_ID = {{ v.id }};
+const NOMBRES_CONTADO = {{ nombres_contado | tojson }};
 
 function fmt(n) {
   return '$' + n.toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -462,6 +671,108 @@ document.getElementById('modalLiquidar')?.addEventListener('shown.bs.modal', () 
     renderPatas();
   }
   recalcular();
+});
+
+// ════════════════ ENTREGA A CAJA — VENDEDOR ════════════════
+const p4 = n => String(n).padStart(4,'0');
+function alertaBox(t, m) {
+  const i = t==='success'?'check-circle':t==='warning'?'exclamation-triangle':'x-circle';
+  return `<div class="alert alert-${t} py-2 mb-0 small"><i class="bi bi-${i} me-1"></i>${m}</div>`;
+}
+
+async function entregarCajaVendedor() {
+  const pata  = document.getElementById('ec2-pata').value;
+  const desde = parseInt(document.getElementById('ec2-desde').value);
+  const hasta = parseInt(document.getElementById('ec2-hasta').value);
+  const btn   = document.getElementById('ec2-btn');
+  const res   = document.getElementById('ec2-resultado');
+  if (!desde || !hasta) { res.innerHTML = alertaBox('warning','Ingresa el rango'); return; }
+  if (hasta < desde)    { res.innerHTML = alertaBox('warning','Hasta debe ser >= Desde'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Procesando…';
+  try {
+    const fd = new FormData();
+    fd.append('talonera_nombre', pata);
+    fd.append('desde', desde);
+    fd.append('hasta', hasta);
+    fd.append('vendedor_id', VENDEDOR_ID);
+    const r = await fetch('/vendedores/entrega-caja', { method:'POST', body:fd, credentials:'include' });
+    const data = await r.json();
+    if (data.ok) {
+      const total = (typeof data.total === 'number') ? data.total : data.actualizadas;
+      const nuevas = data.nuevas ?? 0;
+      const reasignadas = data.reasignadas ?? 0;
+      const esCont = !!data.es_contado;
+      const rango = `<span class="text-muted">(${pata} · ${p4(desde)}–${p4(hasta)})</span>`;
+      if (total === 0) {
+        res.innerHTML = alertaBox('warning', `Sin cambios — ninguna boleta para mover ${rango}`);
+      } else if (esCont) {
+        res.innerHTML = alertaBox('success',
+          `<i class="bi bi-star-fill text-warning me-1"></i><strong>${total}</strong> número(s) especial(es) entregados ${rango}`);
+        agregarFilaEntrega(pata, desde, hasta, total, data.entrega_id, true);
+      } else {
+        const partes = [];
+        if (nuevas > 0) partes.push(`<strong>${nuevas}</strong> nueva(s) SIN_VENDER → CAJA`);
+        if (reasignadas > 0) partes.push(`<strong>${reasignadas}</strong> reasignada(s)`);
+        const lbl = partes.join(' · ') + ` <span class="badge bg-primary">${total} total</span>`;
+        res.innerHTML = alertaBox('success', `${lbl} ${rango}`);
+        agregarFilaEntrega(pata, desde, hasta, total, data.entrega_id, false);
+      }
+      document.getElementById('ec2-desde').value = '';
+      document.getElementById('ec2-hasta').value = '';
+      document.getElementById('ec2-desde').focus();
+    } else {
+      res.innerHTML = alertaBox('danger', data.error || 'Error');
+    }
+  } catch(e) {
+    res.innerHTML = alertaBox('danger', 'Error de red');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-box-arrow-in-down me-1"></i>Pasar a CAJA';
+  }
+}
+
+function agregarFilaEntrega(pata, desde, hasta, cant, id, esContado) {
+  const tb = document.getElementById('ec-tbody-vendedor');
+  if (!tb) return;
+  const vacio = tb.querySelector('td[colspan]');
+  if (vacio) vacio.closest('tr').remove();
+  const now = new Date().toLocaleString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+  const pataBadge = esContado
+    ? `<span class="badge bg-warning text-dark"><i class="bi bi-star-fill me-1"></i>${pata}</span>`
+    : `<span class="badge bg-danger">${pata}</span>`;
+  const cantBadge = esContado
+    ? `<span class="badge bg-warning text-dark">${cant}</span>`
+    : `<span class="badge bg-primary">${cant}</span>`;
+  const tr = document.createElement('tr');
+  tr.id = `ec-row-${id}`;
+  tr.innerHTML = `
+    <td class="text-muted">${now}</td>
+    <td>${pataBadge}</td>
+    <td class="fw-semibold">${p4(desde)}</td>
+    <td class="fw-semibold">${p4(hasta)}</td>
+    <td class="text-center">${cantBadge}</td>
+    <td class="text-muted">—</td>
+    <td class="text-muted">—</td>
+    <td class="text-end"><button class="btn btn-sm btn-outline-primary" style="padding:1px 6px;" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i></button></td>`;
+  tb.prepend(tr);
+}
+
+// Prefill rango si la PATA es CONTADO (especial)
+document.getElementById('ec2-pata')?.addEventListener('change', function() {
+  const opt = this.options[this.selectedIndex];
+  if (!opt) return;
+  if (opt.dataset.contado === '1') {
+    if (opt.dataset.inicio) document.getElementById('ec2-desde').value = opt.dataset.inicio;
+    if (opt.dataset.fin)    document.getElementById('ec2-hasta').value = opt.dataset.fin;
+  }
+});
+document.getElementById('ec2-desde')?.addEventListener('keydown', e => {
+  if (e.key==='Enter'){ e.preventDefault(); document.getElementById('ec2-hasta').focus(); }
+});
+document.getElementById('ec2-hasta')?.addEventListener('keydown', e => {
+  if (e.key==='Enter'){ e.preventDefault(); entregarCajaVendedor(); }
 });
 </script>
 {% endblock %}

@@ -100,6 +100,38 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     if not v:
         raise HTTPException(404, "Vendedor no encontrado")
 
+    # Lista completa de vendedores (para reasignacion en el modal de Entrega a Caja)
+    vendedores_all = db.query(models.Vendedor).order_by(
+        models.Vendedor.es_jefe_equipo.desc(), models.Vendedor.nombre
+    ).all()
+
+    # Taloneras COMUN y CONTADO para el selector de Entrega a Caja
+    taloneras = db.query(models.Talonera).order_by(
+        models.Talonera.nombre, models.Talonera.numero_inicio
+    ).all()
+    grupos_talonera = list(dict.fromkeys(
+        t.nombre for t in taloneras if (t.tipo or "COMUN") == "COMUN"
+    ))
+    grupos_contado = []
+    for t in taloneras:
+        if (t.tipo or "COMUN") != "CONTADO":
+            continue
+        nd = t.num_digitos or 3
+        fmt = "{:0" + str(nd) + "d}"
+        grupos_contado.append({
+            "nombre": t.nombre,
+            "label": f"{t.nombre} ({fmt.format(t.numero_inicio or 0)}–{fmt.format(t.numero_fin or 0)})",
+            "inicio": t.numero_inicio,
+            "fin": t.numero_fin,
+            "num_digitos": nd,
+        })
+    nombres_contado = sorted({g["nombre"] for g in grupos_contado})
+
+    # Historial de entregas a caja para ESTE vendedor
+    entregas_vendedor = db.query(models.EntregaCaja).filter_by(
+        vendedor_id=vid
+    ).order_by(models.EntregaCaja.fecha.desc()).limit(200).all()
+
     boletas = db.query(models.Boleta).filter_by(vendedor_id=vid).all()
 
     # Agrupar por pata
@@ -151,6 +183,11 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         "liquidaciones": liquidaciones,
         "can_edit": can_edit,
         "pendientes_count": len(pendientes),
+        "vendedores_all": vendedores_all,
+        "grupos_talonera": grupos_talonera,
+        "grupos_contado": grupos_contado,
+        "nombres_contado": nombres_contado,
+        "entregas_vendedor": entregas_vendedor,
     })
 
 
