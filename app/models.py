@@ -123,6 +123,24 @@ class LiquidacionVendedor(Base):
     total_a_rendir     = deferred(Column(Float, default=0.0))   # NUEVO: lo que el vendedor entrega a la org
     observacion = Column(String, nullable=True)
     vendedor = relationship("Vendedor", back_populates="liquidaciones")
+    contado_items = relationship(
+        "LiquidacionContadoItem",
+        back_populates="liquidacion",
+        cascade="all, delete-orphan",
+    )
+
+
+class LiquidacionContadoItem(Base):
+    """Numero del pool CONTADO/CONTADO 2 VECES que el vendedor declaro como vendido al
+    contado en una liquidacion. El numero permanece sin asignar a una boleta hasta que
+    se cargue al socio en comprador_editar (donde pasa a numero_especial / numero_especial_2).
+    """
+    __tablename__ = "liquidacion_contado_items"
+    id = Column(Integer, primary_key=True, index=True)
+    liquidacion_id = Column(Integer, ForeignKey("liquidaciones_vendedor.id"), nullable=False)
+    talonera_id    = Column(Integer, ForeignKey("taloneras.id"), nullable=False)
+    numero         = Column(Integer, nullable=False)
+    liquidacion = relationship("LiquidacionVendedor", back_populates="contado_items")
 
 class Cobrador(Base):
     __tablename__ = "cobradores"

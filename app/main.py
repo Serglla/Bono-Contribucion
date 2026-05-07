@@ -416,29 +416,55 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion cuota_1_total liquidaciones_vendedor: {e}")
 
+        # Crear tabla liquidacion_contado_items (numeros del pool CONTADO liquidados)
+        try:
+            if "liquidacion_contado_items" not in inspector.get_table_names():
+                if engine.dialect.name == "postgresql":
+                    sql_lci = (
+                        "CREATE TABLE liquidacion_contado_items ("
+                        "id SERIAL PRIMARY KEY, "
+                        "liquidacion_id INTEGER NOT NULL REFERENCES liquidaciones_vendedor(id), "
+                        "talonera_id INTEGER NOT NULL REFERENCES taloneras(id), "
+                        "numero INTEGER NOT NULL)"
+                    )
+                else:
+                    sql_lci = (
+                        "CREATE TABLE liquidacion_contado_items ("
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                        "liquidacion_id INTEGER NOT NULL REFERENCES liquidaciones_vendedor(id), "
+                        "talonera_id INTEGER NOT NULL REFERENCES taloneras(id), "
+                        "numero INTEGER NOT NULL)"
+                    )
+                db.execute(text(sql_lci))
+                db.commit()
+                print("Migracion liquidacion_contado_items: tabla creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion liquidacion_contado_items: {e}")
+
         # Migrar columnas nuevas de "rendir" en liquidaciones_vendedor (cuotas extras + total a rendir)
         try:
-            _dialect = engine.dialect.name
-            nuevas_cols = {
-                "cuotas_extras_cantidad": "INTEGER DEFAULT 0",
-                "cuotas_extras_valor":    "REAL DEFAULT 0.0",
-                "cuotas_extras_monto":    "REAL DEFAULT 0.0",
-                "comision_cuotas_extras": "REAL DEFAULT 0.0",
-                "total_a_rendir":         "REAL DEFAULT 0.0",
-            }
-            if _dialect == "postgresql":
-                for col, tipo in nuevas_cols.items():
-                    db.execute(text(f"ALTER TABLE liquidaciones_vendedor ADD COLUMN IF NOT EXISTS {col} {tipo}"))
+            _dialect_lv = engine.dialect.name
+            _nuevas_cols_lv = [
+                ("cuotas_extras_cantidad", "INTEGER DEFAULT 0"),
+                ("cuotas_extras_valor",    "REAL DEFAULT 0.0"),
+                ("cuotas_extras_monto",    "REAL DEFAULT 0.0"),
+                ("comision_cuotas_extras", "REAL DEFAULT 0.0"),
+                ("total_a_rendir",         "REAL DEFAULT 0.0"),
+            ]
+            if _dialect_lv == "postgresql":
+                for _col, _tipo in _nuevas_cols_lv:
+                    db.execute(text("ALTER TABLE liquidaciones_vendedor ADD COLUMN IF NOT EXISTS " + _col + " " + _tipo))
             else:
-                cols_liq = [c["name"] for c in inspector.get_columns("liquidaciones_vendedor")]
-                for col, tipo in nuevas_cols.items():
-                    if col not in cols_liq:
-                        db.execute(text(f"ALTER TABLE liquidaciones_vendedor ADD COLUMN {col} {tipo}"))
+                _cols_liq = [c["name"] for c in inspector.get_columns("liquidaciones_vendedor")]
+                for _col, _tipo in _nuevas_cols_lv:
+                    if _col not in _cols_liq:
+                        db.execute(text("ALTER TABLE liquidaciones_vendedor ADD COLUMN " + _col + " " + _tipo))
             db.commit()
             print("Migracion columnas rendir liquidaciones_vendedor: OK")
         except Exception as e:
             db.rollback()
-            print(f"Migracion columnas rendir liquidaciones_vendedor: {e}")
+            print("Migracion columnas rendir liquidaciones_vendedor: " + str(e))
 
 
         if not db.query(models.User).filter_by(username="admin").first():

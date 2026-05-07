@@ -276,6 +276,23 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             ranges_por_talonera.setdefault(t_match.nombre, []).append(
                 (int(e.desde), int(e.hasta))
             )
+    # Lista de items pool para incluir en pendientes_json (liquidables como contado)
+    pool_pendientes_items = []
+    # Numeros pool ya liquidados (NO incluir en pool pendiente)
+    try:
+        liq_items_rows = db.query(
+            models.LiquidacionContadoItem.talonera_id,
+            models.LiquidacionContadoItem.numero,
+        ).join(
+            models.LiquidacionVendedor,
+            models.LiquidacionVendedor.id == models.LiquidacionContadoItem.liquidacion_id,
+        ).filter(
+            models.LiquidacionVendedor.vendedor_id == vid
+        ).all()
+        nums_ya_liquidados = {(int(r[0]), int(r[1])) for r in liq_items_rows}
+    except Exception:
+        nums_ya_liquidados = set()
+
     for nombre_c, rangos in ranges_por_talonera.items():
         # Re-localizamos la talonera por su nombre canonico
         t = next((x for x in taloneras if x.nombre == nombre_c), None)
@@ -307,7 +324,9 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 nums_asignados.add(int(ne))
             if tei2 == t.id and ne2 is not None and ne2 in nums_entregados:
                 nums_asignados.add(int(ne2))
-        pendientes_pool = sorted(nums_entregados - nums_asignados)
+        # Excluir numeros ya liquidados (pendientes de cargar al socio)
+        nums_liquidados_t = {n for (tid, n) in nums_ya_liquidados if tid == t.id}
+        pendientes_pool = sorted(nums_entregados - nums_asignados - nums_liquidados_t)
         if not pendientes_pool:
             continue
         nd_c = t.num_digitos or 3
@@ -322,6 +341,19 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 "liq":     False,
                 "contado": True,
                 "pool":    True,
+            })
+            # Items para el modal (liquidables al contado)
+            pool_pendientes_items.append({
+                "id":          f"pool:{t.id}:{n}",   # id sintetico
+                "num":         n,
+                "num_str":     fmt_c.format(n),
+                "pata":        nombre_c,
+                "color":       t.color or "#fff8e1",
+                "valor_cuota": t.valor_cuota or 0.0,
+                "num_cuotas":  t.num_cuotas or 12,
+                "contado":     True,
+                "pool":        True,
+                "talonera_id": t.id,
             })
         patas[nombre_c]["boletas"].sort(key=lambda x: x["num"])
 
@@ -351,7 +383,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                   and b.liquidacion_vendedor_id is None]
 
     # Datos individuales de cada boleta pendiente → para el modal de selección manual
-    pendientes_json = json.dumps([
+    pendientes_items = [
         {
             "id":         b.id,
             "num":        b.numero_principal,
@@ -360,10 +392,15 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             "color":      b.talonera.color      if b.talonera else "#cccccc",
             "valor_cuota":b.talonera.valor_cuota if b.talonera else 0.0,
             "num_cuotas": (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 12),
-            "contado":    b.numero_especial is not None,
+            "contado":    (b.numero_especial is not None) or (b.numero_especial_2 is not None),
+            "pool":       False,
+            "talonera_id": b.talonera_id if b.talonera else None,
         }
         for b in sorted(pendientes, key=lambda x: (x.talonera.nombre if x.talonera else "", x.numero_principal))
-    ])
+    ]
+    # Sumamos los numeros del pool CONTADO/CONTADO 2 VECES como items liquidables
+    pendientes_items.extend(pool_pendientes_items)
+    pendientes_json = json.dumps(pendientes_items)
 
     liquidaciones = db.query(models.LiquidacionVendedor).filter_by(
         vendedor_id=vid
@@ -379,7 +416,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         "pendientes_json": pendientes_json,
         "liquidaciones": liquidaciones,
         "can_edit": can_edit,
-        "pendientes_count": len(pendientes),
+        "pendientes_count": len(pendientes) + len(pool_pendientes_items),
         "vendedores_all": vendedores_all,
         "grupos_talonera": grupos_talonera,
         "grupos_contado": grupos_contado,
@@ -414,17 +451,32 @@ async def liquidar(
         raise HTTPException(404)
 
     form = await request.form()
-    boleta_ids_raw = form.getlist("boleta_ids")
+    raw_ids = form.getlist("boleta_ids")
     comision_cuotas_pct   = float(form.get("comision_cuotas_pct",   5.0))
     comision_contados_pct = float(form.get("comision_contados_pct", 30.0))
     cuotas_extras_cantidad = int(float(form.get("cuotas_extras_cantidad", 0) or 0))
     cuotas_extras_valor    = float(form.get("cuotas_extras_valor", 0) or 0)
     observacion           = (form.get("observacion") or "").strip()
 
-    if not boleta_ids_raw and cuotas_extras_cantidad == 0:
-        return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
+    # Separar IDs reales (boletas) de IDs sinteticos (pool CONTADO: 'pool:<tid>:<num>')
+    boleta_ids = []
+    pool_items_raw = []  # lista de (talonera_id, numero)
+    for x in raw_ids:
+        s = str(x)
+        if s.startswith("pool:"):
+            try:
+                _, tid, num = s.split(":")
+                pool_items_raw.append((int(tid), int(num)))
+            except Exception:
+                continue
+        else:
+            try:
+                boleta_ids.append(int(s))
+            except Exception:
+                continue
 
-    boleta_ids = [int(x) for x in boleta_ids_raw] if boleta_ids_raw else []
+    if not boleta_ids and not pool_items_raw and cuotas_extras_cantidad == 0:
+        return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
     # Verificar que las boletas pertenezcan al vendedor y estén en CAJA sin liquidar
     boletas_sel = []
@@ -436,11 +488,11 @@ async def liquidar(
             models.Boleta.liquidacion_vendedor_id.is_(None),
         ).all()
 
-    if not boletas_sel and cuotas_extras_cantidad == 0:
+    if not boletas_sel and not pool_items_raw and cuotas_extras_cantidad == 0:
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
-    cuotas   = [b for b in boletas_sel if b.numero_especial is None]
-    contados = [b for b in boletas_sel if b.numero_especial is not None]
+    cuotas   = [b for b in boletas_sel if b.numero_especial is None and b.numero_especial_2 is None]
+    contados_b = [b for b in boletas_sel if (b.numero_especial is not None) or (b.numero_especial_2 is not None)]
 
     # Cuota 1 (informativa): el vendedor YA la cobró directo del socio. NO se le paga ni se le cobra.
     cuota_1_total  = sum((b.talonera.valor_cuota if b.talonera else 0.0) for b in cuotas)
@@ -450,10 +502,22 @@ async def liquidar(
     com_cuotas     = 0.0  # ya no se calcula sobre cuota 1; la comisión de cuotas se aplica sobre EXTRAS
 
     # Comisión contado: % sobre el valor TOTAL de la talonera (num_cuotas × valor_cuota)
-    monto_contados = sum(
+    monto_contados_boletas = sum(
         ((b.talonera.num_cuotas or 12) * (b.talonera.valor_cuota if b.talonera else 0.0))
-        for b in contados
+        for b in contados_b
     )
+    # Sumar los numeros pool seleccionados (CONTADO/CONTADO 2 VECES) usando la talonera CONTADO
+    pool_items_validos = []  # lista de (talonera, numero)
+    monto_contados_pool = 0.0
+    for tid, num in pool_items_raw:
+        t = db.query(models.Talonera).get(tid)
+        if t is None or (t.tipo or "COMUN") != "CONTADO":
+            continue
+        monto_contados_pool += (t.num_cuotas or 12) * (t.valor_cuota or 0.0)
+        pool_items_validos.append((t, num))
+
+    monto_contados = monto_contados_boletas + monto_contados_pool
+    contados_count = len(contados_b) + len(pool_items_validos)
     com_contados   = round(monto_contados * comision_contados_pct / 100, 2)
 
     # Cuotas extras: input manual (cantidad × valor)
@@ -476,7 +540,7 @@ async def liquidar(
         monto_cuotas=monto_cuotas,
         comision_cuotas_pct=comision_cuotas_pct,
         comision_cuotas=com_cuotas,
-        contados_vendidos=len(contados),
+        contados_vendidos=contados_count,
         monto_contados=monto_contados,
         comision_contados_pct=comision_contados_pct,
         comision_contados=com_contados,
@@ -494,6 +558,15 @@ async def liquidar(
     # Marcar boletas: conservan condicion CAJA hasta que se cargue el comprador
     for b in boletas_sel:
         b.liquidacion_vendedor_id = liq.id
+
+    # Registrar numeros del pool CONTADO/CONTADO 2 VECES como liquidados
+    # (se asignaran a una boleta cuando se cargue al socio en comprador_editar)
+    for t, num in pool_items_validos:
+        db.add(models.LiquidacionContadoItem(
+            liquidacion_id=liq.id,
+            talonera_id=t.id,
+            numero=num,
+        ))
     db.commit()
 
     return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liquidado", status_code=302)
@@ -522,24 +595,15 @@ async def entrega_caja(
     if not taloneras_match:
         return JSONResponse({"ok": False, "error": "Talonera no encontrada"}, status_code=404)
     talonera_ids = [t.id for t in taloneras_match]
-    # ¿Es una talonera CONTADO (especial)? — no tiene Boletas propias en la DB.
-    # En ese caso, la entrega solo registra que el vendedor recibió ese rango de
-    # números especiales; no se modifica ninguna Boleta porque aún no existen.
     es_contado = all((t.tipo or "COMUN") == "CONTADO" for t in taloneras_match)
 
     nuevas = 0
     reasignadas = 0
-    vendedores_origen = []  # ids de vendedores que perdieron boletas (para refrescar UI)
+    vendedores_origen = []
 
     if es_contado:
-        # Entrega de talonera especial: registra el rango en el pool del vendedor.
-        # Si algún número del rango ya estaba en el pool de OTRO vendedor, hay que
-        # quitárselo (resta de intervalos sobre sus EntregaCaja existentes).
         nuevas = max(0, hasta - desde + 1)
-
         if vendedor_id and nuevas > 0:
-            # Buscar entregas CONTADO de la misma talonera_nombre que pertenezcan
-            # a OTRO vendedor y solapen con [desde, hasta].
             talonera_nombre_norm = talonera_nombre.strip().lower()
             otras_entregas = db.query(models.EntregaCaja).filter(
                 models.EntregaCaja.talonera_nombre.ilike(talonera_nombre_norm),
@@ -548,35 +612,27 @@ async def entrega_caja(
                 models.EntregaCaja.hasta >= desde,
                 models.EntregaCaja.desde <= hasta,
             ).all()
-
             for e in otras_entregas:
                 ed, eh = int(e.desde), int(e.hasta)
                 if ed >= desde and eh <= hasta:
-                    # Rango completamente dentro del nuevo → eliminar
                     if e.vendedor_id not in vendedores_origen:
                         vendedores_origen.append(e.vendedor_id)
                     db.delete(e)
                 elif ed < desde and eh <= hasta:
-                    # Solapamiento por la derecha → recortar hasta
                     if e.vendedor_id not in vendedores_origen:
                         vendedores_origen.append(e.vendedor_id)
                     e.hasta = desde - 1
                     e.boletas_afectadas = max(0, e.hasta - e.desde + 1)
                 elif ed >= desde and eh > hasta:
-                    # Solapamiento por la izquierda → avanzar desde
                     if e.vendedor_id not in vendedores_origen:
                         vendedores_origen.append(e.vendedor_id)
                     e.desde = hasta + 1
                     e.boletas_afectadas = max(0, e.hasta - e.desde + 1)
                 else:
-                    # Rango interno: el nuevo rango está contenido dentro de e
-                    # Hay que partir e en dos fragmentos
                     if e.vendedor_id not in vendedores_origen:
                         vendedores_origen.append(e.vendedor_id)
-                    # Fragmento izquierdo: [ed, desde-1]
                     e.hasta = desde - 1
                     e.boletas_afectadas = max(0, e.hasta - e.desde + 1)
-                    # Fragmento derecho: [hasta+1, eh]
                     nuevo_frag = models.EntregaCaja(
                         talonera_nombre=e.talonera_nombre,
                         desde=hasta + 1,
@@ -588,7 +644,6 @@ async def entrega_caja(
                     )
                     db.add(nuevo_frag)
     else:
-        # 1) SIN_VENDER -> CAJA (asigna vendedor)
         update_data = {"condicion": CondicionBoleta.CAJA}
         if vendedor_id:
             update_data["vendedor_id"] = vendedor_id
@@ -600,8 +655,6 @@ async def entrega_caja(
             models.Boleta.condicion == CondicionBoleta.SIN_VENDER,
         ).update(update_data, synchronize_session=False)
 
-        # 2) Reasignar boletas que ya estan en CAJA sin liquidar a otro vendedor.
-        #    Solo si se especifico vendedor_id; no se tocan las liquidadas.
         if vendedor_id:
             q_reasign = db.query(models.Boleta).filter(
                 models.Boleta.talonera_id.in_(talonera_ids),
@@ -611,7 +664,6 @@ async def entrega_caja(
                 models.Boleta.liquidacion_vendedor_id.is_(None),
                 (models.Boleta.vendedor_id.is_(None)) | (models.Boleta.vendedor_id != vendedor_id),
             )
-            # capturo los vendedores origen ANTES del update
             vendedores_origen = [
                 vid for (vid,) in q_reasign.with_entities(models.Boleta.vendedor_id).distinct().all()
                 if vid is not None
@@ -620,7 +672,6 @@ async def entrega_caja(
 
     total = nuevas + reasignadas
 
-    # No ensuciar el historial si no hubo movimientos
     if total == 0:
         db.rollback()
         return JSONResponse({
@@ -628,7 +679,7 @@ async def entrega_caja(
             "nuevas": 0,
             "reasignadas": 0,
             "total": 0,
-            "actualizadas": 0,  # backward compat
+            "actualizadas": 0,
             "entrega_id": None,
             "vendedor_nombre": None,
             "vendedor_id": vendedor_id,
@@ -654,7 +705,7 @@ async def entrega_caja(
         "nuevas": nuevas,
         "reasignadas": reasignadas,
         "total": total,
-        "actualizadas": total,  # backward compat
+        "actualizadas": total,
         "entrega_id": entrega.id,
         "vendedor_nombre": vend_nombre,
         "vendedor_id": vendedor_id,
