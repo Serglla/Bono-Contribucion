@@ -139,13 +139,27 @@
     <p class="text-muted small mb-3">
       Si no elegís vendedor, se asigna al jefe de equipo
       {% if jefe %}<strong>({{ jefe.nombre }})</strong>{% endif %}.
-      Solo se tocan boletas en <strong>SIN_VENDER</strong>.
+      En PATAs comunes solo se tocan boletas <strong>SIN_VENDER</strong>;
+      en taloneras especiales <i class="bi bi-star-fill text-warning"></i> se registra
+      el rango entregado al vendedor sin tocar boletas.
     </p>
     <div class="row g-2 align-items-end flex-wrap">
       <div class="col-auto">
         <label class="form-label small fw-semibold mb-1">PATA</label>
-        <select id="ec-pata" class="form-select form-select-sm" style="min-width:120px;">
-          {% for g in grupos_talonera %}<option value="{{ g }}">{{ g }}</option>{% endfor %}
+        <select id="ec-pata" class="form-select form-select-sm" style="min-width:160px;">
+          {% if grupos_talonera %}
+          <optgroup label="Comunes">
+            {% for g in grupos_talonera %}<option value="{{ g }}">{{ g }}</option>{% endfor %}
+          </optgroup>
+          {% endif %}
+          {% if grupos_contado %}
+          <optgroup label="★ Especiales — Contado">
+            {% for c in grupos_contado %}
+            <option value="{{ c.nombre }}" data-contado="1"
+                    data-inicio="{{ c.inicio }}" data-fin="{{ c.fin }}">★ {{ c.label }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
         </select>
       </div>
       <div class="col-auto">
@@ -185,12 +199,26 @@
       </thead>
       <tbody id="ec-tbody">
         {% for e in entregas %}
+        {% set _es_cont = e.talonera_nombre in nombres_contado %}
         <tr id="ec-row-{{ e.id }}">
           <td class="text-muted">{{ e.fecha.strftime('%d/%m/%y %H:%M') }}</td>
-          <td><span class="badge bg-danger">{{ e.talonera_nombre }}</span></td>
+          <td>
+            {% if _es_cont %}
+            <span class="badge bg-warning text-dark" title="Talonera especial — Contado">
+              <i class="bi bi-star-fill me-1"></i>{{ e.talonera_nombre }}
+            </span>
+            {% else %}
+            <span class="badge bg-danger">{{ e.talonera_nombre }}</span>
+            {% endif %}
+          </td>
           <td class="fw-semibold">{{ '%04d'|format(e.desde) }}</td>
           <td class="fw-semibold">{{ '%04d'|format(e.hasta) }}</td>
-          <td class="text-center"><span class="badge bg-primary">{{ e.boletas_afectadas }}</span></td>
+          <td class="text-center">
+            <span class="badge {% if _es_cont %}bg-warning text-dark{% else %}bg-primary{% endif %}"
+                  title="{% if _es_cont %}Cantidad de números entregados{% else %}Boletas afectadas{% endif %}">
+              {{ e.boletas_afectadas }}
+            </span>
+          </td>
           <td>
             {% if e.vendedor %}<span class="fw-semibold text-danger">{{ e.vendedor.nombre }}</span>
             {% if e.vendedor.es_jefe_equipo %}<i class="bi bi-star-fill text-warning ms-1" title="Jefe"></i>{% endif %}
@@ -235,9 +263,20 @@
           <div class="col-12">
             <label class="form-label small fw-semibold">PATA</label>
             <select name="talonera_nombre" class="form-select form-select-sm">
-              {% for g in grupos_talonera %}
-              <option value="{{ g }}" {% if e.talonera_nombre == g %}selected{% endif %}>{{ g }}</option>
-              {% endfor %}
+              {% if grupos_talonera %}
+              <optgroup label="Comunes">
+                {% for g in grupos_talonera %}
+                <option value="{{ g }}" {% if e.talonera_nombre == g %}selected{% endif %}>{{ g }}</option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+              {% if grupos_contado %}
+              <optgroup label="★ Especiales — Contado">
+                {% for c in grupos_contado %}
+                <option value="{{ c.nombre }}" {% if e.talonera_nombre == c.nombre %}selected{% endif %}>★ {{ c.label }}</option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
             </select>
           </div>
           <div class="col-6">
@@ -325,18 +364,23 @@ async function entregarCaja() {
       const total = (typeof data.total === 'number') ? data.total : data.actualizadas;
       const nuevas = data.nuevas ?? data.actualizadas ?? 0;
       const reasignadas = data.reasignadas ?? 0;
+      const esCont = !!data.es_contado;
       const vnom = data.vendedor_nombre ? `<strong>${data.vendedor_nombre}</strong>` : '<em>sin asignar</em>';
       const rango = `<span class="text-muted">(${pata} · ${p4(desde)}–${p4(hasta)})</span>`;
       if (total === 0) {
         res.innerHTML = alerta('warning',
           `<span>Sin cambios</span> — ninguna boleta para mover (ya estaban liquidadas, vendidas o asignadas a ${vnom}) ${rango}`);
+      } else if (esCont) {
+        const lbl = `<i class="bi bi-star-fill text-warning me-1"></i><strong>${total}</strong> número(s) especial(es) entregados a ${vnom}`;
+        res.innerHTML = alerta('success', `${lbl} ${rango}`);
+        addRow(pata, desde, hasta, total, data.entrega_id, data.vendedor_nombre, true);
       } else {
         const partes = [];
         if (nuevas > 0) partes.push(`<strong>${nuevas}</strong> nueva(s) SIN_VENDER → CAJA`);
         if (reasignadas > 0) partes.push(`<strong>${reasignadas}</strong> reasignada(s) a ${vnom}`);
         const lbl = partes.join(' · ') + ` <span class="badge bg-primary">${total} total</span>`;
         res.innerHTML = alerta('success', `${lbl} ${rango}`);
-        addRow(pata, desde, hasta, total, data.entrega_id, data.vendedor_nombre);
+        addRow(pata, desde, hasta, total, data.entrega_id, data.vendedor_nombre, false);
         // Sumar al destino
         if (data.vendedor_id) actualizarCajaCell(data.vendedor_id, total);
         // Restar a los vendedores origen (los que perdieron boletas en la reasignacion)
@@ -393,19 +437,25 @@ function alerta(t,m) {
   const i = t==='success'?'check-circle':t==='warning'?'exclamation-triangle':'x-circle';
   return `<div class="alert alert-${t} py-2 mb-0 small"><i class="bi bi-${i} me-1"></i>${m}</div>`;
 }
-function addRow(pata,desde,hasta,cant,id,vnom) {
+function addRow(pata,desde,hasta,cant,id,vnom,esContado) {
   const tb = document.getElementById('ec-tbody');
   const vacio = tb.querySelector('td[colspan]');
   if (vacio) vacio.closest('tr').remove();
   const now = new Date().toLocaleString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
   const tr = document.createElement('tr');
   tr.id = `ec-row-${id}`;
+  const pataBadge = esContado
+    ? `<span class="badge bg-warning text-dark"><i class="bi bi-star-fill me-1"></i>${pata}</span>`
+    : `<span class="badge bg-danger">${pata}</span>`;
+  const cantBadge = esContado
+    ? `<span class="badge bg-warning text-dark">${cant}</span>`
+    : `<span class="badge bg-primary">${cant}</span>`;
   tr.innerHTML = `
     <td class="text-muted">${now}</td>
-    <td><span class="badge bg-danger">${pata}</span></td>
+    <td>${pataBadge}</td>
     <td class="fw-semibold">${p4(desde)}</td>
     <td class="fw-semibold">${p4(hasta)}</td>
-    <td class="text-center"><span class="badge bg-primary">${cant}</span></td>
+    <td class="text-center">${cantBadge}</td>
     <td class="fw-semibold text-danger">${vnom||'—'}</td>
     <td class="text-muted">—</td><td class="text-muted">—</td>
     <td class="text-end"><button class="btn btn-sm btn-outline-primary" style="padding:1px 6px;" onclick="location.reload()"><i class="bi bi-pencil"></i></button></td>`;
@@ -413,5 +463,17 @@ function addRow(pata,desde,hasta,cant,id,vnom) {
 }
 document.getElementById('ec-desde').addEventListener('keydown', e => { if(e.key==='Enter'){e.preventDefault();document.getElementById('ec-hasta').focus();} });
 document.getElementById('ec-hasta').addEventListener('keydown', e => { if(e.key==='Enter'){e.preventDefault();entregarCaja();} });
+
+// Si el usuario elige una talonera ESPECIAL (CONTADO), prefilleamos desde/hasta con su rango
+// para que rápidamente pueda recortar a un sub-rango si quiere.
+document.getElementById('ec-pata').addEventListener('change', function() {
+  const opt = this.options[this.selectedIndex];
+  if (!opt) return;
+  if (opt.dataset.contado === '1') {
+    const ini = opt.dataset.inicio, fin = opt.dataset.fin;
+    if (ini) document.getElementById('ec-desde').value = ini;
+    if (fin) document.getElementById('ec-hasta').value = fin;
+  }
+});
 </script>
 {% endblock %}

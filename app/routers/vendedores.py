@@ -52,19 +52,39 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     taloneras = db.query(models.Talonera).order_by(
         models.Talonera.nombre, models.Talonera.numero_inicio
     ).all()
-    # Solo taloneras COMUN en el dropdown de Entrega a Caja (CONTADO no tiene boletas propias)
+    # Taloneras COMUN: PATA 1, PATA 2, ... — generan Boletas reales
     grupos_talonera = list(dict.fromkeys(
         t.nombre for t in taloneras if (t.tipo or "COMUN") == "COMUN"
     ))
+    # Taloneras CONTADO: pool de números especiales. No tienen Boletas propias,
+    # pero el vendedor recibe físicamente el rango y lo entrega a los socios que pagan al contado.
+    # Se muestran con su rango para que el usuario sepa qué números existen al elegirlos.
+    grupos_contado = []
+    for t in taloneras:
+        if (t.tipo or "COMUN") != "CONTADO":
+            continue
+        nd = t.num_digitos or 3
+        fmt = "{:0" + str(nd) + "d}"
+        grupos_contado.append({
+            "nombre": t.nombre,
+            "label": f"{t.nombre} ({fmt.format(t.numero_inicio or 0)}–{fmt.format(t.numero_fin or 0)})",
+            "inicio": t.numero_inicio,
+            "fin": t.numero_fin,
+            "num_digitos": nd,
+        })
     entregas = db.query(models.EntregaCaja).order_by(
         models.EntregaCaja.fecha.desc()
     ).limit(200).all()
     stats = _stats_bulk(db)
     jefe = db.query(models.Vendedor).filter_by(es_jefe_equipo=True, activo=True).first()
+    # Set de nombres CONTADO para que el template marque visualmente esas filas
+    nombres_contado = sorted({g["nombre"] for g in grupos_contado})
     return templates.TemplateResponse(request, "vendedores.html", {
         "user": user,
         "vendedores": vendedores,
         "grupos_talonera": grupos_talonera,
+        "grupos_contado": grupos_contado,
+        "nombres_contado": nombres_contado,
         "entregas": entregas,
         "stats": stats,
         "jefe": jefe,
@@ -239,43 +259,52 @@ async def entrega_caja(
         jefe = db.query(models.Vendedor).filter_by(es_jefe_equipo=True, activo=True).first()
         vendedor_id = jefe.id if jefe else None
 
-    talonera_ids = [
-        t.id for t in db.query(models.Talonera).filter_by(nombre=talonera_nombre).all()
-    ]
-    if not talonera_ids:
+    taloneras_match = db.query(models.Talonera).filter_by(nombre=talonera_nombre).all()
+    if not taloneras_match:
         return JSONResponse({"ok": False, "error": "Talonera no encontrada"}, status_code=404)
+    talonera_ids = [t.id for t in taloneras_match]
+    # ¿Es una talonera CONTADO (especial)? — no tiene Boletas propias en la DB.
+    # En ese caso, la entrega solo registra que el vendedor recibió ese rango de
+    # números especiales; no se modifica ninguna Boleta porque aún no existen.
+    es_contado = all((t.tipo or "COMUN") == "CONTADO" for t in taloneras_match)
 
-    # 1) SIN_VENDER -> CAJA (asigna vendedor)
-    update_data = {"condicion": CondicionBoleta.CAJA}
-    if vendedor_id:
-        update_data["vendedor_id"] = vendedor_id
-
-    nuevas = db.query(models.Boleta).filter(
-        models.Boleta.talonera_id.in_(talonera_ids),
-        models.Boleta.numero_principal >= desde,
-        models.Boleta.numero_principal <= hasta,
-        models.Boleta.condicion == CondicionBoleta.SIN_VENDER,
-    ).update(update_data, synchronize_session=False)
-
-    # 2) Reasignar boletas que ya estan en CAJA sin liquidar a otro vendedor.
-    #    Solo si se especifico vendedor_id; no se tocan las liquidadas.
+    nuevas = 0
     reasignadas = 0
     vendedores_origen = []  # ids de vendedores que perdieron boletas (para refrescar UI)
-    if vendedor_id:
-        q_reasign = db.query(models.Boleta).filter(
+
+    if es_contado:
+        # Entrega de talonera especial: usar el tamaño del rango como "boletas afectadas"
+        nuevas = max(0, hasta - desde + 1)
+    else:
+        # 1) SIN_VENDER -> CAJA (asigna vendedor)
+        update_data = {"condicion": CondicionBoleta.CAJA}
+        if vendedor_id:
+            update_data["vendedor_id"] = vendedor_id
+
+        nuevas = db.query(models.Boleta).filter(
             models.Boleta.talonera_id.in_(talonera_ids),
             models.Boleta.numero_principal >= desde,
             models.Boleta.numero_principal <= hasta,
-            models.Boleta.condicion == CondicionBoleta.CAJA,
-            models.Boleta.liquidacion_vendedor_id.is_(None),
-            (models.Boleta.vendedor_id.is_(None)) | (models.Boleta.vendedor_id != vendedor_id),
-        )
-        # capturo los vendedores origen ANTES del update
-        vendedores_origen = [
-            vid for (vid,) in q_reasign.with_entities(models.Boleta.vendedor_id).distinct().all()
-            if vid is not None
-        ]
-        reasignadas = q_reasign.update({"vendedor_id": vendedor_id}, synchronize_session=False)
+            models.Boleta.condicion == CondicionBoleta.SIN_VENDER,
+        ).update(update_data, synchronize_session=False)
+
+        # 2) Reasignar boletas que ya estan en CAJA sin liquidar a otro vendedor.
+        #    Solo si se especifico vendedor_id; no se tocan las liquidadas.
+        if vendedor_id:
+            q_reasign = db.query(models.Boleta).filter(
+                models.Boleta.talonera_id.in_(talonera_ids),
+                models.Boleta.numero_principal >= desde,
+                models.Boleta.numero_principal <= hasta,
+                models.Boleta.condicion == CondicionBoleta.CAJA,
+                models.Boleta.liquidacion_vendedor_id.is_(None),
+                (models.Boleta.vendedor_id.is_(None)) | (models.Boleta.vendedor_id != vendedor_id),
+            )
+            # capturo los vendedores origen ANTES del update
+            vendedores_origen = [
+                vid for (vid,) in q_reasign.with_entities(models.Boleta.vendedor_id).distinct().all()
+                if vid is not None
+            ]
+            reasignadas = q_reasign.update({"vendedor_id": vendedor_id}, synchronize_session=False)
 
     total = nuevas + reasignadas
 
@@ -292,6 +321,7 @@ async def entrega_caja(
             "vendedor_nombre": None,
             "vendedor_id": vendedor_id,
             "vendedores_origen": [],
+            "es_contado": es_contado,
         })
 
     entrega = models.EntregaCaja(
@@ -317,6 +347,7 @@ async def entrega_caja(
         "vendedor_nombre": vend_nombre,
         "vendedor_id": vendedor_id,
         "vendedores_origen": vendedores_origen,
+        "es_contado": es_contado,
     })
 
 
