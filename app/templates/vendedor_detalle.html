@@ -407,12 +407,15 @@
           </div>
 
           {# ── Comisiones ── #}
+          {# Prefill con los % de la última liquidación si existe; sino default 5/30 #}
           <div class="row g-3 mb-3 mt-1">
             <div class="col-md-6">
               <label class="form-label fw-semibold small">Comisión cuotas extras (% sobre lo cobrado)</label>
               <div class="input-group input-group-sm">
                 <input type="number" name="comision_cuotas_pct" id="inp-com-cuotas"
-                       class="form-control" value="5" min="0" max="100" step="0.1"
+                       class="form-control"
+                       value="{{ ultima_liq.comision_cuotas_pct if ultima_liq else 5 }}"
+                       min="0" max="100" step="0.1"
                        oninput="recalcular()">
                 <span class="input-group-text">%</span>
               </div>
@@ -421,7 +424,9 @@
               <label class="form-label fw-semibold small">Comisión contado (% sobre valor total talonera)</label>
               <div class="input-group input-group-sm">
                 <input type="number" name="comision_contados_pct" id="inp-com-contados"
-                       class="form-control" value="30" min="0" max="100" step="0.1"
+                       class="form-control"
+                       value="{{ ultima_liq.comision_contados_pct if ultima_liq else 30 }}"
+                       min="0" max="100" step="0.1"
                        oninput="recalcular()">
                 <span class="input-group-text">%</span>
               </div>
@@ -608,20 +613,28 @@ function renderPatas() {
         <div class="d-flex flex-wrap gap-1">`;
 
     data.boletas.forEach(b => {
-      const icono = b.contado ? '<i class="bi bi-star-fill" style="font-size:.6rem;color:#ffc107;vertical-align:middle;"></i> ' : '';
-      const title = b.contado ? 'Contado — total talonera: $' + (b.num_cuotas * b.valor_cuota).toLocaleString('es-AR') : 'Cuota — valor cuota 1: $' + b.valor_cuota.toLocaleString('es-AR');
+      const title = 'Cuota: $' + b.valor_cuota.toLocaleString('es-AR') +
+                    ' · Contado total: $' + (b.num_cuotas * b.valor_cuota).toLocaleString('es-AR');
       html += `
-          <label title="${title}" style="margin:0;cursor:pointer;">
-            <input type="checkbox" name="boleta_ids" value="${b.id}"
-                   data-pata="${pata}" data-contado="${b.contado}"
-                   data-vc="${b.valor_cuota}" data-nc="${b.num_cuotas}"
-                   class="d-none boleta-chk" onchange="onChkChange(this)">
-            <span class="badge" style="font-size:.8rem;cursor:pointer;
-                  background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;
-                  user-select:none;">
-              ${icono}${b.num_str}
-            </span>
-          </label>`;
+          <div class="d-inline-flex align-items-center gap-1" style="margin:0 4px 4px 0;">
+            <label title="${title}" style="margin:0;cursor:pointer;">
+              <input type="checkbox" name="boleta_ids" value="${b.id}"
+                     data-pata="${pata}" data-bid="${b.id}"
+                     data-vc="${b.valor_cuota}" data-nc="${b.num_cuotas}"
+                     class="d-none boleta-chk" onchange="onChkChange(this)">
+              <span class="badge" style="font-size:.8rem;cursor:pointer;
+                    background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;
+                    user-select:none;">${b.num_str}</span>
+            </label>
+            <select name="modalidad_${b.id}" class="form-select form-select-sm boleta-modalidad d-none"
+                    data-pata="${pata}" data-bid="${b.id}"
+                    style="width:auto;font-size:.7rem;padding:.05rem 1.2rem .05rem .35rem;height:auto;"
+                    onchange="recalcular()">
+              <option value="cuotas" selected>Cuotas</option>
+              <option value="contado">Contado</option>
+              <option value="contado2">Contado 2 veces</option>
+            </select>
+          </div>`;
     });
 
     html += `
@@ -632,9 +645,25 @@ function renderPatas() {
   contenedor.innerHTML = html;
 }
 
+function modalidadBoleta(bid) {
+  const sel = document.querySelector(`.boleta-modalidad[data-bid="${bid}"]`);
+  return sel ? sel.value : 'cuotas';
+}
+
+function actualizarSelectorModalidad(chk) {
+  const bid = chk.dataset.bid;
+  const sel = document.querySelector(`.boleta-modalidad[data-bid="${bid}"]`);
+  if (!sel) return;
+  if (chk.checked) sel.classList.remove('d-none');
+  else { sel.classList.add('d-none'); sel.value = 'cuotas'; }
+}
+
 function onChkChange(chk) {
-  const badge = chk.nextElementSibling;
-  actualizarEstiloBadge(badge, chk.checked, chk.dataset.contado === 'true');
+  const label = chk.closest('label');
+  const badge = label ? label.querySelector('.badge') : chk.nextElementSibling;
+  const esContado = modalidadBoleta(chk.dataset.bid) !== 'cuotas';
+  actualizarEstiloBadge(badge, chk.checked, esContado);
+  actualizarSelectorModalidad(chk);
   actualizarContadorPata(chk.dataset.pata);
   recalcular();
 }
@@ -649,7 +678,11 @@ function actualizarContadorPata(pata) {
 function togglePata(pata, estado) {
   document.querySelectorAll(`.boleta-chk[data-pata="${pata}"]`).forEach(chk => {
     chk.checked = estado;
-    actualizarEstiloBadge(chk.nextElementSibling, estado, chk.dataset.contado === 'true');
+    const label = chk.closest('label');
+    const badge = label ? label.querySelector('.badge') : chk.nextElementSibling;
+    const esContado = modalidadBoleta(chk.dataset.bid) !== 'cuotas';
+    actualizarEstiloBadge(badge, estado, esContado);
+    actualizarSelectorModalidad(chk);
   });
   actualizarContadorPata(pata);
   recalcular();
@@ -672,7 +705,12 @@ function recalcular() {
   document.querySelectorAll('.boleta-chk:checked').forEach(chk => {
     const vc = parseFloat(chk.dataset.vc) || 0;
     const nc = parseInt(chk.dataset.nc)   || 12;
-    if (chk.dataset.contado === 'true') {
+    const modalidad = modalidadBoleta(chk.dataset.bid);
+    // Refrescar color del badge segun modalidad actual
+    const lbl = chk.closest('label');
+    const bdg = lbl ? lbl.querySelector('.badge') : null;
+    if (bdg) actualizarEstiloBadge(bdg, true, modalidad !== 'cuotas');
+    if (modalidad === 'contado' || modalidad === 'contado2') {
       nContados++;
       montoContados += nc * vc;
     } else {

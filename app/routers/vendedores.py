@@ -383,6 +383,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                   and b.liquidacion_vendedor_id is None]
 
     # Datos individuales de cada boleta pendiente → para el modal de selección manual
+    # Solo boletas COMUN (no taloneras CONTADO/CONTADO 2 VECES). El vendedor marca
+    # modalidad inline (cuotas / contado / contado 2 veces) por boleta.
     pendientes_items = [
         {
             "id":         b.id,
@@ -392,14 +394,10 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             "color":      b.talonera.color      if b.talonera else "#cccccc",
             "valor_cuota":b.talonera.valor_cuota if b.talonera else 0.0,
             "num_cuotas": (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 12),
-            "contado":    (b.numero_especial is not None) or (b.numero_especial_2 is not None),
-            "pool":       False,
             "talonera_id": b.talonera_id if b.talonera else None,
         }
         for b in sorted(pendientes, key=lambda x: (x.talonera.nombre if x.talonera else "", x.numero_principal))
     ]
-    # Sumamos los numeros del pool CONTADO/CONTADO 2 VECES como items liquidables
-    pendientes_items.extend(pool_pendientes_items)
     pendientes_json = json.dumps(pendientes_items)
 
     liquidaciones = db.query(models.LiquidacionVendedor).filter_by(
@@ -416,7 +414,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         "pendientes_json": pendientes_json,
         "liquidaciones": liquidaciones,
         "can_edit": can_edit,
-        "pendientes_count": len(pendientes) + len(pool_pendientes_items),
+        "pendientes_count": len(pendientes),
+        "ultima_liq": liquidaciones[0] if liquidaciones else None,
         "vendedores_all": vendedores_all,
         "grupos_talonera": grupos_talonera,
         "grupos_contado": grupos_contado,
@@ -458,24 +457,14 @@ async def liquidar(
     cuotas_extras_valor    = float(form.get("cuotas_extras_valor", 0) or 0)
     observacion           = (form.get("observacion") or "").strip()
 
-    # Separar IDs reales (boletas) de IDs sinteticos (pool CONTADO: 'pool:<tid>:<num>')
     boleta_ids = []
-    pool_items_raw = []  # lista de (talonera_id, numero)
     for x in raw_ids:
-        s = str(x)
-        if s.startswith("pool:"):
-            try:
-                _, tid, num = s.split(":")
-                pool_items_raw.append((int(tid), int(num)))
-            except Exception:
-                continue
-        else:
-            try:
-                boleta_ids.append(int(s))
-            except Exception:
-                continue
+        try:
+            boleta_ids.append(int(str(x)))
+        except Exception:
+            continue
 
-    if not boleta_ids and not pool_items_raw and cuotas_extras_cantidad == 0:
+    if not boleta_ids and cuotas_extras_cantidad == 0:
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
     # Verificar que las boletas pertenezcan al vendedor y estén en CAJA sin liquidar
@@ -488,11 +477,17 @@ async def liquidar(
             models.Boleta.liquidacion_vendedor_id.is_(None),
         ).all()
 
-    if not boletas_sel and not pool_items_raw and cuotas_extras_cantidad == 0:
+    if not boletas_sel and cuotas_extras_cantidad == 0:
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
-    cuotas   = [b for b in boletas_sel if b.numero_especial is None and b.numero_especial_2 is None]
-    contados_b = [b for b in boletas_sel if (b.numero_especial is not None) or (b.numero_especial_2 is not None)]
+    # Modalidad por boleta: 'cuotas' (default) | 'contado' | 'contado2'
+    cuotas, contados_b = [], []
+    for b in boletas_sel:
+        modalidad = (form.get(f"modalidad_{b.id}") or "cuotas").strip().lower()
+        if modalidad in ("contado", "contado2"):
+            contados_b.append(b)
+        else:
+            cuotas.append(b)
 
     # Cuota 1 (informativa): el vendedor YA la cobró directo del socio. NO se le paga ni se le cobra.
     cuota_1_total  = sum((b.talonera.valor_cuota if b.talonera else 0.0) for b in cuotas)
@@ -502,22 +497,12 @@ async def liquidar(
     com_cuotas     = 0.0  # ya no se calcula sobre cuota 1; la comisión de cuotas se aplica sobre EXTRAS
 
     # Comisión contado: % sobre el valor TOTAL de la talonera (num_cuotas × valor_cuota)
-    monto_contados_boletas = sum(
+    # Usa la PATA de cada boleta marcada como contado.
+    monto_contados = sum(
         ((b.talonera.num_cuotas or 12) * (b.talonera.valor_cuota if b.talonera else 0.0))
         for b in contados_b
     )
-    # Sumar los numeros pool seleccionados (CONTADO/CONTADO 2 VECES) usando la talonera CONTADO
-    pool_items_validos = []  # lista de (talonera, numero)
-    monto_contados_pool = 0.0
-    for tid, num in pool_items_raw:
-        t = db.query(models.Talonera).get(tid)
-        if t is None or (t.tipo or "COMUN") != "CONTADO":
-            continue
-        monto_contados_pool += (t.num_cuotas or 12) * (t.valor_cuota or 0.0)
-        pool_items_validos.append((t, num))
-
-    monto_contados = monto_contados_boletas + monto_contados_pool
-    contados_count = len(contados_b) + len(pool_items_validos)
+    contados_count = len(contados_b)
     com_contados   = round(monto_contados * comision_contados_pct / 100, 2)
 
     # Cuotas extras: input manual (cantidad × valor)
@@ -558,15 +543,6 @@ async def liquidar(
     # Marcar boletas: conservan condicion CAJA hasta que se cargue el comprador
     for b in boletas_sel:
         b.liquidacion_vendedor_id = liq.id
-
-    # Registrar numeros del pool CONTADO/CONTADO 2 VECES como liquidados
-    # (se asignaran a una boleta cuando se cargue al socio en comprador_editar)
-    for t, num in pool_items_validos:
-        db.add(models.LiquidacionContadoItem(
-            liquidacion_id=liq.id,
-            talonera_id=t.id,
-            numero=num,
-        ))
     db.commit()
 
     return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liquidado", status_code=302)
