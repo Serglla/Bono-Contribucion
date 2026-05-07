@@ -385,16 +385,28 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     # Datos individuales de cada boleta pendiente → para el modal de selección manual
     # Solo boletas COMUN (no taloneras CONTADO/CONTADO 2 VECES). El vendedor marca
     # modalidad inline (cuotas / contado / contado 2 veces) por boleta.
+    # PATA 1 = la talonera COMUN con multiplicador 1 (num_series == 3).
+    # Es la unidad base para todos los calculos del modal de liquidacion:
+    #   cuota1 por boleta    = mult × pata1_vc
+    #   contado por boleta   = mult × pata1_nc × pata1_vc
+    pata1_t = next(
+        (t for t in taloneras if (t.tipo or "COMUN") == "COMUN" and (t.multiplicador or 1) == 1),
+        None
+    )
+    pata1_vc = float(pata1_t.valor_cuota or 0) if pata1_t else 0.0
+    pata1_nc = int(pata1_t.num_cuotas or 12)   if pata1_t else 12
+
     pendientes_items = [
         {
-            "id":         b.id,
-            "num":        b.numero_principal,
-            "num_str":    ("{:0" + str(b.talonera.num_digitos or 4) + "d}").format(b.numero_principal) if b.talonera else str(b.numero_principal),
-            "pata":       b.talonera.nombre     if b.talonera else "?",
-            "color":      b.talonera.color      if b.talonera else "#cccccc",
-            "valor_cuota":b.talonera.valor_cuota if b.talonera else 0.0,
-            "num_cuotas": (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 12),
-            "talonera_id": b.talonera_id if b.talonera else None,
+            "id":           b.id,
+            "num":          b.numero_principal,
+            "num_str":      ("{:0" + str(b.talonera.num_digitos or 4) + "d}").format(b.numero_principal) if b.talonera else str(b.numero_principal),
+            "pata":         b.talonera.nombre        if b.talonera else "?",
+            "color":        b.talonera.color         if b.talonera else "#cccccc",
+            "valor_cuota":  b.talonera.valor_cuota   if b.talonera else 0.0,
+            "num_cuotas":   (b.talonera.num_cuotas   if b.talonera and b.talonera.num_cuotas else 12),
+            "multiplicador": int(b.talonera.multiplicador or 1) if b.talonera else 1,
+            "talonera_id":  b.talonera_id            if b.talonera else None,
         }
         for b in sorted(pendientes, key=lambda x: (x.talonera.nombre if x.talonera else "", x.numero_principal))
     ]
@@ -422,6 +434,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         "nombres_contado": nombres_contado,
         "nd_por_talonera": nd_por_talonera,
         "entregas_vendedor": entregas_vendedor,
+        "pata1_vc": pata1_vc,
+        "pata1_nc": pata1_nc,
     })
 
 

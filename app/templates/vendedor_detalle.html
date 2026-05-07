@@ -443,11 +443,11 @@
               <table class="table table-sm table-borderless mb-0" style="font-size:.82rem;">
                 <tbody>
                   <tr class="text-muted fst-italic">
-                    <td>Cuota 1 (<span id="lbl-n-cuotas">0</span> boletas) — <span class="text-success">ya en mano del vendedor</span></td>
+                    <td>Cuota 1 (<span id="lbl-n-cuotas">0</span> boletas, base PATA 1) — <span class="text-success">ya en mano del vendedor</span></td>
                     <td class="text-end" id="lbl-cuota1">$0,00</td>
                   </tr>
                   <tr>
-                    <td>Contados cobrados (<span id="lbl-n-contados">0</span> boletas · total talonera)</td>
+                    <td>Contados cobrados (<span id="lbl-n-contados">0</span> boletas · <span id="lbl-nc">{{ pata1_nc }}</span> cuotas × $<span id="lbl-vc">{{ "%.0f"|format(pata1_vc) }}</span>)</td>
                     <td class="text-end" id="lbl-monto-contados">$0,00</td>
                   </tr>
                   <tr class="text-danger">
@@ -555,6 +555,9 @@
 const PENDIENTES = {{ pendientes_json | safe }};
 const VENDEDOR_ID = {{ v.id }};
 const NOMBRES_CONTADO = {{ nombres_contado | tojson }};
+// Unidad base: PATA 1 — todo se calcula en múltiplos de PATA 1
+const PATA1_VC = {{ pata1_vc }};  // valor_cuota de PATA 1
+const PATA1_NC = {{ pata1_nc }};  // num_cuotas de PATA 1
 
 function fmt(n) {
   return '$' + n.toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -617,14 +620,17 @@ function renderPatas() {
         <div class="d-flex flex-wrap gap-1">`;
 
     data.boletas.forEach(b => {
-      const title = 'Cuota: $' + b.valor_cuota.toLocaleString('es-AR') +
-                    ' · Contado total: $' + (b.num_cuotas * b.valor_cuota).toLocaleString('es-AR');
+      const mult = b.multiplicador || 1;
+      const cuota1Unit = mult * PATA1_VC;
+      const contadoTotal = mult * PATA1_NC * PATA1_VC;
+      const title = `×${mult} — Cuota 1: $${cuota1Unit.toLocaleString('es-AR')} · Contado total: $${contadoTotal.toLocaleString('es-AR')}`;
       html += `
           <div class="d-inline-flex align-items-center gap-1" style="margin:0 4px 4px 0;">
             <label title="${title}" style="margin:0;cursor:pointer;">
               <input type="checkbox" name="boleta_ids" value="${b.id}"
                      data-pata="${pata}" data-bid="${b.id}"
                      data-vc="${b.valor_cuota}" data-nc="${b.num_cuotas}"
+                     data-mult="${mult}"
                      class="d-none boleta-chk" onchange="onChkChange(this)">
               <span class="badge" style="font-size:.8rem;cursor:pointer;
                     background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;
@@ -662,26 +668,18 @@ function actualizarSelectorModalidad(chk) {
   else { sel.classList.add('d-none'); sel.value = 'cuotas'; }
 }
 
-function getVcTalonera() {
-  // Devuelve el valor_cuota de la primera boleta en cuotas seleccionada (o la primera seleccionada)
-  const checked = [...document.querySelectorAll('.boleta-chk:checked')];
-  if (checked.length === 0) return 0;
-  const primera = checked.find(c => modalidadBoleta(c.dataset.bid) === 'cuotas') || checked[0];
-  return parseFloat(primera.dataset.vc) || 0;
-}
-
 function autoFillValorCuota() {
+  // El valor base de la cuota extra siempre es PATA 1 (unidad base del sistema)
   const inp  = document.getElementById('inp-extras-valor');
   const hint = document.getElementById('lbl-vc-hint');
   if (!inp) return;
-  const vcTalonera = getVcTalonera();
-  // Solo auto-llenar si el campo está en 0 (no pisar edición manual)
+  // Solo auto-llenar si el campo está en 0 (no pisar edición manual del usuario)
   const actual = parseFloat(inp.value) || 0;
-  if (actual === 0 && vcTalonera > 0) inp.value = vcTalonera;
-  // Siempre actualizar el hint con el valor de la talonera
+  if (actual === 0 && PATA1_VC > 0) inp.value = PATA1_VC;
+  // Mostrar hint con el valor de PATA 1
   if (hint) {
-    hint.textContent = vcTalonera > 0
-      ? `· talonera: $${vcTalonera.toLocaleString('es-AR')}`
+    hint.textContent = PATA1_VC > 0
+      ? `· PATA 1: $${PATA1_VC.toLocaleString('es-AR')}`
       : '';
   }
 }
@@ -689,8 +687,7 @@ function autoFillValorCuota() {
 function resetValorCuota() {
   const inp = document.getElementById('inp-extras-valor');
   if (!inp) return;
-  const vc = getVcTalonera();
-  if (vc > 0) { inp.value = vc; recalcular(); }
+  if (PATA1_VC > 0) { inp.value = PATA1_VC; recalcular(); }
 }
 
 function onChkChange(chk) {
@@ -735,12 +732,13 @@ function recalcular() {
   const extrasCant  = parseInt(document.getElementById('inp-extras-cant')?.value)    || 0;
   const extrasValor = parseFloat(document.getElementById('inp-extras-valor')?.value) || 0;
 
+  // Lógica simplificada: unidad base = PATA 1.
+  // Cada boleta vale mult × PATA1_VC (cuota1) o mult × PATA1_NC × PATA1_VC (contado).
   let nCuotas = 0, cuota1 = 0;
   let nContados = 0, montoContados = 0;
 
   document.querySelectorAll('.boleta-chk:checked').forEach(chk => {
-    const vc = parseFloat(chk.dataset.vc) || 0;
-    const nc = parseInt(chk.dataset.nc)   || 12;
+    const mult = parseInt(chk.dataset.mult) || 1;
     const modalidad = modalidadBoleta(chk.dataset.bid);
     // Refrescar color del badge segun modalidad actual
     const lbl = chk.closest('label');
@@ -748,17 +746,17 @@ function recalcular() {
     if (bdg) actualizarEstiloBadge(bdg, true, modalidad !== 'cuotas');
     if (modalidad === 'contado' || modalidad === 'contado2') {
       nContados++;
-      montoContados += nc * vc;
+      montoContados += mult * PATA1_NC * PATA1_VC;  // mult × total_pata1
     } else {
       nCuotas++;
-      cuota1 += vc;
+      cuota1 += mult * PATA1_VC;  // mult × cuota_pata1
     }
   });
 
   const montoExtras = extrasCant * extrasValor;
   const comContados = montoContados * pctContados / 100;
   const comExtras   = montoExtras   * pctCuotas   / 100;
-  // Total a rendir = (lo cobrado al contado - comision) + (cuotas extras - comision)
+  // Total a rendir = (contado - comision) + (cuotas extras cobradas - comision)
   const totalRinde  = (montoContados - comContados) + (montoExtras - comExtras);
   const nSel        = nCuotas + nContados;
   const habilitar   = (nSel > 0) || (extrasCant > 0 && extrasValor > 0);
