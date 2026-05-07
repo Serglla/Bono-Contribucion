@@ -150,6 +150,16 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     for p in patas:
         patas[p]["boletas"].sort(key=lambda x: x["num"])
 
+    # Ordenar las PATAs: primero las que tienen numero (PATA 1, 2, 3, ...)
+    # ordenadas numericamente; luego las demas (ej: CONTADO, VOLAS) alfabeticamente.
+    import re as _re
+    def _pata_sort_key(nombre: str):
+        m = _re.search(r"(\d+)", nombre or "")
+        if m:
+            return (0, int(m.group(1)), nombre or "")
+        return (1, 0, nombre or "")
+    patas = dict(sorted(patas.items(), key=lambda kv: _pata_sort_key(kv[0])))
+
     # Boletas CAJA sin liquidar = las que el vendedor aun tiene en mano
     # Boletas CAJA con liq_id  = vendidas por el vendedor, pendientes de cargar comprador
     # Boletas VENDIDO           = ya cargadas en el sistema con datos del comprador

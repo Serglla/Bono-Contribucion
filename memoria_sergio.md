@@ -85,7 +85,7 @@
 
 ---
 
-### Módulo Vendedores — actualizado 06/05/2026
+### Módulo Vendedores — actualizado 06/05/2026 (noche)
 
 #### Modelos nuevos/modificados
 - `Vendedor.es_jefe_equipo` (Boolean, default False) — solo un jefe activo a la vez
@@ -114,7 +114,7 @@ SIN_VENDER
 - **Comisión contado**: % sobre el valor TOTAL de la talonera = num_cuotas × valor_cuota (default 30%). Se paga por cada boleta vendida al contado. Ej: PATA 1 = 12 × $15.000 = $180.000 → 30% ≈ $50.000–$54.000.
 - **Total a pagar** = cuota_1_total + comision_cuotas + comision_contados
 
-#### Modal de liquidación — rediseñado (selección manual)
+#### Modal de liquidación — selección manual
 - Las boletas pendientes se muestran individualmente agrupadas por PATA, con checkboxes clickeables
 - Botones "Todo / Ninguno" por PATA + "Seleccionar todo / Deseleccionar todo" global
 - Cálculo en tiempo real: cuota 1 + comisión adicional + comisión contado
@@ -124,14 +124,25 @@ SIN_VENDER
 #### Router vendedores.py — endpoints clave
 - `_stats_bulk(db)`: un solo SQL con GROUP BY vendedor+condicion. Dict con claves `caja`, `vendido`, `baja` (SIEMPRE las tres)
 - `GET /vendedores/`: lista vendedores con stats (caja, baja, vendido), jefe_equipo
-- `GET /vendedores/{vid}/detalle`: boletas agrupadas por PATA + `pendientes_json` (JSON de boletas para el modal)
+- `GET /vendedores/{vid}/detalle`: boletas agrupadas por PATA + `pendientes_json` + **entregas_vendedor + grupos_talonera + grupos_contado + nombres_contado + vendedores_all** (para el modal Entregar a Caja)
 - `POST /vendedores/{vid}/liquidar`: acepta boleta_ids seleccionados, nuevo modelo de comisión
 - `POST /vendedores/{vid}/toggle-jefe`: marca jefe (primero resetea todos, luego activa el nuevo)
 - `POST /vendedores/entrega-caja`: SIN_VENDER → CAJA + REASIGNAR entre vendedores en CAJA (sin liquidar)
 - `POST /vendedores/entrega-caja/{id}/editar` y `eliminar`: gestión del historial de entregas
 
-#### Entrega a Caja — actualizado 06/05/2026 (tarde)
-**Comportamiento dual:**
+#### Entrega a Caja — actualizado 06/05/2026 (noche)
+**UI movida al detalle del vendedor (cambio importante):**
+- La sección global de Entrega a Caja en `/vendedores/` SE QUITÓ por completo (form + tabla + modales).
+  En su lugar hay un aviso: "Hacé doble clic sobre la fila del vendedor para entregarle boletas".
+- En `/vendedores/{vid}/detalle` ahora hay **dos botones en orden de flujo**:
+  1. **Entregar a Caja** (rojo) — abre modal con PATA / Desde / Hasta. El `vendedor_id` se manda fijo (el del detalle).
+  2. **Liquidar vendedor** (verde) — sin cambios.
+  Separados visualmente con una flecha `→`.
+- Tabla **"Entregas a caja recibidas"** filtrada por ese vendedor (con editar/eliminar inline).
+- IDs JS del modal de entrega en detalle: `ec2-pata`, `ec2-desde`, `ec2-hasta`, `ec2-btn`, `ec2-resultado`,
+  función `entregarCajaVendedor()`, tabla `ec-tbody-vendedor`.
+
+**Comportamiento dual del backend (sin cambios):**
 1. Boletas en SIN_VENDER → pasan a CAJA con el vendedor elegido (cuenta como `nuevas`)
 2. Boletas en CAJA sin `liquidacion_vendedor_id` y con vendedor distinto → reasigna al nuevo vendedor (cuenta como `reasignadas`). NO toca las liquidadas.
 
@@ -152,14 +163,9 @@ SIN_VENDER
 }
 ```
 
-**Frontend (vendedores.html):**
-- Mensaje: `X nueva(s) SIN_VENDER → CAJA · Y reasignada(s) a HUGO · Z total`
-- Suma al destino + resta a `vendedores_origen` en vivo (sin reload)
-- `actualizarCajaCell(vid, n)` maneja n negativo: si llega a 0 elimina el badge y muestra guion
-
 #### Templates vendedores
-- `vendedores.html`: tabla limpia, doble-click → detalle, badge jefe, stats por vendor, historial entregas
-- `vendedor_detalle.html`: 3 tarjetas resumen + badges de 3 estados + botón liquidar + modal selección manual + historial
+- `vendedores.html`: tabla limpia, doble-click → detalle, badge jefe, stats por vendor. **Ya no tiene la sección global de Entrega a Caja** (movida al detalle).
+- `vendedor_detalle.html`: 3 tarjetas resumen + 2 botones de acción (Entregar a Caja → Liquidar) + leyenda + secciones por PATA + tabla "Entregas a caja recibidas" + historial de liquidaciones + 2 modales (Entregar a Caja, Liquidar)
 
 #### 3 estados de boleta en el detalle de vendedor (colores)
 - 🔵 Azul claro (`#e7f1ff`): CAJA sin liq_id — en mano del vendedor, se puede liquidar
@@ -229,6 +235,7 @@ SIN_VENDER
 - Sin botón eliminar en tablas — solo lápiz; el eliminar queda en la pantalla de edición
 - Compradores: N° Boleta · Apellido y Nombre · Dirección · Zona · Fecha compra · Vendedor · Cobrador · Teléfono · Acciones
 - Cobradores: badges bg-danger-subtle, checkboxes de zonas en grilla scrolleable (max-height 220px)
+- **Vendedores**: la sección "Entrega a Caja" NO está en el listado global; vive en el detalle del vendedor (acceso por doble-click)
 
 ---
 
@@ -241,4 +248,4 @@ SIN_VENDER
 - **Liquidación vendedor**: pendiente configurar `num_cuotas` en cada talonera desde la UI de taloneras (por ahora default 12)
 
 ---
-*Última actualización: 06 de mayo de 2026 (tarde) — Entrega a Caja ahora reasigna boletas en CAJA entre vendedores (sin tocar liquidadas), no crea historial vacío cuando total=0, frontend actualiza celdas de origen y destino en vivo. Modal liquidación rediseñado (selección manual de boletas), nuevo modelo de comisión (cuota 1 + % cuotas + % contado sobre valor total talonera).*
+*Última actualización: 06 de mayo de 2026 (noche) — Sección Entrega a Caja MOVIDA del listado global al detalle del vendedor. En el detalle ahora hay 2 botones en orden de flujo: Entregar a Caja → Liquidar vendedor. El historial de entregas se muestra filtrado por vendedor en su detalle. Endpoint `/vendedores/{vid}/detalle` ahora devuelve también entregas_vendedor + grupos_talonera + grupos_contado + nombres_contado + vendedores_all.*
