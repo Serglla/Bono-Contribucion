@@ -34,6 +34,8 @@
           <th class="text-center">Caja</th>
           <th class="text-center">Baja</th>
           <th class="text-center">Vendido</th>
+          <th class="text-center" title="Números de sorteo CONTADO entregados al vendedor pendientes de asignar">Contado ★</th>
+          <th class="text-center" title="Números de sorteo CONTADO 2 VECES entregados al vendedor pendientes de asignar">Contado 2× ★</th>
           <th class="text-center">Estado</th>
           <th class="text-end" style="width:90px;"></th>
         </tr>
@@ -41,6 +43,7 @@
       <tbody>
         {% for v in vendedores %}
         {% set s = stats.get(v.id, {"caja":0,"liq_pendiente":0,"baja":0,"vendido":0}) %}
+        {% set cs = contado_stats.get(v.id, {"contado":0,"contado2":0}) %}
         <tr style="cursor:pointer;" ondblclick="window.location='/vendedores/{{ v.id }}/detalle'">
           <td>
             <span class="fw-semibold">{{ v.nombre }}</span>
@@ -68,6 +71,20 @@
           <td class="text-center">
             {% if s.vendido > 0 %}
             <span class="badge bg-success-subtle text-success border border-success-subtle">{{ s.vendido }}</span>
+            {% else %}<span class="text-muted small">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if cs.get("contado", 0) > 0 %}
+            <a href="/vendedores/{{ v.id }}/detalle" class="badge text-decoration-none" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;" title="CONTADO pendientes de asignar">
+              <i class="bi bi-star-fill me-1" style="font-size:.65rem;"></i>{{ cs.get("contado", 0) }}
+            </a>
+            {% else %}<span class="text-muted small">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if cs.get("contado2", 0) > 0 %}
+            <a href="/vendedores/{{ v.id }}/detalle" class="badge text-decoration-none" style="background:#fff3cd;color:#664d03;border:1px solid #ffc10740;" title="CONTADO 2 VECES pendientes de asignar">
+              <i class="bi bi-star-fill me-1" style="font-size:.65rem;"></i>{{ cs.get("contado2", 0) }}
+            </a>
             {% else %}<span class="text-muted small">—</span>{% endif %}
           </td>
           <td class="text-center">

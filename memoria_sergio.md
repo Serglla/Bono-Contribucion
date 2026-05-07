@@ -85,7 +85,7 @@
 
 ---
 
-### Módulo Vendedores — actualizado 06/05/2026 (noche)
+### Módulo Vendedores — actualizado 07/05/2026
 
 #### Modelos nuevos/modificados
 - `Vendedor.es_jefe_equipo` (Boolean, default False) — solo un jefe activo a la vez
@@ -124,11 +124,22 @@ SIN_VENDER
 #### Router vendedores.py — endpoints clave
 - `_stats_bulk(db)`: un solo SQL con GROUP BY vendedor+condicion. Dict con claves `caja`, `vendido`, `baja` (SIEMPRE las tres)
 - `GET /vendedores/`: lista vendedores con stats (caja, baja, vendido), jefe_equipo
-- `GET /vendedores/{vid}/detalle`: boletas agrupadas por PATA + `pendientes_json` + **entregas_vendedor + grupos_talonera + grupos_contado + nombres_contado + vendedores_all** (para el modal Entregar a Caja)
+- `GET /vendedores/{vid}/detalle`: boletas agrupadas por PATA + `pendientes_json` + entregas_vendedor + grupos_talonera + grupos_contado + nombres_contado + vendedores_all
 - `POST /vendedores/{vid}/liquidar`: acepta boleta_ids seleccionados, nuevo modelo de comisión
 - `POST /vendedores/{vid}/toggle-jefe`: marca jefe (primero resetea todos, luego activa el nuevo)
 - `POST /vendedores/entrega-caja`: SIN_VENDER → CAJA + REASIGNAR entre vendedores en CAJA (sin liquidar)
 - `POST /vendedores/entrega-caja/{id}/editar` y `eliminar`: gestión del historial de entregas
+
+#### Detalle del vendedor — orden y CONTADO en pool (07/05/2026)
+- **Orden jerárquico de PATAs en `vendedor_detalle`** (función `_pata_sort_key` en `routers/vendedores.py`):
+  1. PATA con número (PATA 1, 2, 3, 4, 5, 6) — ordenadas numéricamente
+  2. Otras COMUN sin número (ej. VOLAS) — alfabéticamente
+  3. CONTADO al final, primero "CONTADO" sin número y después "CONTADO 2 VECES" / "CONTADO N VECES"
+- **CONTADO pool en pantalla detalle**:
+  - Para taloneras tipo CONTADO el endpoint suma a `patas` los números entregados al vendedor (vía EntregaCaja) que aún NO fueron asignados a ninguna boleta (se restan los números que ya están en `numero_especial` o `numero_especial_2` de cualquier boleta).
+  - Match de talonera_nombre vs talonera CONTADO con `.strip().lower()` para tolerar variantes de mayúsculas/espacios.
+  - Estos números pool aparecen como badge azul + ★ pero NO entran en `pendientes_json` ni en `pendientes_count` (no son liquidables, no tienen valor_cuota propio).
+- **Flag `contado` en cada boleta**: `b.numero_especial is not None or b.numero_especial_2 is not None` (cualquiera de los dos slots).
 
 #### Entrega a Caja — actualizado 06/05/2026 (noche)
 **UI movida al detalle del vendedor (cambio importante):**
@@ -139,8 +150,6 @@ SIN_VENDER
   2. **Liquidar vendedor** (verde) — sin cambios.
   Separados visualmente con una flecha `→`.
 - Tabla **"Entregas a caja recibidas"** filtrada por ese vendedor (con editar/eliminar inline).
-- IDs JS del modal de entrega en detalle: `ec2-pata`, `ec2-desde`, `ec2-hasta`, `ec2-btn`, `ec2-resultado`,
-  función `entregarCajaVendedor()`, tabla `ec-tbody-vendedor`.
 
 **Comportamiento dual del backend (sin cambios):**
 1. Boletas en SIN_VENDER → pasan a CAJA con el vendedor elegido (cuenta como `nuevas`)
@@ -148,23 +157,10 @@ SIN_VENDER
 
 **No ensucia historial:** si `total = nuevas + reasignadas == 0`, hace `db.rollback()` y NO crea fila en EntregaCaja.
 
-**Respuesta JSON:**
-```json
-{
-  "ok": true,
-  "nuevas": int,
-  "reasignadas": int,
-  "total": int,
-  "actualizadas": int,        // backward compat = total
-  "entrega_id": int|null,
-  "vendedor_nombre": str|null,
-  "vendedor_id": int,
-  "vendedores_origen": [int]  // ids de vendedores que perdieron boletas
-}
-```
+Para taloneras CONTADO: `es_contado = True`, no toca boletas, solo registra el rango entregado al vendedor (la asignación real ocurre en ETAPA 2 al cargar al comprador).
 
 #### Templates vendedores
-- `vendedores.html`: tabla limpia, doble-click → detalle, badge jefe, stats por vendor. **Ya no tiene la sección global de Entrega a Caja** (movida al detalle).
+- `vendedores.html`: tabla limpia, doble-click → detalle, badge jefe, stats por vendor.
 - `vendedor_detalle.html`: 3 tarjetas resumen + 2 botones de acción (Entregar a Caja → Liquidar) + leyenda + secciones por PATA + tabla "Entregas a caja recibidas" + historial de liquidaciones + 2 modales (Entregar a Caja, Liquidar)
 
 #### 3 estados de boleta en el detalle de vendedor (colores)
@@ -179,6 +175,7 @@ SIN_VENDER
 - `liquidacion_vendedor_id` en boletas (INTEGER REFERENCES liquidaciones_vendedor)
 - `num_cuotas` en taloneras (INTEGER DEFAULT 12) — usa IF NOT EXISTS en PostgreSQL
 - `cuota_1_total` en liquidaciones_vendedor (REAL DEFAULT 0.0) — usa IF NOT EXISTS en PostgreSQL
+- `numero_especial_2` y `talonera_especial_2_id` en boletas (07/05/2026, ETAPA 2)
 - **CRÍTICO**: todas las migraciones deben estar dentro de try/except. La línea `inspector.get_columns()` fuera de try/except crashea todo el startup si falla.
 
 ---
@@ -192,24 +189,53 @@ SIN_VENDER
 
 ---
 
-### Talonera Especial CONTADO — ETAPA 1 implementada 05/05/2026
+### Talonera Especial CONTADO — ETAPA 1 + ETAPA 2 (07/05/2026)
 
-**Concepto:** número especial por pago al contado. Pool de números de una talonera tipo CONTADO, asignados a boletas comunes.
+**Concepto:** sorteos extra que se regalan al socio según cómo paga la talonera. Pool de números de una talonera tipo CONTADO, asignados a boletas comunes.
 
-**Modelo:**
+**Modelo Boleta — dos slots:**
 - `Talonera.tipo` (String, default "COMUN") — "COMUN" o "CONTADO"
-- `Boleta.numero_especial` (Integer, nullable, indexado)
-- `Boleta.talonera_especial_id` (FK a taloneras, nullable) — foreign_keys explícito por 2 FKs a la misma tabla
-- `Talonera.boletas` con `foreign_keys="Boleta.talonera_id"`
+- **Slot 1** = sorteo "CONTADO":
+  - `Boleta.numero_especial` (Integer, nullable, indexado)
+  - `Boleta.talonera_especial_id` (FK a taloneras, nullable)
+- **Slot 2** = sorteo "CONTADO 2 VECES":
+  - `Boleta.numero_especial_2` (Integer, nullable, indexado, **deferred**)
+  - `Boleta.talonera_especial_2_id` (FK a taloneras, nullable, **deferred**)
+- `Talonera.boletas` con `foreign_keys="Boleta.talonera_id"` (porque hay 3 FK a taloneras)
+- `Boleta.talonera_especial` y `Boleta.talonera_especial_2` con `foreign_keys` explícito
 
-**Pendiente — ETAPA 2 (asignación):**
-- Botón/checkbox "Pagada al contado" en pantalla de boleta
-- Auto-asignar siguiente numero_especial disponible (max + 1 desde numero_inicio)
-- Validar rango no agotado
+**Reglas de negocio (confirmadas con Sergio):**
+- Talonera **CONTADO** = pool de números para sorteo extra cuando paga al contado total (1 sola vez).
+- Talonera **CONTADO 2 VECES** = pool de números para sorteo extra cuando paga en 2 cuotas.
+- Modalidades en `comprador_editar`:
+  - **En cuotas (12 cuotas)**: sin extras, ambos slots vacíos.
+  - **1 sólo pago (al contado total)**: AMBOS extras → asigna slot 1 (CONTADO) + slot 2 (CONTADO 2 VECES).
+  - **2 pagos**: solo slot 2 (CONTADO 2 VECES); slot 1 vacío.
+- El vendedor cobra el contado y entrega físicamente los números al socio. Después se registran en el sistema al cargar al comprador (asignación manual eligiendo del pool del vendedor).
+
+**ETAPA 1 (05/05/2026) — base implementada:**
+- Modelo + ABM de talonera CONTADO en `/taloneras/` (botón "Nueva Talonera Especial").
+- EntregaCaja registra rangos de números CONTADO entregados al vendedor (sin tocar boletas — `es_contado=True`).
+- Detalle vendedor muestra los números pool entregados pero no asignados (con sort jerárquico CONTADO antes que CONTADO 2 VECES).
+- TipoSorteo.CONTADO ya existe en el enum (sin usar todavía en sorteos).
+
+**ETAPA 2 (07/05/2026) — asignación a boletas:**
+- **Endpoint nuevo**: `GET /compradores/boleta/{boleta_id}/contado-disponibles`
+  - Devuelve para el vendedor de la boleta: `taloneras_contado` con `numeros_libres` por talonera (entregados al vendedor − asignados a otras boletas) + `current` con la asignación actual de esta boleta.
+  - Cada talonera tiene un `rol` inferido por nombre: "CONTADO" / "CONTADO_2" / "OTRO". Sirve para que la UI sepa qué talonera mostrar en cada slot.
+  - Si la boleta YA tiene un número asignado para una talonera, ese número se incluye en `numeros_libres` aunque la talonera no esté en el pool del vendedor (para que se vea preseleccionado).
+- **POST `/compradores/{id}/editar`** procesa por boleta:
+  - `modalidad_<bid>` ∈ {"cuotas", "1pago", "2pagos"}
+  - `te_<bid>` / `ne_<bid>` (slot 1 — talonera_especial_id / numero_especial)
+  - `te2_<bid>` / `ne2_<bid>` (slot 2 — talonera_especial_2_id / numero_especial_2)
+  - Validación silenciosa: `_esta_libre(num, talonera_id, except_boleta_id)` — chequea que el número no esté ya asignado a otra boleta en ningún slot para esa talonera.
+- **UI `comprador_editar.html`**:
+  - Bajo cada boleta: 3 radios de modalidad + dos selectores condicionales (talonera + número). Pre-selecciona modalidad y números si la boleta ya tenía algo cargado (modalidad inferida: ambos slots → 1pago, solo slot 2 → 2pagos, ninguno → cuotas).
+  - JS hace fetch al endpoint nuevo, popula los selects de talonera con los CONTADO disponibles del vendedor, y al elegir talonera popula los números libres. Si la boleta tiene un número actual no incluido en libres (porque está reservado para sí misma), igual lo agrega para que se vea seleccionado.
+- **Vendedor detalle (`vendedores.py`)**: la query de "asignados" ahora cubre ambos slots (slot 1 y slot 2) — el pool en pantalla refleja correctamente lo entregado a un socio.
 
 **Pendiente — ETAPA 3 (sorteo CONTADO):**
-- TipoSorteo.CONTADO ya existe en el enum
-- En `routers/sorteos.py` ver_ganadores: cuando tipo == CONTADO, cruzar contra `Boleta.numero_especial`
+- En `routers/sorteos.py` ver_ganadores: cuando tipo == CONTADO, cruzar contra `Boleta.numero_especial` y/o `Boleta.numero_especial_2` según la talonera del sorteo (puede ser sorteo de CONTADO o de CONTADO 2 VECES).
 
 ---
 
@@ -240,12 +266,11 @@ SIN_VENDER
 ---
 
 ### Pendientes / próximos pasos
-- **Talonera CONTADO Etapa 2**: asignación auto del número especial al pagar al contado
-- **Talonera CONTADO Etapa 3**: módulo sorteo cruzando Boleta.numero_especial
+- **Talonera CONTADO Etapa 3**: módulo sorteo cruzando Boleta.numero_especial y numero_especial_2
 - Sección especial de Recaudado (separada del dashboard)
 - Posible importación de datos desde el Excel original
 - Mejorar scraper automático (Selenium o Playwright)
 - **Liquidación vendedor**: pendiente configurar `num_cuotas` en cada talonera desde la UI de taloneras (por ahora default 12)
 
 ---
-*Última actualización: 06 de mayo de 2026 (noche) — Sección Entrega a Caja MOVIDA del listado global al detalle del vendedor. En el detalle ahora hay 2 botones en orden de flujo: Entregar a Caja → Liquidar vendedor. El historial de entregas se muestra filtrado por vendedor en su detalle. Endpoint `/vendedores/{vid}/detalle` ahora devuelve también entregas_vendedor + grupos_talonera + grupos_contado + nombres_contado + vendedores_all.*
+*Última actualización: 07 de mayo de 2026 — ETAPA 2 de talonera CONTADO implementada. Boleta tiene 2 slots de número especial (CONTADO + CONTADO 2 VECES). En `/compradores/{id}/editar` cada boleta tiene radio de modalidad (cuotas / 1 pago / 2 pagos) + selectores que cargan dinámicamente el pool del vendedor via `GET /compradores/boleta/{bid}/contado-disponibles`. Detalle de vendedor ordena PATAs jerárquicamente (PATA 1-6, otras COMUN, CONTADO, CONTADO 2 VECES) y descuenta del pool ambos slots ya asignados.*

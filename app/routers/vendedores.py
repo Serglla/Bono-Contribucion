@@ -41,6 +41,104 @@ def _stats_bulk(db):
     return stats
 
 
+def _contado_stats_bulk(db):
+    """Por cada vendedor, cuenta cuántos números de pool CONTADO y CONTADO 2 VECES
+    tiene pendientes (entregados vía EntregaCaja menos los ya asignados a boletas).
+    Retorna: { vid: {"contado": N, "contado2": N} }
+    """
+    taloneras_contado = db.query(models.Talonera).filter(
+        models.Talonera.tipo == "CONTADO"
+    ).all()
+    if not taloneras_contado:
+        return {}
+
+    def _tipo_key(nombre):
+        up = (nombre or "").strip().upper()
+        return "contado2" if "2" in up else "contado"
+
+    # nombre.lower() → (id, tipo_key)
+    nom_a_info = {
+        (t.nombre or "").strip().lower(): (t.id, _tipo_key(t.nombre))
+        for t in taloneras_contado
+    }
+
+    # Total entregado por vendor + talonera_nombre
+    entregas = db.query(
+        models.EntregaCaja.vendedor_id,
+        models.EntregaCaja.talonera_nombre,
+        func.sum(models.EntregaCaja.hasta - models.EntregaCaja.desde + 1).label("total")
+    ).filter(
+        models.EntregaCaja.vendedor_id.isnot(None)
+    ).group_by(
+        models.EntregaCaja.vendedor_id,
+        models.EntregaCaja.talonera_nombre
+    ).all()
+
+    entregados = {}  # (vid, tipo_key) → count
+    for vid, tnombre, total in entregas:
+        key = (tnombre or "").strip().lower()
+        if key not in nom_a_info:
+            continue
+        tal_id, tipo_key = nom_a_info[key]
+        k = (vid, tipo_key)
+        entregados[k] = entregados.get(k, 0) + int(total or 0)
+
+    if not entregados:
+        return {}
+
+    id_a_tipo = {t.id: _tipo_key(t.nombre) for t in taloneras_contado}
+    tal_ids = [t.id for t in taloneras_contado]
+
+    # Asignados slot 1 (numero_especial)
+    asig1 = db.query(
+        models.Boleta.vendedor_id,
+        models.Boleta.talonera_especial_id,
+        func.count(models.Boleta.id).label("cnt")
+    ).filter(
+        models.Boleta.numero_especial.isnot(None),
+        models.Boleta.talonera_especial_id.in_(tal_ids),
+        models.Boleta.vendedor_id.isnot(None),
+    ).group_by(
+        models.Boleta.vendedor_id,
+        models.Boleta.talonera_especial_id
+    ).all()
+
+    # Asignados slot 2 (numero_especial_2)
+    asig2 = db.query(
+        models.Boleta.vendedor_id,
+        models.Boleta.talonera_especial_2_id,
+        func.count(models.Boleta.id).label("cnt")
+    ).filter(
+        models.Boleta.numero_especial_2.isnot(None),
+        models.Boleta.talonera_especial_2_id.in_(tal_ids),
+        models.Boleta.vendedor_id.isnot(None),
+    ).group_by(
+        models.Boleta.vendedor_id,
+        models.Boleta.talonera_especial_2_id
+    ).all()
+
+    for vid, tal_id, cnt in asig1:
+        tipo_key = id_a_tipo.get(tal_id)
+        if tipo_key:
+            k = (vid, tipo_key)
+            entregados[k] = max(0, entregados.get(k, 0) - int(cnt))
+
+    for vid, tal_id, cnt in asig2:
+        tipo_key = id_a_tipo.get(tal_id)
+        if tipo_key:
+            k = (vid, tipo_key)
+            entregados[k] = max(0, entregados.get(k, 0) - int(cnt))
+
+    result = {}
+    for (vid, tipo_key), cnt in entregados.items():
+        if cnt <= 0:
+            continue
+        if vid not in result:
+            result[vid] = {"contado": 0, "contado2": 0}
+        result[vid][tipo_key] = cnt
+    return result
+
+
 @router.get("/", response_class=HTMLResponse)
 async def listar(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
@@ -76,6 +174,7 @@ async def listar(request: Request, db: Session = Depends(get_db)):
         models.EntregaCaja.fecha.desc()
     ).limit(200).all()
     stats = _stats_bulk(db)
+    contado_stats = _contado_stats_bulk(db)
     jefe = db.query(models.Vendedor).filter_by(es_jefe_equipo=True, activo=True).first()
     # Set de nombres CONTADO para que el template marque visualmente esas filas
     nombres_contado = sorted({g["nombre"] for g in grupos_contado})
@@ -87,6 +186,7 @@ async def listar(request: Request, db: Session = Depends(get_db)):
         "nombres_contado": nombres_contado,
         "entregas": entregas,
         "stats": stats,
+        "contado_stats": contado_stats,
         "jefe": jefe,
     })
 
@@ -146,6 +246,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             "cond":    b.condicion.value if b.condicion else "?",
             "liq":     b.liquidacion_vendedor_id is not None,
             "contado": (b.numero_especial is not None) or (b.numero_especial_2 is not None),
+            "pool":    False,
         })
     for p in patas:
         patas[p]["boletas"].sort(key=lambda x: x["num"])
@@ -214,6 +315,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 "cond":    "CAJA",
                 "liq":     False,
                 "contado": True,
+                "pool":    True,
             })
         patas[nombre_c]["boletas"].sort(key=lambda x: x["num"])
 
