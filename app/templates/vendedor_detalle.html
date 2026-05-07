@@ -142,7 +142,7 @@
                   style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;font-size:.8rem;"
                   title="En caja{% if b.contado %} · Contado{% endif %}">
               {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
-              {{ '%04d'|format(b.num) }}
+              {{ b.num_str }}
             </span>
           {% elif b.cond == 'CAJA' and b.liq %}
             {# Liquidado — pendiente comprador → verde #}
@@ -150,14 +150,14 @@
                   style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;"
                   title="Liquidado — pendiente comprador{% if b.contado %} · Contado{% endif %}">
               {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
-              {{ '%04d'|format(b.num) }}
+              {{ b.num_str }}
             </span>
           {% elif b.cond == 'VENDIDO' %}
             {# En sistema → azul opaco #}
             <span class="badge bg-primary" style="font-size:.8rem;opacity:.55;"
                   title="En sistema{% if b.contado %} · Contado{% endif %}">
               {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffd966;"></i>{% endif %}
-              {{ '%04d'|format(b.num) }}
+              {{ b.num_str }}
             </span>
           {% endif %}
         {% endfor %}
@@ -208,8 +208,9 @@
             <span class="badge bg-danger">{{ e.talonera_nombre }}</span>
             {% endif %}
           </td>
-          <td class="fw-semibold">{{ '%04d'|format(e.desde) }}</td>
-          <td class="fw-semibold">{{ '%04d'|format(e.hasta) }}</td>
+          {% set _nd = nd_por_talonera.get(e.talonera_nombre, 4) %}
+          <td class="fw-semibold">{{ (e.desde | string).zfill(_nd) }}</td>
+          <td class="fw-semibold">{{ (e.hasta | string).zfill(_nd) }}</td>
           <td class="text-center">
             <span class="badge {% if _es_cont %}bg-warning text-dark{% else %}bg-primary{% endif %}">
               {{ e.boletas_afectadas }}
@@ -581,7 +582,7 @@ function renderPatas() {
             <span class="badge" style="font-size:.8rem;cursor:pointer;
                   background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;
                   user-select:none;">
-              ${icono}${String(b.num).padStart(4,'0')}
+              ${icono}${b.num_str}
             </span>
           </label>`;
     });
@@ -674,6 +675,9 @@ document.getElementById('modalLiquidar')?.addEventListener('shown.bs.modal', () 
 });
 
 // ════════════════ ENTREGA A CAJA — VENDEDOR ════════════════
+const ND_POR_TALONERA = {{ nd_por_talonera | tojson }};
+const pN = (n, pata) => String(n).padStart(ND_POR_TALONERA[pata] ?? 4, '0');
+// p4 se conserva como alias para compatibilidad donde no se conoce la pata
 const p4 = n => String(n).padStart(4,'0');
 function alertaBox(t, m) {
   const i = t==='success'?'check-circle':t==='warning'?'exclamation-triangle':'x-circle';
@@ -704,7 +708,7 @@ async function entregarCajaVendedor() {
       const nuevas = data.nuevas ?? 0;
       const reasignadas = data.reasignadas ?? 0;
       const esCont = !!data.es_contado;
-      const rango = `<span class="text-muted">(${pata} · ${p4(desde)}–${p4(hasta)})</span>`;
+      const rango = `<span class="text-muted">(${pata} · ${pN(desde,pata)}–${pN(hasta,pata)})</span>`;
       if (total === 0) {
         res.innerHTML = alertaBox('warning', `Sin cambios — ninguna boleta para mover ${rango}`);
       } else if (esCont) {
@@ -750,8 +754,8 @@ function agregarFilaEntrega(pata, desde, hasta, cant, id, esContado) {
   tr.innerHTML = `
     <td class="text-muted">${now}</td>
     <td>${pataBadge}</td>
-    <td class="fw-semibold">${p4(desde)}</td>
-    <td class="fw-semibold">${p4(hasta)}</td>
+    <td class="fw-semibold">${pN(desde,pata)}</td>
+    <td class="fw-semibold">${pN(hasta,pata)}</td>
     <td class="text-center">${cantBadge}</td>
     <td class="text-muted">—</td>
     <td class="text-muted">—</td>

@@ -239,10 +239,13 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     for b in boletas:
         pata_nombre = b.talonera.nombre if b.talonera else "?"
         pata_color  = b.talonera.color  if b.talonera else "#ffffff"
+        nd = (b.talonera.num_digitos or 4) if b.talonera else 4
+        fmt = "{:0" + str(nd) + "d}"
         if pata_nombre not in patas:
-            patas[pata_nombre] = {"color": pata_color, "boletas": []}
+            patas[pata_nombre] = {"color": pata_color, "boletas": [], "num_digitos": nd}
         patas[pata_nombre]["boletas"].append({
             "num":     b.numero_principal,
+            "num_str": fmt.format(b.numero_principal),
             "cond":    b.condicion.value if b.condicion else "?",
             "liq":     b.liquidacion_vendedor_id is not None,
             "contado": (b.numero_especial is not None) or (b.numero_especial_2 is not None),
@@ -307,11 +310,14 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         pendientes_pool = sorted(nums_entregados - nums_asignados)
         if not pendientes_pool:
             continue
+        nd_c = t.num_digitos or 3
+        fmt_c = "{:0" + str(nd_c) + "d}"
         if nombre_c not in patas:
-            patas[nombre_c] = {"color": t.color or "#fff8e1", "boletas": []}
+            patas[nombre_c] = {"color": t.color or "#fff8e1", "boletas": [], "num_digitos": nd_c}
         for n in pendientes_pool:
             patas[nombre_c]["boletas"].append({
                 "num":     n,
+                "num_str": fmt_c.format(n),
                 "cond":    "CAJA",
                 "liq":     False,
                 "contado": True,
@@ -349,6 +355,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         {
             "id":         b.id,
             "num":        b.numero_principal,
+            "num_str":    ("{:0" + str(b.talonera.num_digitos or 4) + "d}").format(b.numero_principal) if b.talonera else str(b.numero_principal),
             "pata":       b.talonera.nombre     if b.talonera else "?",
             "color":      b.talonera.color      if b.talonera else "#cccccc",
             "valor_cuota":b.talonera.valor_cuota if b.talonera else 0.0,
@@ -364,6 +371,9 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
 
     can_edit = auth_module.has_permission(user, "vendedores", "editar")
 
+    # Mapa nombre_talonera → num_digitos para formatear rangos en tabla de entregas
+    nd_por_talonera = {t.nombre: (t.num_digitos or 4) for t in taloneras}
+
     return templates.TemplateResponse(request, "vendedor_detalle.html", {
         "user": user, "v": v, "patas": patas,
         "pendientes_json": pendientes_json,
@@ -374,6 +384,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         "grupos_talonera": grupos_talonera,
         "grupos_contado": grupos_contado,
         "nombres_contado": nombres_contado,
+        "nd_por_talonera": nd_por_talonera,
         "entregas_vendedor": entregas_vendedor,
     })
 
