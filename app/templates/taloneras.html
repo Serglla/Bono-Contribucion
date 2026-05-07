@@ -121,6 +121,7 @@
           <strong>{{ g.num_series }}</strong> series por boleta
           {% if g.taloneras[0].valor_cuota and g.taloneras[0].valor_cuota > 0 %}
           &nbsp;|&nbsp; Cuota: <strong>${{ "%.0f"|format(g.taloneras[0].valor_cuota) }}</strong>
+          &nbsp;|&nbsp; <strong>{{ g.taloneras[0].num_cuotas or 12 }}</strong> cuotas
           {% endif %}
         </p>
         <p class="text-muted small mb-2">{{ g.taloneras | length }} tanda{% if g.taloneras|length != 1 %}s{% endif %}</p>
@@ -146,7 +147,8 @@
                       data-offset="{{ t.offset_series }}"
                       data-inicio="{{ t.numero_inicio }}"
                       data-fin="{{ t.numero_fin }}"
-                      data-cuota="{{ t.valor_cuota or 0 }}">
+                      data-cuota="{{ t.valor_cuota or 0 }}"
+                      data-num-cuotas="{{ t.num_cuotas or 12 }}">
                 <i class="bi bi-pencil"></i>
               </button>
               <button class="btn btn-sm btn-outline-danger py-0 px-2 btn-eliminar"
@@ -206,9 +208,16 @@
               <input type="text" inputmode="numeric" name="numero_fin" id="editFin" class="form-control" required>
             </div>
           </div>
-          <div class="mb-2">
-            <label class="form-label fw-semibold">Valor de la cuota $</label>
-            <input type="text" inputmode="decimal" name="valor_cuota" id="editCuota" class="form-control" placeholder="0">
+          <div class="d-flex gap-3 mb-2">
+            <div style="flex:1;">
+              <label class="form-label fw-semibold">Valor de la cuota $</label>
+              <input type="text" inputmode="decimal" name="valor_cuota" id="editCuota" class="form-control" placeholder="0">
+            </div>
+            <div style="flex:0 0 150px;">
+              <label class="form-label fw-semibold">N° de cuotas</label>
+              <input type="number" name="num_cuotas" id="editNumCuotas" class="form-control" value="12" min="1" max="60" step="1">
+              <div class="form-text">Se puede bajar si se regalan cuotas finales</div>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -254,6 +263,7 @@ document.querySelectorAll('.btn-editar').forEach(function(btn) {
     document.getElementById('editInicio').value    = d.inicio;
     document.getElementById('editFin').value       = d.fin;
     document.getElementById('editCuota').value     = d.cuota;
+    document.getElementById('editNumCuotas').value = d.numCuotas || 12;
     document.getElementById('formEditar').action   = '/taloneras/' + d.id + '/editar';
     var modal = new bootstrap.Modal(document.getElementById('modalEditar'));
     modal.show();
@@ -454,6 +464,10 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
             <div style="flex:0 0 140px;">
               <label class="form-label fw-semibold">Valor cuota $</label>
               <input type="text" inputmode="decimal" name="valor_cuota" class="form-control" value="0" placeholder="0">
+            </div>
+            <div style="flex:0 0 110px;">
+              <label class="form-label fw-semibold">N° cuotas</label>
+              <input type="number" name="num_cuotas" class="form-control" value="12" min="1" max="60" step="1">
             </div>
           </div>
 

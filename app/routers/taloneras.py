@@ -67,6 +67,7 @@ async def crear(
     serie_inicio: List[int] = Form(...),
     serie_fin: List[int] = Form(...),
     valor_cuota: float = Form(0.0),
+    num_cuotas: int = Form(12),
     db: Session = Depends(get_db)
 ):
     await auth_module.require_admin(request, db)
@@ -81,7 +82,8 @@ async def crear(
         numero_fin=numero_fin,
         num_series=num_series,
         offset_series=offset,
-        valor_cuota=valor_cuota,
+        valor_cuota=float(valor_cuota or 0.0),
+        num_cuotas=int(num_cuotas or 12),
         tipo="COMUN",
     )
     db.add(t)
@@ -235,6 +237,7 @@ async def editar_talonera(
     numero_inicio: int = Form(...),
     numero_fin: int = Form(...),
     valor_cuota: float = Form(0.0),
+    num_cuotas: int = Form(12),
     db: Session = Depends(get_db)
 ):
     await auth_module.require_admin(request, db)
@@ -247,7 +250,8 @@ async def editar_talonera(
     t.offset_series = offset_series
     t.numero_inicio = numero_inicio
     t.numero_fin = numero_fin
-    t.valor_cuota = valor_cuota
+    t.valor_cuota = float(valor_cuota or 0.0)
+    t.num_cuotas = int(num_cuotas or 12)
     db.commit()
     return RedirectResponse("/taloneras/", status_code=302)
 

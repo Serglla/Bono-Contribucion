@@ -394,12 +394,16 @@
                          oninput="recalcular()">
                 </div>
                 <div class="col-md-6">
-                  <label class="form-label small mb-0">Valor de cada cuota</label>
+                  <label class="form-label small mb-0">Valor de cada cuota
+                    <span id="lbl-vc-hint" class="text-muted fw-normal" style="font-size:.72rem;"></span>
+                  </label>
                   <div class="input-group input-group-sm">
                     <span class="input-group-text">$</span>
                     <input type="number" name="cuotas_extras_valor" id="inp-extras-valor"
                            class="form-control" value="0" min="0" step="0.01"
                            oninput="recalcular()">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" title="Restaurar valor de la talonera"
+                            onclick="resetValorCuota()" style="font-size:.72rem;">↺</button>
                   </div>
                 </div>
               </div>
@@ -658,6 +662,37 @@ function actualizarSelectorModalidad(chk) {
   else { sel.classList.add('d-none'); sel.value = 'cuotas'; }
 }
 
+function getVcTalonera() {
+  // Devuelve el valor_cuota de la primera boleta en cuotas seleccionada (o la primera seleccionada)
+  const checked = [...document.querySelectorAll('.boleta-chk:checked')];
+  if (checked.length === 0) return 0;
+  const primera = checked.find(c => modalidadBoleta(c.dataset.bid) === 'cuotas') || checked[0];
+  return parseFloat(primera.dataset.vc) || 0;
+}
+
+function autoFillValorCuota() {
+  const inp  = document.getElementById('inp-extras-valor');
+  const hint = document.getElementById('lbl-vc-hint');
+  if (!inp) return;
+  const vcTalonera = getVcTalonera();
+  // Solo auto-llenar si el campo está en 0 (no pisar edición manual)
+  const actual = parseFloat(inp.value) || 0;
+  if (actual === 0 && vcTalonera > 0) inp.value = vcTalonera;
+  // Siempre actualizar el hint con el valor de la talonera
+  if (hint) {
+    hint.textContent = vcTalonera > 0
+      ? `· talonera: $${vcTalonera.toLocaleString('es-AR')}`
+      : '';
+  }
+}
+
+function resetValorCuota() {
+  const inp = document.getElementById('inp-extras-valor');
+  if (!inp) return;
+  const vc = getVcTalonera();
+  if (vc > 0) { inp.value = vc; recalcular(); }
+}
+
 function onChkChange(chk) {
   const label = chk.closest('label');
   const badge = label ? label.querySelector('.badge') : chk.nextElementSibling;
@@ -665,6 +700,7 @@ function onChkChange(chk) {
   actualizarEstiloBadge(badge, chk.checked, esContado);
   actualizarSelectorModalidad(chk);
   actualizarContadorPata(chk.dataset.pata);
+  autoFillValorCuota();
   recalcular();
 }
 
@@ -754,6 +790,15 @@ document.getElementById('modalLiquidar')?.addEventListener('shown.bs.modal', () 
     renderPatas();
   }
   recalcular();
+});
+document.getElementById('modalLiquidar')?.addEventListener('hidden.bs.modal', () => {
+  // Al cerrar, resetear el valor de cuota a 0 para que la próxima apertura se auto-llene de nuevo
+  const inp = document.getElementById('inp-extras-valor');
+  if (inp) inp.value = 0;
+  const cant = document.getElementById('inp-extras-cant');
+  if (cant) cant.value = 0;
+  const hint = document.getElementById('lbl-vc-hint');
+  if (hint) hint.textContent = '';
 });
 
 // ════════════════ ENTREGA A CAJA — VENDEDOR ════════════════
