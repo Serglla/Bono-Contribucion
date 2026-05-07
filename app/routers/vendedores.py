@@ -150,6 +150,50 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     for p in patas:
         patas[p]["boletas"].sort(key=lambda x: x["num"])
 
+    # ── CONTADO (pool): agregar los numeros entregados al vendedor que aun
+    # no fueron asignados a ninguna boleta. Estos viven en una talonera
+    # tipo CONTADO y se entregan via EntregaCaja con talonera_nombre = el
+    # nombre de la talonera CONTADO. Mientras no se asignen a una boleta
+    # (numero_especial) permanecen en mano del vendedor, pero NO son
+    # liquidables (no tienen valor_cuota propio).
+    contado_taloneras = {
+        t.nombre: t for t in taloneras if (t.tipo or "COMUN") == "CONTADO"
+    }
+    ranges_por_talonera: dict = {}
+    for e in entregas_vendedor:
+        if e.talonera_nombre in contado_taloneras:
+            ranges_por_talonera.setdefault(e.talonera_nombre, []).append(
+                (int(e.desde), int(e.hasta))
+            )
+    for nombre_c, rangos in ranges_por_talonera.items():
+        t = contado_taloneras[nombre_c]
+        nums_entregados = set()
+        for d, h in rangos:
+            if h < d:
+                continue
+            nums_entregados.update(range(d, h + 1))
+        if not nums_entregados:
+            continue
+        # Numeros del pool ya asignados a alguna boleta (vendido al contado)
+        asignados_rows = db.query(models.Boleta.numero_especial).filter(
+            models.Boleta.talonera_especial_id == t.id,
+            models.Boleta.numero_especial.in_(list(nums_entregados)),
+        ).all()
+        nums_asignados = {r[0] for r in asignados_rows if r[0] is not None}
+        pendientes_pool = sorted(nums_entregados - nums_asignados)
+        if not pendientes_pool:
+            continue
+        if nombre_c not in patas:
+            patas[nombre_c] = {"color": t.color or "#fff8e1", "boletas": []}
+        for n in pendientes_pool:
+            patas[nombre_c]["boletas"].append({
+                "num":     n,
+                "cond":    "CAJA",
+                "liq":     False,
+                "contado": True,
+            })
+        patas[nombre_c]["boletas"].sort(key=lambda x: x["num"])
+
     # Ordenar las PATAs: primero las que tienen numero (PATA 1, 2, 3, ...)
     # ordenadas numericamente; luego las demas (ej: CONTADO, VOLAS) alfabeticamente.
     import re as _re
