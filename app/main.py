@@ -401,6 +401,19 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion num_digitos taloneras: {e}")
 
+        # Corregir num_digitos para taloneras COMUN: deben ser 4 cifras (0001-9999).
+        # El DEFAULT 3 fue incorrecto — solo las taloneras CONTADO usan 3 cifras.
+        try:
+            db.execute(text(
+                "UPDATE taloneras SET num_digitos = 4 "
+                "WHERE (tipo = 'COMUN' OR tipo IS NULL) AND (num_digitos IS NULL OR num_digitos < 4)"
+            ))
+            db.commit()
+            print("Correccion num_digitos COMUN→4: OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Correccion num_digitos COMUN→4: {e}")
+
         # Migrar cuota_1_total en liquidaciones_vendedor
         try:
             _dialect = engine.dialect.name

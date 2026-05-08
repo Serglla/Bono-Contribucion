@@ -84,6 +84,7 @@ async def crear(
         offset_series=offset,
         valor_cuota=float(valor_cuota or 0.0),
         num_cuotas=int(num_cuotas or 12),
+        num_digitos=4,  # taloneras COMUN siempre 4 cifras (0001-9999)
         tipo="COMUN",
     )
     db.add(t)
