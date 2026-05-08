@@ -68,14 +68,17 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "vendidas_ponderado": vendidas * factor,
         })
 
-    # Top vendedores (solo boletas VENDIDO — con comprador cargado)
+    # Top vendedores — solo VENDIDO, ponderado por multiplicador de talonera
+    # PATA 1 = 1, PATA 2 = 2, PATA 3 = 3 (equivalentes en PATA 1)
     top_vendedores = db.query(
         models.Vendedor.nombre,
-        func.count(models.Boleta.id).label("cantidad")
-    ).join(models.Boleta, isouter=True).filter(
+        func.coalesce(func.sum(models.Talonera.multiplicador), 0).label("cantidad")
+    ).join(models.Boleta, models.Vendedor.id == models.Boleta.vendedor_id, isouter=True
+    ).join(models.Talonera, models.Boleta.talonera_id == models.Talonera.id, isouter=True
+    ).filter(
         (models.Boleta.condicion == "VENDIDO") | (models.Boleta.id == None)
     ).group_by(models.Vendedor.nombre).order_by(
-        func.count(models.Boleta.id).desc()
+        func.coalesce(func.sum(models.Talonera.multiplicador), 0).desc()
     ).limit(10).all()
 
     # Top cobradores
@@ -135,9 +138,4 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "cobrador": z.cobrador.nombre if z.cobrador else "—",
         })
 
-    return templates.TemplateResponse(request, "reportes.html", {"user": user,
-        "stats_por_talonera": stats_por_talonera,
-        "top_vendedores": top_vendedores,
-        "top_cobradores": top_cobradores,
-        "totales": totales,
-        "stats_por_zona": stats_por_zona})
+    ret
