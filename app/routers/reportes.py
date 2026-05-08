@@ -98,11 +98,29 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         func.coalesce(func.sum(models.Talonera.multiplicador), 0).desc()
     ).limit(10).all()
 
+    # Tarjetas del dashboard — todas con el mismo patrón:
+    # SUM(Talonera.multiplicador) con el filtro correspondiente.
+    # PATA 1 x1, PATA 2 x2, PATA 3 x3, etc.
+    def _sum_mult(filtro=None):
+        q = db.query(
+            func.coalesce(func.sum(models.Talonera.multiplicador), 0)
+        ).select_from(models.Boleta).join(
+            models.Talonera, models.Talonera.id == models.Boleta.talonera_id
+        )
+        if filtro is not None:
+            q = q.filter(filtro)
+        return q.scalar() or 0
+
     totales = {
+        # Inventario total (todas las boletas creadas, sin filtrar)
+        "boletas": _sum_mult(),
+        # Taloneras vendidas — boletas cargadas con socio, sin filtrar por condicion
+        # (cuadra con Top Vendedores y con la columna "Taloneras" por zona)
+        "vendidas": _sum_mult(models.Boleta.comprador_id.isnot(None)),
+        # Baja — solo boletas con condicion BAJA, ponderadas
+        "baja": _sum_mult(models.Boleta.condicion == CondicionBoleta.BAJA),
+        # Compradores — cantidad de personas únicas (no se pondera)
         "compradores": db.query(func.count(models.Comprador.id)).scalar(),
-        "boletas": sum(s["total_ponderado"] for s in stats_por_talonera),
-        "vendidas": sum(s["vendidas_ponderado"] for s in stats_por_talonera),
-        "baja": sum(s["baja_ponderado"] for s in stats_por_talonera),
     }
 
     # Stats por zona
