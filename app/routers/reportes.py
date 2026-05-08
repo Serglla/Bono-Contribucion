@@ -99,36 +99,59 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     }
 
     # Stats por zona
+    # Ponderado por Talonera.multiplicador (PATA 1 x1, PATA 2 x2, PATA 3 x3, etc.)
+    # Compradores queda como conteo de personas (no se pondera).
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     stats_por_zona = []
     for z in zonas:
         compradores_zona = db.query(func.count(models.Comprador.id)).filter(
             models.Comprador.zona_id == z.id
         ).scalar()
-        vendidas_zona = db.query(func.count(models.Boleta.id)).join(
+        vendidas_zona = db.query(
+            func.coalesce(func.sum(models.Talonera.multiplicador), 0)
+        ).join(
             models.Comprador, models.Comprador.id == models.Boleta.comprador_id
+        ).join(
+            models.Talonera, models.Talonera.id == models.Boleta.talonera_id
         ).filter(
             models.Comprador.zona_id == z.id,
             models.Boleta.condicion == CondicionBoleta.VENDIDO
-        ).scalar()
-        baja_zona = db.query(func.count(models.Boleta.id)).join(
+        ).scalar() or 0
+        baja_zona = db.query(
+            func.coalesce(func.sum(models.Talonera.multiplicador), 0)
+        ).join(
             models.Comprador, models.Comprador.id == models.Boleta.comprador_id
+        ).join(
+            models.Talonera, models.Talonera.id == models.Boleta.talonera_id
         ).filter(
             models.Comprador.zona_id == z.id,
             models.Boleta.condicion == CondicionBoleta.BAJA
-        ).scalar()
-        en_cobranza_zona = db.query(func.count(models.Boleta.id)).join(
+        ).scalar() or 0
+        en_cobranza_zona = db.query(
+            func.coalesce(func.sum(models.Talonera.multiplicador), 0)
+        ).join(
             models.Comprador, models.Comprador.id == models.Boleta.comprador_id
+        ).join(
+            models.Talonera, models.Talonera.id == models.Boleta.talonera_id
         ).filter(
             models.Comprador.zona_id == z.id,
             models.Boleta.condicion == CondicionBoleta.EN_COBRANZA
-        ).scalar()
-        sin_vender_zona = db.query(func.count(models.Boleta.id)).join(
-            models.Comprador, models.Comprador.id == models.Boleta.comprador_id
-        ).filter(
-            models.Comprador.zona_id == z.id,
-            models.Boleta.condicion == CondicionBoleta.SIN_VENDER
-        ).scalar()
+        ).scalar() or 0
+        # SIN_VENDER no tiene comprador, así que se atribuye vía el vendedor
+        # de la zona (Zona.vendedor_id). OJO: si un vendedor tiene múltiples
+        # zonas, su stock SIN_VENDER aparece en cada zona — el stock no está
+        # pre-asignado a ninguna zona específica, es del vendedor.
+        if z.vendedor_id:
+            sin_vender_zona = db.query(
+                func.coalesce(func.sum(models.Talonera.multiplicador), 0)
+            ).join(
+                models.Talonera, models.Talonera.id == models.Boleta.talonera_id
+            ).filter(
+                models.Boleta.vendedor_id == z.vendedor_id,
+                models.Boleta.condicion == CondicionBoleta.SIN_VENDER
+            ).scalar() or 0
+        else:
+            sin_vender_zona = 0
         stats_por_zona.append({
             "zona": z,
             "compradores": compradores_zona,

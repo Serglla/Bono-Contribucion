@@ -215,7 +215,7 @@ SIN_VENDER
 - Auto-asignación de cobrador al guardar comprador (por zona)
 - Exportación Excel socios: GET /compradores/exportar (openpyxl==3.1.2)
 - Dashboard /reportes/: cards + tablas por talonera, zona, top vendedores/cobradores
-  - **Top Vendedores**: cuenta solo boletas `VENDIDO` (no CAJA), ponderado por `multiplicador` de talonera (PATA 1=1, PATA 2=2, PATA 3=3). Query usa `SUM(talonera.multiplicador)` con doble LEFT JOIN Vendedor→Boleta→Talonera en `reportes.py`
+  - **Top Vendedores** (corregido 08/05/2026): cuenta TODA boleta cargada con socio (`Boleta.comprador_id IS NOT NULL`), sin filtrar por condición. Query va por `Boleta.vendedor_id` (no via Zona — la cadena Vendedor→Zona→Comprador→Boleta excluía boletas de zonas sin vendedor o de vendedores que vendían fuera de su zona). Ponderado por `Talonera.multiplicador` (PATA 1=1, PATA 2=2, PATA 3=3, PATA 4=4, PATA 8=8, etc.). **CRÍTICO: NO filtrar por `condicion=VENDIDO`** — las boletas pueden derivar a EN_COBRANZA (asignadas a planilla), CAJA (al contado pagado), o BAJA, y deben seguir contándose. El criterio correcto del usuario: "contarse cuando son cargados con los socios".
 - Módulo Sorteos: ABM Tómbola Nocturna Entre Ríos (SEMANAL/MENSUAL/FINAL/CONTADO) — carga manual
 - Módulo Ganadores: cruza 4c/3c/2c con exclusión
 - Color por PATA: Talonera.color, picker en UI
@@ -239,4 +239,4 @@ SIN_VENDER
 - Mejorar scraper automático (Selenium o Playwright)
 
 ---
-*Última actualización: 08 de mayo de 2026 — Dashboard Top Vendedores: solo boletas VENDIDO, ponderado por multiplicador de talonera (SUM en lugar de COUNT).*
+*Última actualización: 08 de mayo de 2026 — Dashboard Top Vendedores: filtro corregido a `Boleta.comprador_id IS NOT NULL` (no `VENDIDO`); query usa `Boleta.vendedor_id` (no Zona)*
