@@ -138,4 +138,9 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "cobrador": z.cobrador.nombre if z.cobrador else "—",
         })
 
-    ret
+    return templates.TemplateResponse(request, "reportes.html", {"user": user,
+        "stats_por_talonera": stats_por_talonera,
+        "top_vendedores": top_vendedores,
+        "top_cobradores": top_cobradores,
+        "totales": totales,
+        "stats_por_zona": stats_por_zona})
