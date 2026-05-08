@@ -109,7 +109,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ).scalar()
         vendidas_zona = db.query(
             func.coalesce(func.sum(models.Talonera.multiplicador), 0)
-        ).join(
+        ).select_from(models.Boleta).join(
             models.Comprador, models.Comprador.id == models.Boleta.comprador_id
         ).join(
             models.Talonera, models.Talonera.id == models.Boleta.talonera_id
@@ -119,7 +119,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ).scalar() or 0
         baja_zona = db.query(
             func.coalesce(func.sum(models.Talonera.multiplicador), 0)
-        ).join(
+        ).select_from(models.Boleta).join(
             models.Comprador, models.Comprador.id == models.Boleta.comprador_id
         ).join(
             models.Talonera, models.Talonera.id == models.Boleta.talonera_id
@@ -129,7 +129,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ).scalar() or 0
         en_cobranza_zona = db.query(
             func.coalesce(func.sum(models.Talonera.multiplicador), 0)
-        ).join(
+        ).select_from(models.Boleta).join(
             models.Comprador, models.Comprador.id == models.Boleta.comprador_id
         ).join(
             models.Talonera, models.Talonera.id == models.Boleta.talonera_id
@@ -144,7 +144,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         if z.vendedor_id:
             sin_vender_zona = db.query(
                 func.coalesce(func.sum(models.Talonera.multiplicador), 0)
-            ).join(
+            ).select_from(models.Boleta).join(
                 models.Talonera, models.Talonera.id == models.Boleta.talonera_id
             ).filter(
                 models.Boleta.vendedor_id == z.vendedor_id,
