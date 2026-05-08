@@ -68,11 +68,13 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "vendidas_ponderado": vendidas * factor,
         })
 
-    # Top vendedores
+    # Top vendedores (solo boletas VENDIDO — con comprador cargado)
     top_vendedores = db.query(
         models.Vendedor.nombre,
         func.count(models.Boleta.id).label("cantidad")
-    ).join(models.Boleta, isouter=True).group_by(models.Vendedor.nombre).order_by(
+    ).join(models.Boleta, isouter=True).filter(
+        (models.Boleta.condicion == "VENDIDO") | (models.Boleta.id == None)
+    ).group_by(models.Vendedor.nombre).order_by(
         func.count(models.Boleta.id).desc()
     ).limit(10).all()
 
