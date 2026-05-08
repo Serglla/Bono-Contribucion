@@ -114,6 +114,19 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         compradores_zona = db.query(func.count(models.Comprador.id)).filter(
             models.Comprador.zona_id == z.id
         ).scalar()
+        # Taloneras de la zona — MISMO criterio que Top Vendedores:
+        # boletas cargadas con socio (comprador_id IS NOT NULL),
+        # sin filtrar por condicion, ponderadas por Talonera.multiplicador.
+        # Permite cuadrar la suma por zona con el total del vendedor.
+        taloneras_zona = db.query(
+            func.coalesce(func.sum(models.Talonera.multiplicador), 0)
+        ).select_from(models.Boleta).join(
+            models.Comprador, models.Comprador.id == models.Boleta.comprador_id
+        ).join(
+            models.Talonera, models.Talonera.id == models.Boleta.talonera_id
+        ).filter(
+            models.Comprador.zona_id == z.id
+        ).scalar() or 0
         vendidas_zona = db.query(
             func.coalesce(func.sum(models.Talonera.multiplicador), 0)
         ).select_from(models.Boleta).join(
@@ -161,6 +174,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             sin_vender_zona = 0
         stats_por_zona.append({
             "zona": z,
+            "taloneras": taloneras_zona,
             "compradores": compradores_zona,
             "vendidas": vendidas_zona,
             "baja": baja_zona,

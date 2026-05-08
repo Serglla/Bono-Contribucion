@@ -74,7 +74,7 @@
       <thead class="table-light">
         <tr>
           <th>Zona</th><th>Vendedor</th><th>Cobrador</th>
-          <th>Compradores</th><th>Vendidas</th><th>Baja</th>
+          <th>Taloneras</th><th>Compradores</th><th>Vendidas</th><th>Baja</th>
           <th>En Cobranza</th><th>Sin Vender</th>
         </tr>
       </thead>
@@ -84,6 +84,7 @@
           <td><span class="badge bg-dark">{{ s.zona.nombre }}</span></td>
           <td class="text-muted small">{{ s.vendedor }}</td>
           <td class="text-muted small">{{ s.cobrador }}</td>
+          <td><span class="fw-semibold">{{ s.taloneras }}</span></td>
           <td>{{ s.compradores }}</td>
           <td><span class="text-success fw-semibold">{{ s.vendidas }}</span></td>
           <td><span class="text-danger">{{ s.baja }}</span></td>
@@ -91,7 +92,7 @@
           <td><span class="text-secondary">{{ s.sin_vender }}</span></td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-3">Sin zonas</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-3">Sin zonas</td></tr>
         {% endfor %}
       </tbody>
     </table>
