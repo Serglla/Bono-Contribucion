@@ -215,6 +215,7 @@ SIN_VENDER
 - Auto-asignación de cobrador al guardar comprador (por zona)
 - Exportación Excel socios: GET /compradores/exportar (openpyxl==3.1.2)
 - Dashboard /reportes/: cards + tablas por talonera, zona, top vendedores/cobradores
+  - **Top Vendedores**: cuenta solo boletas `VENDIDO` (no CAJA), ponderado por `multiplicador` de talonera (PATA 1=1, PATA 2=2, PATA 3=3). Query usa `SUM(talonera.multiplicador)` con doble LEFT JOIN Vendedor→Boleta→Talonera en `reportes.py`
 - Módulo Sorteos: ABM Tómbola Nocturna Entre Ríos (SEMANAL/MENSUAL/FINAL/CONTADO) — carga manual
 - Módulo Ganadores: cruza 4c/3c/2c con exclusión
 - Color por PATA: Talonera.color, picker en UI
@@ -238,4 +239,4 @@ SIN_VENDER
 - Mejorar scraper automático (Selenium o Playwright)
 
 ---
-*Última actualización: 07 de mayo de 2026 — Liquidación vendedor simplificada con unidad base PATA 1 (multiplicador × PATA1_VC). num_cuotas y valor_cuota editables en UI de taloneras. num_digitos COMUN corregido a 4 (migración correctora en startup). pendientes_json incluye campo multiplicador.*
+*Última actualización: 08 de mayo de 2026 — Dashboard Top Vendedores: solo boletas VENDIDO, ponderado por multiplicador de talonera (SUM en lugar de COUNT).*

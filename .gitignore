@@ -40,3 +40,4 @@ logs/
 
 # Railway (local override)
 .railway/
+".claude/worktrees/" 
