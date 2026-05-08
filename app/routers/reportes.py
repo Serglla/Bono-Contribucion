@@ -66,6 +66,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "cuotas_cobradas": cuotas_cobradas,
             "total_ponderado": total * factor,
             "vendidas_ponderado": vendidas * factor,
+            "baja_ponderado": baja * factor,
         })
 
     # Top vendedores — cuenta boletas cargadas con socio (comprador_id != NULL),
@@ -83,19 +84,25 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         func.coalesce(func.sum(models.Talonera.multiplicador), 0).desc()
     ).limit(10).all()
 
-    # Top cobradores
+    # Top cobradores — mismo criterio que top vendedores:
+    # ponderado por Talonera.multiplicador, sobre boletas cargadas con socio
+    # (Boleta.comprador_id IS NOT NULL), sin filtrar por condicion.
     top_cobradores = db.query(
         models.Cobrador.nombre,
-        func.count(models.Boleta.id).label("cantidad")
-    ).join(models.Boleta, isouter=True).group_by(models.Cobrador.nombre).order_by(
-        func.count(models.Boleta.id).desc()
+        func.coalesce(func.sum(models.Talonera.multiplicador), 0).label("cantidad")
+    ).outerjoin(models.Boleta,
+        (models.Boleta.cobrador_id == models.Cobrador.id) &
+        (models.Boleta.comprador_id.isnot(None))
+    ).outerjoin(models.Talonera, models.Boleta.talonera_id == models.Talonera.id
+    ).group_by(models.Cobrador.id, models.Cobrador.nombre).order_by(
+        func.coalesce(func.sum(models.Talonera.multiplicador), 0).desc()
     ).limit(10).all()
 
     totales = {
         "compradores": db.query(func.count(models.Comprador.id)).scalar(),
         "boletas": sum(s["total_ponderado"] for s in stats_por_talonera),
         "vendidas": sum(s["vendidas_ponderado"] for s in stats_por_talonera),
-        "baja": sum(s["baja"] for s in stats_por_talonera),
+        "baja": sum(s["baja_ponderado"] for s in stats_por_talonera),
     }
 
     # Stats por zona
