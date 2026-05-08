@@ -69,14 +69,16 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         })
 
     # Top vendedores — solo VENDIDO, ponderado por multiplicador de talonera
-    # PATA 1 = 1, PATA 2 = 2, PATA 3 = 3 (equivalentes en PATA 1)
+    # Cuenta via Vendedor → Zona → Comprador → Boleta para no depender de boleta.vendedor_id
     top_vendedores = db.query(
         models.Vendedor.nombre,
         func.coalesce(func.sum(models.Talonera.multiplicador), 0).label("cantidad")
-    ).join(models.Boleta, models.Vendedor.id == models.Boleta.vendedor_id, isouter=True
-    ).join(models.Talonera, models.Boleta.talonera_id == models.Talonera.id, isouter=True
-    ).filter(
-        (models.Boleta.condicion == "VENDIDO") | (models.Boleta.id == None)
+    ).outerjoin(models.Zona, models.Zona.vendedor_id == models.Vendedor.id
+    ).outerjoin(models.Comprador, models.Comprador.zona_id == models.Zona.id
+    ).outerjoin(models.Boleta,
+        (models.Boleta.comprador_id == models.Comprador.id) &
+        (models.Boleta.condicion == CondicionBoleta.VENDIDO)
+    ).outerjoin(models.Talonera, models.Boleta.talonera_id == models.Talonera.id
     ).group_by(models.Vendedor.nombre).order_by(
         func.coalesce(func.sum(models.Talonera.multiplicador), 0).desc()
     ).limit(10).all()
