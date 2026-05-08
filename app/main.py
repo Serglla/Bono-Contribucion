@@ -348,7 +348,7 @@ def create_default_admin():
                     "  comision_cuotas REAL DEFAULT 0.0,"
                     "  contados_vendidos INTEGER DEFAULT 0,"
                     "  monto_contados REAL DEFAULT 0.0,"
-                    "  comision_contados_pct REAL DEFAULT 10.0,"
+                    "  comision_contados_pct REAL DEFAULT 30.0,"
                     "  comision_contados REAL DEFAULT 0.0,"
                     "  total_comision REAL DEFAULT 0.0,"
                     "  observacion TEXT"

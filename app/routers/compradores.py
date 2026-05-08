@@ -66,8 +66,8 @@ async def listar(request: Request, db: Session = Depends(get_db), q: str = "", p
     tabs = [{"nombre": t[0], "total": t[1]} for t in taloneras_raw]
 
     # Cantidad de socios sin vendedor/cobrador (para mostrar alertas en el template)
-    sin_vendedor = sum(1 for c in compradores if c.boletas and not c.boletas[0].vendedor_id)
-    sin_cobrador = sum(1 for c in compradores if c.boletas and not c.boletas[0].cobrador_id)
+    sin_vendedor = sum(1 for c in compradores if any(not b.vendedor_id for b in c.boletas))
+    sin_cobrador = sum(1 for c in compradores if any(not b.cobrador_id for b in c.boletas))
 
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()

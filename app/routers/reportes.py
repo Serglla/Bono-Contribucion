@@ -25,13 +25,13 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     for t in taloneras:
         key = t.nombre
         if key not in grupos:
-            grupos[key] = {"nombre": t.nombre, "num_series": t.num_series, "ids": []}
+            grupos[key] = {"nombre": t.nombre, "num_series": t.num_series, "multiplicador": t.multiplicador, "ids": []}
         grupos[key]["ids"].append(t.id)
 
     stats_por_talonera = []
     for key, g in grupos.items():
         ids = g["ids"]
-        factor = max(1, (g["num_series"] or 3) // 3)
+        factor = g["multiplicador"] or max(1, (g["num_series"] or 3) // 3)
         total = db.query(func.count(models.Boleta.id)).filter(
             models.Boleta.talonera_id.in_(ids)
         ).scalar()
@@ -76,7 +76,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     ).join(models.Boleta, models.Vendedor.id == models.Boleta.vendedor_id, isouter=True
     ).join(models.Talonera, models.Boleta.talonera_id == models.Talonera.id, isouter=True
     ).filter(
-        (models.Boleta.condicion == "VENDIDO") | (models.Boleta.id == None)
+        (models.Boleta.condicion == CondicionBoleta.VENDIDO) | (models.Boleta.id == None)
     ).group_by(models.Vendedor.nombre).order_by(
         func.coalesce(func.sum(models.Talonera.multiplicador), 0).desc()
     ).limit(10).all()
