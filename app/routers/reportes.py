@@ -16,7 +16,7 @@ router = APIRouter(prefix="/reportes", tags=["reportes"])
 async def dashboard(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'reportes', 'ver'):
-        raise HTTPException(403, 'No ten\u00e9s permiso para ver esta secci\u00f3n')
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
 
     taloneras = db.query(models.Talonera).order_by(models.Talonera.nombre).all()
 
@@ -68,16 +68,16 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "vendidas_ponderado": vendidas * factor,
         })
 
-    # Top vendedores — solo VENDIDO, ponderado por multiplicador de talonera
-    # Se cuenta via Boleta.vendedor_id (que se setea al cargar el comprador/socio).
-    # Las boletas pasan a VENDIDO cuando se cargan con un socio.
-    # PATA 1 (mult=1) cuenta x1, PATA 2 (mult=2) x2, etc.
+    # Top vendedores — cuenta boletas cargadas con socio (comprador_id != NULL),
+    # sin importar la condicion posterior (VENDIDO, CAJA, EN_COBRANZA, BAJA).
+    # Se cuenta via Boleta.vendedor_id (seteado al cargar el comprador).
+    # Ponderado por Talonera.multiplicador: PATA 1 x1, PATA 2 x2, PATA 3 x3, etc.
     top_vendedores = db.query(
         models.Vendedor.nombre,
         func.coalesce(func.sum(models.Talonera.multiplicador), 0).label("cantidad")
     ).outerjoin(models.Boleta,
         (models.Boleta.vendedor_id == models.Vendedor.id) &
-        (models.Boleta.condicion == CondicionBoleta.VENDIDO)
+        (models.Boleta.comprador_id.isnot(None))
     ).outerjoin(models.Talonera, models.Boleta.talonera_id == models.Talonera.id
     ).group_by(models.Vendedor.id, models.Vendedor.nombre).order_by(
         func.coalesce(func.sum(models.Talonera.multiplicador), 0).desc()
@@ -136,8 +136,8 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "baja": baja_zona,
             "en_cobranza": en_cobranza_zona,
             "sin_vender": sin_vender_zona,
-            "vendedor": z.vendedor.nombre if z.vendedor else "\u2014",
-            "cobrador": z.cobrador.nombre if z.cobrador else "\u2014",
+            "vendedor": z.vendedor.nombre if z.vendedor else "—",
+            "cobrador": z.cobrador.nombre if z.cobrador else "—",
         })
 
     return templates.TemplateResponse(request, "reportes.html", {"user": user,
