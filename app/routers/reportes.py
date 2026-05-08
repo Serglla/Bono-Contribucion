@@ -16,7 +16,7 @@ router = APIRouter(prefix="/reportes", tags=["reportes"])
 async def dashboard(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'reportes', 'ver'):
-        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+        raise HTTPException(403, 'No ten\u00e9s permiso para ver esta secci\u00f3n')
 
     taloneras = db.query(models.Talonera).order_by(models.Talonera.nombre).all()
 
@@ -69,7 +69,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         })
 
     # Top vendedores — solo VENDIDO, ponderado por multiplicador de talonera
-    # Cuenta via Vendedor → Zona → Comprador → Boleta para no depender de boleta.vendedor_id
+    # Cuenta via Vendedor -> Zona -> Comprador -> Boleta para no depender de boleta.vendedor_id
     top_vendedores = db.query(
         models.Vendedor.nombre,
         func.coalesce(func.sum(models.Talonera.multiplicador), 0).label("cantidad")
@@ -136,8 +136,8 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "baja": baja_zona,
             "en_cobranza": en_cobranza_zona,
             "sin_vender": sin_vender_zona,
-            "vendedor": z.vendedor.nombre if z.vendedor else "—",
-            "cobrador": z.cobrador.nombre if z.cobrador else "—",
+            "vendedor": z.vendedor.nombre if z.vendedor else "\u2014",
+            "cobrador": z.cobrador.nombre if z.cobrador else "\u2014",
         })
 
     return templates.TemplateResponse(request, "reportes.html", {"user": user,
