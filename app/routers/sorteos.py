@@ -487,4 +487,43 @@ async def guardar_resultado(sid: int, payload: ResultadoPayload, request: Reques
     if not s:
         return JSONResponse({"ok": False, "error": "Sorteo no encontrado"}, status_code=404)
 
-    # Normaliza
+    # Normalizar: cada número como string de 4 dígitos.
+    # El modal manda exactamente s.num_premios números (con padStart a 4).
+    nums_norm: List[str] = []
+    for n in payload.numeros:
+        n_str = str(n or "").strip()
+        if n_str == "":
+            n_str = "0000"
+        if not n_str.isdigit():
+            return JSONResponse(
+                {"ok": False, "error": f"Número inválido: '{n}'"},
+                status_code=400,
+            )
+        nums_norm.append(n_str.zfill(4))
+
+    # Cantidad esperada según el sorteo
+    num_premios = s.num_premios or 20
+    if len(nums_norm) < num_premios:
+        # padding con "0000" hasta llegar a num_premios (consistente con el modal)
+        nums_norm += ["0000"] * (num_premios - len(nums_norm))
+    elif len(nums_norm) > num_premios:
+        nums_norm = nums_norm[:num_premios]
+
+    # Validar que al menos el 1° premio esté cargado (mismo criterio que el JS)
+    if all(n == "0000" for n in nums_norm):
+        return JSONResponse(
+            {"ok": False, "error": "Ingresá al menos un número distinto de 0000."},
+            status_code=400,
+        )
+
+    try:
+        s.resultado_json = json.dumps(nums_norm)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return JSONResponse(
+            {"ok": False, "error": f"Error al guardar en base: {e.__class__.__name__}"},
+            status_code=500,
+        )
+
+    return JSONResponse({"ok": True, "numeros": nums_norm})
