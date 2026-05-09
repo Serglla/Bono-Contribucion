@@ -72,7 +72,7 @@ function completarFaltantes(tipo, btn, alertaId) {
     {% for tab in tabs %}
     <a href="/compradores/?q={{ q }}&pata={{ tab.nombre }}"
        class="btn btn-sm {{ 'btn-danger' if pata == tab.nombre else 'btn-outline-secondary' }}">
-      {{ tab.nombre }}
+      {{ tab.nombre | replace('PATA ', 'X') }}
       <span class="badge {{ 'bg-white text-danger' if pata == tab.nombre else 'bg-secondary' }} ms-1">{{ tab.total }}</span>
     </a>
     {% endfor %}
@@ -141,7 +141,7 @@ function completarFaltantes(tipo, btn, alertaId) {
             title="Doble clic para ver detalle completo">
           <td data-val="{% for boleta in c.boletas %}{{ boleta.numero_principal }}{% if boleta.numeros_adicionales %} {{ boleta.numeros_adicionales }}{% endif %} {% endfor %}">
             {% for boleta in c.boletas %}
-              <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:0.68rem;">{{ boleta.talonera.nombre if boleta.talonera else "" }}</span>
+              <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:0.68rem;">{{ (boleta.talonera.nombre if boleta.talonera else "") | replace('PATA ', 'X') }}</span>
               <span class="badge bg-dark">{{ "%04d" % boleta.numero_principal }}</span>
             {% else %}
               <span class="text-muted">—</span>
@@ -200,7 +200,7 @@ function completarFaltantes(tipo, btn, alertaId) {
   </div>
   <div class="card-footer text-muted small">
     <span id="contadorVisible">{{ compradores|length }}</span> socio(s)
-    {% if pata %}<span class="ms-2 badge bg-danger-subtle text-danger border border-danger">{{ pata }}</span>{% endif %}
+    {% if pata %}<span class="ms-2 badge bg-danger-subtle text-danger border border-danger">{{ pata | replace('PATA ', 'X') }}</span>{% endif %}
   </div>
 </div>
 
