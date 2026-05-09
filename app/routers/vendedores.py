@@ -158,6 +158,81 @@ def _contado_stats_bulk(db):
     return result
 
 
+@router.get("/liquidaciones/{liq_id}/detalle", response_class=JSONResponse)
+async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depends(get_db)):
+    """Devuelve el detalle de una liquidacion: boletas asociadas + items pool CONTADO."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "ver"):
+        raise HTTPException(403, "Sin permiso")
+    liq = db.query(models.LiquidacionVendedor).get(liq_id)
+    if not liq:
+        raise HTTPException(404, "Liquidacion no encontrada")
+
+    # Boletas reales asociadas a esta liquidacion
+    boletas = db.query(models.Boleta).filter_by(
+        liquidacion_vendedor_id=liq_id
+    ).all()
+    boletas_out = []
+    for b in boletas:
+        nd = (b.talonera.num_digitos or 4) if b.talonera else 4
+        fmt = "{:0" + str(nd) + "d}"
+        boletas_out.append({
+            "id": b.id,
+            "num": b.numero_principal,
+            "num_str": fmt.format(b.numero_principal),
+            "pata": b.talonera.nombre if b.talonera else "?",
+            "color": b.talonera.color if b.talonera else "#cccccc",
+            "condicion": b.condicion.value if b.condicion else "?",
+            "comprador": b.comprador.apellido_nombre if b.comprador else None,
+            "multiplicador": int((b.talonera.multiplicador or 1) if b.talonera else 1),
+        })
+    boletas_out.sort(key=lambda x: (x["pata"], x["num"]))
+
+    # Items pool CONTADO declarados en esta liquidacion
+    pool_items = []
+    try:
+        items = db.query(models.LiquidacionContadoItem).filter_by(
+            liquidacion_id=liq_id
+        ).all()
+        tal_cache = {}
+        for it in items:
+            t = tal_cache.get(it.talonera_id)
+            if t is None:
+                t = db.query(models.Talonera).get(it.talonera_id)
+                tal_cache[it.talonera_id] = t
+            nd = (t.num_digitos or 3) if t else 3
+            fmt = "{:0" + str(nd) + "d}"
+            pool_items.append({
+                "talonera_nombre": t.nombre if t else "?",
+                "color": (t.color or "#fff8e1") if t else "#fff8e1",
+                "num": it.numero,
+                "num_str": fmt.format(it.numero),
+            })
+    except Exception:
+        pass
+    pool_items.sort(key=lambda x: (x["talonera_nombre"], x["num"]))
+
+    return JSONResponse({
+        "id": liq.id,
+        "fecha": liq.fecha.strftime("%d/%m/%Y %H:%M") if liq.fecha else "",
+        "cuotas_vendidas":         int(liq.cuotas_vendidas or 0),
+        "contados_vendidos":       int(liq.contados_vendidos or 0),
+        "monto_contados":          float(liq.monto_contados or 0),
+        "comision_contados_pct":   float(liq.comision_contados_pct or 0),
+        "comision_contados":       float(liq.comision_contados or 0),
+        "cuotas_extras_cantidad":  int(getattr(liq, "cuotas_extras_cantidad", 0) or 0),
+        "cuotas_extras_valor":     float(getattr(liq, "cuotas_extras_valor", 0) or 0),
+        "cuotas_extras_monto":     float(getattr(liq, "cuotas_extras_monto", 0) or 0),
+        "comision_cuotas_pct":     float(liq.comision_cuotas_pct or 0),
+        "comision_cuotas_extras":  float(getattr(liq, "comision_cuotas_extras", 0) or 0),
+        "total_a_rendir":          float(getattr(liq, "total_a_rendir", 0) or 0),
+        "cuota_1_total":           float(liq.cuota_1_total or 0),
+        "observacion":             liq.observacion or "",
+        "boletas":                 boletas_out,
+        "pool_items":              pool_items,
+    })
+
+
 @router.get("/", response_class=HTMLResponse)
 async def listar(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)

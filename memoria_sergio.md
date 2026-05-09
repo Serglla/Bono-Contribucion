@@ -41,6 +41,7 @@
 - PostgreSQL en Railway (postgres-volume), variable DATABASE_URL
 - Dockerfile: CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 - SIEMPRE hacer git push para que Railway tome los cambios
+- **El sandbox bash NO tiene credenciales de GitHub** → el `git push` siempre debe hacerlo Sergio desde PowerShell en Windows
 
 ---
 
@@ -56,7 +57,7 @@
 - **Migraciones PostgreSQL**: usar `ALTER TABLE x ADD COLUMN IF NOT EXISTS ...` (no soportado en SQLite → detectar dialect con `engine.dialect.name`)
 - **Jinja2 + dicts**: acceso por punto (`s.clave`) en Jinja2 lanza `UndefinedError` si la clave no existe en el dict — siempre incluir todas las claves en el dict o usar `s.get("clave", 0)`
 - **_stats_bulk**: el dict de stats DEBE incluir la clave `"baja"` aunque sea 0, porque el template accede a `s.baja`
-- **Sandbox bash mount stale**: a veces el mount /sessions/.../mnt/ no sincroniza con los Edit del file tool; confiar en lo que devuelve Read y verificar contenido con grep si bash da errores raros
+- **Sandbox bash mount stale**: a veces el mount /sessions/.../mnt/ no sincroniza con los Edit del file tool; confiar en lo que devuelve Read y verificar contenido con grep si bash da errores raros. Cuando esto pasa, los cambios SÍ están en disco real (Windows), pero bash no los ve. Sergio debe hacer commit/push desde PowerShell.
 
 ---
 
@@ -134,7 +135,7 @@ SIN_VENDER
 - Taloneras COMUN nuevas se crean con `num_digitos=4` explícito
 
 #### Router vendedores.py — endpoints clave
-- `_stats_bulk(db)`: un solo SQL con GROUP BY vendedor+condicion. Dict con claves `caja`, `vendido`, `baja` (SIEMPRE las tres)
+- `_stats_bulk(db)`: dict por vendedor con claves `caja`, `liq_pendiente`, `vendido`, `baja`. **Ojo:** desde 09/05/2026 `vendido` cuenta TODAS las boletas con `comprador_id IS NOT NULL` (sin importar condicion). Las claves caja/liq_pendiente/baja siguen contando por condicion específica. Implementación: GROUP BY (vendedor, condicion) para caja/liq/baja + segunda query separada para vendido.
 - `GET /vendedores/`: lista vendedores con stats (caja, baja, vendido), jefe_equipo
 - `GET /vendedores/{vid}/detalle`: incluye `pendientes_json` (con `multiplicador`), `pata1_vc`, `pata1_nc`
 - `POST /vendedores/{vid}/liquidar`: modelo de comisión basado en multiplicador × PATA1
@@ -183,6 +184,7 @@ SIN_VENDER
 - Cuotas anticipadas: celda negra + X blanca
 - Tabs: Planillas | Emplantillado | Liquidación
 - Modelos: Planilla (cobrador_id, numero, mes, anio, comision_pct), Liquidacion, LiquidacionDetalle
+- **Filtros de boletas activas** (cobranza.py): usan `condicion IN [VENDIDO, EN_COBRANZA]` — CORRECTO. NO incluye CAJA-Al-contado (ya pagada) ni BAJA. NO tocar.
 
 ---
 
@@ -224,11 +226,50 @@ SIN_VENDER
 
 ### Preferencias de UI consolidadas
 - Tablas: table-sm + font-size: 0.8rem + filas ~28px (compactas)
-- Filtros inline por columna + sortable en todos los encabezados
+- ~~Filtros inline por columna~~ **Ya no — desde 09/05/2026** se usa un solo buscador con selector de columna ("Todo / N° Boleta / Apellido y Nombre / Dirección / …")
+- Sortable en todos los encabezados
 - Fecha: almacena ISO en data-val, muestra dd/mm/yyyy
 - Dirección: CSS text-transform: uppercase en la celda
 - Sin botón eliminar en tablas — solo lápiz; el eliminar queda en la pantalla de edición
 - **Vendedores**: Entrega a Caja vive en el detalle del vendedor (acceso por doble-click en listado)
+- **PATA 1, PATA 2, etc. → mostrar como X1, X2** (preferencia visual desde 09/05/2026, solo display via `replace('PATA ', 'X')`. La DB sigue con "PATA N")
+
+---
+
+### Sesión 09/05/2026 — Auditoría completa del criterio "vendidas/vendido"
+
+**Bug original detectado:** el dashboard "Por Talonera" mostraba 0 vendidas para PATA 2 y PATA 8, aunque había boletas Al contado y En cobranza con socio cargado. Causa: filtro `condicion = VENDIDO`, pero las boletas pasan a `CAJA` (Al contado) o `EN_COBRANZA` (asignadas a planilla) tras cargar el socio.
+
+**Lugares corregidos** (todos cambiaron `condicion = VENDIDO` → `comprador_id IS NOT NULL`):
+1. `app/routers/reportes.py` líneas 38-49 → `vendidas` en stats_por_talonera (dashboard "Por Talonera")
+   - También `en_caja` ahora cuenta solo `CAJA AND comprador_id IS NULL` (físicas en mano sin cargar)
+   - `sin_vender` calculado por consulta directa (no por resta) para evitar overlap
+2. `app/routers/reportes.py` línea 171 → `vendidas_zona` en stats_por_zona (dashboard "Por Zona")
+3. `app/routers/taloneras.py` línea 306 → validación al ELIMINAR talonera (riesgo serio: permitía borrar boletas con comprador asignado)
+4. `app/templates/taloneras.html` línea 130 → badge "X vend." en lista de taloneras: `selectattr('comprador_id')` en lugar de `selectattr('condicion','equalto','VENDIDO')`
+5. `app/routers/vendedores.py` `_stats_bulk` → `vendido` cuenta todas las boletas del vendedor con socio (incluye VENDIDO + CAJA-Al-contado + EN_COBRANZA + BAJA). `baja` queda como sub-estado informativo (subconjunto de `vendido`). **Confirmado por Sergio:** una boleta cargada por el vendedor sigue siendo "vendida del vendedor" aunque después pase a EN_COBRANZA o BAJA.
+
+**Filtros revisados que SÍ están bien (no se tocaron):**
+- `cobranza.py` (5 lugares con `[VENDIDO, EN_COBRANZA]`) — correcto, las Al contado ya pagadas no van a planilla
+- Asignaciones `b.condicion = VENDIDO` en `compradores.py` — son writes, no filtros
+- Badge individual de boleta en `ganadores.html:94` — display por fila
+
+**Nota visual:** en el dashboard "Por Zona", las columnas "Taloneras" y "Vendidas" ahora muestran el mismo número (ambas suman boletas con socio ponderadas por multiplicador). Si Sergio quiere eliminar una columna o darle otra semántica, pendiente de validar.
+
+### Sesión 09/05/2026 — UI Socios
+
+**Buscador único** (`app/templates/compradores.html`):
+- Reemplazó la fila de filtros por columna (9 inputs) por un solo input + select de columna
+- Opciones del select: Todo / N° Boleta / Apellido y Nombre / Dirección / Zona / Fecha compra / Vendedor / Cobrador / Teléfono / Condición
+- "Todo" busca en todas las columnas. Filtro client-side en tiempo real, no recarga.
+- Botón ✕ rojo para limpiar.
+- Función JS: `aplicarBusqueda()` reemplaza la antigua `applyFilters()`.
+
+**Mostrar X1/X2 en lugar de PATA 1/PATA 2:**
+- En `compradores.html`: tabs, badges de filas y badge del footer usan `{{ nombre | replace('PATA ', 'X') }}`.
+- La DB no se modifica — sigue "PATA 1", "PATA 2", etc. Es solo display.
+- El backend filtra por nombre real ("PATA 1") en `?pata=...`, así que los hrefs envían el nombre crudo.
+- **Pendiente** (si Sergio lo pide): extender a otras pantallas (Reportes, Taloneras, Vendedores, Cobranza, Boletas) — lo más limpio sería un filtro Jinja personalizado registrado en `templates_config.py` (ej. `pata_label`).
 
 ---
 
@@ -237,6 +278,8 @@ SIN_VENDER
 - Sección especial de Recaudado (separada del dashboard)
 - Posible importación de datos desde el Excel original
 - Mejorar scraper automático (Selenium o Playwright)
+- **Validar con Sergio**: las columnas "Taloneras" y "Vendidas" en dashboard Por Zona quedaron con el mismo dato — ¿eliminar una o redefinir?
+- **Posible extensión visual**: aplicar el reemplazo "PATA N" → "XN" en todas las pantallas de la app (filtro Jinja global)
 
 ---
-*Última actualización: 08 de mayo de 2026 — Dashboard Top Vendedores: filtro corregido a `Boleta.comprador_id IS NOT NULL` (no `VENDIDO`); query usa `Boleta.vendedor_id` (no Zona)*
+*Última actualización: 09 de mayo de 2026 — Auditoría criterio "vendidas" en 5 lugares (reportes/taloneras/vendedores), buscador único en Socios, display "X1/X2" en lugar de "PATA 1/PATA 2"*

@@ -311,11 +311,15 @@
 {# ══════════ HISTORIAL LIQUIDACIONES ══════════ #}
 {% if liquidaciones %}
 <div class="card border-0 shadow-sm mt-4">
-  <div class="card-header bg-white py-2 fw-semibold small">
-    <i class="bi bi-receipt text-success me-1"></i>Historial de liquidaciones
+  <div class="card-header bg-white py-2 fw-semibold small d-flex align-items-center gap-2">
+    <i class="bi bi-receipt text-success me-1"></i>
+    <span>Historial de liquidaciones</span>
+    <span class="text-muted small ms-2" style="font-weight:normal;">
+      <i class="bi bi-mouse2 me-1"></i>doble-click para ver el detalle
+    </span>
   </div>
   <div class="table-responsive">
-    <table class="table table-sm align-middle mb-0 small" style="font-size:.82rem;">
+    <table class="table table-sm align-middle mb-0 small table-hover" style="font-size:.82rem;">
       <thead class="table-light">
         <tr>
           <th>Fecha</th>
@@ -332,7 +336,8 @@
       </thead>
       <tbody>
         {% for liq in liquidaciones %}
-        <tr>
+        <tr style="cursor:pointer;" ondblclick="verDetalleLiq({{ liq.id }})"
+            title="Doble-click para ver el detalle de esta liquidación">
           <td class="text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
           <td class="text-center">{{ liq.cuotas_vendidas }}</td>
           <td class="text-center">{{ liq.contados_vendidos }}</td>
@@ -347,6 +352,30 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+
+{# ══════════ MODAL DETALLE LIQUIDACIÓN ══════════ #}
+<div class="modal fade" id="modalDetalleLiq" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">
+          <i class="bi bi-receipt text-success me-1"></i>
+          Detalle de liquidación
+          <span class="text-muted small ms-2" id="dl-fecha">—</span>
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="dl-body">
+        <div class="text-center text-muted py-4">
+          <div class="spinner-border spinner-border-sm me-2"></div>Cargando…
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
   </div>
 </div>
 {% endif %}
@@ -903,5 +932,170 @@ document.getElementById('ec2-desde')?.addEventListener('keydown', e => {
 document.getElementById('ec2-hasta')?.addEventListener('keydown', e => {
   if (e.key==='Enter'){ e.preventDefault(); entregarCajaVendedor(); }
 });
+
+// ════════════════ DETALLE DE LIQUIDACIÓN (doble-click) ════════════════
+function fmtMoney(n) {
+  return '$' + (Number(n)||0).toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+async function verDetalleLiq(liqId) {
+  const modalEl = document.getElementById('modalDetalleLiq');
+  if (!modalEl) return;
+  const body = document.getElementById('dl-body');
+  const fechaLbl = document.getElementById('dl-fecha');
+  body.innerHTML = `<div class="text-center text-muted py-4">
+    <div class="spinner-border spinner-border-sm me-2"></div>Cargando…</div>`;
+  fechaLbl.textContent = '—';
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  modal.show();
+
+  try {
+    const r = await fetch(`/vendedores/liquidaciones/${liqId}/detalle`, { credentials:'include' });
+    if (!r.ok) {
+      body.innerHTML = `<div class="alert alert-danger small mb-0">
+        <i class="bi bi-x-circle me-1"></i>Error al cargar el detalle (HTTP ${r.status})</div>`;
+      return;
+    }
+    const d = await r.json();
+    fechaLbl.textContent = d.fecha || '';
+
+    // Agrupar boletas por PATA
+    const grupos = {};
+    (d.boletas || []).forEach(b => {
+      if (!grupos[b.pata]) grupos[b.pata] = { color: b.color, boletas: [] };
+      grupos[b.pata].boletas.push(b);
+    });
+    // Agrupar items pool CONTADO por talonera
+    const grupos_pool = {};
+    (d.pool_items || []).forEach(it => {
+      if (!grupos_pool[it.talonera_nombre]) grupos_pool[it.talonera_nombre] = { color: it.color, items: [] };
+      grupos_pool[it.talonera_nombre].items.push(it);
+    });
+
+    let html = '';
+
+    // ── Resumen ──
+    html += `
+      <div class="card border-0 bg-light mb-3">
+        <div class="card-body py-2">
+          <table class="table table-sm table-borderless mb-0" style="font-size:.82rem;">
+            <tbody>
+              <tr class="text-muted fst-italic">
+                <td>Cuota 1 (${d.cuotas_vendidas} boleta/s) — ya en mano del vendedor</td>
+                <td class="text-end">${fmtMoney(d.cuota_1_total)}</td>
+              </tr>
+              <tr>
+                <td>Contados cobrados (${d.contados_vendidos} boleta/s)</td>
+                <td class="text-end">${fmtMoney(d.monto_contados)}</td>
+              </tr>
+              <tr class="text-danger">
+                <td>− Comisión contado (${d.comision_contados_pct}%)</td>
+                <td class="text-end">${fmtMoney(d.comision_contados)}</td>
+              </tr>
+              <tr>
+                <td>Cuotas extras cobradas (${d.cuotas_extras_cantidad} cuotas × ${fmtMoney(d.cuotas_extras_valor)})</td>
+                <td class="text-end">${fmtMoney(d.cuotas_extras_monto)}</td>
+              </tr>
+              <tr class="text-danger">
+                <td>− Comisión cuotas extras (${d.comision_cuotas_pct}%)</td>
+                <td class="text-end">${fmtMoney(d.comision_cuotas_extras)}</td>
+              </tr>
+              <tr class="border-top fw-bold text-success">
+                <td>Total que rinde el vendedor</td>
+                <td class="text-end fs-6">${fmtMoney(d.total_a_rendir)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+
+    // ── Boletas por PATA ──
+    const tieneBoletas = Object.keys(grupos).length > 0;
+    const tienePool    = Object.keys(grupos_pool).length > 0;
+
+    if (tieneBoletas) {
+      html += `<div class="small fw-semibold text-muted mb-2">
+        <i class="bi bi-collection me-1"></i>Taloneras liquidadas
+        <span class="badge bg-secondary ms-1">${(d.boletas || []).length}</span>
+      </div>`;
+      Object.keys(grupos).sort().forEach(pata => {
+        const g = grupos[pata];
+        const colorBg  = (g.color || '#cccccc') + '20';
+        const colorBdr = g.color || '#cccccc';
+        let badges = '';
+        g.boletas.forEach(b => {
+          const opaco = (b.condicion === 'VENDIDO') ? 'opacity:.55;' : '';
+          const tip = `${escapeHtml(b.condicion || '')}${b.comprador ? ' · ' + escapeHtml(b.comprador) : ''}`;
+          badges += `<span class="badge bg-primary me-1 mb-1" style="font-size:.78rem;${opaco}"
+                          title="${tip}">${escapeHtml(b.num_str)}</span>`;
+        });
+        html += `
+          <div class="card border-0 shadow-sm mb-2">
+            <div class="card-header py-1 d-flex align-items-center gap-2"
+                 style="background:${colorBg};border-left:4px solid ${colorBdr};">
+              <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">
+                ${escapeHtml(pata)}
+              </span>
+              <span class="text-muted small">${g.boletas.length} boleta/s</span>
+            </div>
+            <div class="card-body py-2">
+              <div class="d-flex flex-wrap gap-1">${badges}</div>
+            </div>
+          </div>`;
+      });
+    }
+
+    if (tienePool) {
+      html += `<div class="small fw-semibold text-muted mb-2 mt-3">
+        <i class="bi bi-star-fill text-warning me-1"></i>Números del pool CONTADO declarados
+        <span class="badge bg-warning text-dark ms-1">${(d.pool_items || []).length}</span>
+      </div>`;
+      Object.keys(grupos_pool).sort().forEach(nombre => {
+        const g = grupos_pool[nombre];
+        const colorBg  = (g.color || '#fff8e1') + '60';
+        const colorBdr = g.color || '#ffc107';
+        let badges = '';
+        g.items.forEach(it => {
+          badges += `<span class="badge bg-warning text-dark me-1 mb-1" style="font-size:.78rem;">
+            <i class="bi bi-star-fill me-1" style="font-size:.6rem;"></i>${escapeHtml(it.num_str)}</span>`;
+        });
+        html += `
+          <div class="card border-0 shadow-sm mb-2">
+            <div class="card-header py-1 d-flex align-items-center gap-2"
+                 style="background:${colorBg};border-left:4px solid ${colorBdr};">
+              <span class="badge fw-bold bg-warning text-dark">★ ${escapeHtml(nombre)}</span>
+              <span class="text-muted small">${g.items.length} número/s</span>
+            </div>
+            <div class="card-body py-2">
+              <div class="d-flex flex-wrap gap-1">${badges}</div>
+            </div>
+          </div>`;
+      });
+    }
+
+    if (!tieneBoletas && !tienePool) {
+      html += `<div class="alert alert-warning small mb-0">
+        <i class="bi bi-info-circle me-1"></i>
+        Esta liquidación no tiene boletas asociadas (puede ser sólo de cuotas extras).
+      </div>`;
+    }
+
+    if (d.observacion) {
+      html += `<div class="mt-3 small text-muted">
+        <strong>Observación:</strong> <em>${escapeHtml(d.observacion)}</em>
+      </div>`;
+    }
+
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = `<div class="alert alert-danger small mb-0">
+      <i class="bi bi-x-circle me-1"></i>Error de red al cargar el detalle</div>`;
+  }
+}
 </script>
 {% endblock %}
