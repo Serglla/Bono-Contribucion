@@ -160,6 +160,10 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ).filter(
             models.Comprador.zona_id == z.id
         ).scalar() or 0
+        # Vendidas por zona — MISMO criterio que Top Vendedores y stats_por_talonera:
+        # toda boleta cargada con socio (comprador_id IS NOT NULL),
+        # sin filtrar por condicion. Como el join ya pasa por Comprador,
+        # comprador_id está garantizado != NULL, así que basta con la zona.
         vendidas_zona = db.query(
             func.coalesce(func.sum(models.Talonera.multiplicador), 0)
         ).select_from(models.Boleta).join(
@@ -167,8 +171,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ).join(
             models.Talonera, models.Talonera.id == models.Boleta.talonera_id
         ).filter(
-            models.Comprador.zona_id == z.id,
-            models.Boleta.condicion == CondicionBoleta.VENDIDO
+            models.Comprador.zona_id == z.id
         ).scalar() or 0
         baja_zona = db.query(
             func.coalesce(func.sum(models.Talonera.multiplicador), 0)

@@ -301,9 +301,12 @@ async def eliminar_talonera(talonera_id: int, request: Request, db: Session = De
         db.delete(t)
         db.commit()
         return RedirectResponse("/taloneras/", status_code=302)
+    # Vendidas — toda boleta cargada con socio, sin importar condicion
+    # (VENDIDO + CAJA-con-socio + EN_COBRANZA + BAJA). Si hay datos del
+    # comprador, no se puede borrar la talonera porque perderíamos info real.
     vendidas = db.query(models.Boleta).filter(
         models.Boleta.talonera_id == talonera_id,
-        models.Boleta.condicion == CondicionBoleta.VENDIDO
+        models.Boleta.comprador_id.isnot(None)
     ).count()
     if vendidas > 0:
         return RedirectResponse(f"/taloneras/?error=tiene_vendidas&nombre={t.nombre}", status_code=302)

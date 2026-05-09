@@ -127,7 +127,10 @@
         <p class="text-muted small mb-2">{{ g.taloneras | length }} tanda{% if g.taloneras|length != 1 %}s{% endif %}</p>
         <div class="d-flex flex-column gap-1">
           {% for t in g.taloneras %}
-          {% set num_vendidas = t.boletas | selectattr('condicion', 'equalto', 'VENDIDO') | list | length %}
+          {# Vendidas = boletas cargadas con socio, sin filtrar condicion
+             (incluye VENDIDO, CAJA-con-socio "Al contado", EN_COBRANZA, BAJA).
+             Mismo criterio que el dashboard de Reportes. #}
+          {% set num_vendidas = t.boletas | selectattr('comprador_id') | list | length %}
           <div class="d-flex align-items-center gap-1 flex-wrap">
             <span class="badge bg-secondary" style="font-size:.7rem;">{{ '%04d'|format(t.numero_inicio) }} → {{ '%04d'|format(t.numero_fin) }}</span>
             <span class="text-muted small">{{ t.boletas|length }} boletas</span>

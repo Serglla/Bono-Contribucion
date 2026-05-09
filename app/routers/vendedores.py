@@ -14,9 +14,15 @@ router = APIRouter(prefix="/vendedores", tags=["vendedores"])
 
 
 def _stats_bulk(db):
-    """Un solo query SQL con conteos por vendedor y condicion.
-    Para CAJA distingue entre sin liquidar y liquidado-pendiente-comprador,
-    usando func.count(col) que solo cuenta valores no-NULL.
+    """Conteos por vendedor.
+    - caja: CAJA sin liquidar (vendedor las tiene físicamente, sin liq_id)
+    - liq_pendiente: CAJA con liq pero sin comprador cargado todavía
+    - baja: BAJA (sub-estado informativo, solo viene de cobranza tras carga de socio)
+    - vendido: TODAS las boletas cargadas con socio (comprador_id IS NOT NULL),
+      sin importar la condicion posterior (VENDIDO + CAJA-Al-contado +
+      EN_COBRANZA + BAJA). Mismo criterio que el dashboard de Reportes y
+      Top Vendedores. Confirmado con Sergio (09/05/2026): aunque la boleta
+      pase a EN_COBRANZA o BAJA, sigue siendo trabajo del vendedor.
     """
     rows = db.query(
         models.Boleta.vendedor_id,
@@ -34,10 +40,23 @@ def _stats_bulk(db):
         if cond == CondicionBoleta.CAJA:
             stats[vid]["caja"] = total - con_liq       # CAJA sin liquidar
             stats[vid]["liq_pendiente"] = con_liq      # CAJA con liq, pendiente comprador
-        elif cond == CondicionBoleta.VENDIDO:
-            stats[vid]["vendido"] = total
         elif cond == CondicionBoleta.BAJA:
             stats[vid]["baja"] = total
+
+    # Vendido: query separada para contar boletas con socio cargado,
+    # sin importar la condicion (VENDIDO/CAJA-con-socio/EN_COBRANZA/BAJA).
+    vendidos_rows = db.query(
+        models.Boleta.vendedor_id,
+        func.count(models.Boleta.id)
+    ).filter(
+        models.Boleta.vendedor_id.isnot(None),
+        models.Boleta.comprador_id.isnot(None)
+    ).group_by(models.Boleta.vendedor_id).all()
+    for vid, total in vendidos_rows:
+        if vid not in stats:
+            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0}
+        stats[vid]["vendido"] = total
+
     return stats
 
 
