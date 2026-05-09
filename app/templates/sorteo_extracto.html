@@ -2,7 +2,8 @@
 {% block title %}Extracto {{ mes_label }} {{ year }}{% endblock %}
 {% block content %}
 
-<div class="d-flex align-items-center gap-2 mb-3 d-print-none">
+<!-- Toolbar (no se imprime) -->
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap d-print-none">
   <a href="/sorteos/" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-arrow-left"></i>
   </a>
@@ -10,26 +11,42 @@
     <i class="bi bi-file-earmark-text text-warning me-2"></i>
     Extracto · {{ mes_label|title }} {{ year }}
   </h4>
-  <div class="ms-auto">
-    <button class="btn btn-sm btn-outline-primary" onclick="window.print()">
+
+  <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+    <span class="text-muted small">Columnas:</span>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Columnas">
+      <button type="button" class="btn btn-outline-secondary btn-cols" data-cols="1">1</button>
+      <button type="button" class="btn btn-outline-secondary btn-cols active" data-cols="2">2</button>
+      <button type="button" class="btn btn-outline-secondary btn-cols" data-cols="3">3</button>
+    </div>
+    <span class="text-muted small ms-2">Tamaño texto:</span>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Tamaño">
+      <button type="button" class="btn btn-outline-secondary btn-size" data-size="sm">S</button>
+      <button type="button" class="btn btn-outline-secondary btn-size active" data-size="md">M</button>
+      <button type="button" class="btn btn-outline-secondary btn-size" data-size="lg">L</button>
+    </div>
+    <button class="btn btn-sm btn-primary" onclick="window.print()">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
   </div>
 </div>
 
 {% if vacio %}
-  <div class="alert alert-warning">
+  <div class="alert alert-warning d-print-none">
     <i class="bi bi-exclamation-triangle me-2"></i>
     No hay sorteos con resultado cargado en {{ mes_label|title }} {{ year }}.
     <a href="/sorteos/" class="alert-link">Volver a sorteos</a>
   </div>
 {% else %}
 
+<!-- Hoja A4 -->
+<div id="hojaExtracto" class="hoja-a4" data-cols="2" data-size="md">
+
   {% for bloque in bloques %}
-  <div class="extracto-bloque mb-4">
+  <div class="extracto-bloque">
 
     <!-- Encabezado -->
-    <div class="extracto-cabecera text-center">
+    <header class="ext-cabecera">
       <div class="ext-titulo">
         BOMBEROS&nbsp;&nbsp;VOLUNTARIOS<br>
         DE&nbsp;&nbsp;CONCEPCION&nbsp;&nbsp;DEL&nbsp;&nbsp;URUGUAY
@@ -39,10 +56,10 @@
         EXTRACTO SORTEOS {{ bloque.tipo_label }} DEL MES DE {{ mes_label }} {{ year }}
       </div>
       <div class="ext-cifras">A {{ bloque.cifras_label }} CIFRAS.</div>
-    </div>
+    </header>
 
     <!-- Premios -->
-    <div class="extracto-premios">
+    <div class="ext-premios">
       {% for p in bloque.premios %}
         <span class="premio-item">
           {{ p.fecha.strftime("%d/%m/%y") }} {{ p.posicion }}° PREMIO Nº&nbsp;{{ p.numero }}
@@ -51,26 +68,20 @@
     </div>
 
     <!-- Ganadores -->
-    <div class="ext-titulo-seccion text-center my-2">GANADORES</div>
+    <div class="ext-titulo-seccion">GANADORES</div>
 
     {% if bloque.ganadores %}
-      <div class="extracto-ganadores">
+      <div class="ext-ganadores">
         {% for g in bloque.ganadores %}
-          <div class="ganador-linea">
-            {{ g.nombre }}{% if g.direccion %}-{{ g.direccion }}{% endif %}
-          </div>
+          <div class="ganador-linea">{{ g.nombre }}{% if g.direccion %}-{{ g.direccion }}{% endif %}</div>
         {% endfor %}
       </div>
     {% else %}
-      <div class="text-center text-muted small fst-italic">
-        Sin ganadores en este bloque
-      </div>
+      <div class="ext-vacio">— Sin ganadores en este bloque —</div>
     {% endif %}
 
     <!-- Pie -->
-    <div class="ext-pie text-center">
-      PEDIDOS Y CONSULTAS AL 3442-484286
-    </div>
+    <div class="ext-pie">PEDIDOS Y CONSULTAS AL 3442-484286</div>
 
     <div class="text-muted small text-center mt-2 d-print-none">
       {{ bloque.total_ganadores }} ganador{% if bloque.total_ganadores != 1 %}es{% endif %} · {{ bloque.premios|length }} premio{% if bloque.premios|length != 1 %}s{% endif %} cruzado{% if bloque.premios|length != 1 %}s{% endif %}
@@ -78,56 +89,176 @@
   </div>
   {% endfor %}
 
+</div>
+
 {% endif %}
 
 <style>
-  .extracto-bloque {
+  /* ─── Hoja A4 (vista pantalla) ──────────────────────────────────── */
+  .hoja-a4 {
     background: #fff;
-    border: 1px solid #d0d0d0;
-    padding: 14px 18px;
-    max-width: 600px;
-    margin-left: auto;
-    margin-right: auto;
-    font-family: "Times New Roman", Times, serif;
     color: #000;
+    font-family: "Times New Roman", Times, serif;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 8mm 10mm;
+    box-shadow: 0 4px 14px rgba(0,0,0,.12);
+    box-sizing: border-box;
   }
-  .extracto-cabecera { line-height: 1.15; }
-  .ext-titulo { font-weight: 700; font-size: 1.05rem; }
-  .ext-subtitulo { font-weight: 700; font-size: 0.95rem; margin-top: 2px; }
-  .ext-tipo { font-weight: 700; font-size: 0.85rem; margin-top: 2px; }
-  .ext-cifras { font-weight: 700; font-size: 0.85rem; }
-  .ext-titulo-seccion { font-weight: 700; font-size: 0.95rem; }
-  .extracto-premios {
+
+  .extracto-bloque {
+    padding-bottom: 6mm;
+    /* Cuando hay varios bloques (semanal + final), forzar salto de página entre ellos */
+  }
+  .extracto-bloque + .extracto-bloque {
+    border-top: 2px dashed #aaa;
+    margin-top: 6mm;
+    padding-top: 6mm;
+    page-break-before: always;
+    break-before: page;
+  }
+
+  /* ─── Cabecera compacta ─────────────────────────────────────────── */
+  .ext-cabecera { text-align: center; line-height: 1.1; }
+  .ext-titulo { font-weight: 700; font-size: 14pt; letter-spacing: .3px; }
+  .ext-subtitulo { font-weight: 700; font-size: 12pt; margin-top: 2px; }
+  .ext-tipo { font-weight: 700; font-size: 10.5pt; margin-top: 2px; }
+  .ext-cifras { font-weight: 700; font-size: 10.5pt; }
+
+  /* ─── Premios en grilla auto-fit ────────────────────────────────── */
+  .ext-premios {
     text-align: center;
-    font-size: 0.78rem;
-    line-height: 1.4;
-    margin-top: 6px;
+    font-size: 10pt;
+    line-height: 1.35;
+    margin-top: 4mm;
+    margin-bottom: 2mm;
   }
   .premio-item {
     display: inline-block;
-    margin: 0 8px;
+    margin: 0 6px;
     white-space: nowrap;
+    font-weight: 600;
   }
-  .extracto-ganadores {
-    column-count: 1;
-    font-size: 0.82rem;
-    line-height: 1.25;
+
+  /* ─── Sección ganadores ─────────────────────────────────────────── */
+  .ext-titulo-seccion {
+    font-weight: 700;
+    font-size: 11pt;
     text-align: center;
+    margin: 2mm 0 1mm;
   }
-  .ganador-linea { font-weight: 700; }
+  .ext-ganadores {
+    column-count: var(--cols, 2);
+    column-gap: 6mm;
+    column-rule: 1px solid #ddd;
+    text-align: center;
+    font-size: var(--ganador-size, 9.5pt);
+    line-height: var(--ganador-lh, 1.2);
+  }
+  .ganador-linea {
+    font-weight: 700;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    /* Si una línea es muy larga, evitar overflow horizontal en columnas estrechas */
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    padding: 0 2px;
+  }
+  .ext-vacio {
+    text-align: center;
+    font-style: italic;
+    color: #666;
+    font-size: 10pt;
+  }
+
+  /* ─── Pie ───────────────────────────────────────────────────────── */
   .ext-pie {
     font-weight: 700;
-    font-size: 0.85rem;
-    margin-top: 8px;
+    font-size: 11pt;
+    text-align: center;
+    margin-top: 4mm;
     border-top: 1px solid #888;
-    padding-top: 4px;
+    padding-top: 2mm;
   }
-  /* Print: Fase 3 va a optimizar este bloque */
+
+  /* ─── Variantes de tamaño (selector S/M/L) ──────────────────────── */
+  .hoja-a4[data-size="sm"] { --ganador-size: 8.5pt; --ganador-lh: 1.15; }
+  .hoja-a4[data-size="md"] { --ganador-size: 9.5pt; --ganador-lh: 1.20; }
+  .hoja-a4[data-size="lg"] { --ganador-size: 11pt;  --ganador-lh: 1.30; }
+
+  /* Variantes de columnas */
+  .hoja-a4[data-cols="1"] { --cols: 1; }
+  .hoja-a4[data-cols="2"] { --cols: 2; }
+  .hoja-a4[data-cols="3"] { --cols: 3; }
+
+  /* ─── Print A4 ─────────────────────────────────────────────────── */
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
+  }
   @media print {
     .d-print-none { display: none !important; }
-    body { background: #fff !important; }
-    .extracto-bloque { border: none; box-shadow: none; }
+    body { background: #fff !important; padding: 0 !important; margin: 0 !important; }
+    /* Anular el padding de la navbar/main-content */
+    .main-content { padding: 0 !important; }
+    .hoja-a4 {
+      width: auto;
+      min-height: 0;
+      margin: 0;
+      padding: 0;
+      box-shadow: none;
+    }
+    .extracto-bloque + .extracto-bloque {
+      border-top: none;
+      margin-top: 0;
+      padding-top: 0;
+    }
+    /* Evitar que se rompan elementos críticos */
+    .ext-cabecera, .ext-premios, .ext-titulo-seccion, .ext-pie {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
   }
 </style>
+
+<script>
+  // Selector de columnas y tamaño (persistencia en localStorage)
+  (function() {
+    const hoja = document.getElementById('hojaExtracto');
+    if (!hoja) return;
+
+    function aplicar(attr, value) {
+      hoja.dataset[attr] = value;
+      try { localStorage.setItem('extracto_' + attr, value); } catch(e) {}
+    }
+    function activar(grupo, value) {
+      document.querySelectorAll('.btn-' + grupo).forEach(b => {
+        b.classList.toggle('active', b.dataset[grupo === 'cols' ? 'cols' : 'size'] === value);
+      });
+    }
+
+    // Restaurar preferencia guardada
+    try {
+      const colsSaved = localStorage.getItem('extracto_cols');
+      const sizeSaved = localStorage.getItem('extracto_size');
+      if (colsSaved) { aplicar('cols', colsSaved); activar('cols', colsSaved); }
+      if (sizeSaved) { aplicar('size', sizeSaved); activar('size', sizeSaved); }
+    } catch(e) {}
+
+    document.querySelectorAll('.btn-cols').forEach(btn => {
+      btn.addEventListener('click', function() {
+        aplicar('cols', this.dataset.cols);
+        activar('cols', this.dataset.cols);
+      });
+    });
+    document.querySelectorAll('.btn-size').forEach(btn => {
+      btn.addEventListener('click', function() {
+        aplicar('size', this.dataset.size);
+        activar('size', this.dataset.size);
+      });
+    });
+  })();
+</script>
 
 {% endblock %}
