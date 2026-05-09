@@ -14,6 +14,12 @@ from ..scraper import buscar_resultado_tombola
 router = APIRouter(prefix="/sorteos", tags=["sorteos"])
 
 
+_MESES_ES = [
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+]
+
+
 @router.get("/", response_class=HTMLResponse)
 async def listar(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
@@ -30,9 +36,46 @@ async def listar(request: Request, db: Session = Depends(get_db)):
             "num_premios": s.num_premios or 20,
         }
 
+    # Agrupar sorteos por mes (mes-año). Se mantiene el orden cronológico:
+    # el mes actual y los meses futuros primero (más cercanos arriba), después los pasados.
+    grupos = {}
+    for s in sorteos:
+        key = f"{s.fecha.year}-{s.fecha.month:02d}"
+        if key not in grupos:
+            grupos[key] = {
+                "key": key,
+                "year": s.fecha.year,
+                "month": s.fecha.month,
+                "label": f"{_MESES_ES[s.fecha.month - 1]} {s.fecha.year}",
+                "sorteos": [],
+                "con_resultado": 0,
+                "total": 0,
+            }
+        grupos[key]["sorteos"].append(s)
+        grupos[key]["total"] += 1
+        if s.resultado_json:
+            grupos[key]["con_resultado"] += 1
+
+    hoy = date_type.today()
+    mes_actual_key = f"{hoy.year}-{hoy.month:02d}"
+
+    # Orden: primero los del mes actual y futuros (cronológico), después los pasados (recientes arriba)
+    futuros = sorted(
+        [g for g in grupos.values() if g["key"] >= mes_actual_key],
+        key=lambda g: g["key"],
+    )
+    pasados = sorted(
+        [g for g in grupos.values() if g["key"] < mes_actual_key],
+        key=lambda g: g["key"],
+        reverse=True,
+    )
+    sorteos_por_mes = futuros + pasados
+
     return templates.TemplateResponse(request, "sorteos.html", {
         "user": user,
         "sorteos": sorteos,
+        "sorteos_por_mes": sorteos_por_mes,
+        "mes_actual_key": mes_actual_key,
         "ultima_por_tipo": ultima_por_tipo,
     })
 

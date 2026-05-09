@@ -25,116 +25,148 @@
   </div>
 </div>
 
-<div class="card border-0 shadow-sm">
-  <div class="table-responsive">
-    <table class="table table-hover table-sm align-middle mb-0" id="tablaSorteos">
-      <thead class="table-light">
-        <tr>
-          <th>Tipo</th>
-          <th>Nombre / Descripción</th>
-          <th>Cifras</th>
-          <th>Fecha</th>
-          <th>Resultados</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in sorteos %}
-        {% set cifras_list = (s.cifras|string).split(",") %}
-        <tr data-tipo="{{ s.tipo.value }}" data-fecha="{{ s.fecha.strftime('%Y-%m-%d') }}" data-sid="{{ s.id }}">
-          <td>
-            {% if s.tipo.value == "SEMANAL" %}
-              <span class="badge" style="background:#0d6efd;">Semanal</span>
-            {% elif s.tipo.value == "MENSUAL" %}
-              <span class="badge" style="background:#198754;">Mensual</span>
-            {% elif s.tipo.value == "CONTADO" %}
-              <span class="badge" style="background:#fd7e14;">Al contado</span>
-            {% else %}
-              <span class="badge" style="background:#dc3545;">Final</span>
-            {% endif %}
-          </td>
-          <td>
-            {{ s.nombre or "—" }}
-            {% if s.descripcion %}
-              <div class="text-muted small" style="font-size:0.75rem;">{{ s.descripcion }}</div>
-            {% endif %}
-          </td>
-          <td>
-            {% for c in cifras_list %}
-              <span class="badge bg-secondary">{{ c }} cifras</span>
-            {% endfor %}
-          </td>
-          <td>{{ s.fecha.strftime("%d/%m/%Y") }}</td>
+<!-- Acordeón por mes -->
+<div class="accordion" id="accordionMeses">
+  {% for grupo in sorteos_por_mes %}
+  <div class="accordion-item border-0 shadow-sm mb-2 mes-grupo" data-mes-key="{{ grupo.key }}">
+    <h2 class="accordion-header">
+      <button class="accordion-button mes-header {% if grupo.key != mes_actual_key %}collapsed{% endif %}"
+              type="button" data-bs-toggle="collapse"
+              data-bs-target="#mes-{{ grupo.key }}"
+              aria-expanded="{% if grupo.key == mes_actual_key %}true{% else %}false{% endif %}">
+        <div class="d-flex align-items-center gap-2 w-100 me-2 flex-wrap">
+          <i class="bi bi-calendar3 text-danger"></i>
+          <span class="fw-bold">{{ grupo.label }}</span>
+          <span class="badge bg-secondary mes-total">{{ grupo.total }} sorteo{% if grupo.total != 1 %}s{% endif %}</span>
+          {% if grupo.con_resultado > 0 %}
+            <span class="badge bg-success">{{ grupo.con_resultado }} con resultado</span>
+          {% else %}
+            <span class="badge bg-light text-muted border">Sin resultados aún</span>
+          {% endif %}
+          <span class="ms-auto"></span>
+          {# Botón "Extracto" se agrega en Fase 2 cuando exista el endpoint #}
+        </div>
+      </button>
+    </h2>
+    <div id="mes-{{ grupo.key }}" class="accordion-collapse collapse {% if grupo.key == mes_actual_key %}show{% endif %}">
+      <div class="accordion-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover table-sm align-middle mb-0 tabla-sorteos">
+            <thead class="table-light">
+              <tr>
+                <th>Tipo</th>
+                <th>Nombre / Descripción</th>
+                <th>Cifras</th>
+                <th>Fecha</th>
+                <th>Resultados</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in grupo.sorteos %}
+              {% set cifras_list = (s.cifras|string).split(",") %}
+              <tr data-tipo="{{ s.tipo.value }}" data-fecha="{{ s.fecha.strftime('%Y-%m-%d') }}" data-sid="{{ s.id }}">
+                <td>
+                  {% if s.tipo.value == "SEMANAL" %}
+                    <span class="badge" style="background:#0d6efd;">Semanal</span>
+                  {% elif s.tipo.value == "MENSUAL" %}
+                    <span class="badge" style="background:#198754;">Mensual</span>
+                  {% elif s.tipo.value == "CONTADO" %}
+                    <span class="badge" style="background:#fd7e14;">Al contado</span>
+                  {% else %}
+                    <span class="badge" style="background:#dc3545;">Final</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {{ s.nombre or "—" }}
+                  {% if s.descripcion %}
+                    <div class="text-muted small" style="font-size:0.75rem;">{{ s.descripcion }}</div>
+                  {% endif %}
+                </td>
+                <td>
+                  {% for c in cifras_list %}
+                    <span class="badge bg-secondary">{{ c }} cifras</span>
+                  {% endfor %}
+                </td>
+                <td>{{ s.fecha.strftime("%d/%m/%Y") }}</td>
 
-          <!-- Columna resultados -->
-          <td class="col-resultado" id="resultado-{{ s.id }}">
-            {% if s.resultado_json %}
-              {% set numeros = s.resultado_json[1:-1].replace('"','').split(',') %}
-              <div class="resultado-grilla">
-                {% for c in cifras_list | reverse %}
-                  <div class="mb-1">
-                    <span class="text-muted small fw-semibold me-1">{{ c }}c:</span>
-                    {% for n in numeros[:20] %}
-                      <span class="badge resultado-badge cifra-{{ c }}" title="{{ loop.index }}° premio">
-                        <span class="ordinal">{{ loop.index }}°</span>
-                        {% if c == "2" %}{{ n[-2:] }}
-                        {% elif c == "3" %}{{ n.zfill(4)[-3:] }}
-                        {% else %}{{ n.zfill(4) }}
-                        {% endif %}
-                      </span>
-                    {% endfor %}
-                  </div>
-                {% endfor %}
-              </div>
-            {% else %}
-              <span class="text-muted small fst-italic" id="estado-{{ s.id }}">Sin resultado</span>
-            {% endif %}
-          </td>
+                <!-- Columna resultados -->
+                <td class="col-resultado" id="resultado-{{ s.id }}">
+                  {% if s.resultado_json %}
+                    {% set numeros = s.resultado_json[1:-1].replace('"','').split(',') %}
+                    <div class="resultado-grilla">
+                      {% for c in cifras_list | reverse %}
+                        <div class="mb-1">
+                          <span class="text-muted small fw-semibold me-1">{{ c }}c:</span>
+                          {% for n in numeros[:20] %}
+                            <span class="badge resultado-badge cifra-{{ c }}" title="{{ loop.index }}° premio">
+                              <span class="ordinal">{{ loop.index }}°</span>
+                              {% if c == "2" %}{{ n[-2:] }}
+                              {% elif c == "3" %}{{ n.zfill(4)[-3:] }}
+                              {% else %}{{ n.zfill(4) }}
+                              {% endif %}
+                            </span>
+                          {% endfor %}
+                        </div>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <span class="text-muted small fst-italic" id="estado-{{ s.id }}">Sin resultado</span>
+                  {% endif %}
+                </td>
 
-          <td class="text-end" style="white-space:nowrap;">
-            {% if s.resultado_json %}
-              <a href="/sorteos/{{ s.id }}/ganadores"
-                 class="btn btn-sm btn-warning me-1"
-                 title="Ver ganadores">
-                <i class="bi bi-trophy-fill"></i>
-              </a>
-            {% endif %}
-            <button class="btn btn-sm btn-outline-secondary me-1 btn-editar-sorteo"
-                    data-sid="{{ s.id }}"
-                    data-nombre="{{ s.nombre or '' }}"
-                    data-descripcion="{{ s.descripcion or '' }}"
-                    data-tipo="{{ s.tipo.value }}"
-                    data-cifras="{{ s.cifras }}"
-                    data-fecha="{{ s.fecha.strftime('%Y-%m-%d') }}"
-                    data-numpremios="{{ s.num_premios or 20 }}"
-                    title="Editar sorteo">
-              <i class="bi bi-gear"></i>
-            </button>
-            <button class="btn btn-sm btn-outline-primary me-1 btn-cargar-resultado"
-                    data-sid="{{ s.id }}"
-                    data-fecha="{{ s.fecha.strftime('%d/%m/%Y') }}"
-                    data-resultado="{{ s.resultado_json or '' }}"
-                    data-numpremios="{{ s.num_premios or 20 }}"
-                    title="Cargar resultado">
-              <i class="bi bi-pencil-square"></i>
-            </button>
-            <form method="post" action="/sorteos/{{ s.id }}/eliminar" class="d-inline"
-                  onsubmit="return confirm('¿Eliminar este sorteo?')">
-              <button class="btn btn-sm btn-outline-danger" title="Eliminar">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="6" class="text-center text-muted py-4">Sin sorteos registrados</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+                <td class="text-end" style="white-space:nowrap;">
+                  {% if s.resultado_json %}
+                    <a href="/sorteos/{{ s.id }}/ganadores"
+                       class="btn btn-sm btn-warning me-1"
+                       title="Ver ganadores">
+                      <i class="bi bi-trophy-fill"></i>
+                    </a>
+                  {% endif %}
+                  <button class="btn btn-sm btn-outline-secondary me-1 btn-editar-sorteo"
+                          data-sid="{{ s.id }}"
+                          data-nombre="{{ s.nombre or '' }}"
+                          data-descripcion="{{ s.descripcion or '' }}"
+                          data-tipo="{{ s.tipo.value }}"
+                          data-cifras="{{ s.cifras }}"
+                          data-fecha="{{ s.fecha.strftime('%Y-%m-%d') }}"
+                          data-numpremios="{{ s.num_premios or 20 }}"
+                          title="Editar sorteo">
+                    <i class="bi bi-gear"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-primary me-1 btn-cargar-resultado"
+                          data-sid="{{ s.id }}"
+                          data-fecha="{{ s.fecha.strftime('%d/%m/%Y') }}"
+                          data-resultado="{{ s.resultado_json or '' }}"
+                          data-numpremios="{{ s.num_premios or 20 }}"
+                          title="Cargar resultado">
+                    <i class="bi bi-pencil-square"></i>
+                  </button>
+                  <form method="post" action="/sorteos/{{ s.id }}/eliminar" class="d-inline"
+                        onsubmit="return confirm('¿Eliminar este sorteo?')">
+                    <button class="btn btn-sm btn-outline-danger" title="Eliminar">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="card-footer text-muted small">
-    <span id="contadorSorteos">{{ sorteos|length }}</span> sorteo(s)
+  {% else %}
+  <div class="text-center text-muted py-5 bg-white shadow-sm rounded">
+    <i class="bi bi-calendar-x fs-1 d-block mb-2"></i>
+    Sin sorteos registrados
   </div>
+  {% endfor %}
+</div>
+
+<div class="text-muted small mt-2 px-1">
+  <span id="contadorSorteos">{{ sorteos|length }}</span> sorteo(s) · <span id="contadorMeses">{{ sorteos_por_mes|length }}</span> mes(es)
 </div>
 
 <!-- Modal Nuevo Sorteo -->
@@ -404,14 +436,25 @@
 </div>
 
 <style>
-  #tablaSorteos { font-size: 0.85rem; }
-  #tablaSorteos thead th { font-size: 0.8rem; white-space: nowrap; }
+  .tabla-sorteos { font-size: 0.85rem; }
+  .tabla-sorteos thead th { font-size: 0.8rem; white-space: nowrap; }
   .resultado-badge { font-size: 0.75rem; margin: 1px 2px; padding: 2px 5px; }
   .resultado-badge .ordinal { font-size: 0.6rem; opacity: 0.75; margin-right: 2px; vertical-align: super; }
   .cifra-2 { background: #6c757d; }
   .cifra-3 { background: #0d6efd; }
   .cifra-4 { background: #198754; }
   .resultado-grilla { max-width: 500px; }
+  /* Acordeón mes */
+  .mes-grupo { border-radius: 8px; overflow: hidden; }
+  .mes-header { background: #f8f9fa; font-size: 0.95rem; padding: .65rem 1rem; }
+  .mes-header:not(.collapsed) { background: #fff5f5; color: #1a2a4a; box-shadow: none; }
+  .mes-header:focus { box-shadow: none; }
+  .mes-total { font-weight: 500; }
+  .btn-extracto { white-space: nowrap; }
+  @media (max-width: 575.98px) {
+    .mes-header { font-size: 0.85rem; padding: .55rem .75rem; }
+    .btn-extracto { padding: .15rem .4rem; font-size: 0.75rem; }
+  }
 </style>
 
 <script>
@@ -700,14 +743,35 @@
 
   function aplicarFiltros() {
     let visible = 0;
-    document.querySelectorAll('#tablaSorteos tbody tr[data-tipo]').forEach(row => {
+    document.querySelectorAll('.tabla-sorteos tbody tr[data-tipo]').forEach(row => {
       const matchTipo = filtroTipoActual === 'TODOS' || row.dataset.tipo === filtroTipoActual;
       const matchFecha = !filtroFechaActual || row.dataset.fecha === filtroFechaActual;
       const mostrar = matchTipo && matchFecha;
       row.style.display = mostrar ? '' : 'none';
       if (mostrar) visible++;
     });
+    // Ocultar meses sin filas visibles y abrir los que tienen coincidencias cuando hay filtro activo
+    let mesesVisibles = 0;
+    const hayFiltro = filtroTipoActual !== 'TODOS' || !!filtroFechaActual;
+    document.querySelectorAll('.mes-grupo').forEach(grupo => {
+      const filasVisibles = grupo.querySelectorAll('tbody tr[data-tipo]:not([style*="display: none"])').length;
+      if (filasVisibles === 0) {
+        grupo.style.display = 'none';
+      } else {
+        grupo.style.display = '';
+        mesesVisibles++;
+        // Si hay un filtro activo, abrir el accordion para que se vean las filas
+        if (hayFiltro) {
+          const collapse = grupo.querySelector('.accordion-collapse');
+          if (collapse && !collapse.classList.contains('show')) {
+            bootstrap.Collapse.getOrCreateInstance(collapse, { toggle: false }).show();
+          }
+        }
+      }
+    });
     document.getElementById('contadorSorteos').textContent = visible;
+    const cm = document.getElementById('contadorMeses');
+    if (cm) cm.textContent = mesesVisibles;
   }
 
   document.querySelectorAll('.filtro-tipo').forEach(btn => {
