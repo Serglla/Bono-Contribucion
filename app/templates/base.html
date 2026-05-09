@@ -8,92 +8,131 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <style>
     body { background: #f4f6f9; }
-    .sidebar { min-height: 100vh; background: #1a2a4a; }
-    .sidebar .nav-link { color: #adb5bd; border-radius: 8px; margin: 2px 8px; display: flex; align-items: center; }
-    .sidebar .nav-link:hover, .sidebar .nav-link.active { background: #e63946; color: #fff; }
-    .sidebar .brand { color: #fff; font-weight: 700; font-size: 1.1rem; }
-    .sidebar .brand small { color: #adb5bd; font-size: .75rem; }
-    .main-content { min-height: 100vh; }
+    /* Topbar */
+    .topbar { background: #1a2a4a; }
+    .topbar .navbar-brand { color: #fff; font-weight: 700; font-size: 1.05rem; line-height: 1.1; }
+    .topbar .navbar-brand small { color: #adb5bd; font-size: .7rem; display: block; font-weight: 500; }
+    .topbar .nav-link { color: #adb5bd; border-radius: 6px; margin: 2px 2px; padding: .4rem .7rem; display: flex; align-items: center; white-space: nowrap; }
+    .topbar .nav-link:hover { background: rgba(255,255,255,.08); color: #fff; }
+    .topbar .nav-link.active { background: #e63946; color: #fff; }
+    .topbar .navbar-toggler { border-color: rgba(255,255,255,.25); }
+    .topbar .navbar-toggler-icon {
+      background-image: url("data:image/svg+xml;charset=utf8,%3Csvg viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath stroke='rgba(255,255,255,0.85)' stroke-width='2' stroke-linecap='round' stroke-miterlimit='10' d='M4 7h22M4 15h22M4 23h22'/%3E%3C/svg%3E");
+    }
+    .topbar .user-info { color: #adb5bd; font-size: .8rem; }
+    .topbar .user-info .username { color: #fff; }
+    .main-content { min-height: calc(100vh - 56px); }
     .badge-vendido { background: #198754; }
     .badge-caja { background: #0d6efd; }
     .badge-baja { background: #dc3545; }
     .badge-en_cobranza { background: #ffc107; color: #000; }
     .badge-sin_vender { background: #6c757d; }
+    /* Mobile tweaks */
+    @media (max-width: 991.98px) {
+      .topbar .nav-link { padding: .55rem .8rem; margin: 1px 0; }
+      .topbar .nav-link.active { background: #e63946; }
+      .topbar .user-block { border-top: 1px solid rgba(255,255,255,.1); margin-top: .5rem; padding-top: .75rem; }
+      .main-content { padding: 1rem !important; }
+    }
   </style>
 </head>
 <body>
-<div class="d-flex">
-  <!-- Sidebar -->
-  <div class="sidebar p-3" style="width:220px; min-width:220px;">
-    <div class="brand mb-4 ps-2">
-      <i class="bi bi-shield-fill-check text-danger"></i> CDELU<br>
-      <small>Bomberos 2026-2027</small>
-    </div>
-    <nav class="nav flex-column">
-      {% if has_permission(user, 'reportes', 'ver') %}
-      <a class="nav-link {% if request.url.path.startswith('/reportes') %}active{% endif %}" href="/reportes/">
-        <i class="bi bi-bar-chart-fill me-2"></i>Dashboard
-      </a>
-      {% endif %}
-      {% if has_permission(user, 'taloneras', 'ver') %}
-      <a class="nav-link {% if request.url.path.startswith('/taloneras') %}active{% endif %}" href="/taloneras/">
-        <i class="bi bi-journal-text me-2"></i>Taloneras
-      </a>
-      {% endif %}
-      {% if has_permission(user, 'compradores', 'ver') %}
-      <a class="nav-link {% if request.url.path.startswith('/compradores') %}active{% endif %}" href="/compradores/">
-        <i class="bi bi-people-fill me-2"></i>Socios
-      </a>
-      {% endif %}
-      {% if has_permission(user, 'vendedores', 'ver') %}
-      <a class="nav-link {% if request.url.path.startswith('/vendedores') %}active{% endif %}" href="/vendedores/">
-        <i class="bi bi-person-badge me-2"></i>Vendedores
-      </a>
-      {% endif %}
-      {% if has_permission(user, 'cobradores', 'ver') %}
-      <a class="nav-link {% if request.url.path.startswith('/cobradores') %}active{% endif %}" href="/cobradores/">
-        <i class="bi bi-cash-coin me-2"></i>Cobradores
-      </a>
-      {% endif %}
-      {% if has_permission(user, 'zonas', 'ver') %}
-      <a class="nav-link {% if request.url.path.startswith('/zonas') %}active{% endif %}" href="/zonas/">
-        <i class="bi bi-geo-alt-fill me-2"></i>Zonas
-      </a>
-      {% endif %}
-      {% if has_permission(user, 'sorteos', 'ver') %}
-      <a class="nav-link {% if request.url.path.startswith('/sorteos') %}active{% endif %}" href="/sorteos/">
-        <i class="bi bi-trophy-fill me-2"></i>Sorteos
-      </a>
-      {% endif %}
-      {% if has_permission(user, 'cobranza', 'ver') %}
-      <a class="nav-link {% if request.url.path.startswith('/cobranza') %}active{% endif %}" href="/cobranza/">
-        <i class="bi bi-wallet2 me-2"></i>Cobranza
-      </a>
-      {% endif %}
-      {% if user and user.is_admin %}
-      <hr class="text-secondary">
-      <a class="nav-link {% if request.url.path.startswith('/auth/usuarios') %}active{% endif %}" href="/auth/usuarios">
-        <i class="bi bi-person-lock me-2"></i>Usuarios
-      </a>
-      <a class="nav-link {% if request.url.path.startswith('/backup') %}active{% endif %}" href="/backup/">
-        <i class="bi bi-database-fill-down me-2"></i>Backup
-      </a>
-      {% endif %}
-    </nav>
-    <div class="mt-auto pt-4 ps-2">
+<!-- Topbar -->
+<nav class="navbar navbar-expand-lg topbar shadow-sm sticky-top">
+  <div class="container-fluid px-3">
+    <a class="navbar-brand d-flex align-items-center" href="/reportes/">
+      <i class="bi bi-shield-fill-check text-danger me-2 fs-4"></i>
+      <span>CDELU<small>Bomberos 2026-2027</small></span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="mainNav">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        {% if has_permission(user, 'reportes', 'ver') %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/reportes') %}active{% endif %}" href="/reportes/">
+            <i class="bi bi-bar-chart-fill me-1"></i>Dashboard
+          </a>
+        </li>
+        {% endif %}
+        {% if has_permission(user, 'taloneras', 'ver') %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/taloneras') %}active{% endif %}" href="/taloneras/">
+            <i class="bi bi-journal-text me-1"></i>Taloneras
+          </a>
+        </li>
+        {% endif %}
+        {% if has_permission(user, 'compradores', 'ver') %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/compradores') %}active{% endif %}" href="/compradores/">
+            <i class="bi bi-people-fill me-1"></i>Socios
+          </a>
+        </li>
+        {% endif %}
+        {% if has_permission(user, 'vendedores', 'ver') %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/vendedores') %}active{% endif %}" href="/vendedores/">
+            <i class="bi bi-person-badge me-1"></i>Vendedores
+          </a>
+        </li>
+        {% endif %}
+        {% if has_permission(user, 'cobradores', 'ver') %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/cobradores') %}active{% endif %}" href="/cobradores/">
+            <i class="bi bi-cash-coin me-1"></i>Cobradores
+          </a>
+        </li>
+        {% endif %}
+        {% if has_permission(user, 'zonas', 'ver') %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/zonas') %}active{% endif %}" href="/zonas/">
+            <i class="bi bi-geo-alt-fill me-1"></i>Zonas
+          </a>
+        </li>
+        {% endif %}
+        {% if has_permission(user, 'sorteos', 'ver') %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/sorteos') %}active{% endif %}" href="/sorteos/">
+            <i class="bi bi-trophy-fill me-1"></i>Sorteos
+          </a>
+        </li>
+        {% endif %}
+        {% if has_permission(user, 'cobranza', 'ver') %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/cobranza') %}active{% endif %}" href="/cobranza/">
+            <i class="bi bi-wallet2 me-1"></i>Cobranza
+          </a>
+        </li>
+        {% endif %}
+        {% if user and user.is_admin %}
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/auth/usuarios') %}active{% endif %}" href="/auth/usuarios">
+            <i class="bi bi-person-lock me-1"></i>Usuarios
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/backup') %}active{% endif %}" href="/backup/">
+            <i class="bi bi-database-fill-down me-1"></i>Backup
+          </a>
+        </li>
+        {% endif %}
+      </ul>
       {% if user %}
-      <small class="text-secondary d-block mb-1"><i class="bi bi-person-circle me-1"></i>{{ user.username }}</small>
-      <a href="/auth/logout" class="btn btn-sm btn-outline-secondary w-100">
-        <i class="bi bi-box-arrow-left me-1"></i>Salir
-      </a>
+      <div class="d-flex align-items-center user-block gap-2">
+        <span class="user-info"><i class="bi bi-person-circle me-1"></i><span class="username">{{ user.username }}</span></span>
+        <a href="/auth/logout" class="btn btn-sm btn-outline-light">
+          <i class="bi bi-box-arrow-left me-1"></i>Salir
+        </a>
+      </div>
       {% endif %}
     </div>
   </div>
+</nav>
 
-  <!-- Main -->
-  <div class="main-content flex-grow-1 p-4">
-    {% block content %}{% endblock %}
-  </div>
+<!-- Main -->
+<div class="main-content p-4">
+  {% block content %}{% endblock %}
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 {% block scripts %}{% endblock %}
