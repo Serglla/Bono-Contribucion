@@ -79,13 +79,25 @@ function completarFaltantes(tipo, btn, alertaId) {
   </div>
 </div>
 
-<!-- Búsqueda -->
-<form class="mb-3 d-flex gap-2" method="get">
-  {% if pata %}<input type="hidden" name="pata" value="{{ pata }}">{% endif %}
-  <input type="text" name="q" class="form-control" placeholder="Buscar por nombre..." value="{{ q }}">
-  <button class="btn btn-outline-secondary">Buscar</button>
-  {% if q %}<a href="/compradores/?pata={{ pata }}" class="btn btn-outline-danger">Limpiar</a>{% endif %}
-</form>
+<!-- Búsqueda — un solo input con selector de columna (cliente) -->
+<div class="mb-3 d-flex gap-2 align-items-center">
+  <select id="busquedaColumna" class="form-select" style="max-width:180px;">
+    <option value="-1">Todo</option>
+    <option value="0">N° Boleta</option>
+    <option value="1">Apellido y Nombre</option>
+    <option value="2">Dirección</option>
+    <option value="3">Zona</option>
+    <option value="4">Fecha compra</option>
+    <option value="5">Vendedor</option>
+    <option value="6">Cobrador</option>
+    <option value="7">Teléfono</option>
+    <option value="8">Condición</option>
+  </select>
+  <input type="text" id="busquedaTexto" class="form-control" placeholder="Buscar..." value="{{ q }}" autocomplete="off">
+  <button type="button" class="btn btn-outline-danger" id="btnBusquedaLimpiar" title="Limpiar búsqueda">
+    <i class="bi bi-x-lg"></i>
+  </button>
+</div>
 
 <div class="card border-0 shadow-sm">
   <div class="table-responsive">
@@ -118,19 +130,6 @@ function completarFaltantes(tipo, btn, alertaId) {
           </th>
           <th>Condición</th>
           <th></th>
-        </tr>
-        <!-- Fila de filtros de columna -->
-        <tr id="filaFiltros">
-          <td><input type="text" class="form-control form-control-sm col-filter" data-col="0" placeholder="Filtrar N°…"></td>
-          <td><input type="text" class="form-control form-control-sm col-filter" data-col="1" placeholder="Filtrar nombre…"></td>
-          <td><input type="text" class="form-control form-control-sm col-filter" data-col="2" placeholder="Filtrar dirección…"></td>
-          <td><input type="text" class="form-control form-control-sm col-filter" data-col="3" placeholder="Filtrar zona…"></td>
-          <td><input type="text" class="form-control form-control-sm col-filter" data-col="4" placeholder="Filtrar fecha…"></td>
-          <td><input type="text" class="form-control form-control-sm col-filter" data-col="5" placeholder="Filtrar vendedor…"></td>
-          <td><input type="text" class="form-control form-control-sm col-filter" data-col="6" placeholder="Filtrar cobrador…"></td>
-          <td><input type="text" class="form-control form-control-sm col-filter" data-col="7" placeholder="Filtrar tel…"></td>
-          <td><input type="text" class="form-control form-control-sm col-filter" data-col="8" placeholder="Filtrar condición…"></td>
-          <td><button class="btn btn-sm btn-outline-secondary" id="btnLimpiarFiltros" title="Limpiar filtros"><i class="bi bi-x-lg"></i></button></td>
         </tr>
       </thead>
       <tbody id="tbodyCompradores">
@@ -217,15 +216,15 @@ function completarFaltantes(tipo, btn, alertaId) {
   .sortable.desc .sort-icon::after { content: " ▼"; color: #dc3545; }
   .sortable.asc .sort-icon,
   .sortable.desc .sort-icon { display: none; }
-  #filaFiltros td { padding: 3px 6px; background: #fff; }
-  #filaFiltros .form-control-sm { font-size: 0.72rem; padding: 2px 5px; }
 </style>
 
 <script>
 (function() {
   const tbody = document.getElementById('tbodyCompradores');
   const headers = document.querySelectorAll('#tablaCompradores thead .sortable');
-  const filters = document.querySelectorAll('.col-filter');
+  const inputBusqueda = document.getElementById('busquedaTexto');
+  const selectCol = document.getElementById('busquedaColumna');
+  const btnLimpiar = document.getElementById('btnBusquedaLimpiar');
   const contador = document.getElementById('contadorVisible');
   let sortState = { col: -1, asc: true };
 
@@ -267,38 +266,59 @@ function completarFaltantes(tipo, btn, alertaId) {
       return sortState.asc ? va.localeCompare(vb, 'es') : vb.localeCompare(va, 'es');
     });
     rows.forEach(r => tbody.appendChild(r));
-    applyFilters();
+    aplicarBusqueda();
   }
 
-  // ── Filtros de columna ───────────────────────────────────────────────
-  filters.forEach(input => input.addEventListener('input', applyFilters));
+  // ── Buscador único con selector de columna ──────────────────────────
+  // col === -1 → busca en todas las columnas (Todo)
+  // col >= 0  → busca solo en esa columna
+  function textoCelda(td, col) {
+    if (!td) return '';
+    if ((col === 0 || col === 4) && td.dataset.val !== undefined) {
+      return (td.dataset.val + ' ' + td.innerText).toLowerCase();
+    }
+    return td.innerText.toLowerCase();
+  }
 
-  function applyFilters() {
-    const vals = Array.from(filters).map(i => i.value.trim().toLowerCase());
+  function aplicarBusqueda() {
+    const q = inputBusqueda.value.trim().toLowerCase();
+    const col = parseInt(selectCol.value);
     let visible = 0;
     tbody.querySelectorAll('tr').forEach(row => {
       const tds = row.querySelectorAll('td');
       if (tds.length < 7) { row.style.display = ''; return; }
-      const show = vals.every((val, col) => {
-        if (!val) return true;
-        const text = (col === 0 && tds[col].dataset.val !== undefined)
-          ? (tds[col].dataset.val + ' ' + tds[col].innerText).toLowerCase()
-          : tds[col].innerText.toLowerCase();
-        return text.includes(val);
-      });
+      let show = true;
+      if (q) {
+        if (col === -1) {
+          // Buscar en todas las columnas relevantes (0..8)
+          show = false;
+          for (let c = 0; c <= 8; c++) {
+            if (textoCelda(tds[c], c).includes(q)) { show = true; break; }
+          }
+        } else {
+          show = textoCelda(tds[col], col).includes(q);
+        }
+      }
       row.style.display = show ? '' : 'none';
       if (show) visible++;
     });
     if (contador) contador.textContent = visible;
   }
 
-  // ── Limpiar filtros ──────────────────────────────────────────────────
-  document.getElementById('btnLimpiarFiltros').addEventListener('click', () => {
-    filters.forEach(i => { i.value = ''; });
-    applyFilters();
+  inputBusqueda.addEventListener('input', aplicarBusqueda);
+  selectCol.addEventListener('change', aplicarBusqueda);
+  btnLimpiar.addEventListener('click', () => {
+    inputBusqueda.value = '';
+    selectCol.value = '-1';
+    aplicarBusqueda();
+    inputBusqueda.focus();
+  });
+  // Enter no recarga la página
+  inputBusqueda.addEventListener('keydown', e => {
+    if (e.key === 'Enter') e.preventDefault();
   });
 
-  applyFilters();
+  aplicarBusqueda();
 })();
 
 // Mayúsculas en tiempo real
