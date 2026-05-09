@@ -35,21 +35,36 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         total = db.query(func.count(models.Boleta.id)).filter(
             models.Boleta.talonera_id.in_(ids)
         ).scalar()
+        # Vendidas — MISMO criterio que Top Vendedores y tarjetas (08/05/2026):
+        # boletas cargadas con socio (comprador_id IS NOT NULL),
+        # sin filtrar por condicion. Incluye VENDIDO + CAJA-con-socio +
+        # EN_COBRANZA + BAJA, porque todas siguen siendo "vendidas".
         vendidas = db.query(func.count(models.Boleta.id)).filter(
             models.Boleta.talonera_id.in_(ids),
-            models.Boleta.condicion == CondicionBoleta.VENDIDO
+            models.Boleta.comprador_id.isnot(None)
         ).scalar()
+        # Baja y En Cobranza — sub-estados informativos DENTRO de vendidas
         baja = db.query(func.count(models.Boleta.id)).filter(
             models.Boleta.talonera_id.in_(ids),
             models.Boleta.condicion == CondicionBoleta.BAJA
         ).scalar()
-        en_caja = db.query(func.count(models.Boleta.id)).filter(
-            models.Boleta.talonera_id.in_(ids),
-            models.Boleta.condicion == CondicionBoleta.CAJA
-        ).scalar()
         en_cobranza = db.query(func.count(models.Boleta.id)).filter(
             models.Boleta.talonera_id.in_(ids),
             models.Boleta.condicion == CondicionBoleta.EN_COBRANZA
+        ).scalar()
+        # En Caja — solo boletas en CAJA sin comprador asignado (físicamente
+        # con el vendedor, aún no cargadas como vendidas). Las CAJA-con-socio
+        # ya están contadas dentro de "vendidas".
+        en_caja = db.query(func.count(models.Boleta.id)).filter(
+            models.Boleta.talonera_id.in_(ids),
+            models.Boleta.condicion == CondicionBoleta.CAJA,
+            models.Boleta.comprador_id.is_(None)
+        ).scalar()
+        # Sin Vender — consulta directa por condicion (no por resta) para
+        # evitar errores con el overlap de baja/en_cobranza dentro de vendidas
+        sin_vender = db.query(func.count(models.Boleta.id)).filter(
+            models.Boleta.talonera_id.in_(ids),
+            models.Boleta.condicion == CondicionBoleta.SIN_VENDER
         ).scalar()
         cuotas_cobradas = db.query(func.sum(models.Boleta.cuotas_pagadas)).filter(
             models.Boleta.talonera_id.in_(ids)
@@ -62,7 +77,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "baja": baja,
             "en_caja": en_caja,
             "en_cobranza": en_cobranza,
-            "sin_vender": total - vendidas - baja - en_caja - en_cobranza,
+            "sin_vender": sin_vender,
             "cuotas_cobradas": cuotas_cobradas,
             "total_ponderado": total * factor,
             "vendidas_ponderado": vendidas * factor,
