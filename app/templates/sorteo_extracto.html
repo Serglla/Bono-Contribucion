@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Extracto {{ mes_label }} {{ year }}{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center gap-2 mb-3 d-print-none">
+  <a href="/sorteos/" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-file-earmark-text text-warning me-2"></i>
+    Extracto · {{ mes_label|title }} {{ year }}
+  </h4>
+  <div class="ms-auto">
+    <button class="btn btn-sm btn-outline-primary" onclick="window.print()">
+      <i class="bi bi-printer me-1"></i>Imprimir
+    </button>
+  </div>
+</div>
+
+{% if vacio %}
+  <div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    No hay sorteos con resultado cargado en {{ mes_label|title }} {{ year }}.
+    <a href="/sorteos/" class="alert-link">Volver a sorteos</a>
+  </div>
+{% else %}
+
+  {% for bloque in bloques %}
+  <div class="extracto-bloque mb-4">
+
+    <!-- Encabezado -->
+    <div class="extracto-cabecera text-center">
+      <div class="ext-titulo">
+        BOMBEROS&nbsp;&nbsp;VOLUNTARIOS<br>
+        DE&nbsp;&nbsp;CONCEPCION&nbsp;&nbsp;DEL&nbsp;&nbsp;URUGUAY
+      </div>
+      <div class="ext-subtitulo">TOMBOLA NOCTURNA DE E. RIOS</div>
+      <div class="ext-tipo">
+        EXTRACTO SORTEOS {{ bloque.tipo_label }} DEL MES DE {{ mes_label }} {{ year }}
+      </div>
+      <div class="ext-cifras">A {{ bloque.cifras_label }} CIFRAS.</div>
+    </div>
+
+    <!-- Premios -->
+    <div class="extracto-premios">
+      {% for p in bloque.premios %}
+        <span class="premio-item">
+          {{ p.fecha.strftime("%d/%m/%y") }} {{ p.posicion }}° PREMIO Nº&nbsp;{{ p.numero }}
+        </span>
+      {% endfor %}
+    </div>
+
+    <!-- Ganadores -->
+    <div class="ext-titulo-seccion text-center my-2">GANADORES</div>
+
+    {% if bloque.ganadores %}
+      <div class="extracto-ganadores">
+        {% for g in bloque.ganadores %}
+          <div class="ganador-linea">
+            {{ g.nombre }}{% if g.direccion %}-{{ g.direccion }}{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-center text-muted small fst-italic">
+        Sin ganadores en este bloque
+      </div>
+    {% endif %}
+
+    <!-- Pie -->
+    <div class="ext-pie text-center">
+      PEDIDOS Y CONSULTAS AL 3442-484286
+    </div>
+
+    <div class="text-muted small text-center mt-2 d-print-none">
+      {{ bloque.total_ganadores }} ganador{% if bloque.total_ganadores != 1 %}es{% endif %} · {{ bloque.premios|length }} premio{% if bloque.premios|length != 1 %}s{% endif %} cruzado{% if bloque.premios|length != 1 %}s{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+{% endif %}
+
+<style>
+  .extracto-bloque {
+    background: #fff;
+    border: 1px solid #d0d0d0;
+    padding: 14px 18px;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+    font-family: "Times New Roman", Times, serif;
+    color: #000;
+  }
+  .extracto-cabecera { line-height: 1.15; }
+  .ext-titulo { font-weight: 700; font-size: 1.05rem; }
+  .ext-subtitulo { font-weight: 700; font-size: 0.95rem; margin-top: 2px; }
+  .ext-tipo { font-weight: 700; font-size: 0.85rem; margin-top: 2px; }
+  .ext-cifras { font-weight: 700; font-size: 0.85rem; }
+  .ext-titulo-seccion { font-weight: 700; font-size: 0.95rem; }
+  .extracto-premios {
+    text-align: center;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    margin-top: 6px;
+  }
+  .premio-item {
+    display: inline-block;
+    margin: 0 8px;
+    white-space: nowrap;
+  }
+  .extracto-ganadores {
+    column-count: 1;
+    font-size: 0.82rem;
+    line-height: 1.25;
+    text-align: center;
+  }
+  .ganador-linea { font-weight: 700; }
+  .ext-pie {
+    font-weight: 700;
+    font-size: 0.85rem;
+    margin-top: 8px;
+    border-top: 1px solid #888;
+    padding-top: 4px;
+  }
+  /* Print: Fase 3 va a optimizar este bloque */
+  @media print {
+    .d-print-none { display: none !important; }
+    body { background: #fff !important; }
+    .extracto-bloque { border: none; box-shadow: none; }
+  }
+</style>
+
+{% endblock %}

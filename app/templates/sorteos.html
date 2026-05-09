@@ -29,12 +29,12 @@
 <div class="accordion" id="accordionMeses">
   {% for grupo in sorteos_por_mes %}
   <div class="accordion-item border-0 shadow-sm mb-2 mes-grupo" data-mes-key="{{ grupo.key }}">
-    <h2 class="accordion-header">
+    <h2 class="accordion-header position-relative">
       <button class="accordion-button mes-header {% if grupo.key != mes_actual_key %}collapsed{% endif %}"
               type="button" data-bs-toggle="collapse"
               data-bs-target="#mes-{{ grupo.key }}"
               aria-expanded="{% if grupo.key == mes_actual_key %}true{% else %}false{% endif %}">
-        <div class="d-flex align-items-center gap-2 w-100 me-2 flex-wrap">
+        <div class="d-flex align-items-center gap-2 w-100 flex-wrap" style="padding-right: 110px;">
           <i class="bi bi-calendar3 text-danger"></i>
           <span class="fw-bold">{{ grupo.label }}</span>
           <span class="badge bg-secondary mes-total">{{ grupo.total }} sorteo{% if grupo.total != 1 %}s{% endif %}</span>
@@ -43,10 +43,16 @@
           {% else %}
             <span class="badge bg-light text-muted border">Sin resultados aún</span>
           {% endif %}
-          <span class="ms-auto"></span>
-          {# Botón "Extracto" se agrega en Fase 2 cuando exista el endpoint #}
         </div>
       </button>
+      {% if grupo.con_resultado > 0 %}
+      <a href="/sorteos/extracto/{{ grupo.year }}/{{ grupo.month }}"
+         class="btn btn-sm btn-outline-warning btn-extracto"
+         title="Generar extracto del mes"
+         style="position:absolute; right:48px; top:50%; transform:translateY(-50%); z-index:5;">
+        <i class="bi bi-file-earmark-text me-1"></i>Extracto
+      </a>
+      {% endif %}
     </h2>
     <div id="mes-{{ grupo.key }}" class="accordion-collapse collapse {% if grupo.key == mes_actual_key %}show{% endif %}">
       <div class="accordion-body p-0">

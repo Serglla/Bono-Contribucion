@@ -80,6 +80,186 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     })
 
 
+_TIPO_LABEL_PLURAL = {
+    "SEMANAL": "SEMANALES",
+    "MENSUAL": "MENSUALES",
+    "CONTADO": "AL CONTADO",
+    "FINAL":   "FINALES",
+}
+
+
+def _ultimo_dia_mes(year: int, month: int) -> date_type:
+    if month == 12:
+        return date_type(year, 12, 31)
+    return date_type(year, month + 1, 1) - timedelta(days=1)
+
+
+def _premios_por_tipo(tipo: str) -> int:
+    """Cuántos premios cruzar con boletas según el tipo de sorteo."""
+    return 3 if tipo == "FINAL" else 1
+
+
+@router.get("/extracto/{year}/{month}", response_class=HTMLResponse)
+async def extracto_mes(
+    year: int,
+    month: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Genera el extracto del mes: cruza los premios de cada sorteo con las boletas
+    cuyo `fecha_venta < fecha_sorteo` y arma la lista de ganadores.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    if month < 1 or month > 12:
+        raise HTTPException(400, 'Mes inválido')
+
+    inicio = date_type(year, month, 1)
+    fin = _ultimo_dia_mes(year, month)
+
+    # Sorteos del mes con resultado cargado
+    sorteos = db.query(models.Sorteo).filter(
+        models.Sorteo.fecha >= inicio,
+        models.Sorteo.fecha <= fin,
+        models.Sorteo.resultado_json.isnot(None),
+    ).order_by(models.Sorteo.fecha.asc()).all()
+
+    mes_label = _MESES_ES[month - 1].upper()
+
+    if not sorteos:
+        return templates.TemplateResponse(request, "sorteo_extracto.html", {
+            "user": user,
+            "year": year,
+            "month": month,
+            "mes_label": mes_label,
+            "bloques": [],
+            "vacio": True,
+        })
+
+    # Cargar boletas con socio cargado y fecha_venta dentro del rango necesario
+    fecha_max = max(s.fecha for s in sorteos)
+    boletas = db.query(models.Boleta).options(
+        joinedload(models.Boleta.comprador),
+        joinedload(models.Boleta.talonera),
+    ).filter(
+        models.Boleta.comprador_id.isnot(None),
+        models.Boleta.fecha_venta.isnot(None),
+        models.Boleta.fecha_venta < fecha_max,
+    ).all()
+
+    # Agrupar sorteos por tipo
+    sorteos_por_tipo: dict = {}
+    for s in sorteos:
+        tipo = s.tipo.value
+        sorteos_por_tipo.setdefault(tipo, []).append(s)
+
+    # Orden preferido de tipos en el extracto
+    orden_tipos = ["SEMANAL", "MENSUAL", "CONTADO", "FINAL"]
+
+    bloques = []
+    for tipo in orden_tipos:
+        if tipo not in sorteos_por_tipo:
+            continue
+        sorteos_tipo = sorteos_por_tipo[tipo]
+        max_premios = _premios_por_tipo(tipo)
+
+        # Lista de premios a mostrar en la cabecera (fecha + posición + número)
+        premios = []
+        # Ganadores únicos por boleta (deduplicar)
+        ganadores_dict: dict = {}
+        # Conjunto de cifras usadas (para el "A 4 Y 3 CIFRAS" de la cabecera)
+        cifras_set = set()
+
+        for s in sorteos_tipo:
+            try:
+                numeros_ganadores = json.loads(s.resultado_json)
+            except Exception:
+                continue
+            cifras_list = sorted([int(c) for c in s.cifras.split(",")], reverse=True)
+            cifras_set.update(cifras_list)
+
+            # Boletas anteriores a este sorteo
+            boletas_anteriores = [
+                b for b in boletas
+                if b.fecha_venta and b.fecha_venta < s.fecha
+            ]
+
+            # Recorrer los N primeros premios
+            for i, num_str in enumerate(numeros_ganadores[:max_premios], start=1):
+                num4 = str(num_str).zfill(4)
+                premios.append({
+                    "fecha": s.fecha,
+                    "posicion": i,
+                    "numero": num4,
+                })
+
+                # Cruzar con cada cifra del sorteo
+                for c in cifras_list:
+                    sufijo = num4[-c:]
+                    for b in boletas_anteriores:
+                        if b.id in ganadores_dict:
+                            continue
+                        # Para sorteo CONTADO usamos numero_especial / numero_especial_2
+                        if tipo == "CONTADO":
+                            candidatos = []
+                            if b.numero_especial is not None:
+                                candidatos.append(b.numero_especial)
+                            if b.numero_especial_2 is not None:
+                                candidatos.append(b.numero_especial_2)
+                            for n in candidatos:
+                                bol4 = f"{n:04d}"
+                                if bol4[-c:] == sufijo:
+                                    ganadores_dict[b.id] = _build_ganador(b, bol4, c, s.fecha)
+                                    break
+                        else:
+                            # Excluir boletas de talonera CONTADO (pool, no son boletas reales)
+                            if b.talonera and (b.talonera.tipo or "COMUN") == "CONTADO":
+                                continue
+                            bol4 = f"{b.numero_principal:04d}"
+                            if bol4[-c:] == sufijo:
+                                ganadores_dict[b.id] = _build_ganador(b, bol4, c, s.fecha)
+
+        # Ordenar premios por fecha y posición
+        premios.sort(key=lambda p: (p["fecha"], p["posicion"]))
+
+        # Ganadores ordenados alfabéticamente por apellido y nombre
+        ganadores_lista = sorted(ganadores_dict.values(), key=lambda g: g["nombre"])
+
+        cifras_label = " Y ".join(str(c) for c in sorted(cifras_set, reverse=True))
+
+        bloques.append({
+            "tipo": tipo,
+            "tipo_label": _TIPO_LABEL_PLURAL.get(tipo, tipo),
+            "premios": premios,
+            "ganadores": ganadores_lista,
+            "total_ganadores": len(ganadores_lista),
+            "cifras_label": cifras_label,
+        })
+
+    return templates.TemplateResponse(request, "sorteo_extracto.html", {
+        "user": user,
+        "year": year,
+        "month": month,
+        "mes_label": mes_label,
+        "bloques": bloques,
+        "vacio": False,
+    })
+
+
+def _build_ganador(b, numero_match: str, cifras_match: int, fecha_sorteo: date_type) -> dict:
+    nombre = (b.comprador.apellido_nombre or "").strip().upper() if b.comprador else ""
+    direccion = (b.comprador.direccion or "").strip().upper() if b.comprador else ""
+    return {
+        "boleta_id": b.id,
+        "nombre": nombre,
+        "direccion": direccion,
+        "numero_match": numero_match,
+        "cifras_match": cifras_match,
+        "fecha_sorteo": fecha_sorteo,
+    }
+
+
 def _sabados_entre(desde: date_type, hasta: date_type) -> List[date_type]:
     """Devuelve todos los sábados entre dos fechas inclusive."""
     fechas = []
