@@ -479,6 +479,56 @@ def create_default_admin():
             db.rollback()
             print("Migracion columnas rendir liquidaciones_vendedor: " + str(e))
 
+        # Migrar columna cuotas_equiv (cuotas ponderadas por multiplicador de PATA)
+        try:
+            _dialect_eq = engine.dialect.name
+            if _dialect_eq == "postgresql":
+                db.execute(text("ALTER TABLE liquidaciones_vendedor ADD COLUMN IF NOT EXISTS cuotas_equiv INTEGER DEFAULT 0"))
+            else:
+                _cols_eq = [c["name"] for c in inspector.get_columns("liquidaciones_vendedor")]
+                if "cuotas_equiv" not in _cols_eq:
+                    db.execute(text("ALTER TABLE liquidaciones_vendedor ADD COLUMN cuotas_equiv INTEGER DEFAULT 0"))
+            db.commit()
+            print("Migracion cuotas_equiv liquidaciones_vendedor: OK")
+        except Exception as e:
+            db.rollback()
+            print("Migracion cuotas_equiv liquidaciones_vendedor: " + str(e))
+
+        # Backfill cuotas_equiv para liquidaciones existentes:
+        # Solo se puede recuperar con seguridad cuando contados_vendidos == 0 (todas las
+        # boletas asociadas son de modalidad cuotas). Se calcula sumando el multiplicador
+        # de la PATA de cada boleta atada a la liquidacion.
+        try:
+            # Solo procesar liquidaciones que tienen cuotas (cuotas_vendidas > 0)
+            # y todavia no tienen cuotas_equiv calculado. Las que son sólo de
+            # contado/extras no necesitan backfill (cuotas_equiv queda 0 = correcto).
+            _liqs_pend = db.query(models.LiquidacionVendedor).filter(
+                ((models.LiquidacionVendedor.cuotas_equiv == 0)
+                 | (models.LiquidacionVendedor.cuotas_equiv.is_(None))),
+                models.LiquidacionVendedor.cuotas_vendidas > 0,
+            ).all()
+            _backfilled = 0
+            for _liq in _liqs_pend:
+                if int(_liq.contados_vendidos or 0) > 0:
+                    # Caso mixto: no podemos distinguir cuotas vs contado por boleta;
+                    # dejamos cuotas_equiv = cuotas_vendidas (literal) como fallback seguro.
+                    _liq.cuotas_equiv = int(_liq.cuotas_vendidas or 0)
+                    _backfilled += 1
+                    continue
+                _bs = db.query(models.Boleta).filter_by(liquidacion_vendedor_id=_liq.id).all()
+                _equiv = 0
+                for _b in _bs:
+                    _mult = int((_b.talonera.multiplicador or 1) if _b.talonera else 1)
+                    _equiv += _mult
+                _liq.cuotas_equiv = _equiv if _equiv > 0 else int(_liq.cuotas_vendidas or 0)
+                _backfilled += 1
+            if _backfilled:
+                db.commit()
+                print("Backfill cuotas_equiv: " + str(_backfilled) + " liquidacion/es")
+        except Exception as e:
+            db.rollback()
+            print("Backfill cuotas_equiv: " + str(e))
+
 
         if not db.query(models.User).filter_by(username="admin").first():
             import logging

@@ -212,10 +212,21 @@ async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depen
         pass
     pool_items.sort(key=lambda x: (x["talonera_nombre"], x["num"]))
 
+    # cuotas_equiv puede estar en 0 para registros previos a la migracion: fallback
+    # a la suma de multiplicadores de las boletas asociadas si no hay contados, o
+    # al conteo literal si hay mezcla (no podemos distinguir por boleta).
+    _cuotas_equiv = int(getattr(liq, "cuotas_equiv", 0) or 0)
+    if _cuotas_equiv == 0:
+        if int(liq.contados_vendidos or 0) == 0 and boletas:
+            _cuotas_equiv = sum(int(b.get("multiplicador") or 1) for b in boletas_out)
+        else:
+            _cuotas_equiv = int(liq.cuotas_vendidas or 0)
+
     return JSONResponse({
         "id": liq.id,
         "fecha": liq.fecha.strftime("%d/%m/%Y %H:%M") if liq.fecha else "",
         "cuotas_vendidas":         int(liq.cuotas_vendidas or 0),
+        "cuotas_equiv":            _cuotas_equiv,
         "contados_vendidos":       int(liq.contados_vendidos or 0),
         "monto_contados":          float(liq.monto_contados or 0),
         "comision_contados_pct":   float(liq.comision_contados_pct or 0),
@@ -599,6 +610,10 @@ async def liquidar(
 
     # Cuota 1 (informativa): el vendedor YA la cobró directo del socio. NO se le paga ni se le cobra.
     cuota_1_total  = sum((b.talonera.valor_cuota if b.talonera else 0.0) for b in cuotas)
+    # Cuotas equivalentes = ponderado por multiplicador de PATA
+    # (PATA 1 ×1, PATA 2 ×2, etc.). Se guarda aparte para mostrarlo en la UI sin
+    # tener que recalcular cada vez (y por si cambia el valor_cuota de PATA 1).
+    cuotas_equiv = sum(int((b.talonera.multiplicador or 1) if b.talonera else 1) for b in cuotas)
 
     # Monto de cuotas (referencial — coincide con cuota_1_total porque es 1 cuota por boleta)
     monto_cuotas   = cuota_1_total
@@ -629,6 +644,7 @@ async def liquidar(
     liq = models.LiquidacionVendedor(
         vendedor_id=vid,
         cuotas_vendidas=len(cuotas),
+        cuotas_equiv=cuotas_equiv,
         cuota_1_total=cuota_1_total,
         monto_cuotas=monto_cuotas,
         comision_cuotas_pct=comision_cuotas_pct,
