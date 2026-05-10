@@ -462,6 +462,8 @@ async def ver_ganadores(sid: int, request: Request, db: Session = Depends(get_db
                 "numero_ganador": num_str,
                 "sufijo": sufijo,
                 "filas": filas,
+                # Ganadores REALES: solo los que tienen socio cargado (comprador)
+                "ganadores_reales": sum(1 for f in filas if f["comprador"]),
             })
 
     return templates.TemplateResponse(request, "ganadores.html", {
@@ -469,7 +471,8 @@ async def ver_ganadores(sid: int, request: Request, db: Session = Depends(get_db
         "sorteo": s,
         "grupos": grupos,
         "cifras_disponibles": cifras_list,
-        "total_ganadores": sum(len(g["filas"]) for g in grupos),
+        # Solo cuentan como ganadores las filas con comprador (socio) cargado
+        "total_ganadores": sum(g["ganadores_reales"] for g in grupos),
     })
 
 

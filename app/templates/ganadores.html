@@ -51,8 +51,10 @@
       <span class="badge" style="background:{% if grupo.cifras == 4 %}#198754{% elif grupo.cifras == 3 %}#0d6efd{% else %}#6c757d{% endif %};">
         {{ grupo.cifras }} cifras
       </span>
-      {% if grupo.filas %}
-        <span class="badge bg-warning text-dark ms-1">{{ grupo.filas|length }} ganador{{ "es" if grupo.filas|length != 1 else "" }}</span>
+      {% if grupo.ganadores_reales > 0 %}
+        <span class="badge bg-warning text-dark ms-1">{{ grupo.ganadores_reales }} ganador{{ "es" if grupo.ganadores_reales != 1 else "" }}</span>
+      {% elif grupo.filas %}
+        <span class="badge bg-light text-muted ms-1 fst-italic">{{ grupo.filas|length }} coincidencia{{ "s" if grupo.filas|length != 1 else "" }} sin socio</span>
       {% else %}
         <span class="text-muted small fst-italic ms-1">Sin ganadores</span>
       {% endif %}
