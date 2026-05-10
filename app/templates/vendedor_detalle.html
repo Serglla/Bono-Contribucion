@@ -118,9 +118,7 @@
     {% endif %}
 
     <button class="btn btn-outline-secondary" type="button"
-            id="btn-hist-entregas"
-            aria-expanded="false" aria-controls="histEntregasCaja"
-            onclick="toggleColl('histEntregasCaja', this)">
+            data-bs-toggle="modal" data-bs-target="#modalHistEntregas">
       <i class="bi bi-clock-history me-1"></i>Historial de cajas entregadas
       <span class="badge bg-secondary ms-1">{{ entregas_vendedor|length }}</span>
     </button>
@@ -191,76 +189,7 @@
   </div>
 {% endif %}
 
-{# ══════════ HISTORIAL ENTREGAS A CAJA (filtradas por vendedor) ══════════ #}
-<div class="collapse mt-3" id="histEntregasCaja">
-<div class="card border-0 shadow-sm">
-  <div class="card-header bg-white py-2 fw-semibold small d-flex align-items-center gap-2">
-    <i class="bi bi-box-arrow-in-down text-danger"></i>
-    <span>Entregas a caja recibidas</span>
-    <span class="text-muted small">— solo de {{ v.nombre }}</span>
-  </div>
-  <div class="table-responsive">
-    <table class="table table-sm align-middle mb-0 small" style="font-size:.8rem;">
-      <thead class="table-light">
-        <tr>
-          <th>Fecha</th>
-          <th>PATA</th>
-          <th>Desde</th>
-          <th>Hasta</th>
-          <th class="text-center">Boletas</th>
-          <th>Obs.</th>
-          <th>Usuario</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="ec-tbody-vendedor">
-        {% for e in entregas_vendedor %}
-        {% set _es_cont = e.talonera_nombre in nombres_contado %}
-        <tr id="ec-row-{{ e.id }}">
-          <td class="text-muted">{{ e.fecha.strftime('%d/%m/%y %H:%M') }}</td>
-          <td>
-            {% if _es_cont %}
-            <span class="badge bg-warning text-dark" title="Talonera especial — Contado">
-              <i class="bi bi-star-fill me-1"></i>{{ e.talonera_nombre }}
-            </span>
-            {% else %}
-            <span class="badge bg-danger">{{ e.talonera_nombre }}</span>
-            {% endif %}
-          </td>
-          {% set _nd = nd_por_talonera.get(e.talonera_nombre, 4) %}
-          <td class="fw-semibold">{{ (e.desde | string).zfill(_nd) }}</td>
-          <td class="fw-semibold">{{ (e.hasta | string).zfill(_nd) }}</td>
-          <td class="text-center">
-            <span class="badge {% if _es_cont %}bg-warning text-dark{% else %}bg-primary{% endif %}">
-              {{ e.boletas_afectadas }}
-            </span>
-          </td>
-          <td class="text-muted fst-italic">{{ e.observacion or "—" }}</td>
-          <td class="text-muted">{{ e.usuario.username if e.usuario else "—" }}</td>
-          <td class="text-end" style="white-space:nowrap;">
-            {% if can_edit %}
-            <button class="btn btn-sm btn-outline-primary" style="padding:1px 6px;"
-                    data-bs-toggle="modal" data-bs-target="#modalEditarEntrega{{ e.id }}">
-              <i class="bi bi-pencil"></i>
-            </button>
-            <form method="post" action="/vendedores/entrega-caja/{{ e.id }}/eliminar"
-                  class="d-inline" onsubmit="return confirm('Eliminar entrega?')">
-              <button class="btn btn-sm btn-outline-danger" style="padding:1px 6px;">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-3">Sin entregas registradas para este vendedor.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  <div class="card-footer text-muted small py-2">{{ entregas_vendedor|length }} entrega(s) registrada(s)</div>
-</div>
-</div>{# /collapse histEntregasCaja #}
+{# Historial de cajas entregadas: se renderiza en #modalHistEntregas (al final del template) #}
 
 {# Modales de edición de cada entrega del vendedor #}
 {% for e in entregas_vendedor %}
@@ -349,9 +278,7 @@
     {% endif %}
 
     <button class="btn btn-outline-secondary" type="button"
-            id="btn-hist-liq"
-            aria-expanded="false" aria-controls="histLiquidaciones"
-            onclick="toggleColl('histLiquidaciones', this)">
+            data-bs-toggle="modal" data-bs-target="#modalHistLiquidaciones">
       <i class="bi bi-clock-history me-1"></i>Historial de liquidaciones
       <span class="badge bg-secondary ms-1">{{ liquidaciones|length if liquidaciones else 0 }}</span>
     </button>
@@ -361,62 +288,7 @@
     {% endif %}
   </div>
 
-  {# ── Collapse: historial de liquidaciones ── #}
-  <div class="collapse mt-3" id="histLiquidaciones">
-  {% if liquidaciones %}
-  <div class="card border-0 shadow-sm">
-  <div class="card-header bg-white py-2 fw-semibold small d-flex align-items-center gap-2">
-    <i class="bi bi-receipt text-success me-1"></i>
-    <span>Historial de liquidaciones</span>
-    <span class="text-muted small ms-2" style="font-weight:normal;">
-      <i class="bi bi-mouse2 me-1"></i>doble-click para ver el detalle
-    </span>
-  </div>
-  <div class="table-responsive">
-    <table class="table table-sm align-middle mb-0 small table-hover" style="font-size:.82rem;">
-      <thead class="table-light">
-        <tr>
-          <th>Fecha</th>
-          <th class="text-center" title="Cuotas ponderadas por multiplicador de PATA (PATA 1 ×1, PATA 2 ×2, ...). Cuota 1 ya en mano del vendedor.">Cuotas</th>
-          <th class="text-center">Contados</th>
-          <th class="text-end">Monto contados</th>
-          <th class="text-center">% Cont.</th>
-          <th class="text-center" title="Cuotas extras cobradas (cuota 2, 3, ...)">Extras</th>
-          <th class="text-end">Monto extras</th>
-          <th class="text-center">% Cuot.</th>
-          <th class="text-end fw-semibold text-success" title="Total que el vendedor rinde a la organización">Total rinde</th>
-          <th>Obs.</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for liq in liquidaciones %}
-        <tr style="cursor:pointer;" ondblclick="verDetalleLiq({{ liq.id }})"
-            title="Doble-click para ver el detalle de esta liquidación">
-          <td class="text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
-          <td class="text-center" title="Boletas reales: {{ liq.cuotas_vendidas }}">{{ liq.cuotas_equiv or liq.cuotas_vendidas }}</td>
-          <td class="text-center">{{ liq.contados_vendidos }}</td>
-          <td class="text-end">${{ '%.2f'|format(liq.monto_contados or 0) }}</td>
-          <td class="text-center text-muted">{{ liq.comision_contados_pct }}%</td>
-          <td class="text-center">{{ liq.cuotas_extras_cantidad or 0 }}</td>
-          <td class="text-end">${{ '%.2f'|format(liq.cuotas_extras_monto or 0) }}</td>
-          <td class="text-center text-muted">{{ liq.comision_cuotas_pct }}%</td>
-          <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_a_rendir or 0) }}</td>
-          <td class="text-muted fst-italic">{{ liq.observacion or "—" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>{# /card historial liquidaciones #}
-  {% else %}
-  <div class="card border-0 shadow-sm">
-    <div class="card-body text-center text-muted py-4">
-      <i class="bi bi-receipt fs-3 d-block mb-2"></i>
-      Sin liquidaciones registradas para este vendedor.
-    </div>
-  </div>
-  {% endif %}
-  </div>{# /collapse histLiquidaciones #}
+  {# Historial de liquidaciones: se renderiza en #modalHistLiquidaciones (al final del template) #}
 
 </div>{# /tab-pane Liq #}
 </div>{# /tab-content vendedorTabsContent #}
@@ -647,19 +519,156 @@
 </div>
 {% endif %}
 
+{# ══════════ MODAL HISTORIAL DE CAJAS ENTREGADAS ══════════ #}
+<div class="modal fade" id="modalHistEntregas" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">
+          <i class="bi bi-box-arrow-in-down text-danger me-1"></i>
+          Historial de cajas entregadas
+          <span class="text-muted small ms-2">— solo de {{ v.nombre }}</span>
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0 small" style="font-size:.8rem;">
+            <thead class="table-light">
+              <tr>
+                <th>Fecha</th>
+                <th>PATA</th>
+                <th>Desde</th>
+                <th>Hasta</th>
+                <th class="text-center">Boletas</th>
+                <th>Obs.</th>
+                <th>Usuario</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="ec-tbody-vendedor">
+              {% for e in entregas_vendedor %}
+              {% set _es_cont = e.talonera_nombre in nombres_contado %}
+              <tr id="ec-row-{{ e.id }}">
+                <td class="text-muted">{{ e.fecha.strftime('%d/%m/%y %H:%M') }}</td>
+                <td>
+                  {% if _es_cont %}
+                  <span class="badge bg-warning text-dark" title="Talonera especial — Contado">
+                    <i class="bi bi-star-fill me-1"></i>{{ e.talonera_nombre }}
+                  </span>
+                  {% else %}
+                  <span class="badge bg-danger">{{ e.talonera_nombre }}</span>
+                  {% endif %}
+                </td>
+                {% set _nd = nd_por_talonera.get(e.talonera_nombre, 4) %}
+                <td class="fw-semibold">{{ (e.desde | string).zfill(_nd) }}</td>
+                <td class="fw-semibold">{{ (e.hasta | string).zfill(_nd) }}</td>
+                <td class="text-center">
+                  <span class="badge {% if _es_cont %}bg-warning text-dark{% else %}bg-primary{% endif %}">
+                    {{ e.boletas_afectadas }}
+                  </span>
+                </td>
+                <td class="text-muted fst-italic">{{ e.observacion or "—" }}</td>
+                <td class="text-muted">{{ e.usuario.username if e.usuario else "—" }}</td>
+                <td class="text-end" style="white-space:nowrap;">
+                  {% if can_edit %}
+                  <button class="btn btn-sm btn-outline-primary" style="padding:1px 6px;"
+                          data-bs-toggle="modal" data-bs-target="#modalEditarEntrega{{ e.id }}">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <form method="post" action="/vendedores/entrega-caja/{{ e.id }}/eliminar"
+                        class="d-inline" onsubmit="return confirm('Eliminar entrega?')">
+                    <button class="btn btn-sm btn-outline-danger" style="padding:1px 6px;">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="8" class="text-center text-muted py-4">Sin entregas registradas para este vendedor.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer py-2 d-flex justify-content-between">
+        <span class="text-muted small">{{ entregas_vendedor|length }} entrega(s) registrada(s)</span>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ══════════ MODAL HISTORIAL DE LIQUIDACIONES ══════════ #}
+<div class="modal fade" id="modalHistLiquidaciones" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">
+          <i class="bi bi-receipt text-success me-1"></i>
+          Historial de liquidaciones
+          {% if liquidaciones %}
+          <span class="text-muted small ms-2" style="font-weight:normal;">
+            <i class="bi bi-mouse2 me-1"></i>doble-click para ver el detalle
+          </span>
+          {% endif %}
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        {% if liquidaciones %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0 small table-hover" style="font-size:.82rem;">
+            <thead class="table-light">
+              <tr>
+                <th>Fecha</th>
+                <th class="text-center" title="Cuotas ponderadas por multiplicador de PATA (PATA 1 ×1, PATA 2 ×2, ...). Cuota 1 ya en mano del vendedor.">Cuotas</th>
+                <th class="text-center">Contados</th>
+                <th class="text-end">Monto contados</th>
+                <th class="text-center">% Cont.</th>
+                <th class="text-center" title="Cuotas extras cobradas (cuota 2, 3, ...)">Extras</th>
+                <th class="text-end">Monto extras</th>
+                <th class="text-center">% Cuot.</th>
+                <th class="text-end fw-semibold text-success" title="Total que el vendedor rinde a la organización">Total rinde</th>
+                <th>Obs.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for liq in liquidaciones %}
+              <tr style="cursor:pointer;" ondblclick="verDetalleLiq({{ liq.id }})"
+                  title="Doble-click para ver el detalle de esta liquidación">
+                <td class="text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
+                <td class="text-center" title="Boletas reales: {{ liq.cuotas_vendidas }}">{{ liq.cuotas_equiv or liq.cuotas_vendidas }}</td>
+                <td class="text-center">{{ liq.contados_vendidos }}</td>
+                <td class="text-end">${{ '%.2f'|format(liq.monto_contados or 0) }}</td>
+                <td class="text-center text-muted">{{ liq.comision_contados_pct }}%</td>
+                <td class="text-center">{{ liq.cuotas_extras_cantidad or 0 }}</td>
+                <td class="text-end">${{ '%.2f'|format(liq.cuotas_extras_monto or 0) }}</td>
+                <td class="text-center text-muted">{{ liq.comision_cuotas_pct }}%</td>
+                <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_a_rendir or 0) }}</td>
+                <td class="text-muted fst-italic">{{ liq.observacion or "—" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-receipt fs-1 d-block mb-2"></i>
+          Sin liquidaciones registradas para este vendedor.
+        </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer py-2 d-flex justify-content-between">
+        <span class="text-muted small">{{ liquidaciones|length if liquidaciones else 0 }} liquidación(es) registrada(s)</span>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
-// ════════════════ TOGGLE COLLAPSE (historiales) ════════════════
-function toggleColl(id, btn) {
-  const el = document.getElementById(id);
-  if (!el) {
-    console.warn('toggleColl: no existe #' + id);
-    return;
-  }
-  const inst = bootstrap.Collapse.getOrCreateInstance(el, { toggle: false });
-  const willOpen = !el.classList.contains('show');
-  inst.toggle();
-  if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-}
 
 const PENDIENTES = {{ pendientes_json | safe }};
 const VENDEDOR_ID = {{ v.id }};
