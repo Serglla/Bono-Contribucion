@@ -31,6 +31,14 @@
   </div>
 </div>
 
+{% set total_ganadores_mes = bloques | sum(attribute='total_ganadores') if bloques else 0 %}
+{% if not vacio and total_ganadores_mes == 0 %}
+  <div class="alert alert-info py-2 px-3 small d-print-none mb-3">
+    <i class="bi bi-info-circle me-1"></i>
+    Este extracto todavía no tiene ganadores cargados. Los selectores de <strong>columnas</strong> y <strong>tamaño</strong> afectan al listado de ganadores y a los premios — al no haber ganadores, solo verás cambios sutiles en los textos del bloque.
+  </div>
+{% endif %}
+
 {% if vacio %}
   <div class="alert alert-warning d-print-none">
     <i class="bi bi-exclamation-triangle me-2"></i>
@@ -169,7 +177,14 @@
     text-align: center;
     font-style: italic;
     color: #666;
-    font-size: 10pt;
+    font-size: var(--ganador-size, 10pt);
+    line-height: var(--ganador-lh, 1.2);
+    padding: 2mm 0;
+  }
+
+  /* Los premios también responden al tamaño elegido (feedback visible cuando no hay ganadores) */
+  .ext-premios {
+    font-size: calc(var(--ganador-size, 10pt) + 0.5pt);
   }
 
   /* ─── Pie ───────────────────────────────────────────────────────── */
