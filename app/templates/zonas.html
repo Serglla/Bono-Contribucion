@@ -8,6 +8,20 @@
   </button>
 </div>
 
+{% if msg_ok == 'editada' %}
+<div class="alert alert-success py-2 small d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-check-circle"></i> Zona actualizada. El nuevo nombre se aplicó a todos los socios vinculados.
+</div>
+{% elif msg_err == 'nombre_duplicado' %}
+<div class="alert alert-danger py-2 small d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-x-circle"></i> Ya existe otra zona con el nombre "<strong>{{ msg_nombre or '' }}</strong>". Elegí otro.
+</div>
+{% elif msg_err == 'nombre_vacio' %}
+<div class="alert alert-warning py-2 small d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-exclamation-triangle"></i> El nombre no puede estar vacío.
+</div>
+{% endif %}
+
 <div class="card border-0 shadow-sm">
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
@@ -43,7 +57,16 @@
               </button>
             </form>
           </td>
-          <td>
+          <td style="white-space:nowrap;">
+            <button type="button" class="btn btn-sm btn-outline-primary me-1"
+                    title="Editar zona"
+                    data-bs-toggle="modal" data-bs-target="#modalEditar"
+                    data-zona-id="{{ z.id }}"
+                    data-zona-nombre="{{ z.nombre }}"
+                    data-zona-desc="{{ z.descripcion or '' }}"
+                    data-zona-compradores="{{ z.compradores|length }}">
+              <i class="bi bi-pencil"></i>
+            </button>
             <form method="post" action="/zonas/{{ z.id }}/eliminar" class="d-inline"
                   onsubmit="return confirm('¿Eliminar zona?')">
               <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
@@ -82,4 +105,59 @@
     </form>
   </div></div>
 </div>
+
+{# ══════════ MODAL EDITAR ZONA ══════════ #}
+<div class="modal fade" id="modalEditar" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <form method="post" id="formEditarZona">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-pencil me-1"></i>Editar zona
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Nombre *</label>
+          <input type="text" name="nombre" id="edit-nombre" class="form-control" required>
+          <div class="form-text" id="edit-hint" style="display:none;">
+            <i class="bi bi-info-circle me-1"></i>
+            Hay <strong id="edit-cant-socios">0</strong> socio(s) en esta zona — al guardar
+            van a aparecer con el nombre nuevo automáticamente.
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Descripción</label>
+          <input type="text" name="descripcion" id="edit-descripcion" class="form-control">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">Guardar cambios</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<script>
+(function() {
+  const modalEl = document.getElementById('modalEditar');
+  if (!modalEl) return;
+  modalEl.addEventListener('show.bs.modal', function(ev) {
+    const btn = ev.relatedTarget;
+    if (!btn) return;
+    const id     = btn.getAttribute('data-zona-id');
+    const nombre = btn.getAttribute('data-zona-nombre') || '';
+    const desc   = btn.getAttribute('data-zona-desc')   || '';
+    const cant   = parseInt(btn.getAttribute('data-zona-compradores') || '0', 10);
+    document.getElementById('formEditarZona').action = '/zonas/' + id + '/editar';
+    document.getElementById('edit-nombre').value      = nombre;
+    document.getElementById('edit-descripcion').value = desc;
+    const hint = document.getElementById('edit-hint');
+    document.getElementById('edit-cant-socios').textContent = cant;
+    hint.style.display = (cant > 0) ? '' : 'none';
+    setTimeout(() => document.getElementById('edit-nombre').select(), 50);
+  });
+})();
+</script>
 {% endblock %}
