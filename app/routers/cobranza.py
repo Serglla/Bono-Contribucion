@@ -358,6 +358,45 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     num_cuotas = max(num_cuotas, 10)
     cuota_nums = list(range(1, num_cuotas + 1))
 
+    # ── Mapa boleta_id → columna (1, 2 o 3) según el grid ───────────────────
+    columna_de_boleta = {}
+    for cell in c1:
+        if cell and not isinstance(cell, dict):
+            columna_de_boleta[cell.id] = 1
+    for cell in c2:
+        if cell and not isinstance(cell, dict):
+            columna_de_boleta[cell.id] = 2
+    for cell in c3:
+        if cell and not isinstance(cell, dict):
+            columna_de_boleta[cell.id] = 3
+
+    # ── Valor de la cuota (uniforme) ────────────────────────────────────────
+    valor_cuota = 0.0
+    for b in boletas:
+        if b.talonera and b.talonera.valor_cuota:
+            valor_cuota = float(b.talonera.valor_cuota)
+            break
+
+    # ── Meses de la campaña (octubre = cuota 1) ─────────────────────────────
+    _meses_camp = [
+        ("OCTUBRE", 10),    ("NOVIEMBRE", 11), ("DICIEMBRE", 12),
+        ("ENERO", 1),       ("FEBRERO", 2),    ("MARZO", 3),
+        ("ABRIL", 4),       ("MAYO", 5),       ("JUNIO", 6),
+        ("JULIO", 7),       ("AGOSTO", 8),     ("SEPTIEMBRE", 9),
+    ]
+    meses_campana = _meses_camp[:num_cuotas]
+
+    # ── Resumen inicial por cuota/mes y columna ─────────────────────────────
+    # cuota_n (1..num_cuotas) → {1: count, 2: count, 3: count}
+    resumen_inicial = {n: {1: 0, 2: 0, 3: 0} for n in range(1, num_cuotas + 1)}
+    for b in boletas:
+        col = columna_de_boleta.get(b.id)
+        if not col:
+            continue
+        for cn in cuotas_mes_actual.get(b.id, []):
+            if 1 <= cn <= num_cuotas:
+                resumen_inicial[cn][col] += 1
+
     return templates.TemplateResponse(request, "cobranza_liquidacion_detalle.html", {
         "user": user,
         "planilla": planilla,
@@ -373,6 +412,10 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "mes_actual": planilla.mes,
         "cuota_nums": cuota_nums,
         "num_cuotas": num_cuotas,
+        "columna_de_boleta": columna_de_boleta,
+        "valor_cuota": valor_cuota,
+        "meses_campana": meses_campana,
+        "resumen_inicial": resumen_inicial,
     })
 
 
@@ -399,6 +442,7 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     db.query(models.LiquidacionDetalle).filter_by(liquidacion_id=liq.id).delete()
 
     total_cuotas = 0
+    monto_total  = 0.0
     for bid, cjson in zip(boleta_ids, cuotas_json):
         cuotas_nuevas = json.loads(cjson)   # lista de enteros, ej: [2, 3, 4]
         boleta = db.query(models.Boleta).get(bid)
@@ -427,7 +471,19 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
             ))
         total_cuotas += cobradas
 
+        # Aporte al monto total: cuotas cobradas × valor_cuota de la talonera
+        valor = (boleta.talonera.valor_cuota
+                 if boleta.talonera and boleta.talonera.valor_cuota else 0.0) or 0.0
+        monto_total += cobradas * float(valor)
+
+    comision_pct = float(planilla.comision_pct or 0.0)
+    comision = round(monto_total * (comision_pct / 100.0), 2)
+    neto     = round(monto_total - comision, 2)
+
     liq.total_cuotas = total_cuotas
+    liq.monto_total  = round(monto_total, 2)
+    liq.comision     = comision
+    liq.neto         = neto
     liq.fecha = date.today()
     db.commit()
 

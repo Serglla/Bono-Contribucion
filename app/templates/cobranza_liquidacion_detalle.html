@@ -118,6 +118,59 @@
   </div>
 
   {% if boletas %}
+  <!-- ─── Resumen de liquidación por mes ──────────────────────────────────── -->
+  <div class="mt-4" style="overflow-x:auto;">
+    <table id="tablaResumen" class="table table-bordered table-sm align-middle mb-0"
+           style="font-size:0.78rem; max-width:980px;">
+      <thead style="background:#dc3545; color:#fff;">
+        <tr>
+          <th style="text-align:left; padding-left:.6rem; width:120px;">MES</th>
+          <th style="text-align:center; width:75px;">COL. 1</th>
+          <th style="text-align:center; width:75px;">COL. 2</th>
+          <th style="text-align:center; width:75px;">COL. 3</th>
+          <th style="text-align:center; width:75px;">TOTAL</th>
+          <th style="text-align:center; width:80px;">CUOTA $</th>
+          <th style="text-align:right; width:110px;">DINERO TC.</th>
+          <th style="text-align:right; width:110px;">COMISIÓN</th>
+          <th style="text-align:right; width:110px;">NETO</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for nombre_mes, num_mes in meses_campana %}
+        {% set cn = loop.index %}
+        <tr data-cuota="{{ cn }}">
+          <td style="background:#dc3545; color:#fff; font-weight:700; padding-left:.6rem;">
+            {{ nombre_mes }} <span style="opacity:.75;">({{ num_mes }})</span>
+          </td>
+          <td class="rs-c1" style="text-align:center;">{{ resumen_inicial[cn][1] or '' }}</td>
+          <td class="rs-c2" style="text-align:center;">{{ resumen_inicial[cn][2] or '' }}</td>
+          <td class="rs-c3" style="text-align:center;">{{ resumen_inicial[cn][3] or '' }}</td>
+          <td class="rs-tot fw-bold" style="text-align:center;"></td>
+          <td class="rs-cv" style="text-align:center;"></td>
+          <td class="rs-din" style="text-align:right;"></td>
+          <td class="rs-com" style="text-align:right;"></td>
+          <td class="rs-neto fw-bold" style="text-align:right;"></td>
+        </tr>
+        {% endfor %}
+        <tr id="rsTotal" style="background:#222; color:#fff; font-weight:800;">
+          <td style="padding-left:.6rem;">TOTAL</td>
+          <td id="rstC1" style="text-align:center;"></td>
+          <td id="rstC2" style="text-align:center;"></td>
+          <td id="rstC3" style="text-align:center;"></td>
+          <td id="rstTot" style="text-align:center;"></td>
+          <td></td>
+          <td id="rstDin" style="text-align:right;"></td>
+          <td id="rstCom" style="text-align:right;"></td>
+          <td id="rstNeto" style="text-align:right;"></td>
+        </tr>
+      </tbody>
+    </table>
+    <small class="text-muted">
+      Comisión cobrador: <strong>{{ planilla.comision_pct }}%</strong>
+      &middot; Valor cuota: <strong>$ {{ "{:,.2f}".format(valor_cuota).replace(",", "X").replace(".", ",").replace("X", ".") }}</strong>
+    </small>
+  </div>
+
   <div class="d-flex justify-content-end gap-2 mt-3">
     <a href="/cobranza/liquidacion?mes={{ planilla.mes }}&anio={{ planilla.anio }}"
        class="btn btn-secondary">Cancelar</a>
@@ -146,7 +199,11 @@
 </style>
 
 <script>
-  const MES_ACTUAL = {{ mes_actual }};
+  const MES_ACTUAL    = {{ mes_actual }};
+  const VALOR_CUOTA   = {{ valor_cuota|default(0) }};
+  const COMISION_PCT  = {{ planilla.comision_pct|default(0) }};
+  const NUM_CUOTAS    = {{ num_cuotas }};
+  const COL_DE_BOLETA = {{ columna_de_boleta | tojson }};
 
   // Inicializar selección desde el servidor
   const sel = {};
@@ -163,7 +220,59 @@
   function actualizarTotal() {
     let t = 0;
     for (const s of Object.values(sel)) t += s.size;
-    document.getElementById('totalMarcadas').textContent = t;
+    const elTot = document.getElementById('totalMarcadas');
+    if (elTot) elTot.textContent = t;
+  }
+
+  // Formatea $ con coma decimal y miles ej: $ 1.234,56
+  function fmt$(n) {
+    if (!n) return '';
+    return '$ ' + n.toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  }
+
+  function recalcResumen() {
+    // matriz cuota_n → {1,2,3} contadores
+    const cnt = {};
+    for (let n = 1; n <= NUM_CUOTAS; n++) cnt[n] = {1:0, 2:0, 3:0};
+
+    for (const [bid, set] of Object.entries(sel)) {
+      const col = COL_DE_BOLETA[bid];
+      if (!col) continue;
+      for (const cn of set) {
+        if (cnt[cn]) cnt[cn][col] += 1;
+      }
+    }
+
+    let totC1=0, totC2=0, totC3=0, totTot=0, totDin=0, totCom=0, totNeto=0;
+
+    document.querySelectorAll('#tablaResumen tbody tr[data-cuota]').forEach(tr => {
+      const cn = parseInt(tr.dataset.cuota);
+      const c1 = cnt[cn][1], c2 = cnt[cn][2], c3 = cnt[cn][3];
+      const tot = c1 + c2 + c3;
+      const dinero = tot * VALOR_CUOTA;
+      const comis  = dinero * (COMISION_PCT / 100);
+      const neto   = dinero - comis;
+
+      tr.querySelector('.rs-c1').textContent  = c1 || '';
+      tr.querySelector('.rs-c2').textContent  = c2 || '';
+      tr.querySelector('.rs-c3').textContent  = c3 || '';
+      tr.querySelector('.rs-tot').textContent = tot || '';
+      tr.querySelector('.rs-cv').textContent  = tot ? fmt$(VALOR_CUOTA) : '';
+      tr.querySelector('.rs-din').textContent = tot ? fmt$(dinero) : '';
+      tr.querySelector('.rs-com').textContent = tot ? fmt$(comis)  : '';
+      tr.querySelector('.rs-neto').textContent= tot ? fmt$(neto)   : '';
+
+      totC1 += c1; totC2 += c2; totC3 += c3;
+      totTot += tot; totDin += dinero; totCom += comis; totNeto += neto;
+    });
+
+    document.getElementById('rstC1').textContent   = totC1   || '';
+    document.getElementById('rstC2').textContent   = totC2   || '';
+    document.getElementById('rstC3').textContent   = totC3   || '';
+    document.getElementById('rstTot').textContent  = totTot  || '';
+    document.getElementById('rstDin').textContent  = totTot ? fmt$(totDin)  : '';
+    document.getElementById('rstCom').textContent  = totTot ? fmt$(totCom)  : '';
+    document.getElementById('rstNeto').textContent = totTot ? fmt$(totNeto) : '';
   }
 
   document.getElementById('tablaLiq').addEventListener('click', function(e) {
@@ -189,8 +298,10 @@
     }
     syncHidden(bid);
     actualizarTotal();
+    recalcResumen();
   });
 
   actualizarTotal();
+  recalcResumen();
 </script>
 {% endblock %}
