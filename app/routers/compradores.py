@@ -52,18 +52,29 @@ async def listar(request: Request, db: Session = Depends(get_db), q: str = "", p
         )
     )
 
-    # Conteos por talonera para los tabs
+    # Conteos por talonera para los tabs. También traemos multiplicador para
+    # calcular el total "Todas" ponderado (PATA 1 ×1, PATA 2 ×2, ...). Las
+    # pestañas individuales siguen mostrando el conteo literal de socios.
     from sqlalchemy import func as sqlfunc
     taloneras_raw = (
-        db.query(models.Talonera.nombre, sqlfunc.count(models.Comprador.id.distinct()))
+        db.query(
+            models.Talonera.nombre,
+            sqlfunc.count(models.Comprador.id.distinct()),
+            models.Talonera.multiplicador,
+        )
         .join(models.Boleta, models.Boleta.talonera_id == models.Talonera.id)
         .join(models.Comprador, models.Comprador.id == models.Boleta.comprador_id)
-        .group_by(models.Talonera.nombre)
+        .group_by(models.Talonera.nombre, models.Talonera.multiplicador)
         .order_by(models.Talonera.nombre)
         .all()
     )
-    total_compradores = db.query(models.Comprador).count()
-    tabs = [{"nombre": t[0], "total": t[1]} for t in taloneras_raw]
+    tabs = [
+        {"nombre": t[0], "total": t[1], "multiplicador": int(t[2] or 1)}
+        for t in taloneras_raw
+    ]
+    # Total ponderado: 39 PATA1×1 + 9 PATA2×2 + 1 PATA3×3 + 1 PATA4×4 + 3 PATA8×8
+    # = 39 + 18 + 3 + 4 + 24 = 88
+    total_compradores = sum(t["total"] * t["multiplicador"] for t in tabs)
 
     # Cantidad de socios sin vendedor/cobrador (para mostrar alertas en el template)
     sin_vendedor = sum(1 for c in compradores if c.boletas and not c.boletas[0].vendedor_id)
