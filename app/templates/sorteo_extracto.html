@@ -25,6 +25,12 @@
       <button type="button" class="btn btn-outline-secondary btn-size active" data-size="md">M</button>
       <button type="button" class="btn btn-outline-secondary btn-size" data-size="lg">L</button>
     </div>
+    <span class="text-muted small ms-2">Copias/hoja:</span>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Copias">
+      <button type="button" class="btn btn-outline-secondary btn-copies active" data-copies="1">1</button>
+      <button type="button" class="btn btn-outline-secondary btn-copies" data-copies="4">4</button>
+      <button type="button" class="btn btn-outline-secondary btn-copies" data-copies="9">9</button>
+    </div>
     <button class="btn btn-sm btn-primary" onclick="window.print()">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
@@ -48,51 +54,53 @@
 {% else %}
 
 <!-- Hoja A4 -->
-<div id="hojaExtracto" class="hoja-a4" data-cols="2" data-size="md">
+<div id="hojaExtracto" class="hoja-a4" data-cols="2" data-size="md" data-copies="1">
 
   {% for bloque in bloques %}
-  <div class="extracto-bloque">
+  <div class="extracto-grid">
+    <div class="extracto-bloque extracto-bloque-original">
 
-    <!-- Encabezado -->
-    <header class="ext-cabecera">
-      <div class="ext-titulo">
-        BOMBEROS&nbsp;&nbsp;VOLUNTARIOS<br>
-        DE&nbsp;&nbsp;CONCEPCION&nbsp;&nbsp;DEL&nbsp;&nbsp;URUGUAY
-      </div>
-      <div class="ext-subtitulo">TOMBOLA NOCTURNA DE E. RIOS</div>
-      <div class="ext-tipo">
-        EXTRACTO SORTEOS {{ bloque.tipo_label }} DEL MES DE {{ mes_label }} {{ year }}
-      </div>
-      <div class="ext-cifras">A {{ bloque.cifras_label }} CIFRAS.</div>
-    </header>
+      <!-- Encabezado -->
+      <header class="ext-cabecera">
+        <div class="ext-titulo">
+          BOMBEROS&nbsp;&nbsp;VOLUNTARIOS<br>
+          DE&nbsp;&nbsp;CONCEPCION&nbsp;&nbsp;DEL&nbsp;&nbsp;URUGUAY
+        </div>
+        <div class="ext-subtitulo">TOMBOLA NOCTURNA DE E. RIOS</div>
+        <div class="ext-tipo">
+          EXTRACTO SORTEOS {{ bloque.tipo_label }} DEL MES DE {{ mes_label }} {{ year }}
+        </div>
+        <div class="ext-cifras">A {{ bloque.cifras_label }} CIFRAS.</div>
+      </header>
 
-    <!-- Premios -->
-    <div class="ext-premios">
-      {% for p in bloque.premios %}
-        <span class="premio-item">
-          {{ p.fecha.strftime("%d/%m/%y") }} {{ p.posicion }}° PREMIO Nº&nbsp;{{ p.numero }}
-        </span>
-      {% endfor %}
-    </div>
-
-    <!-- Ganadores -->
-    <div class="ext-titulo-seccion">GANADORES</div>
-
-    {% if bloque.ganadores %}
-      <div class="ext-ganadores">
-        {% for g in bloque.ganadores %}
-          <div class="ganador-linea">{{ g.nombre }}{% if g.direccion %}-{{ g.direccion }}{% endif %}</div>
+      <!-- Premios -->
+      <div class="ext-premios">
+        {% for p in bloque.premios %}
+          <span class="premio-item">
+            {{ p.fecha.strftime("%d/%m/%y") }} {{ p.posicion }}° PREMIO Nº&nbsp;{{ p.numero }}
+          </span>
         {% endfor %}
       </div>
-    {% else %}
-      <div class="ext-vacio">— Sin ganadores en este bloque —</div>
-    {% endif %}
 
-    <!-- Pie -->
-    <div class="ext-pie">PEDIDOS Y CONSULTAS AL 3442-484286</div>
+      <!-- Ganadores -->
+      <div class="ext-titulo-seccion">GANADORES</div>
 
-    <div class="text-muted small text-center mt-2 d-print-none">
-      {{ bloque.total_ganadores }} ganador{% if bloque.total_ganadores != 1 %}es{% endif %} · {{ bloque.premios|length }} premio{% if bloque.premios|length != 1 %}s{% endif %} cruzado{% if bloque.premios|length != 1 %}s{% endif %}
+      {% if bloque.ganadores %}
+        <div class="ext-ganadores">
+          {% for g in bloque.ganadores %}
+            <div class="ganador-linea">{{ g.nombre }}{% if g.direccion %}-{{ g.direccion }}{% endif %}</div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="ext-vacio">— Sin ganadores en este bloque —</div>
+      {% endif %}
+
+      <!-- Pie -->
+      <div class="ext-pie">PEDIDOS Y CONSULTAS AL 3442-484286</div>
+
+      <div class="text-muted small text-center mt-2 d-print-none stat-line">
+        {{ bloque.total_ganadores }} ganador{% if bloque.total_ganadores != 1 %}es{% endif %} · {{ bloque.premios|length }} premio{% if bloque.premios|length != 1 %}s{% endif %} cruzado{% if bloque.premios|length != 1 %}s{% endif %}
+      </div>
     </div>
   </div>
   {% endfor %}
@@ -117,9 +125,9 @@
 
   .extracto-bloque {
     padding-bottom: 6mm;
-    /* Cuando hay varios bloques (semanal + final), forzar salto de página entre ellos */
   }
-  .extracto-bloque + .extracto-bloque {
+  /* Cuando hay varios tipos (semanal + final), cada grilla en su propia hoja */
+  .extracto-grid + .extracto-grid {
     border-top: 2px dashed #aaa;
     margin-top: 6mm;
     padding-top: 6mm;
@@ -207,6 +215,82 @@
   .hoja-a4[data-cols="2"] { --cols: 2; }
   .hoja-a4[data-cols="3"] { --cols: 3; }
 
+  /* ─── Multi-up: 1, 4 o 9 copias por hoja ─────────────────────────── */
+  .extracto-grid { display: block; }
+
+  /* 4-up: 2×2 */
+  .hoja-a4[data-copies="4"] .extracto-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 4mm;
+    height: 281mm;  /* A4 (297) - padding superior+inferior (16) */
+  }
+  .hoja-a4[data-copies="4"] .extracto-bloque {
+    border: 1px dashed #999;
+    padding: 3mm;
+    padding-bottom: 3mm;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .hoja-a4[data-copies="4"] .ext-titulo { font-size: 10pt; }
+  .hoja-a4[data-copies="4"] .ext-subtitulo { font-size: 9pt; }
+  .hoja-a4[data-copies="4"] .ext-tipo,
+  .hoja-a4[data-copies="4"] .ext-cifras { font-size: 8pt; }
+  .hoja-a4[data-copies="4"] .ext-premios { font-size: 7.5pt !important; line-height: 1.25; margin-top: 2mm; margin-bottom: 1mm; }
+  .hoja-a4[data-copies="4"] .premio-item { margin: 0 4px; }
+  .hoja-a4[data-copies="4"] .ext-titulo-seccion { font-size: 8pt; margin: 1mm 0 0.5mm; }
+  .hoja-a4[data-copies="4"] .ext-pie { font-size: 8pt; margin-top: 2mm; padding-top: 1mm; }
+  .hoja-a4[data-copies="4"] .ext-ganadores {
+    column-count: 1 !important;
+    column-rule: none;
+    font-size: 7pt !important;
+    line-height: 1.15 !important;
+    flex: 1;
+    overflow: hidden;
+  }
+  .hoja-a4[data-copies="4"] .ext-vacio { font-size: 7pt !important; }
+
+  /* 9-up: 3×3 */
+  .hoja-a4[data-copies="9"] .extracto-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 2mm;
+    height: 281mm;
+  }
+  .hoja-a4[data-copies="9"] .extracto-bloque {
+    border: 1px dashed #999;
+    padding: 2mm 1.5mm;
+    padding-bottom: 1mm;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .hoja-a4[data-copies="9"] .ext-titulo { font-size: 7pt; line-height: 1.05; letter-spacing: 0; }
+  .hoja-a4[data-copies="9"] .ext-subtitulo { font-size: 6.5pt; margin-top: 1px; }
+  .hoja-a4[data-copies="9"] .ext-tipo,
+  .hoja-a4[data-copies="9"] .ext-cifras { font-size: 5.5pt; margin-top: 1px; }
+  .hoja-a4[data-copies="9"] .ext-premios { font-size: 5pt !important; line-height: 1.15; margin-top: 1mm; margin-bottom: 0.5mm; }
+  .hoja-a4[data-copies="9"] .premio-item { margin: 0 2px; display: block; }
+  .hoja-a4[data-copies="9"] .ext-titulo-seccion { font-size: 5.5pt; margin: 0.5mm 0; }
+  .hoja-a4[data-copies="9"] .ext-pie { font-size: 5.5pt; margin-top: 1mm; padding-top: 0.5mm; }
+  .hoja-a4[data-copies="9"] .ext-ganadores {
+    column-count: 1 !important;
+    column-rule: none;
+    font-size: 5pt !important;
+    line-height: 1.05 !important;
+    flex: 1;
+    overflow: hidden;
+  }
+  .hoja-a4[data-copies="9"] .ganador-linea { padding: 0; }
+  .hoja-a4[data-copies="9"] .ext-vacio { font-size: 5pt !important; padding: 1mm 0; }
+
+  /* Cuando hay copias múltiples, ocultar la línea de stats (queda raro replicada) */
+  .hoja-a4[data-copies="4"] .stat-line,
+  .hoja-a4[data-copies="9"] .stat-line { display: none; }
+
   /* ─── Print A4 ─────────────────────────────────────────────────── */
   @page {
     size: A4 portrait;
@@ -224,10 +308,22 @@
       padding: 0;
       box-shadow: none;
     }
-    .extracto-bloque + .extracto-bloque {
+    .extracto-grid + .extracto-grid {
       border-top: none;
       margin-top: 0;
       padding-top: 0;
+    }
+    /* En print con 4-up o 9-up, el grid debe llenar exactamente la página */
+    .hoja-a4[data-copies="4"] .extracto-grid,
+    .hoja-a4[data-copies="9"] .extracto-grid {
+      height: 100vh;
+      page-break-after: always;
+      break-after: page;
+    }
+    .hoja-a4[data-copies="4"] .extracto-grid:last-child,
+    .hoja-a4[data-copies="9"] .extracto-grid:last-child {
+      page-break-after: auto;
+      break-after: auto;
     }
     /* Evitar que se rompan elementos críticos */
     .ext-cabecera, .ext-premios, .ext-titulo-seccion, .ext-pie {
@@ -238,27 +334,50 @@
 </style>
 
 <script>
-  // Selector de columnas y tamaño (persistencia en localStorage)
+  // Selector de columnas, tamaño y copias por hoja (persistencia en localStorage)
   (function() {
     const hoja = document.getElementById('hojaExtracto');
     if (!hoja) return;
 
+    // dataset key por grupo
+    const KEY = { cols: 'cols', size: 'size', copies: 'copies' };
+
     function aplicar(attr, value) {
       hoja.dataset[attr] = value;
       try { localStorage.setItem('extracto_' + attr, value); } catch(e) {}
+      if (attr === 'copies') replicarBloques(parseInt(value, 10));
     }
     function activar(grupo, value) {
       document.querySelectorAll('.btn-' + grupo).forEach(b => {
-        b.classList.toggle('active', b.dataset[grupo === 'cols' ? 'cols' : 'size'] === value);
+        b.classList.toggle('active', b.dataset[KEY[grupo]] === value);
       });
     }
 
-    // Restaurar preferencia guardada
+    // Clona cada bloque original N-1 veces dentro de su grilla
+    function replicarBloques(n) {
+      document.querySelectorAll('.extracto-grid').forEach(grid => {
+        const orig = grid.querySelector('.extracto-bloque-original');
+        if (!orig) return;
+        // Borrar clones previos
+        grid.querySelectorAll('.extracto-bloque-clone').forEach(c => c.remove());
+        // Agregar N-1 clones
+        for (let i = 1; i < n; i++) {
+          const clone = orig.cloneNode(true);
+          clone.classList.remove('extracto-bloque-original');
+          clone.classList.add('extracto-bloque-clone');
+          grid.appendChild(clone);
+        }
+      });
+    }
+
+    // Restaurar preferencias guardadas
     try {
       const colsSaved = localStorage.getItem('extracto_cols');
       const sizeSaved = localStorage.getItem('extracto_size');
+      const copiesSaved = localStorage.getItem('extracto_copies');
       if (colsSaved) { aplicar('cols', colsSaved); activar('cols', colsSaved); }
       if (sizeSaved) { aplicar('size', sizeSaved); activar('size', sizeSaved); }
+      if (copiesSaved) { aplicar('copies', copiesSaved); activar('copies', copiesSaved); }
     } catch(e) {}
 
     document.querySelectorAll('.btn-cols').forEach(btn => {
@@ -271,6 +390,12 @@
       btn.addEventListener('click', function() {
         aplicar('size', this.dataset.size);
         activar('size', this.dataset.size);
+      });
+    });
+    document.querySelectorAll('.btn-copies').forEach(btn => {
+      btn.addEventListener('click', function() {
+        aplicar('copies', this.dataset.copies);
+        activar('copies', this.dataset.copies);
       });
     });
   })();
