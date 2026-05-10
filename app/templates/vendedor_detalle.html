@@ -118,8 +118,9 @@
     {% endif %}
 
     <button class="btn btn-outline-secondary" type="button"
-            data-bs-toggle="collapse" data-bs-target="#histEntregasCaja"
-            aria-expanded="false" aria-controls="histEntregasCaja">
+            id="btn-hist-entregas"
+            aria-expanded="false" aria-controls="histEntregasCaja"
+            onclick="toggleColl('histEntregasCaja', this)">
       <i class="bi bi-clock-history me-1"></i>Historial de cajas entregadas
       <span class="badge bg-secondary ms-1">{{ entregas_vendedor|length }}</span>
     </button>
@@ -348,8 +349,9 @@
     {% endif %}
 
     <button class="btn btn-outline-secondary" type="button"
-            data-bs-toggle="collapse" data-bs-target="#histLiquidaciones"
-            aria-expanded="false" aria-controls="histLiquidaciones">
+            id="btn-hist-liq"
+            aria-expanded="false" aria-controls="histLiquidaciones"
+            onclick="toggleColl('histLiquidaciones', this)">
       <i class="bi bi-clock-history me-1"></i>Historial de liquidaciones
       <span class="badge bg-secondary ms-1">{{ liquidaciones|length if liquidaciones else 0 }}</span>
     </button>
@@ -646,6 +648,19 @@
 {% endif %}
 
 <script>
+// ════════════════ TOGGLE COLLAPSE (historiales) ════════════════
+function toggleColl(id, btn) {
+  const el = document.getElementById(id);
+  if (!el) {
+    console.warn('toggleColl: no existe #' + id);
+    return;
+  }
+  const inst = bootstrap.Collapse.getOrCreateInstance(el, { toggle: false });
+  const willOpen = !el.classList.contains('show');
+  inst.toggle();
+  if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+}
+
 const PENDIENTES = {{ pendientes_json | safe }};
 const VENDEDOR_ID = {{ v.id }};
 const NOMBRES_CONTADO = {{ nombres_contado | tojson }};
