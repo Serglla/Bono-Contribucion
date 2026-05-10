@@ -69,36 +69,6 @@
   </div>
 </div>
 
-{# ══════════ BOTONES DE ACCIÓN ══════════ #}
-{# Orden del flujo: 1° Entregar a caja  →  2° Liquidar vendedor #}
-<div class="mb-4 d-flex align-items-center flex-wrap gap-2">
-  {% if can_edit %}
-  <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalEntregarCaja">
-    <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
-  </button>
-  {% else %}
-  <button class="btn btn-outline-secondary" disabled>
-    <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
-  </button>
-  {% endif %}
-
-  <i class="bi bi-arrow-right text-muted mx-1"></i>
-
-  {% if can_edit and pendientes_count > 0 %}
-  <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalLiquidar">
-    <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
-    <span class="badge bg-white text-success ms-1">{{ pendientes_count }} boleta(s)</span>
-  </button>
-  {% else %}
-  <button class="btn btn-outline-secondary" disabled title="Sin boletas en caja pendientes de liquidar">
-    <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
-  </button>
-  <span class="text-muted small">
-    {% if pendientes_count == 0 %}Sin boletas en caja para liquidar.{% endif %}
-  </span>
-  {% endif %}
-</div>
-
 {# ══════════ LEYENDA ══════════ #}
 <div class="d-flex flex-wrap gap-3 mb-3 small align-items-center">
   <span class="fw-semibold text-muted">Leyenda:</span>
@@ -107,6 +77,53 @@
   <span><span class="badge bg-primary" style="opacity:.6;">0000</span> En sistema</span>
   <span><i class="bi bi-star-fill text-warning"></i> Contado</span>
 </div>
+
+{# ══════════ NAV TABS: CAJA / LIQUIDACIONES ══════════ #}
+<ul class="nav nav-tabs mb-3" id="vendedorTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-caja-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-caja" type="button" role="tab"
+            aria-controls="tab-caja" aria-selected="true">
+      <i class="bi bi-box-seam me-1"></i>Caja
+      <span class="badge bg-primary ms-1">{{ ns.en_caja + ns.liq_pend_comp }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-liq-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-liq" type="button" role="tab"
+            aria-controls="tab-liq" aria-selected="false">
+      <i class="bi bi-cash-coin me-1"></i>Liquidaciones
+      {% if liquidaciones %}<span class="badge bg-success ms-1">{{ liquidaciones|length }}</span>{% endif %}
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="vendedorTabsContent">
+
+{# ════════════════════════════════════════════════════════════ #}
+{# ══════════ TAB CAJA ════════════════════════════════════════ #}
+{# ════════════════════════════════════════════════════════════ #}
+<div class="tab-pane fade show active" id="tab-caja" role="tabpanel" aria-labelledby="tab-caja-btn">
+
+  {# ── Botones de acción de la tab CAJA ── #}
+  <div class="mb-3 d-flex align-items-center flex-wrap gap-2">
+    {% if can_edit %}
+    <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalEntregarCaja">
+      <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
+    </button>
+    {% else %}
+    <button class="btn btn-outline-secondary" disabled>
+      <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
+    </button>
+    {% endif %}
+
+    <button class="btn btn-outline-secondary" type="button"
+            data-bs-toggle="collapse" data-bs-target="#histEntregasCaja"
+            aria-expanded="false" aria-controls="histEntregasCaja">
+      <i class="bi bi-clock-history me-1"></i>Historial de cajas entregadas
+      <span class="badge bg-secondary ms-1">{{ entregas_vendedor|length }}</span>
+    </button>
+  </div>
 
 {# ══════════ SECCIONES POR PATA ══════════ #}
 {% if patas %}
@@ -174,7 +191,8 @@
 {% endif %}
 
 {# ══════════ HISTORIAL ENTREGAS A CAJA (filtradas por vendedor) ══════════ #}
-<div class="card border-0 shadow-sm mt-4">
+<div class="collapse mt-3" id="histEntregasCaja">
+<div class="card border-0 shadow-sm">
   <div class="card-header bg-white py-2 fw-semibold small d-flex align-items-center gap-2">
     <i class="bi bi-box-arrow-in-down text-danger"></i>
     <span>Entregas a caja recibidas</span>
@@ -241,6 +259,7 @@
   </div>
   <div class="card-footer text-muted small py-2">{{ entregas_vendedor|length }} entrega(s) registrada(s)</div>
 </div>
+</div>{# /collapse histEntregasCaja #}
 
 {# Modales de edición de cada entrega del vendedor #}
 {% for e in entregas_vendedor %}
@@ -308,9 +327,42 @@
 </div>
 {% endfor %}
 
-{# ══════════ HISTORIAL LIQUIDACIONES ══════════ #}
-{% if liquidaciones %}
-<div class="card border-0 shadow-sm mt-4">
+</div>{# /tab-pane CAJA #}
+
+{# ════════════════════════════════════════════════════════════ #}
+{# ══════════ TAB LIQUIDACIONES ═══════════════════════════════ #}
+{# ════════════════════════════════════════════════════════════ #}
+<div class="tab-pane fade" id="tab-liq" role="tabpanel" aria-labelledby="tab-liq-btn">
+
+  {# ── Botones de acción de la tab Liquidaciones ── #}
+  <div class="mb-3 d-flex align-items-center flex-wrap gap-2">
+    {% if can_edit and pendientes_count > 0 %}
+    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalLiquidar">
+      <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
+      <span class="badge bg-white text-success ms-1">{{ pendientes_count }} boleta(s)</span>
+    </button>
+    {% else %}
+    <button class="btn btn-outline-secondary" disabled title="Sin boletas en caja pendientes de liquidar">
+      <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
+    </button>
+    {% endif %}
+
+    <button class="btn btn-outline-secondary" type="button"
+            data-bs-toggle="collapse" data-bs-target="#histLiquidaciones"
+            aria-expanded="false" aria-controls="histLiquidaciones">
+      <i class="bi bi-clock-history me-1"></i>Historial de liquidaciones
+      <span class="badge bg-secondary ms-1">{{ liquidaciones|length if liquidaciones else 0 }}</span>
+    </button>
+
+    {% if pendientes_count == 0 %}
+    <span class="text-muted small ms-1">Sin boletas en caja para liquidar.</span>
+    {% endif %}
+  </div>
+
+  {# ── Collapse: historial de liquidaciones ── #}
+  <div class="collapse mt-3" id="histLiquidaciones">
+  {% if liquidaciones %}
+  <div class="card border-0 shadow-sm">
   <div class="card-header bg-white py-2 fw-semibold small d-flex align-items-center gap-2">
     <i class="bi bi-receipt text-success me-1"></i>
     <span>Historial de liquidaciones</span>
@@ -353,9 +405,22 @@
       </tbody>
     </table>
   </div>
-</div>
+</div>{# /card historial liquidaciones #}
+  {% else %}
+  <div class="card border-0 shadow-sm">
+    <div class="card-body text-center text-muted py-4">
+      <i class="bi bi-receipt fs-3 d-block mb-2"></i>
+      Sin liquidaciones registradas para este vendedor.
+    </div>
+  </div>
+  {% endif %}
+  </div>{# /collapse histLiquidaciones #}
+
+</div>{# /tab-pane Liq #}
+</div>{# /tab-content vendedorTabsContent #}
 
 {# ══════════ MODAL DETALLE LIQUIDACIÓN ══════════ #}
+{% if liquidaciones %}
 <div class="modal fade" id="modalDetalleLiq" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
