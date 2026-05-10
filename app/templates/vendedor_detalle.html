@@ -126,6 +126,10 @@
     <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalEntregarCaja">
       <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
     </button>
+    <button id="btnPasarCaja" class="btn btn-warning" type="button"
+            title="Pasá boletas a la caja de otro vendedor (antes de liquidar)">
+      <i class="bi bi-arrow-left-right me-2"></i>Pasar Caja
+    </button>
     {% else %}
     <button class="btn btn-outline-secondary" disabled>
       <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
@@ -138,6 +142,35 @@
       <span class="badge bg-secondary ms-1">{{ entregas_vendedor|length }}</span>
     </button>
   </div>
+
+  {# ── Toolbar de modo selección "Pasar Caja" (oculta por default) ── #}
+  {% if can_edit %}
+  <div id="toolbarPasarCaja" class="alert alert-warning d-none align-items-center flex-wrap gap-2 py-2 mb-3"
+       style="border:2px dashed #f59e0b;">
+    <i class="bi bi-arrow-left-right text-warning"></i>
+    <span class="fw-semibold">Modo selección:</span>
+    <span class="small">click en las boletas <span class="badge" style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;">0000</span> para marcarlas</span>
+    <span class="badge bg-primary ms-2"><span id="pasarCount">0</span> seleccionada(s)</span>
+
+    <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+      <label class="small mb-0 fw-semibold">Pasar a:</label>
+      <select id="pasarDestinoSelect" class="form-select form-select-sm" style="min-width:180px;">
+        <option value="">— elegí vendedor —</option>
+        {% for vv in vendedores_all %}
+          {% if vv.id != v.id %}
+          <option value="{{ vv.id }}">
+            {{ vv.nombre }}{% if vv.es_jefe_equipo %} ★{% endif %}
+          </option>
+          {% endif %}
+        {% endfor %}
+      </select>
+      <button id="btnPasarCancelar" type="button" class="btn btn-sm btn-outline-secondary">Cancelar</button>
+      <button id="btnPasarConfirmar" type="button" class="btn btn-sm btn-success" disabled>
+        <i class="bi bi-check-lg me-1"></i>Confirmar pase
+      </button>
+    </div>
+  </div>
+  {% endif %}
 
 {# ══════════ SECCIONES POR PATA ══════════ #}
 {% if patas %}
@@ -168,8 +201,9 @@
       <div class="d-flex flex-wrap gap-1">
         {% for b in pata_data.boletas %}
           {% if b.cond == 'CAJA' and not b.liq %}
-            {# En caja — sin liquidar → azul claro #}
-            <span class="badge"
+            {# En caja — sin liquidar → azul claro. Si tiene id (no es pool) es seleccionable en modo Pasar. #}
+            <span class="badge boleta-caja{% if b.id and not b.pool %} boleta-pasar-target{% endif %}"
+                  {% if b.id and not b.pool %}data-bid="{{ b.id }}" data-num="{{ b.num_str }}"{% endif %}
                   style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;font-size:.8rem;"
                   title="En caja{% if b.contado %} · Contado{% endif %}">
               {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
@@ -722,6 +756,28 @@
   </div>
 </div>
 
+<style>
+/* Modo Pasar Caja: cursor pointer y hover sutil en boletas seleccionables */
+body.pasar-caja-mode .boleta-pasar-target { cursor: pointer; }
+body.pasar-caja-mode .boleta-pasar-target:hover {
+  outline: 2px solid #f59e0b; outline-offset: 1px;
+}
+/* Boleta seleccionada para pasar */
+.boleta-pasar-target.pasar-selected {
+  background: #fff3cd !important;
+  color: #664d03 !important;
+  border-color: #f59e0b !important;
+  box-shadow: 0 0 0 2px #f59e0b inset;
+}
+.boleta-pasar-target.pasar-selected::after {
+  content: " ✓"; font-weight: bold;
+}
+/* En modo selección, dejar opacas las boletas NO seleccionables (verdes, azul opaco, pool) */
+body.pasar-caja-mode .badge:not(.boleta-pasar-target) {
+  opacity: .35;
+}
+</style>
+
 <script>
 
 const PENDIENTES = {{ pendientes_json | safe }};
@@ -1259,5 +1315,106 @@ async function verDetalleLiq(liqId) {
       <i class="bi bi-x-circle me-1"></i>Error de red al cargar el detalle</div>`;
   }
 }
+
+// ══════════════════════════════════════════════════════════════════
+// Modo "Pasar Caja": selección de boletas en caja para pasar a otro
+// vendedor antes de liquidar. Reutiliza las celditas azul claro como
+// checkboxes visuales.
+// ══════════════════════════════════════════════════════════════════
+(function() {
+  const btnAbrir   = document.getElementById('btnPasarCaja');
+  const toolbar    = document.getElementById('toolbarPasarCaja');
+  const btnCancel  = document.getElementById('btnPasarCancelar');
+  const btnConfirm = document.getElementById('btnPasarConfirmar');
+  const selectDest = document.getElementById('pasarDestinoSelect');
+  const lblCount   = document.getElementById('pasarCount');
+  if (!btnAbrir || !toolbar) return;  // no permisos / no botón
+
+  const seleccionados = new Set();
+
+  function actualizarUI() {
+    lblCount.textContent = seleccionados.size;
+    btnConfirm.disabled = (seleccionados.size === 0 || !selectDest.value);
+  }
+
+  function entrarModo() {
+    document.body.classList.add('pasar-caja-mode');
+    toolbar.classList.remove('d-none');
+    toolbar.classList.add('d-flex');
+    seleccionados.clear();
+    selectDest.value = '';
+    document.querySelectorAll('.boleta-pasar-target.pasar-selected')
+      .forEach(el => el.classList.remove('pasar-selected'));
+    actualizarUI();
+    // Scroll suave a la toolbar
+    toolbar.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  }
+
+  function salirModo() {
+    document.body.classList.remove('pasar-caja-mode');
+    toolbar.classList.add('d-none');
+    toolbar.classList.remove('d-flex');
+    seleccionados.clear();
+    document.querySelectorAll('.boleta-pasar-target.pasar-selected')
+      .forEach(el => el.classList.remove('pasar-selected'));
+  }
+
+  btnAbrir.addEventListener('click', entrarModo);
+  btnCancel.addEventListener('click', salirModo);
+  selectDest.addEventListener('change', actualizarUI);
+
+  // Click en una boleta seleccionable → toggle (solo en modo activo)
+  document.addEventListener('click', (ev) => {
+    if (!document.body.classList.contains('pasar-caja-mode')) return;
+    const el = ev.target.closest('.boleta-pasar-target');
+    if (!el) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const bid = el.dataset.bid;
+    if (!bid) return;
+    if (seleccionados.has(bid)) {
+      seleccionados.delete(bid);
+      el.classList.remove('pasar-selected');
+    } else {
+      seleccionados.add(bid);
+      el.classList.add('pasar-selected');
+    }
+    actualizarUI();
+  });
+
+  btnConfirm.addEventListener('click', async () => {
+    if (seleccionados.size === 0 || !selectDest.value) return;
+    const destinoNombre = selectDest.options[selectDest.selectedIndex].text.trim();
+    if (!confirm(`¿Pasar ${seleccionados.size} boleta(s) a la caja de ${destinoNombre}?`)) return;
+
+    btnConfirm.disabled = true;
+    btnConfirm.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Pasando…';
+
+    const fd = new FormData();
+    fd.append('vendedor_destino_id', selectDest.value);
+    for (const bid of seleccionados) fd.append('boleta_ids', bid);
+
+    try {
+      const r = await fetch(`/vendedores/${VENDEDOR_ID}/pasar-caja`, {
+        method: 'POST',
+        body: fd,
+        credentials: 'include'
+      });
+      const data = await r.json();
+      if (!data.ok) {
+        alert('Error: ' + (data.error || 'no se pudo pasar'));
+        btnConfirm.disabled = false;
+        btnConfirm.innerHTML = '<i class="bi bi-check-lg me-1"></i>Confirmar pase';
+        return;
+      }
+      // Éxito → recargar para reflejar los cambios
+      setTimeout(() => window.location.reload(), 400);
+    } catch (e) {
+      alert('Error de red al pasar las boletas');
+      btnConfirm.disabled = false;
+      btnConfirm.innerHTML = '<i class="bi bi-check-lg me-1"></i>Confirmar pase';
+    }
+  });
+})();
 </script>
 {% endblock %}

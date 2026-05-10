@@ -349,6 +349,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         if pata_nombre not in patas:
             patas[pata_nombre] = {"color": pata_color, "boletas": [], "num_digitos": nd}
         patas[pata_nombre]["boletas"].append({
+            "id":      b.id,
             "num":     b.numero_principal,
             "num_str": fmt.format(b.numero_principal),
             "cond":    b.condicion.value if b.condicion else "?",
@@ -440,6 +441,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             patas[nombre_c] = {"color": t.color or "#fff8e1", "boletas": [], "num_digitos": nd_c}
         for n in pendientes_pool:
             patas[nombre_c]["boletas"].append({
+                "id":      None,
                 "num":     n,
                 "num_str": fmt_c.format(n),
                 "cond":    "CAJA",
@@ -881,6 +883,116 @@ async def entrega_caja(
         "vendedor_id": vendedor_id,
         "vendedores_origen": vendedores_origen,
         "es_contado": es_contado,
+    })
+
+
+@router.post("/{vid}/pasar-caja")
+async def pasar_caja(vid: int, request: Request, db: Session = Depends(get_db)):
+    """Reasigna boletas que están en la CAJA de {vid} (sin liquidar) hacia
+    otro vendedor. Caso típico: el jefe de equipo (ARIEL) recibe boletas de la
+    institución, las distribuye físicamente a los demás vendedores y antes de
+    liquidar las pasa a la caja del vendedor que realmente las va a vender.
+
+    Form:
+      - boleta_ids[]: IDs de boletas a pasar (deben pertenecer al vendedor {vid},
+        estar en CAJA y sin liquidación_vendedor_id)
+      - vendedor_destino_id: vendedor que va a recibirlas
+    """
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+
+    v_origen = db.query(models.Vendedor).get(vid)
+    if not v_origen:
+        return JSONResponse({"ok": False, "error": "Vendedor origen no encontrado"}, status_code=404)
+
+    form = await request.form()
+    raw_ids = form.getlist("boleta_ids")
+    try:
+        destino_id = int(form.get("vendedor_destino_id") or 0)
+    except Exception:
+        destino_id = 0
+
+    if not destino_id:
+        return JSONResponse({"ok": False, "error": "Falta vendedor destino"}, status_code=400)
+    if destino_id == vid:
+        return JSONResponse({"ok": False, "error": "El vendedor destino no puede ser el mismo"}, status_code=400)
+
+    v_destino = db.query(models.Vendedor).get(destino_id)
+    if not v_destino:
+        return JSONResponse({"ok": False, "error": "Vendedor destino no encontrado"}, status_code=404)
+
+    boleta_ids = []
+    for x in raw_ids:
+        try:
+            boleta_ids.append(int(str(x)))
+        except Exception:
+            continue
+    if not boleta_ids:
+        return JSONResponse({"ok": False, "error": "No seleccionaste boletas"}, status_code=400)
+
+    # Solo boletas del vendedor origen, en CAJA, sin liquidar
+    boletas = db.query(models.Boleta).filter(
+        models.Boleta.id.in_(boleta_ids),
+        models.Boleta.vendedor_id == vid,
+        models.Boleta.condicion == CondicionBoleta.CAJA,
+        models.Boleta.liquidacion_vendedor_id.is_(None),
+    ).all()
+
+    if not boletas:
+        return JSONResponse({"ok": False, "error": "Ninguna boleta válida para pasar"}, status_code=400)
+
+    # Agrupar por talonera y generar rangos contiguos para el historial EntregaCaja
+    from collections import defaultdict
+    por_talonera = defaultdict(list)
+    for b in boletas:
+        if b.talonera_id is None:
+            continue
+        por_talonera[b.talonera_id].append(b)
+
+    entregas_creadas = []
+    for tid, bs in por_talonera.items():
+        t = db.query(models.Talonera).get(tid)
+        if not t:
+            continue
+        nums = sorted(b.numero_principal for b in bs)
+        # Comprimir en rangos contiguos
+        rangos = []
+        ini = prev = nums[0]
+        for n in nums[1:]:
+            if n == prev + 1:
+                prev = n
+            else:
+                rangos.append((ini, prev))
+                ini = prev = n
+        rangos.append((ini, prev))
+        for d, h in rangos:
+            entrega = models.EntregaCaja(
+                talonera_nombre=t.nombre,
+                desde=d,
+                hasta=h,
+                boletas_afectadas=h - d + 1,
+                usuario_id=_perm_user.id,
+                vendedor_id=destino_id,
+                observacion=f"Pasada desde {v_origen.nombre}",
+            )
+            db.add(entrega)
+            entregas_creadas.append(entrega)
+
+    # Reasignar las boletas al vendedor destino
+    total = 0
+    for b in boletas:
+        b.vendedor_id = destino_id
+        total += 1
+
+    db.commit()
+
+    return JSONResponse({
+        "ok": True,
+        "total": total,
+        "vendedor_destino_id": destino_id,
+        "vendedor_destino_nombre": v_destino.nombre,
+        "entregas_creadas": len(entregas_creadas),
     })
 
 
