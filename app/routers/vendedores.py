@@ -521,6 +521,67 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         vendedor_id=vid
     ).order_by(models.LiquidacionVendedor.fecha.desc()).all()
 
+    # ── Métricas acumuladas para tarjetas del header ─────────────────────
+    # Total boletas liquidadas (literal, suma cuotas + contados)
+    total_boletas_liquidadas = sum(
+        (liq.cuotas_vendidas or 0) + (liq.contados_vendidos or 0)
+        for liq in liquidaciones
+    )
+    # Total boletas liquidadas ponderadas por PATA (cuotas_equiv ya está ponderado;
+    # para contados usamos contados_vendidos crudo porque su monto ya viene ponderado)
+    total_boletas_liquidadas_eq = sum(
+        (liq.cuotas_equiv or liq.cuotas_vendidas or 0) + (liq.contados_vendidos or 0)
+        for liq in liquidaciones
+    )
+    # Ingresos del vendedor: lo que se queda en su bolsillo
+    # = cuota 1 (cobrada directo al socio) + comisión contados + comisión cuotas extras
+    ingresos_total = sum(
+        (liq.cuota_1_total or 0)
+        + (liq.comision_contados or 0)
+        + (liq.comision_cuotas_extras or 0)
+        for liq in liquidaciones
+    )
+    # Total vendidas: boletas con comprador cargado, ponderado por multiplicador de PATA
+    total_vendidas_pond = sum(
+        int((b.talonera.multiplicador or 1) if b.talonera else 1)
+        for b in boletas if b.comprador_id is not None
+    )
+
+    # ── Agrupación de liquidaciones por mes (para acordeón) ──────────────
+    _MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                 "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
+    from datetime import datetime as _dt
+    _hoy = _dt.utcnow()
+    mes_actual_key = f"{_hoy.year:04d}-{_hoy.month:02d}"
+
+    grupos_mes_dict = {}
+    for liq in liquidaciones:
+        if not liq.fecha:
+            continue
+        y, m = liq.fecha.year, liq.fecha.month
+        key = f"{y:04d}-{m:02d}"
+        if key not in grupos_mes_dict:
+            grupos_mes_dict[key] = {
+                "key": key, "year": y, "month": m,
+                "label": f"{_MESES_ES[m-1]} {y}",
+                "liquidaciones": [],
+                "total_ingresos": 0.0,
+                "total_rinde": 0.0,
+                "total_boletas": 0,
+            }
+        g = grupos_mes_dict[key]
+        g["liquidaciones"].append(liq)
+        g["total_ingresos"] += (liq.cuota_1_total or 0) + (liq.comision_contados or 0) + (liq.comision_cuotas_extras or 0)
+        g["total_rinde"] += (liq.total_a_rendir or 0)
+        g["total_boletas"] += (liq.cuotas_equiv or liq.cuotas_vendidas or 0) + (liq.contados_vendidos or 0)
+
+    # Orden cronológico inverso: mes actual primero, luego pasados (más reciente arriba)
+    liquidaciones_por_mes = sorted(
+        grupos_mes_dict.values(),
+        key=lambda g: (g["year"], g["month"]),
+        reverse=True,
+    )
+
     can_edit = auth_module.has_permission(user, "vendedores", "editar")
 
     # Mapa nombre_talonera → num_digitos para formatear rangos en tabla de entregas
@@ -541,6 +602,15 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         "entregas_vendedor": entregas_vendedor,
         "pata1_vc": pata1_vc,
         "pata1_nc": pata1_nc,
+        # nuevas métricas para el header
+        "total_liquidaciones": len(liquidaciones),
+        "total_boletas_liquidadas": total_boletas_liquidadas,
+        "total_boletas_liquidadas_eq": total_boletas_liquidadas_eq,
+        "ingresos_total": ingresos_total,
+        "total_vendidas_pond": total_vendidas_pond,
+        # acordeón mensual
+        "liquidaciones_por_mes": liquidaciones_por_mes,
+        "mes_actual_key": mes_actual_key,
     })
 
 

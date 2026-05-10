@@ -49,22 +49,37 @@
 
 {# ══════════ TARJETAS RESUMEN ══════════ #}
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-4">
-    <div class="card border-0 shadow-sm text-center py-3">
+  {# 1. En caja — boletas en mano del vendedor sin liquidar #}
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 h-100">
       <div class="fs-3 fw-bold text-primary">{{ ns.en_caja }}</div>
-      <div class="small text-muted">En caja — sin liquidar</div>
+      <div class="small text-muted">En caja</div>
     </div>
   </div>
-  <div class="col-6 col-md-4">
-    <div class="card border-0 shadow-sm text-center py-3">
-      <div class="fs-3 fw-bold text-success">{{ ns.liq_pend_comp }}</div>
-      <div class="small text-muted">Liquidado — pend. comprador</div>
+  {# 2. Total liquidados — acumulado histórico de boletas pasadas por liquidación (ponderado) #}
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 h-100"
+         title="Boletas liquidadas históricamente (ponderado por multiplicador de PATA). {{ total_liquidaciones }} liquidación(es) registrada(s).">
+      <div class="fs-3 fw-bold text-success">{{ total_boletas_liquidadas_eq }}</div>
+      <div class="small text-muted">Total liquidados
+        <span class="text-muted" style="font-size:.75em;">({{ total_liquidaciones }} liq.)</span>
+      </div>
     </div>
   </div>
-  <div class="col-6 col-md-4">
-    <div class="card border-0 shadow-sm text-center py-3">
-      <div class="fs-3 fw-bold" style="color:#6c8ebf;">{{ ns.en_sistema }}</div>
-      <div class="small text-muted">En sistema</div>
+  {# 3. Ingresos del vendedor — cuota 1 + comisiones acumuladas #}
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 h-100"
+         title="Acumulado del vendedor: cuota 1 cobrada al socio + comisión contado + comisión cuotas extras.">
+      <div class="fs-4 fw-bold" style="color:#198754;">${{ '{:,.0f}'.format(ingresos_total)|replace(',', '.') }}</div>
+      <div class="small text-muted">Ingresos del vendedor</div>
+    </div>
+  </div>
+  {# 4. Total vendidas — boletas con socio cargado, ponderado por multiplicador #}
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 h-100"
+         title="Boletas con socio cargado en el sistema, ponderadas por multiplicador de PATA (PATA 1 ×1, PATA 2 ×2, ...).">
+      <div class="fs-3 fw-bold" style="color:#6c8ebf;">{{ total_vendidas_pond }}</div>
+      <div class="small text-muted">Total vendidas</div>
     </div>
   </div>
 </div>
@@ -616,42 +631,81 @@
         </h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body p-0">
-        {% if liquidaciones %}
-        <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0 small table-hover" style="font-size:.82rem;">
-            <thead class="table-light">
-              <tr>
-                <th>Fecha</th>
-                <th class="text-center" title="Cuotas ponderadas por multiplicador de PATA (PATA 1 ×1, PATA 2 ×2, ...). Cuota 1 ya en mano del vendedor.">Cuotas</th>
-                <th class="text-center">Contados</th>
-                <th class="text-end">Monto contados</th>
-                <th class="text-center">% Cont.</th>
-                <th class="text-center" title="Cuotas extras cobradas (cuota 2, 3, ...)">Extras</th>
-                <th class="text-end">Monto extras</th>
-                <th class="text-center">% Cuot.</th>
-                <th class="text-end fw-semibold text-success" title="Total que el vendedor rinde a la organización">Total rinde</th>
-                <th>Obs.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for liq in liquidaciones %}
-              <tr style="cursor:pointer;" ondblclick="verDetalleLiq({{ liq.id }})"
-                  title="Doble-click para ver el detalle de esta liquidación">
-                <td class="text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
-                <td class="text-center" title="Boletas reales: {{ liq.cuotas_vendidas }}">{{ liq.cuotas_equiv or liq.cuotas_vendidas }}</td>
-                <td class="text-center">{{ liq.contados_vendidos }}</td>
-                <td class="text-end">${{ '%.2f'|format(liq.monto_contados or 0) }}</td>
-                <td class="text-center text-muted">{{ liq.comision_contados_pct }}%</td>
-                <td class="text-center">{{ liq.cuotas_extras_cantidad or 0 }}</td>
-                <td class="text-end">${{ '%.2f'|format(liq.cuotas_extras_monto or 0) }}</td>
-                <td class="text-center text-muted">{{ liq.comision_cuotas_pct }}%</td>
-                <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_a_rendir or 0) }}</td>
-                <td class="text-muted fst-italic">{{ liq.observacion or "—" }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+      <div class="modal-body p-2">
+        {% if liquidaciones_por_mes %}
+        <div class="accordion" id="accordionLiqMes">
+          {% for grupo in liquidaciones_por_mes %}
+          {% set is_open = (grupo.key == mes_actual_key) %}
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="liqMesH{{ grupo.key }}">
+              <button class="accordion-button {% if not is_open %}collapsed{% endif %} py-2"
+                      type="button" data-bs-toggle="collapse"
+                      data-bs-target="#liqMesC{{ grupo.key }}"
+                      aria-expanded="{{ 'true' if is_open else 'false' }}"
+                      aria-controls="liqMesC{{ grupo.key }}">
+                <i class="bi bi-calendar3 me-2"></i>
+                <span class="fw-semibold">{{ grupo.label }}</span>
+                <span class="badge bg-secondary ms-3" title="Liquidaciones del mes">
+                  {{ grupo.liquidaciones|length }} liq.
+                </span>
+                <span class="badge bg-light text-dark ms-2" title="Boletas liquidadas (ponderadas)">
+                  {{ grupo.total_boletas }} boletas
+                </span>
+                <span class="badge bg-success ms-2" title="Ingresos del vendedor en el mes (cuota 1 + comisiones)">
+                  Ganó ${{ '{:,.0f}'.format(grupo.total_ingresos)|replace(',', '.') }}
+                </span>
+              </button>
+            </h2>
+            <div id="liqMesC{{ grupo.key }}"
+                 class="accordion-collapse collapse {% if is_open %}show{% endif %}"
+                 aria-labelledby="liqMesH{{ grupo.key }}">
+              <div class="accordion-body p-0">
+                <div class="table-responsive">
+                  <table class="table table-sm align-middle mb-0 small table-hover" style="font-size:.82rem;">
+                    <thead class="table-light">
+                      <tr>
+                        <th>Fecha</th>
+                        <th class="text-center" title="Cuotas ponderadas por multiplicador de PATA (PATA 1 ×1, PATA 2 ×2, ...). Cuota 1 ya en mano del vendedor.">Cuotas</th>
+                        <th class="text-center">Contados</th>
+                        <th class="text-end">Monto contados</th>
+                        <th class="text-center">% Cont.</th>
+                        <th class="text-center" title="Cuotas extras cobradas (cuota 2, 3, ...)">Extras</th>
+                        <th class="text-end">Monto extras</th>
+                        <th class="text-center">% Cuot.</th>
+                        <th class="text-end fw-semibold text-success" title="Total que el vendedor rinde a la organización">Total rinde</th>
+                        <th>Obs.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for liq in grupo.liquidaciones %}
+                      <tr style="cursor:pointer;" ondblclick="verDetalleLiq({{ liq.id }})"
+                          title="Doble-click para ver el detalle de esta liquidación">
+                        <td class="text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
+                        <td class="text-center" title="Boletas reales: {{ liq.cuotas_vendidas }}">{{ liq.cuotas_equiv or liq.cuotas_vendidas }}</td>
+                        <td class="text-center">{{ liq.contados_vendidos }}</td>
+                        <td class="text-end">${{ '%.2f'|format(liq.monto_contados or 0) }}</td>
+                        <td class="text-center text-muted">{{ liq.comision_contados_pct }}%</td>
+                        <td class="text-center">{{ liq.cuotas_extras_cantidad or 0 }}</td>
+                        <td class="text-end">${{ '%.2f'|format(liq.cuotas_extras_monto or 0) }}</td>
+                        <td class="text-center text-muted">{{ liq.comision_cuotas_pct }}%</td>
+                        <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_a_rendir or 0) }}</td>
+                        <td class="text-muted fst-italic">{{ liq.observacion or "—" }}</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                    <tfoot class="table-light">
+                      <tr style="font-weight:600;">
+                        <td class="text-end" colspan="8">Total {{ grupo.label }}:</td>
+                        <td class="text-end text-success">${{ '%.2f'|format(grupo.total_rinde) }}</td>
+                        <td class="text-muted small">Ganó: <span class="text-success fw-bold">${{ '{:,.0f}'.format(grupo.total_ingresos)|replace(',', '.') }}</span></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
         </div>
         {% else %}
         <div class="text-center text-muted py-5">
