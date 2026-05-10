@@ -1019,14 +1019,22 @@ async function verDetalleLiq(liqId) {
     const tienePool    = Object.keys(grupos_pool).length > 0;
 
     if (tieneBoletas) {
+      // Total ponderado = suma de multiplicadores (PATA 1 ×1, PATA 2 ×2, PATA 3 ×3, etc.)
+      const totalPonderado = (d.boletas || []).reduce((acc, b) => acc + (b.multiplicador || 1), 0);
+      const totalCrudo     = (d.boletas || []).length;
       html += `<div class="small fw-semibold text-muted mb-2">
         <i class="bi bi-collection me-1"></i>Taloneras liquidadas
-        <span class="badge bg-secondary ms-1">${(d.boletas || []).length}</span>
+        <span class="badge bg-secondary ms-1"
+              title="${totalCrudo} boleta/s reales, ponderado por multiplicador de PATA">
+          ${totalPonderado}
+        </span>
       </div>`;
       Object.keys(grupos).sort().forEach(pata => {
         const g = grupos[pata];
         const colorBg  = (g.color || '#cccccc') + '20';
         const colorBdr = g.color || '#cccccc';
+        const mult     = (g.boletas[0] && g.boletas[0].multiplicador) || 1;
+        const ponderado = g.boletas.reduce((acc, b) => acc + (b.multiplicador || 1), 0);
         let badges = '';
         g.boletas.forEach(b => {
           const opaco = (b.condicion === 'VENDIDO') ? 'opacity:.55;' : '';
@@ -1041,7 +1049,9 @@ async function verDetalleLiq(liqId) {
               <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">
                 ${escapeHtml(pata)}
               </span>
-              <span class="text-muted small">${g.boletas.length} boleta/s</span>
+              <span class="text-muted small">
+                ${g.boletas.length} boleta/s × ${mult} = <strong>${ponderado}</strong>
+              </span>
             </div>
             <div class="card-body py-2">
               <div class="d-flex flex-wrap gap-1">${badges}</div>
