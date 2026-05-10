@@ -880,6 +880,12 @@ async function entregarCajaVendedor() {
       document.getElementById('ec2-desde').value = '';
       document.getElementById('ec2-hasta').value = '';
       document.getElementById('ec2-desde').focus();
+      // Si hubo cambios, refrescar la página para actualizar contadores,
+      // paneles por PATA y badge de "Liquidar vendedor".
+      // Pequeño delay para que el usuario alcance a ver el alert de éxito.
+      if (total > 0) {
+        setTimeout(() => { window.location.reload(); }, 900);
+      }
     } else {
       res.innerHTML = alertaBox('danger', data.error || 'Error');
     }
