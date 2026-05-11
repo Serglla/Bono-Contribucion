@@ -15,6 +15,17 @@ router = APIRouter(prefix="/cobranza", tags=["cobranza"])
 MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
          "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
+_MESES_UPPER = [m.upper() for m in MESES]
+
+def _meses_campana_desde(mes_planilla: int, num_cuotas: int):
+    """Genera la lista de (nombre, num_mes) para la tabla de cuotas.
+    Cuota 1 = mes siguiente al mes de la planilla (ej: planilla Mayo → cuota 1 = Junio)."""
+    inicio = mes_planilla % 12  # 5 → 5 (índice 0-based de Junio)
+    return [
+        (_MESES_UPPER[(inicio + i) % 12], (inicio + i) % 12 + 1)
+        for i in range(num_cuotas)
+    ]
+
 
 def _pata_valor(boleta) -> int:
     """Retorna el valor de PATA de una boleta (1, 2 o 3) según el nombre de la talonera."""
@@ -377,14 +388,8 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
             valor_cuota = float(b.talonera.valor_cuota)
             break
 
-    # ── Meses de la campaña (octubre = cuota 1) ─────────────────────────────
-    _meses_camp = [
-        ("OCTUBRE", 10),    ("NOVIEMBRE", 11), ("DICIEMBRE", 12),
-        ("ENERO", 1),       ("FEBRERO", 2),    ("MARZO", 3),
-        ("ABRIL", 4),       ("MAYO", 5),       ("JUNIO", 6),
-        ("JULIO", 7),       ("AGOSTO", 8),     ("SEPTIEMBRE", 9),
-    ]
-    meses_campana = _meses_camp[:num_cuotas]
+    # ── Meses de la campaña (cuota 1 = mes siguiente al mes de la planilla) ──
+    meses_campana = _meses_campana_desde(planilla.mes, num_cuotas)
 
     # ── Resumen inicial por cuota/mes y columna ─────────────────────────────
     # cuota_n (1..num_cuotas) → {1: count, 2: count, 3: count}
@@ -604,14 +609,8 @@ async def planilla(request: Request, cobrador_id: int,
     num_cuotas = max(num_cuotas, 10)
     cuota_nums = list(range(1, num_cuotas + 1))
 
-    # Meses de la campaña (octubre = cuota 1)
-    _meses_camp = [
-        ("OCTUBRE", 10), ("NOVIEMBRE", 11), ("DICIEMBRE", 12),
-        ("ENERO", 1),    ("FEBRERO", 2),    ("MARZO", 3),
-        ("ABRIL", 4),    ("MAYO", 5),       ("JUNIO", 6),
-        ("JULIO", 7),    ("AGOSTO", 8),     ("SEPTIEMBRE", 9),
-    ]
-    meses_campana = _meses_camp[:num_cuotas]
+    # Meses de la campaña (cuota 1 = mes siguiente al mes de la planilla)
+    meses_campana = _meses_campana_desde(mes, num_cuotas)
 
     planilla_label = f"P{planilla_obj.numero}" if planilla_obj else None
 
