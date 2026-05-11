@@ -1,7 +1,7 @@
 from fastapi import HTTPException, APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, case, and_
 from typing import Optional
 import json
 from .. import models, auth as auth_module
@@ -24,22 +24,40 @@ def _stats_bulk(db):
       Top Vendedores. Confirmado con Sergio (09/05/2026): aunque la boleta
       pase a EN_COBRANZA o BAJA, sigue siendo trabajo del vendedor.
     """
+    # `liq_sin_comp` cuenta boletas CAJA con liq_id pero AÚN sin socio cargado.
+    # Las al-contado pagadas se quedan en condicion=CAJA con liq_id Y comprador_id
+    # cargado — esas NO son "pendientes de socio", ya están en sistema, así que
+    # se cuentan en `vendido` (query separada abajo) y no acá.
     rows = db.query(
         models.Boleta.vendedor_id,
         models.Boleta.condicion,
         func.count(models.Boleta.id).label("total"),
-        func.count(models.Boleta.liquidacion_vendedor_id).label("con_liq")
+        func.sum(
+            case(
+                (and_(
+                    models.Boleta.liquidacion_vendedor_id.isnot(None),
+                    models.Boleta.comprador_id.is_(None),
+                ), 1),
+                else_=0,
+            )
+        ).label("liq_sin_comp"),
+        func.sum(
+            case(
+                (models.Boleta.liquidacion_vendedor_id.is_(None), 1),
+                else_=0,
+            )
+        ).label("sin_liq"),
     ).filter(
         models.Boleta.vendedor_id.isnot(None)
     ).group_by(models.Boleta.vendedor_id, models.Boleta.condicion).all()
 
     stats = {}
-    for vid, cond, total, con_liq in rows:
+    for vid, cond, total, liq_sin_comp, sin_liq in rows:
         if vid not in stats:
             stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0}
         if cond == CondicionBoleta.CAJA:
-            stats[vid]["caja"] = total - con_liq       # CAJA sin liquidar
-            stats[vid]["liq_pendiente"] = con_liq      # CAJA con liq, pendiente comprador
+            stats[vid]["caja"] = int(sin_liq or 0)             # CAJA sin liquidar (físicas en mano)
+            stats[vid]["liq_pendiente"] = int(liq_sin_comp or 0)  # CAJA con liq, sin socio aún
         elif cond == CondicionBoleta.BAJA:
             stats[vid]["baja"] = total
 
@@ -405,6 +423,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             "num_str": fmt.format(b.numero_principal),
             "cond":    b.condicion.value if b.condicion else "?",
             "liq":     b.liquidacion_vendedor_id is not None,
+            "tiene_socio": b.comprador_id is not None,
             "contado": (b.numero_especial is not None) or (b.numero_especial_2 is not None),
             "pool":    False,
             "liq_por_otro_nombre": liq_por_otro["vendedor_nombre"] if liq_por_otro else None,
@@ -499,6 +518,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 "num_str": fmt_c.format(n),
                 "cond":    "CAJA",
                 "liq":     False,
+                "tiene_socio": False,
                 "contado": True,
                 "pool":    True,
             })
@@ -608,14 +628,35 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
          else int((b.talonera.multiplicador or 1) if b.talonera else 1))
         for b in boletas if b.liquidacion_vendedor_id
     ) + _pool_count
-    # Ingresos del vendedor: lo que se queda en su bolsillo
-    # = cuota 1 (cobrada directo al socio) + comisión contados + comisión cuotas extras
-    ingresos_total = sum(
-        (liq.cuota_1_total or 0)
-        + (liq.comision_contados or 0)
-        + (liq.comision_cuotas_extras or 0)
+    # Ingresos del vendedor: lo que se queda en su bolsillo.
+    # = cuota 1 (de boletas TODAVÍA propias) + comisión contado (de boletas TODAVÍA
+    #   propias) + comisión cuotas extras (input manual de la liquidación, no se
+    #   reasigna entre vendedores).
+    # Si una boleta liquidada por este vendedor se reasignó después a otro vendedor
+    # (caso jefe de equipo: Ariel liquida y luego pasa caja a Pajaro), esa boleta NO
+    # suma porque la cuota 1 y el pago contado los cobró el otro vendedor.
+    # Mismo criterio que `total_boletas_liquidadas` (ver Sesión 10/05/2026 cont. 5).
+    _liqs_by_id = {liq.id: liq for liq in liquidaciones}
+    # Acumulador por liquidación → permite también desglose por mes más abajo
+    ingreso_por_liq = {
+        liq.id: float(liq.comision_cuotas_extras or 0)
         for liq in liquidaciones
-    )
+    }
+    for b in boletas:
+        if b.liquidacion_vendedor_id is None or not b.talonera:
+            continue
+        if b.liquidacion_vendedor_id not in ingreso_por_liq:
+            continue
+        es_contado = (b.numero_especial is not None) or (b.numero_especial_2 is not None)
+        if es_contado:
+            liq_b = _liqs_by_id.get(b.liquidacion_vendedor_id)
+            pct = float(liq_b.comision_contados_pct or 0) if liq_b else 0.0
+            total_contado = float(b.talonera.valor_cuota or 0) * int(b.talonera.num_cuotas or 12)
+            ingreso_por_liq[b.liquidacion_vendedor_id] += total_contado * pct / 100.0
+        else:
+            ingreso_por_liq[b.liquidacion_vendedor_id] += float(b.talonera.valor_cuota or 0)
+
+    ingresos_total = sum(ingreso_por_liq.values())
     # Total vendidas: boletas con comprador cargado, ponderado por multiplicador de PATA
     total_vendidas_pond = sum(
         int((b.talonera.multiplicador or 1) if b.talonera else 1)
@@ -646,7 +687,9 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             }
         g = grupos_mes_dict[key]
         g["liquidaciones"].append(liq)
-        g["total_ingresos"] += (liq.cuota_1_total or 0) + (liq.comision_contados or 0) + (liq.comision_cuotas_extras or 0)
+        # total_ingresos por mes: usa el ingreso "real" por liq (excluye boletas
+        # reasignadas a otro vendedor — mismo criterio que la tarjeta header).
+        g["total_ingresos"] += ingreso_por_liq.get(liq.id, 0.0)
         g["total_rinde"] += (liq.total_a_rendir or 0)
         g["total_boletas"] += (liq.cuotas_equiv or liq.cuotas_vendidas or 0) + (liq.contados_vendidos or 0)
 

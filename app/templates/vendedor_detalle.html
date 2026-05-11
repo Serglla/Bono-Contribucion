@@ -41,9 +41,13 @@
 {% set ns = namespace(en_caja=0, liq_pend_comp=0, en_sistema=0) %}
 {% for pata_nombre, pata_data in patas.items() %}
   {% for b in pata_data.boletas %}
+    {# "En caja sin liquidar": CAJA + sin liq_id (físicas en mano sin rendir) #}
     {% if b.cond == 'CAJA' and not b.liq %}{% set ns.en_caja = ns.en_caja + 1 %}{% endif %}
-    {% if b.cond == 'CAJA' and b.liq %}{% set ns.liq_pend_comp = ns.liq_pend_comp + 1 %}{% endif %}
-    {% if b.cond == 'VENDIDO' %}{% set ns.en_sistema = ns.en_sistema + 1 %}{% endif %}
+    {# "Liquidado pend. comprador": CAJA + liq_id + SIN socio (las al-contado pagadas
+       quedan en CAJA pero ya tienen socio → no cuentan acá, van a en_sistema). #}
+    {% if b.cond == 'CAJA' and b.liq and not b.tiene_socio %}{% set ns.liq_pend_comp = ns.liq_pend_comp + 1 %}{% endif %}
+    {# "En sistema": condicion VENDIDO o boleta CAJA-al-contado con socio cargado #}
+    {% if b.cond == 'VENDIDO' or (b.cond == 'CAJA' and b.tiene_socio) %}{% set ns.en_sistema = ns.en_sistema + 1 %}{% endif %}
   {% endfor %}
 {% endfor %}
 
@@ -71,7 +75,7 @@
   {# 3. Ingresos del vendedor — cuota 1 + comisiones acumuladas #}
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3 h-100"
-         title="Acumulado del vendedor: cuota 1 cobrada al socio + comisión contado + comisión cuotas extras.">
+         title="Lo que el vendedor se queda: cuota 1 cobrada al socio + comisión contado + comisión cuotas extras. Solo cuenta las boletas todavía a su nombre — si liquidó una boleta y después pasó caja a otro vendedor, esa boleta NO suma porque la cobró el otro.">
       <div class="fs-4 fw-bold" style="color:#198754;">${{ '{:,.0f}'.format(ingresos_total)|replace(',', '.') }}</div>
       <div class="small text-muted">Ingresos del vendedor</div>
     </div>
@@ -190,8 +194,8 @@
       {% set ns3 = namespace(nc=0, nl=0, nv=0) %}
       {% for b in pata_data.boletas %}
         {% if b.cond == 'CAJA' and not b.liq %}{% set ns3.nc = ns3.nc + 1 %}{% endif %}
-        {% if b.cond == 'CAJA' and b.liq %}{% set ns3.nl = ns3.nl + 1 %}{% endif %}
-        {% if b.cond == 'VENDIDO' %}{% set ns3.nv = ns3.nv + 1 %}{% endif %}
+        {% if b.cond == 'CAJA' and b.liq and not b.tiene_socio %}{% set ns3.nl = ns3.nl + 1 %}{% endif %}
+        {% if b.cond == 'VENDIDO' or (b.cond == 'CAJA' and b.tiene_socio) %}{% set ns3.nv = ns3.nv + 1 %}{% endif %}
       {% endfor %}
       <span class="text-muted small">
         {% if ns3.nc > 0 %}<span class="text-primary">{{ ns3.nc }} en caja</span>{% endif %}
@@ -211,7 +215,7 @@
               {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
               {{ b.num_str }}
             </span>
-          {% elif b.cond == 'CAJA' and b.liq %}
+          {% elif b.cond == 'CAJA' and b.liq and not b.tiene_socio %}
             {# Liquidado — pendiente comprador → verde #}
             {% if b.liq_por_otro_nombre %}
               {# Liquidada por otro vendedor (tipico: jefe de equipo) → badge compuesto #}
@@ -235,8 +239,8 @@
                 {{ b.num_str }}
               </span>
             {% endif %}
-          {% elif b.cond == 'VENDIDO' %}
-            {# En sistema → azul opaco #}
+          {% elif b.cond == 'VENDIDO' or (b.cond == 'CAJA' and b.tiene_socio) %}
+            {# En sistema → azul opaco. Incluye al-contado pagadas (condicion=CAJA pero con socio cargado) #}
             {% if b.liq_por_otro_nombre %}
               {# Vendida con socio cargado, pero liquidada por otro vendedor (jefe de equipo) #}
               <span class="d-inline-flex align-items-center"
