@@ -211,19 +211,51 @@
             </span>
           {% elif b.cond == 'CAJA' and b.liq %}
             {# Liquidado — pendiente comprador → verde #}
-            <span class="badge"
-                  style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;"
-                  title="Liquidado — pendiente comprador{% if b.contado %} · Contado{% endif %}">
-              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
-              {{ b.num_str }}
-            </span>
+            {% if b.liq_por_otro_nombre %}
+              {# Liquidada por otro vendedor (tipico: jefe de equipo) → badge compuesto #}
+              <span class="d-inline-flex align-items-center"
+                    style="border:1px solid #20c99780;border-radius:.25rem;overflow:hidden;font-size:.8rem;"
+                    title="Liquidado por {{ b.liq_por_otro_nombre }}{% if b.liq_por_otro_es_jefe %} (jefe de equipo){% endif %}{% if b.contado %} · Contado{% endif %}">
+                <span style="background:#d1e7dd;color:#146c43;padding:.2rem .4rem;">
+                  {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
+                  {{ b.num_str }}
+                </span>
+                <span class="px-1 fw-semibold" style="background:#fff7e0;color:#8a6d00;font-size:.7rem;">
+                  {% if b.liq_por_otro_es_jefe %}<i class="bi bi-star-fill" style="font-size:.55rem;color:#ffc107;"></i>{% else %}<i class="bi bi-person-fill" style="font-size:.65rem;"></i>{% endif %}
+                  {{ b.liq_por_otro_nombre }}
+                </span>
+              </span>
+            {% else %}
+              <span class="badge"
+                    style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;"
+                    title="Liquidado — pendiente comprador{% if b.contado %} · Contado{% endif %}">
+                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
+                {{ b.num_str }}
+              </span>
+            {% endif %}
           {% elif b.cond == 'VENDIDO' %}
             {# En sistema → azul opaco #}
-            <span class="badge bg-primary" style="font-size:.8rem;opacity:.55;"
-                  title="En sistema{% if b.contado %} · Contado{% endif %}">
-              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffd966;"></i>{% endif %}
-              {{ b.num_str }}
-            </span>
+            {% if b.liq_por_otro_nombre %}
+              {# Vendida con socio cargado, pero liquidada por otro vendedor (jefe de equipo) #}
+              <span class="d-inline-flex align-items-center"
+                    style="border:1px solid #0d6efd55;border-radius:.25rem;overflow:hidden;font-size:.8rem;"
+                    title="En sistema · Liquidado por {{ b.liq_por_otro_nombre }}{% if b.liq_por_otro_es_jefe %} (jefe de equipo){% endif %}{% if b.contado %} · Contado{% endif %}">
+                <span class="bg-primary text-white" style="padding:.2rem .4rem;opacity:.7;">
+                  {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffd966;"></i>{% endif %}
+                  {{ b.num_str }}
+                </span>
+                <span class="px-1 fw-semibold" style="background:#fff7e0;color:#8a6d00;font-size:.7rem;">
+                  {% if b.liq_por_otro_es_jefe %}<i class="bi bi-star-fill" style="font-size:.55rem;color:#ffc107;"></i>{% else %}<i class="bi bi-person-fill" style="font-size:.65rem;"></i>{% endif %}
+                  {{ b.liq_por_otro_nombre }}
+                </span>
+              </span>
+            {% else %}
+              <span class="badge bg-primary" style="font-size:.8rem;opacity:.55;"
+                    title="En sistema{% if b.contado %} · Contado{% endif %}">
+                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffd966;"></i>{% endif %}
+                {{ b.num_str }}
+              </span>
+            {% endif %}
           {% endif %}
         {% endfor %}
       </div>
@@ -1230,6 +1262,8 @@ async function verDetalleLiq(liqId) {
       // Total ponderado = suma de multiplicadores (PATA 1 ×1, PATA 2 ×2, PATA 3 ×3, etc.)
       const totalPonderado = (d.boletas || []).reduce((acc, b) => acc + (b.multiplicador || 1), 0);
       const totalCrudo     = (d.boletas || []).length;
+      // Boletas reasignadas a otro vendedor (tipico jefe de equipo → vendedor)
+      const reasignadas = (d.boletas || []).filter(b => b.reasignado_a_nombre);
       html += `<div class="small fw-semibold text-muted mb-2">
         <i class="bi bi-collection me-1"></i>Taloneras liquidadas
         <span class="badge bg-secondary ms-1"
@@ -1237,6 +1271,24 @@ async function verDetalleLiq(liqId) {
           ${totalPonderado}
         </span>
       </div>`;
+      if (reasignadas.length > 0) {
+        // Agrupamos por nombre del vendedor destino
+        const por_destino = {};
+        reasignadas.forEach(b => {
+          const nm = b.reasignado_a_nombre;
+          if (!por_destino[nm]) por_destino[nm] = 0;
+          por_destino[nm]++;
+        });
+        const resumen = Object.keys(por_destino).sort()
+          .map(nm => `<strong>${escapeHtml(nm)}</strong> (${por_destino[nm]})`)
+          .join(', ');
+        html += `<div class="alert alert-info py-2 px-3 small mb-2"
+                      style="border-left:3px solid #0d6efd;">
+          <i class="bi bi-arrow-right-circle me-1"></i>
+          <strong>${reasignadas.length}</strong> boleta/s pasaron a otro vendedor después de liquidar:
+          ${resumen}
+        </div>`;
+      }
       Object.keys(grupos).sort().forEach(pata => {
         const g = grupos[pata];
         const colorBg  = (g.color || '#cccccc') + '20';
@@ -1246,9 +1298,23 @@ async function verDetalleLiq(liqId) {
         let badges = '';
         g.boletas.forEach(b => {
           const opaco = (b.condicion === 'VENDIDO') ? 'opacity:.55;' : '';
-          const tip = `${escapeHtml(b.condicion || '')}${b.comprador ? ' · ' + escapeHtml(b.comprador) : ''}`;
-          badges += `<span class="badge bg-primary me-1 mb-1" style="font-size:.78rem;${opaco}"
-                          title="${tip}">${escapeHtml(b.num_str)}</span>`;
+          const tipBase = `${escapeHtml(b.condicion || '')}${b.comprador ? ' · ' + escapeHtml(b.comprador) : ''}`;
+          if (b.reasignado_a_nombre) {
+            // Badge compuesto: número + flecha + nombre del vendedor destino
+            const tipReas = `${tipBase} · Ahora en: ${escapeHtml(b.reasignado_a_nombre)}`;
+            badges += `<span class="d-inline-flex align-items-center me-1 mb-1"
+                            style="font-size:.78rem;border:1px solid #0d6efd55;border-radius:.25rem;overflow:hidden;${opaco}"
+                            title="${tipReas}">
+              <span class="badge bg-primary rounded-0" style="font-size:.78rem;">${escapeHtml(b.num_str)}</span>
+              <span class="px-2 py-1 text-primary fw-semibold" style="background:#0d6efd15;">
+                <i class="bi bi-arrow-right" style="font-size:.7rem;"></i>
+                ${escapeHtml(b.reasignado_a_nombre)}
+              </span>
+            </span>`;
+          } else {
+            badges += `<span class="badge bg-primary me-1 mb-1" style="font-size:.78rem;${opaco}"
+                            title="${tipBase}">${escapeHtml(b.num_str)}</span>`;
+          }
         });
         html += `
           <div class="card border-0 shadow-sm mb-2">

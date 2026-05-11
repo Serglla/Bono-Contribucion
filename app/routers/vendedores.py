@@ -172,10 +172,30 @@ async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depen
     boletas = db.query(models.Boleta).filter_by(
         liquidacion_vendedor_id=liq_id
     ).all()
+
+    # Para detectar reasignaciones: el jefe de equipo (Ariel) liquida boletas que
+    # luego pasan a otros vendedores via "Pasar Caja" / "Entrega a Caja". Al cargar
+    # el socio, b.vendedor_id puede quedar distinto al liq.vendedor_id original.
+    # Cache de nombres de vendedores para no hacer N+1.
+    liq_vid = liq.vendedor_id
+    nombres_vendedores: dict[int, str] = {}
+    otros_vids = {b.vendedor_id for b in boletas if b.vendedor_id and b.vendedor_id != liq_vid}
+    if otros_vids:
+        for vrow in db.query(models.Vendedor.id, models.Vendedor.nombre).filter(
+            models.Vendedor.id.in_(otros_vids)
+        ).all():
+            nombres_vendedores[int(vrow[0])] = vrow[1] or "?"
+
     boletas_out = []
     for b in boletas:
         nd = (b.talonera.num_digitos or 4) if b.talonera else 4
         fmt = "{:0" + str(nd) + "d}"
+        # Si la boleta fue reasignada despues de liquidarse, indicamos el vendedor actual
+        reasignado_a_id = None
+        reasignado_a_nombre = None
+        if b.vendedor_id and b.vendedor_id != liq_vid:
+            reasignado_a_id = int(b.vendedor_id)
+            reasignado_a_nombre = nombres_vendedores.get(reasignado_a_id, "?")
         boletas_out.append({
             "id": b.id,
             "num": b.numero_principal,
@@ -185,6 +205,8 @@ async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depen
             "condicion": b.condicion.value if b.condicion else "?",
             "comprador": b.comprador.apellido_nombre if b.comprador else None,
             "multiplicador": int((b.talonera.multiplicador or 1) if b.talonera else 1),
+            "reasignado_a_id":     reasignado_a_id,
+            "reasignado_a_nombre": reasignado_a_nombre,
         })
     boletas_out.sort(key=lambda x: (x["pata"], x["num"]))
 
@@ -339,6 +361,32 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
 
     boletas = db.query(models.Boleta).filter_by(vendedor_id=vid).all()
 
+    # Mapeo liq_id -> (vendedor_id, nombre, es_jefe) para detectar boletas que
+    # fueron liquidadas por OTRO vendedor (caso tipico: jefe de equipo liquido
+    # las boletas que luego pasaron a este vendedor via "Pasar Caja").
+    liq_ids = {b.liquidacion_vendedor_id for b in boletas if b.liquidacion_vendedor_id}
+    liq_info: dict[int, dict] = {}
+    if liq_ids:
+        rows_liq = db.query(
+            models.LiquidacionVendedor.id,
+            models.LiquidacionVendedor.vendedor_id,
+        ).filter(models.LiquidacionVendedor.id.in_(liq_ids)).all()
+        vid_de_otros = {r[1] for r in rows_liq if r[1] and r[1] != vid}
+        nombres_otros: dict[int, tuple[str, bool]] = {}
+        if vid_de_otros:
+            for vrow in db.query(
+                models.Vendedor.id, models.Vendedor.nombre, models.Vendedor.es_jefe_equipo
+            ).filter(models.Vendedor.id.in_(vid_de_otros)).all():
+                nombres_otros[int(vrow[0])] = (vrow[1] or "?", bool(vrow[2]))
+        for lid, lvid in rows_liq:
+            if lvid and lvid != vid and lvid in nombres_otros:
+                nm, es_jefe = nombres_otros[lvid]
+                liq_info[int(lid)] = {
+                    "vendedor_id":     int(lvid),
+                    "vendedor_nombre": nm,
+                    "es_jefe":         es_jefe,
+                }
+
     # Agrupar por pata
     patas = {}
     for b in boletas:
@@ -348,6 +396,9 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         fmt = "{:0" + str(nd) + "d}"
         if pata_nombre not in patas:
             patas[pata_nombre] = {"color": pata_color, "boletas": [], "num_digitos": nd}
+        # Si la liquidacion la hizo otro vendedor (tipicamente el jefe de equipo
+        # antes de pasar la caja a este vendedor), mostramos un indicador.
+        liq_por_otro = liq_info.get(b.liquidacion_vendedor_id) if b.liquidacion_vendedor_id else None
         patas[pata_nombre]["boletas"].append({
             "id":      b.id,
             "num":     b.numero_principal,
@@ -356,6 +407,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             "liq":     b.liquidacion_vendedor_id is not None,
             "contado": (b.numero_especial is not None) or (b.numero_especial_2 is not None),
             "pool":    False,
+            "liq_por_otro_nombre": liq_por_otro["vendedor_nombre"] if liq_por_otro else None,
+            "liq_por_otro_es_jefe": liq_por_otro["es_jefe"] if liq_por_otro else False,
         })
     for p in patas:
         patas[p]["boletas"].sort(key=lambda x: x["num"])
