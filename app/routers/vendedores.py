@@ -356,6 +356,84 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     jefe = db.query(models.Vendedor).filter_by(es_jefe_equipo=True, activo=True).first()
     # Set de nombres CONTADO para que el template marque visualmente esas filas
     nombres_contado = sorted({g["nombre"] for g in grupos_contado})
+
+    # ------------------------------------------------------------------
+    # Totales globales (suma de todas las filas — activos + inactivos)
+    # y Historial mensual (entregas a caja + liquidaciones agrupado por mes).
+    # Lo cosumimos en la fila <tfoot> y en el modal #modalHistorialTotal
+    # (doble-click sobre la fila TOTAL).
+    # ------------------------------------------------------------------
+    totales = {
+        "caja":          sum(int(s.get("caja", 0))         for s in stats.values()),
+        "liq_pendiente": sum(int(s.get("liq_pendiente", 0))for s in stats.values()),
+        "contado":       sum(int(c.get("contado", 0))      for c in contado_stats.values()),
+        "contado2":      sum(int(c.get("contado2", 0))     for c in contado_stats.values()),
+        "liquidados":    sum(int(s.get("liquidados", 0))   for s in stats.values()),
+        "baja":          sum(int(s.get("baja", 0))         for s in stats.values()),
+    }
+
+    # --- Histórico mensual ---
+    _MESES_ES = [
+        "", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    ]
+    hist_acc: dict = {}
+
+    def _bucket(key):
+        if key not in hist_acc:
+            hist_acc[key] = {
+                "entregas": 0, "n_entregas": 0,
+                "liquidaciones": 0, "n_liquidaciones": 0,
+            }
+        return hist_acc[key]
+
+    # Entregas a caja: sumamos boletas_afectadas por mes de fecha de entrega.
+    for e in db.query(models.EntregaCaja).all():
+        if not e.fecha:
+            continue
+        bucket = _bucket((e.fecha.year, e.fecha.month))
+        bucket["entregas"] += int(e.boletas_afectadas or 0)
+        bucket["n_entregas"] += 1
+
+    # Pool CONTADO items por liquidacion (números puros declarados sin boleta).
+    pool_by_liq = dict(
+        db.query(
+            models.LiquidacionContadoItem.liquidacion_id,
+            func.count(models.LiquidacionContadoItem.id),
+        ).group_by(models.LiquidacionContadoItem.liquidacion_id).all()
+    )
+
+    # Liquidaciones: cuotas_equiv (ponderado por PATA) + contados (1 c/u) + pool.
+    for liq in db.query(models.LiquidacionVendedor).all():
+        if not liq.fecha:
+            continue
+        bucket = _bucket((liq.fecha.year, liq.fecha.month))
+        cuotas_eq = int(liq.cuotas_equiv or 0)
+        contados  = int(liq.contados_vendidos or 0)
+        pool      = int(pool_by_liq.get(liq.id, 0) or 0)
+        bucket["liquidaciones"] += cuotas_eq + contados + pool
+        bucket["n_liquidaciones"] += 1
+
+    historial_mensual = []
+    for (y, m) in sorted(hist_acc.keys(), reverse=True):
+        d = hist_acc[(y, m)]
+        historial_mensual.append({
+            "year": y,
+            "month": m,
+            "label": f"{_MESES_ES[m]} {y}",
+            "entregas":         d["entregas"],
+            "n_entregas":       d["n_entregas"],
+            "liquidaciones":    d["liquidaciones"],
+            "n_liquidaciones":  d["n_liquidaciones"],
+        })
+
+    historial_total = {
+        "entregas":        sum(r["entregas"]        for r in historial_mensual),
+        "liquidaciones":   sum(r["liquidaciones"]   for r in historial_mensual),
+        "n_entregas":      sum(r["n_entregas"]      for r in historial_mensual),
+        "n_liquidaciones": sum(r["n_liquidaciones"] for r in historial_mensual),
+    }
+
     return templates.TemplateResponse(request, "vendedores.html", {
         "user": user,
         "vendedores": vendedores,
@@ -366,6 +444,9 @@ async def listar(request: Request, db: Session = Depends(get_db)):
         "stats": stats,
         "contado_stats": contado_stats,
         "jefe": jefe,
+        "totales": totales,
+        "historial_mensual": historial_mensual,
+        "historial_total": historial_total,
     })
 
 

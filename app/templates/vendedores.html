@@ -108,12 +108,167 @@
         <tr><td colspan="8" class="text-center text-muted py-4">Sin vendedores registrados</td></tr>
         {% endfor %}
       </tbody>
+      {% if vendedores and totales %}
+      <tfoot>
+        <tr class="fila-total"
+            style="cursor:pointer;background:#f1f3f9;border-top:2px solid #1a2a4a;"
+            ondblclick="abrirHistorialTotal()"
+            title="Doble clic para ver el histórico mensual">
+          <th class="fw-bold" style="color:#1a2a4a;">
+            <i class="bi bi-bar-chart-fill me-1"></i>TOTAL
+            <span class="text-muted fw-normal small ms-2">
+              ({{ vendedores|length }} vendedor{% if vendedores|length != 1 %}es{% endif %})
+            </span>
+          </th>
+          <td class="text-center">
+            {% if totales.caja > 0 %}
+            <span class="badge bg-primary" title="Total en caja sin liquidar">{{ totales.caja }}</span>
+            {% endif %}
+            {% if totales.liq_pendiente > 0 %}
+            <span class="badge ms-1" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;" title="Total liquidado pendiente de comprador">{{ totales.liq_pendiente }}</span>
+            {% endif %}
+            {% if totales.caja == 0 and totales.liq_pendiente == 0 %}<span class="text-muted small">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if totales.contado > 0 %}
+            <span class="badge" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;" title="Total pool CONTADO pendiente">
+              <i class="bi bi-star-fill me-1" style="font-size:.65rem;"></i>{{ totales.contado }}
+            </span>
+            {% else %}<span class="text-muted small">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if totales.contado2 > 0 %}
+            <span class="badge" style="background:#fff3cd;color:#664d03;border:1px solid #ffc10740;" title="Total pool CONTADO 2 VECES pendiente">
+              <i class="bi bi-star-fill me-1" style="font-size:.65rem;"></i>{{ totales.contado2 }}
+            </span>
+            {% else %}<span class="text-muted small">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if totales.liquidados > 0 %}
+            <span class="badge bg-success-subtle text-success border border-success-subtle" title="Total ponderado por PATA (X1×1, X2×2, ...) + pool CONTADO liquidado">{{ totales.liquidados }}</span>
+            {% else %}<span class="text-muted small">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if totales.baja > 0 %}
+            <span class="badge bg-danger-subtle text-danger border border-danger-subtle" title="Total bajas en cobranza">{{ totales.baja }}</span>
+            {% else %}<span class="text-muted small">—</span>{% endif %}
+          </td>
+          <td class="text-center"></td>
+          <td class="text-end">
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    style="padding:2px 7px;font-size:.7rem;"
+                    onclick="abrirHistorialTotal()"
+                    title="Histórico mensual (todos los vendedores)">
+              <i class="bi bi-calendar3"></i>
+            </button>
+          </td>
+        </tr>
+      </tfoot>
+      {% endif %}
     </table>
   </div>
   <div class="card-footer text-muted small py-2">
-    Doble clic en una fila para ver el detalle del vendedor.
+    Doble clic en una fila para ver el detalle del vendedor. Doble clic en la fila <strong>TOTAL</strong> para ver el histórico mensual.
   </div>
 </div>
+
+<!-- ============================================================== -->
+<!-- Modal: Histórico mensual (todos los vendedores)                 -->
+<!-- A nivel raíz del block para que no quede dentro de ningún       -->
+<!-- tab-pane inactivo (regla de modales en este proyecto).          -->
+<!-- ============================================================== -->
+<div class="modal fade" id="modalHistorialTotal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">
+          <i class="bi bi-calendar3 text-primary me-2"></i>Histórico mensual — totales globales
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-0">
+        {% if historial_mensual %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" style="font-size:.85rem;">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th>Mes</th>
+                <th class="text-center" title="Boletas entregadas a caja (suma de boletas_afectadas en EntregaCaja)">
+                  Entregas a caja
+                </th>
+                <th class="text-center" title="Cuotas equivalentes liquidadas (ponderado por PATA) + contados + pool CONTADO">
+                  Liquidaciones
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for h in historial_mensual %}
+              <tr>
+                <td class="fw-semibold">
+                  {{ h.label }}
+                </td>
+                <td class="text-center">
+                  {% if h.entregas > 0 %}
+                  <span class="badge bg-primary-subtle text-primary border border-primary-subtle"
+                        title="{{ h.n_entregas }} entrega(s) registrada(s)">
+                    {{ h.entregas }}
+                  </span>
+                  <span class="text-muted small ms-1">({{ h.n_entregas }} entr.)</span>
+                  {% else %}<span class="text-muted small">—</span>{% endif %}
+                </td>
+                <td class="text-center">
+                  {% if h.liquidaciones > 0 %}
+                  <span class="badge bg-success-subtle text-success border border-success-subtle"
+                        title="{{ h.n_liquidaciones }} liquidación(es) registrada(s)">
+                    {{ h.liquidaciones }}
+                  </span>
+                  <span class="text-muted small ms-1">({{ h.n_liquidaciones }} liq.)</span>
+                  {% else %}<span class="text-muted small">—</span>{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot class="table-light">
+              <tr style="border-top:2px solid #1a2a4a;">
+                <th class="fw-bold" style="color:#1a2a4a;">Total general</th>
+                <th class="text-center">
+                  <span class="badge bg-primary">{{ historial_total.entregas }}</span>
+                  <span class="text-muted small ms-1">({{ historial_total.n_entregas }})</span>
+                </th>
+                <th class="text-center">
+                  <span class="badge bg-success">{{ historial_total.liquidaciones }}</span>
+                  <span class="text-muted small ms-1">({{ historial_total.n_liquidaciones }})</span>
+                </th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-inbox" style="font-size:2rem;opacity:.4;"></i>
+          <p class="mb-0 mt-2 small">Aún no hay entregas a caja ni liquidaciones registradas.</p>
+        </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer py-2">
+        <small class="text-muted me-auto">
+          <i class="bi bi-info-circle me-1"></i>
+          <strong>Entregas a caja</strong>: boletas entregadas físicamente a los vendedores (cualquier vendedor).
+          <strong>Liquidaciones</strong>: cuotas ponderadas por PATA (PATA 1 ×1, PATA 2 ×2, ...) + contados + pool.
+        </small>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function abrirHistorialTotal() {
+  var el = document.getElementById('modalHistorialTotal');
+  if (!el) return;
+  bootstrap.Modal.getOrCreateInstance(el).show();
+}
+</script>
 
 <!-- Modales editar vendedor -->
 {% for v in vendedores %}

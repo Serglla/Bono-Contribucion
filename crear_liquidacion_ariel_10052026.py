@@ -3,25 +3,23 @@ crear_liquidacion_ariel_10052026.py
 ====================================
 
 Recrea la liquidacion de ARIEL del 10/05/2026 enlazando 27 boletas
-(53 ponderadas) que quedaron sin `liquidacion_vendedor_id` despues
+(53 ponderadas) que quedaron sin liquidacion_vendedor_id despues
 de borrar el historial para corregir el registro.
 
 - Detecta DATABASE_URL para correr contra Railway/PostgreSQL.
 - Si no esta seteada, usa SQLite local (app.db) via app.database.
-- No toca `Boleta.vendedor_id` ni la condicion: solo crea la cabecera
-  `LiquidacionVendedor` y setea `liquidacion_vendedor_id` en cada boleta.
-- Las boletas que despues pasaron a Pajaro / Victor aparecen igual en la
-  liquidacion (porque la firmo Ariel), y el detalle del vendedor las
-  marca como "reasignadas" gracias al fix de la sesion cont. 5.
+- Aplica las migraciones de startup automaticamente.
+- No toca Boleta.vendedor_id ni condicion: solo crea la cabecera
+  LiquidacionVendedor y setea liquidacion_vendedor_id en cada boleta.
 
 USO
 ---
-Desde la carpeta `bono-app/`:
+Desde la carpeta bono-app/:
 
     # Local (SQLite):
     py -3.12 crear_liquidacion_ariel_10052026.py
 
-    # Railway (PostgreSQL): exporta la DATABASE_URL antes de correr
+    # Railway (PostgreSQL):
     $env:DATABASE_URL="postgresql://USUARIO:PASSWORD@HOST:PORT/DBNAME"
     py -3.12 crear_liquidacion_ariel_10052026.py
 
@@ -38,37 +36,37 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-# Permitir importar `app/` aunque se ejecute desde otro directorio
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sqlalchemy import or_  # noqa: E402
+from sqlalchemy import or_
+from app.database import SessionLocal
+from app import models
 
-from app.database import SessionLocal  # noqa: E402
-from app import models  # noqa: E402
 
+def _aplicar_migraciones():
+    try:
+        from app.main import create_default_admin
+        create_default_admin()
+        print("[OK]   Migraciones aplicadas (startup ejecutado).")
+    except Exception as e:
+        print(f"[WARN] No se pudo aplicar migraciones automaticamente: {e}")
+        print("       Levanta la app manualmente una vez para aplicarlas:")
+        print("         py -3.12 -m uvicorn app.main:app --reload")
 
-# ----------------------------------------------------------------------------
-# Datos de la liquidacion a recrear
-# ----------------------------------------------------------------------------
 
 VENDEDOR_LIQUIDADOR = "ARIEL"
-FECHA_LIQUIDACION = datetime(2026, 5, 10, 12, 0, 0)  # 10/05/2026 mediodia
+FECHA_LIQUIDACION = datetime(2026, 5, 10, 12, 0, 0)
 OBSERVACION = (
     "Reconstruida 10/05/2026 - historial regenerado tras borrado "
     "para corregir registro; las boletas ya tenian socio cargado."
 )
 
-# % de comision -- defaults estandar de la app.
-# La cuota 1 NO genera comision (la cobra el vendedor directo del socio),
-# y no hay contados ni extras, asi que comision_cuotas y total_comision = 0.
 COMISION_CUOTAS_PCT = 5.0
 COMISION_CONTADOS_PCT = 30.0
 
-# (numero_principal, talonera_nombre, vendedor_actual)
 BOLETAS = [
-    # --- siguen siendo de ARIEL (13 boletas / 36 ponderado) ---
     (942,  "PATA 1", "ARIEL"),
     (972,  "PATA 1", "ARIEL"),
     (975,  "PATA 1", "ARIEL"),
@@ -82,7 +80,6 @@ BOLETAS = [
     (8050, "PATA 8", "ARIEL"),
     (8051, "PATA 8", "ARIEL"),
     (8052, "PATA 8", "ARIEL"),
-    # --- reasignadas a PAJARO (7 boletas / 10 ponderado) ---
     (733,  "PATA 1", "PAJARO"),
     (735,  "PATA 1", "PAJARO"),
     (941,  "PATA 1", "PAJARO"),
@@ -90,7 +87,6 @@ BOLETAS = [
     (948,  "PATA 1", "PAJARO"),
     (949,  "PATA 1", "PAJARO"),
     (7091, "PATA 4", "PAJARO"),
-    # --- reasignadas a VICTOR (7 boletas / 7 ponderado) ---
     (931,  "PATA 1", "VICTOR"),
     (933,  "PATA 1", "VICTOR"),
     (936,  "PATA 1", "VICTOR"),
@@ -101,14 +97,9 @@ BOLETAS = [
 ]
 
 
-# ----------------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------------
-
 def _print_db_target():
     url = os.environ.get("DATABASE_URL")
     if url:
-        # No imprimo password
         safe = url
         if "@" in url and "://" in url:
             scheme, rest = url.split("://", 1)
@@ -121,17 +112,13 @@ def _print_db_target():
         print("[INFO] Sin DATABASE_URL -> usando SQLite local (app.db)")
 
 
-def _resolve_vendedor(db, nombre: str):
+def _resolve_vendedor(db, nombre):
     return db.query(models.Vendedor).filter(
         models.Vendedor.nombre.ilike(nombre)
     ).first()
 
 
-def _resolve_talonera_ids(db, nombre: str) -> list[int]:
-    """Devuelve los IDs de taloneras COMUN con ese nombre.
-    Puede haber mas de una si historicamente se cargaron duplicados;
-    matcheamos por nombre + (tipo COMUN o NULL para datos viejos).
-    """
+def _resolve_talonera_ids(db, nombre):
     ts = db.query(models.Talonera).filter(
         models.Talonera.nombre == nombre,
         or_(models.Talonera.tipo == "COMUN", models.Talonera.tipo.is_(None)),
@@ -139,26 +126,21 @@ def _resolve_talonera_ids(db, nombre: str) -> list[int]:
     return [t.id for t in ts]
 
 
-# ----------------------------------------------------------------------------
-# Main
-# ----------------------------------------------------------------------------
-
-def main(argv: list[str]) -> int:
+def main(argv):
     dry_run = "--dry-run" in argv
     auto_yes = "--yes" in argv
 
     _print_db_target()
+    _aplicar_migraciones()
     db = SessionLocal()
     try:
-        # --- 1. Vendedor liquidador (Ariel) ---
         ariel = _resolve_vendedor(db, VENDEDOR_LIQUIDADOR)
         if not ariel:
             print(f"[ERROR] Vendedor '{VENDEDOR_LIQUIDADOR}' no encontrado.")
             return 1
         print(f"[OK]   Vendedor liquidador: {ariel.nombre} (id={ariel.id}, jefe={ariel.es_jefe_equipo})")
 
-        # --- 2. Vendedores actuales (Pajaro, Victor) -- solo para validacion ---
-        vendedores_actuales: dict[str, models.Vendedor] = {}
+        vendedores_actuales = {}
         for nom in sorted({v for _, _, v in BOLETAS}):
             obj = _resolve_vendedor(db, nom)
             if not obj:
@@ -167,8 +149,7 @@ def main(argv: list[str]) -> int:
             vendedores_actuales[nom.upper()] = obj
             print(f"[OK]   Vendedor actual: {obj.nombre} (id={obj.id})")
 
-        # --- 3. Taloneras involucradas ---
-        taloneras_ids: dict[str, list[int]] = {}
+        taloneras_ids = {}
         for nom in sorted({n for _, n, _ in BOLETAS}):
             ids = _resolve_talonera_ids(db, nom)
             if not ids:
@@ -178,8 +159,7 @@ def main(argv: list[str]) -> int:
             tal = db.query(models.Talonera).get(ids[0])
             print(f"[OK]   Talonera {nom!r}: id={ids[0]}  mult={tal.multiplicador}  valor_cuota={tal.valor_cuota}")
 
-        # --- 4. Resolver cada boleta ---
-        resueltas = []   # (boleta, vendedor_esperado, talonera)
+        resueltas = []
         errores = []
         warnings = []
         for numero, tal_nombre, vend_esperado in BOLETAS:
@@ -193,8 +173,7 @@ def main(argv: list[str]) -> int:
                 continue
             if b.liquidacion_vendedor_id is not None:
                 errores.append(
-                    f"Boleta {numero:04d} ({tal_nombre}) YA tiene liquidacion_vendedor_id="
-                    f"{b.liquidacion_vendedor_id}. Abortar."
+                    f"Boleta {numero:04d} ({tal_nombre}) YA tiene liquidacion_vendedor_id={b.liquidacion_vendedor_id}."
                 )
                 continue
             if b.comprador_id is None:
@@ -202,19 +181,18 @@ def main(argv: list[str]) -> int:
             esperado = vendedores_actuales[vend_esperado.upper()].id
             if b.vendedor_id is None:
                 warnings.append(
-                    f"Boleta {numero:04d} ({tal_nombre}) sin vendedor_id "
-                    f"(se esperaba {vend_esperado})."
+                    f"Boleta {numero:04d} ({tal_nombre}) sin vendedor_id (esperado {vend_esperado})."
                 )
             elif b.vendedor_id != esperado:
                 actual = db.query(models.Vendedor).get(b.vendedor_id)
+                nom_actual = actual.nombre if actual else b.vendedor_id
                 warnings.append(
-                    f"Boleta {numero:04d} ({tal_nombre}) tiene vendedor "
-                    f"{actual.nombre if actual else b.vendedor_id} pero se esperaba {vend_esperado}."
+                    f"Boleta {numero:04d} ({tal_nombre}) tiene vendedor {nom_actual} pero se esperaba {vend_esperado}."
                 )
             resueltas.append((b, vend_esperado, b.talonera))
 
         if errores:
-            print("\n[ABORT] Se encontraron errores criticos:")
+            print("\n[ABORT] Errores criticos:")
             for e in errores:
                 print(f"   - {e}")
             return 2
@@ -224,22 +202,20 @@ def main(argv: list[str]) -> int:
             for w in warnings:
                 print(f"   - {w}")
 
-        # --- 5. Calcular agregados (mismo modelo que /vendedores/{vid}/liquidar) ---
         cuotas_vendidas = len(resueltas)
-        cuotas_equiv = sum(int((t.multiplicador or 1)) for _, _, t in resueltas)
+        cuotas_equiv = sum(int(t.multiplicador or 1) for _, _, t in resueltas)
         cuota_1_total = round(sum(float(t.valor_cuota or 0.0) for _, _, t in resueltas), 2)
         monto_cuotas = cuota_1_total
 
-        # --- 6. Desglose por vendedor actual ---
-        ponderado_por_vend = Counter()
-        boletas_por_vend = Counter()
+        pond_por_vend = Counter()
+        bol_por_vend = Counter()
         for _, vend, t in resueltas:
-            ponderado_por_vend[vend] += int(t.multiplicador or 1)
-            boletas_por_vend[vend] += 1
+            pond_por_vend[vend] += int(t.multiplicador or 1)
+            bol_por_vend[vend] += 1
 
         print()
         print("=" * 60)
-        print(f"  LIQUIDACION A CREAR")
+        print("  LIQUIDACION A CREAR")
         print("=" * 60)
         print(f"  Vendedor:                  {ariel.nombre}")
         print(f"  Fecha:                     {FECHA_LIQUIDACION:%d/%m/%Y %H:%M}")
@@ -256,22 +232,20 @@ def main(argv: list[str]) -> int:
         print()
         print("  Desglose por vendedor actual:")
         for v in ("ARIEL", "PAJARO", "VICTOR"):
-            if v in boletas_por_vend:
-                print(f"     - {v:8s}  {boletas_por_vend[v]:>2d} boleta(s)  /  {ponderado_por_vend[v]:>2d} ponderado")
+            if v in bol_por_vend:
+                print(f"     - {v:8s}  {bol_por_vend[v]:>2d} boleta(s)  /  {pond_por_vend[v]:>2d} ponderado")
         print("=" * 60)
 
         if dry_run:
             print("\n[DRY-RUN] No se modifica la base de datos.")
             return 0
 
-        # --- 7. Confirmacion interactiva ---
         if not auto_yes:
             resp = input("\n¿Confirmas crear la liquidacion y enlazar las boletas? [s/N]: ").strip().lower()
-            if resp not in ("s", "si", "sí", "y", "yes"):
+            if resp not in ("s", "si", "y", "yes"):
                 print("Cancelado por el usuario.")
                 return 0
 
-        # --- 8. Crear la liquidacion ---
         liq = models.LiquidacionVendedor(
             vendedor_id=ariel.id,
             fecha=FECHA_LIQUIDACION,
@@ -297,12 +271,11 @@ def main(argv: list[str]) -> int:
         db.flush()
         print(f"\n[OK] LiquidacionVendedor creada: id={liq.id}")
 
-        # --- 9. Enlazar boletas ---
         for b, _, _ in resueltas:
             b.liquidacion_vendedor_id = liq.id
         db.commit()
         print(f"[OK] {cuotas_vendidas} boletas enlazadas a la liquidacion {liq.id}.")
-        print("\nListo. Verificar en /vendedores/{}/detalle (tab Liquidaciones).".format(ariel.id))
+        print(f"\nListo. Verificar en /vendedores/{ariel.id}/detalle (tab Liquidaciones).")
         return 0
 
     except Exception as e:
