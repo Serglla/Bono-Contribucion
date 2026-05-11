@@ -29,20 +29,19 @@
     <table class="table table-hover align-middle mb-0" style="font-size:.9rem;">
       <thead class="table-light">
         <tr>
-          <th style="width:34%">Nombre</th>
-          <th>Teléfono</th>
+          <th style="width:30%">Nombre</th>
           <th class="text-center">Caja</th>
-          <th class="text-center">Baja</th>
-          <th class="text-center">Vendido</th>
           <th class="text-center" title="Números de sorteo CONTADO entregados al vendedor pendientes de asignar">Contado ★</th>
           <th class="text-center" title="Números de sorteo CONTADO 2 VECES entregados al vendedor pendientes de asignar">Contado 2× ★</th>
+          <th class="text-center" title="Taloneras vendidas — cantidad de números liquidados por este vendedor (boletas con liquidación firmada).">Liquidados</th>
+          <th class="text-center" title="Boletas dadas de baja en cobranza">Bajas <span class="text-muted fw-normal">(cobranza)</span></th>
           <th class="text-center">Estado</th>
           <th class="text-end" style="width:90px;"></th>
         </tr>
       </thead>
       <tbody>
         {% for v in vendedores %}
-        {% set s = stats.get(v.id, {"caja":0,"liq_pendiente":0,"baja":0,"vendido":0}) %}
+        {% set s = stats.get(v.id, {"caja":0,"liq_pendiente":0,"baja":0,"vendido":0,"liquidados":0}) %}
         {% set cs = contado_stats.get(v.id, {"contado":0,"contado2":0}) %}
         <tr style="cursor:pointer;" ondblclick="window.location='/vendedores/{{ v.id }}/detalle'">
           <td>
@@ -53,7 +52,6 @@
             </span>
             {% endif %}
           </td>
-          <td class="text-muted">{{ v.telefono or "—" }}</td>
           <td class="text-center" id="caja-cell-{{ v.id }}">
             {% if s.caja > 0 %}
             <a href="/vendedores/{{ v.id }}/detalle" class="badge bg-primary text-decoration-none caja-sin-liq" title="En caja — sin liquidar">{{ s.caja }}</a>
@@ -62,16 +60,6 @@
             <a href="/vendedores/{{ v.id }}/detalle" class="badge text-decoration-none ms-1 caja-liq-pend" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;" title="Liquidado — pendiente comprador">{{ s.liq_pendiente }}</a>
             {% endif %}
             {% if s.caja == 0 and s.liq_pendiente == 0 %}<span class="text-muted small caja-vacio">—</span>{% endif %}
-          </td>
-          <td class="text-center">
-            {% if s.baja > 0 %}
-            <span class="badge bg-danger-subtle text-danger border border-danger-subtle">{{ s.baja }}</span>
-            {% else %}<span class="text-muted small">—</span>{% endif %}
-          </td>
-          <td class="text-center">
-            {% if s.vendido > 0 %}
-            <span class="badge bg-success-subtle text-success border border-success-subtle">{{ s.vendido }}</span>
-            {% else %}<span class="text-muted small">—</span>{% endif %}
           </td>
           <td class="text-center">
             {% if cs.get("contado", 0) > 0 %}
@@ -85,6 +73,16 @@
             <a href="/vendedores/{{ v.id }}/detalle" class="badge text-decoration-none" style="background:#fff3cd;color:#664d03;border:1px solid #ffc10740;" title="CONTADO 2 VECES pendientes de asignar">
               <i class="bi bi-star-fill me-1" style="font-size:.65rem;"></i>{{ cs.get("contado2", 0) }}
             </a>
+            {% else %}<span class="text-muted small">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if s.liquidados > 0 %}
+            <a href="/vendedores/{{ v.id }}/detalle" class="badge bg-success-subtle text-success border border-success-subtle text-decoration-none" title="Números liquidados por este vendedor">{{ s.liquidados }}</a>
+            {% else %}<span class="text-muted small">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if s.baja > 0 %}
+            <span class="badge bg-danger-subtle text-danger border border-danger-subtle" title="Boletas dadas de baja en cobranza">{{ s.baja }}</span>
             {% else %}<span class="text-muted small">—</span>{% endif %}
           </td>
           <td class="text-center">
@@ -107,7 +105,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-center text-muted py-4">Sin vendedores registrados</td></tr>
+        <tr><td colspan="8" class="text-center text-muted py-4">Sin vendedores registrados</td></tr>
         {% endfor %}
       </tbody>
     </table>

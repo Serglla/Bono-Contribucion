@@ -18,11 +18,12 @@ def _stats_bulk(db):
     - caja: CAJA sin liquidar (vendedor las tiene físicamente, sin liq_id)
     - liq_pendiente: CAJA con liq pero sin comprador cargado todavía
     - baja: BAJA (sub-estado informativo, solo viene de cobranza tras carga de socio)
-    - vendido: TODAS las boletas cargadas con socio (comprador_id IS NOT NULL),
-      sin importar la condicion posterior (VENDIDO + CAJA-Al-contado +
-      EN_COBRANZA + BAJA). Mismo criterio que el dashboard de Reportes y
-      Top Vendedores. Confirmado con Sergio (09/05/2026): aunque la boleta
-      pase a EN_COBRANZA o BAJA, sigue siendo trabajo del vendedor.
+    - liquidados: TODAS las boletas del vendedor con liquidacion_vendedor_id != NULL,
+      sin importar condicion posterior. Es decir: cuántos números ya pasaron por
+      una liquidación firmada por este vendedor. Reemplaza a "vendido" (que contaba
+      boletas con socio cargado) en la vista de listado — Sergio prefiere ver el
+      total liquidado, mismo criterio que la tarjeta "Total liquidados" del detalle.
+    - vendido: se conserva la clave para compatibilidad (boletas con comprador_id).
     """
     # `liq_sin_comp` cuenta boletas CAJA con liq_id pero AÚN sin socio cargado.
     # Las al-contado pagadas se quedan en condicion=CAJA con liq_id Y comprador_id
@@ -54,7 +55,7 @@ def _stats_bulk(db):
     stats = {}
     for vid, cond, total, liq_sin_comp, sin_liq in rows:
         if vid not in stats:
-            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0}
+            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0, "liquidados": 0}
         if cond == CondicionBoleta.CAJA:
             stats[vid]["caja"] = int(sin_liq or 0)             # CAJA sin liquidar (físicas en mano)
             stats[vid]["liq_pendiente"] = int(liq_sin_comp or 0)  # CAJA con liq, sin socio aún
@@ -72,8 +73,23 @@ def _stats_bulk(db):
     ).group_by(models.Boleta.vendedor_id).all()
     for vid, total in vendidos_rows:
         if vid not in stats:
-            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0}
+            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0, "liquidados": 0}
         stats[vid]["vendido"] = total
+
+    # Liquidados: boletas del vendedor con liquidacion_vendedor_id != NULL.
+    # Cuenta números efectivamente liquidados por este vendedor (incluye CAJA con liq,
+    # VENDIDO, EN_COBRANZA, BAJA — todos los estados post-liquidación).
+    liq_rows = db.query(
+        models.Boleta.vendedor_id,
+        func.count(models.Boleta.id)
+    ).filter(
+        models.Boleta.vendedor_id.isnot(None),
+        models.Boleta.liquidacion_vendedor_id.isnot(None)
+    ).group_by(models.Boleta.vendedor_id).all()
+    for vid, total in liq_rows:
+        if vid not in stats:
+            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0, "liquidados": 0}
+        stats[vid]["liquidados"] = total
 
     return stats
 
