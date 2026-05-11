@@ -577,17 +577,37 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     ).order_by(models.LiquidacionVendedor.fecha.desc()).all()
 
     # ── Métricas acumuladas para tarjetas del header ─────────────────────
-    # Total boletas liquidadas (literal, suma cuotas + contados)
+    # Total boletas liquidadas: solo las que SIGUEN siendo de este vendedor.
+    # Si una boleta se reasignó después de liquidar (ej. jefe de equipo que la
+    # liquidó pero después pasó a otro vendedor real), NO debe contarse para él
+    # porque no la vendió realmente. La liquidación queda en su historial como
+    # registro contable, pero el conteo refleja lo efectivamente vendido por él.
+    # `boletas` ya viene filtrado por vendedor_id=vid, así que iteramos ese set.
+    _liq_ids_propias: set[int] = {
+        b.liquidacion_vendedor_id for b in boletas if b.liquidacion_vendedor_id
+    }
+    # Pool items CONTADO declarados en sus liquidaciones (números del pool, no boletas).
+    # Estos se rinden con la liquidación y no se reasignan, así que cuentan siempre.
+    _pool_count = 0
+    if liquidaciones:
+        try:
+            _pool_count = db.query(func.count(models.LiquidacionContadoItem.id)).filter(
+                models.LiquidacionContadoItem.liquidacion_id.in_([liq.id for liq in liquidaciones])
+            ).scalar() or 0
+        except Exception:
+            _pool_count = 0
+
+    # Literal: cantidad de boletas propias liquidadas (sin ponderar) + pool items
     total_boletas_liquidadas = sum(
-        (liq.cuotas_vendidas or 0) + (liq.contados_vendidos or 0)
-        for liq in liquidaciones
-    )
-    # Total boletas liquidadas ponderadas por PATA (cuotas_equiv ya está ponderado;
-    # para contados usamos contados_vendidos crudo porque su monto ya viene ponderado)
+        1 for b in boletas if b.liquidacion_vendedor_id
+    ) + _pool_count
+    # Ponderado: cada boleta cuenta como su multiplicador (PATA 1 ×1, PATA 2 ×2, ...)
+    # Las boletas contado-de-boleta (con numero_especial) cuentan como 1 (ya están ponderadas en monto)
     total_boletas_liquidadas_eq = sum(
-        (liq.cuotas_equiv or liq.cuotas_vendidas or 0) + (liq.contados_vendidos or 0)
-        for liq in liquidaciones
-    )
+        (1 if (b.numero_especial is not None or b.numero_especial_2 is not None)
+         else int((b.talonera.multiplicador or 1) if b.talonera else 1))
+        for b in boletas if b.liquidacion_vendedor_id
+    ) + _pool_count
     # Ingresos del vendedor: lo que se queda en su bolsillo
     # = cuota 1 (cobrada directo al socio) + comisión contados + comisión cuotas extras
     ingresos_total = sum(

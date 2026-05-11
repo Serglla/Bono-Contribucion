@@ -56,10 +56,12 @@
       <div class="small text-muted">En caja</div>
     </div>
   </div>
-  {# 2. Total liquidados — acumulado histórico de boletas pasadas por liquidación (ponderado) #}
+  {# 2. Total liquidados — boletas EFECTIVAMENTE vendidas por este vendedor que figuran
+        en sus liquidaciones. NO incluye las que él liquidó pero luego pasaron a otro
+        vendedor (jefe de equipo que liquida y después pasa caja). Ponderado por PATA. #}
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3 h-100"
-         title="Boletas liquidadas históricamente (ponderado por multiplicador de PATA). {{ total_liquidaciones }} liquidación(es) registrada(s).">
+         title="Boletas liquidadas y aún a su nombre (las que se reasignaron a otro vendedor no se cuentan). Ponderado por multiplicador de PATA. {{ total_liquidaciones }} liquidación(es) registrada(s).">
       <div class="fs-3 fw-bold text-success">{{ total_boletas_liquidadas_eq }}</div>
       <div class="small text-muted">Total liquidados
         <span class="text-muted" style="font-size:.75em;">({{ total_liquidaciones }} liq.)</span>
