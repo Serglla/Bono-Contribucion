@@ -1246,3 +1246,33 @@ async def editar(
         v.telefono = telefono.strip() or None
         db.commit()
     return RedirectResponse("/vendedores/", status_code=302)
+
+
+@router.post("/liquidaciones/{liq_id}/eliminar")
+async def eliminar_liquidacion(liq_id: int, request: Request, db: Session = Depends(get_db)):
+    """Elimina una liquidacion completa. SOLO admin.
+    Efectos:
+      - Boletas asociadas: liquidacion_vendedor_id -> NULL (vuelven a CAJA sin liq).
+        Conservan su vendedor_id actual (no se reasignan).
+      - LiquidacionContadoItem de la liq: se borran (numeros del pool vuelven al pool libre).
+      - LiquidacionVendedor: se borra.
+    """
+    user = await auth_module.require_user(request, db)
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(403, "Solo admin puede eliminar liquidaciones")
+    liq = db.query(models.LiquidacionVendedor).get(liq_id)
+    if not liq:
+        raise HTTPException(404, "Liquidacion no encontrada")
+    vid = liq.vendedor_id
+    # Desvincular boletas (vuelven a CAJA sin liq_id)
+    db.query(models.Boleta).filter_by(
+        liquidacion_vendedor_id=liq_id
+    ).update({"liquidacion_vendedor_id": None}, synchronize_session=False)
+    # Borrar items pool CONTADO (cascade tambien deberia hacerlo, lo hacemos explicito)
+    db.query(models.LiquidacionContadoItem).filter_by(
+        liquidacion_id=liq_id
+    ).delete(synchronize_session=False)
+    db.delete(liq)
+    db.commit()
+    return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liq_eliminada", status_code=302)
+
