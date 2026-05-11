@@ -175,18 +175,24 @@ function completarFaltantes(tipo, btn, alertaId) {
           <td>
             {% set cond = b.condicion.value if b and b.condicion else '' %}
             {% set pagado = b and b.cuotas_pagadas is not none and b.cuotas_pactadas and b.cuotas_pagadas >= b.cuotas_pactadas %}
-            {# Una boleta es "Al contado" SOLO si tiene numero_especial / numero_especial_2
-               (modalidad CONTADO o CONTADO 2 VECES) o si está pagada en su totalidad.
-               El simple hecho de estar en CAJA NO implica al contado: las boletas en
-               cuotas recién cargadas con socio quedan en CAJA hasta que entran a planilla. #}
+            {# El badge se basa en el ESTADO REAL de la boleta, no en el campo
+               persistido b.condicion (que puede estar "lazy" — quedó en CAJA después
+               de liquidar y no se re-derivó al cargar socio). Reglas en orden:
+               1. BAJA → siempre prioridad (sticky, requiere acción manual)
+               2. Contado modalidad (numero_especial / _2) o pagada en total → "Al contado"
+               3. Tiene cobrador asignado → "En cobranza" (va a planilla o ya está)
+               4. Tiene comprador (en cuotas, sin cobrador todavía) → "En cuotas"
+               5. Otro caso → — #}
             {% set es_contado = b and (b.numero_especial is not none or b.numero_especial_2 is not none) %}
+            {% set tiene_cobrador = b and b.cobrador_id %}
+            {% set tiene_socio = b and b.comprador_id %}
             {% if cond == 'BAJA' %}
               <span class="badge bg-danger">Baja</span>
             {% elif es_contado or pagado %}
               <span class="badge bg-success">Al contado</span>
-            {% elif cond in ('EN_COBRANZA', 'VENDIDO') %}
+            {% elif tiene_cobrador %}
               <span class="badge bg-primary">En cobranza</span>
-            {% elif cond == 'CAJA' %}
+            {% elif tiene_socio %}
               <span class="badge bg-info text-dark">En cuotas</span>
             {% else %}
               <span class="text-muted">—</span>
