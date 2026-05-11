@@ -76,20 +76,37 @@ def _stats_bulk(db):
             stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0, "liquidados": 0}
         stats[vid]["vendido"] = total
 
-    # Liquidados: boletas del vendedor con liquidacion_vendedor_id != NULL.
-    # Cuenta números efectivamente liquidados por este vendedor (incluye CAJA con liq,
-    # VENDIDO, EN_COBRANZA, BAJA — todos los estados post-liquidación).
-    liq_rows = db.query(
-        models.Boleta.vendedor_id,
-        func.count(models.Boleta.id)
-    ).filter(
-        models.Boleta.vendedor_id.isnot(None),
-        models.Boleta.liquidacion_vendedor_id.isnot(None)
-    ).group_by(models.Boleta.vendedor_id).all()
-    for vid, total in liq_rows:
+    # Liquidados: TODAS las boletas que pasaron por una liquidación firmada por
+    # este vendedor (sin importar si después se reasignaron a otro vendedor),
+    # ponderadas por el multiplicador de PATA (X1=1, X2=2, X3=3, ...). Plus
+    # los items del pool CONTADO declarados en esas liquidaciones (cuentan
+    # como 1 c/u, son números puros). Mismo criterio que pide Sergio:
+    # "todas las liquidadas por él, con el sistema que cuenta pata 1 x1, pata 2 x2".
+    liq_pond_rows = db.query(
+        models.LiquidacionVendedor.vendedor_id,
+        func.coalesce(func.sum(models.Talonera.multiplicador), 0)
+    ).join(
+        models.Boleta, models.Boleta.liquidacion_vendedor_id == models.LiquidacionVendedor.id
+    ).join(
+        models.Talonera, models.Talonera.id == models.Boleta.talonera_id
+    ).group_by(models.LiquidacionVendedor.vendedor_id).all()
+    for vid, total in liq_pond_rows:
         if vid not in stats:
             stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0, "liquidados": 0}
-        stats[vid]["liquidados"] = total
+        stats[vid]["liquidados"] = int(total or 0)
+
+    # Pool CONTADO declarados en liquidaciones del vendedor (números puros sin boleta).
+    pool_rows = db.query(
+        models.LiquidacionVendedor.vendedor_id,
+        func.count(models.LiquidacionContadoItem.id)
+    ).join(
+        models.LiquidacionContadoItem,
+        models.LiquidacionContadoItem.liquidacion_id == models.LiquidacionVendedor.id
+    ).group_by(models.LiquidacionVendedor.vendedor_id).all()
+    for vid, total in pool_rows:
+        if vid not in stats:
+            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0, "liquidados": 0}
+        stats[vid]["liquidados"] = stats[vid].get("liquidados", 0) + int(total or 0)
 
     return stats
 
