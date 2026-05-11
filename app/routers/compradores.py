@@ -25,7 +25,8 @@ router = APIRouter(prefix="/compradores", tags=["compradores"])
 
 
 @router.get("/", response_class=HTMLResponse)
-async def listar(request: Request, db: Session = Depends(get_db), q: str = "", pata: str = ""):
+async def listar(request: Request, db: Session = Depends(get_db),
+                 q: str = "", pata: str = "", zona: str = ""):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'compradores', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
@@ -40,6 +41,13 @@ async def listar(request: Request, db: Session = Depends(get_db), q: str = "", p
                  .join(models.Talonera, models.Talonera.id == models.Boleta.talonera_id)
                  .filter(models.Talonera.nombre == pata)
                  .distinct())
+    if zona:
+        # Filtro por zona — acepta id numérico o nombre exacto
+        try:
+            zona_id_int = int(zona)
+            query = query.filter(models.Comprador.zona_id == zona_id_int)
+        except (TypeError, ValueError):
+            query = query.filter(models.Zona.nombre == zona)
     compradores_raw = query.options(
         selectinload(models.Comprador.boletas).selectinload(models.Boleta.talonera)
     ).order_by(models.Comprador.apellido_nombre).all()

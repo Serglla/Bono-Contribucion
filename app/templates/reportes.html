@@ -44,16 +44,19 @@
       </thead>
       <tbody>
         {% for s in stats_por_talonera %}
-        <tr>
-          <td><span class="badge bg-danger">{{ s.nombre }}</span></td>
+        <tr style="cursor:pointer;"
+            onclick="window.location='/compradores/?pata={{ s.nombre | urlencode }}'"
+            title="Ver socios de {{ s.nombre }}">
+          <td><span class="badge bg-danger">{{ s.nombre | replace('PATA ', 'X') }}</span></td>
           <td>{{ s.total }}</td>
           <td><span class="text-success fw-semibold">{{ s.vendidas }}</span></td>
           <td><span class="text-danger">{{ s.baja }}</span></td>
           <td><span class="text-primary">{{ s.en_caja }}</span></td>
           <td><span class="text-warning">{{ s.en_cobranza }}</span></td>
           <td><span class="text-secondary">{{ s.sin_vender }}</span></td>
-          <td>
-            <a href="/boletas" class="btn btn-sm btn-outline-danger">
+          <td onclick="event.stopPropagation()">
+            <a href="/compradores/?pata={{ s.nombre | urlencode }}"
+               class="btn btn-sm btn-outline-danger" title="Ver socios">
               <i class="bi bi-eye"></i>
             </a>
           </td>
@@ -80,7 +83,9 @@
       </thead>
       <tbody>
         {% for s in stats_por_zona %}
-        <tr>
+        <tr style="cursor:pointer;"
+            onclick="window.location='/compradores/?zona={{ s.zona.id }}'"
+            title="Ver socios de zona {{ s.zona.nombre }}">
           <td><span class="badge bg-dark">{{ s.zona.nombre }}</span></td>
           <td class="text-muted small">{{ s.vendedor }}</td>
           <td class="text-muted small">{{ s.cobrador }}</td>

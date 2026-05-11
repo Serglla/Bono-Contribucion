@@ -21,17 +21,81 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     taloneras = db.query(models.Talonera).order_by(models.Talonera.nombre).all()
 
     # Agrupar taloneras por nombre (ej: todas las "PATA 1" en una sola fila)
+    # Mantiene el tipo (COMUN/CONTADO) para tratamiento diferenciado: las CONTADO
+    # NO tienen boletas reales — su "Total" se cuenta por números del pool
+    # entregados via EntregaCaja menos los asignados a boletas.
     grupos: dict = {}
     for t in taloneras:
         key = t.nombre
         if key not in grupos:
-            grupos[key] = {"nombre": t.nombre, "num_series": t.num_series, "ids": []}
+            grupos[key] = {
+                "nombre": t.nombre,
+                "num_series": t.num_series,
+                "tipo": (t.tipo or "COMUN"),
+                "ids": [],
+            }
         grupos[key]["ids"].append(t.id)
 
     stats_por_talonera = []
     for key, g in grupos.items():
         ids = g["ids"]
         factor = max(1, (g["num_series"] or 3) // 3)
+        tipo = g["tipo"]
+
+        if tipo == "CONTADO":
+            # Total = números entregados via EntregaCaja con talonera_nombre = este nombre.
+            # Suma de (hasta - desde + 1) sobre todas las entregas (asume rangos sin solape).
+            total_entregados = db.query(
+                func.coalesce(
+                    func.sum(models.EntregaCaja.hasta - models.EntregaCaja.desde + 1),
+                    0,
+                )
+            ).filter(
+                func.lower(func.trim(models.EntregaCaja.talonera_nombre)) == (g["nombre"] or "").strip().lower()
+            ).scalar() or 0
+            # Asignados a boletas — slot 1 (numero_especial)
+            asignados_1 = db.query(func.count(models.Boleta.id)).filter(
+                models.Boleta.numero_especial.isnot(None),
+                models.Boleta.talonera_especial_id.in_(ids),
+            ).scalar() or 0
+            # Asignados a boletas — slot 2 (numero_especial_2)
+            asignados_2 = db.query(func.count(models.Boleta.id)).filter(
+                models.Boleta.numero_especial_2.isnot(None),
+                models.Boleta.talonera_especial_2_id.in_(ids),
+            ).scalar() or 0
+            # Asignados CON socio cargado — slot 1
+            vendidas_1 = db.query(func.count(models.Boleta.id)).filter(
+                models.Boleta.numero_especial.isnot(None),
+                models.Boleta.talonera_especial_id.in_(ids),
+                models.Boleta.comprador_id.isnot(None),
+            ).scalar() or 0
+            vendidas_2 = db.query(func.count(models.Boleta.id)).filter(
+                models.Boleta.numero_especial_2.isnot(None),
+                models.Boleta.talonera_especial_2_id.in_(ids),
+                models.Boleta.comprador_id.isnot(None),
+            ).scalar() or 0
+            asignados = int(asignados_1) + int(asignados_2)
+            vendidas  = int(vendidas_1) + int(vendidas_2)
+            total     = int(total_entregados)
+            en_caja   = max(0, total - asignados)  # entregados pero todavía sin asignar a boleta
+            stats_por_talonera.append({
+                "nombre": g["nombre"],
+                "tipo": tipo,
+                "factor": factor,
+                "total": total,
+                "vendidas": vendidas,
+                "baja": 0,
+                "en_caja": en_caja,
+                "en_cobranza": 0,
+                "sin_vender": 0,
+                "cuotas_cobradas": 0,
+                "total_ponderado": total,      # pool no se pondera por PATA
+                "vendidas_ponderado": vendidas,
+                "baja_ponderado": 0,
+            })
+            continue
+
+        # Caso COMUN — lógica original
         total = db.query(func.count(models.Boleta.id)).filter(
             models.Boleta.talonera_id.in_(ids)
         ).scalar()
@@ -71,6 +135,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ).scalar() or 0
         stats_por_talonera.append({
             "nombre": g["nombre"],
+            "tipo": tipo,
             "factor": factor,
             "total": total,
             "vendidas": vendidas,
