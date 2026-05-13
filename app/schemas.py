@@ -71,7 +71,7 @@ class CompradorOut(CompradorCreate):
 # ── Talonera ──────────────────────────────────────────────────────────────────
 class TaloneraCreate(BaseModel):
     nombre: str
-    multiplicador: int = 1
+    multiplicador: float = 1.0  # Float desde PATA 0 (mult 0.67 = 2/3)
     numero_inicio: Optional[int] = None
     numero_fin: Optional[int] = None
     activa: bool = True

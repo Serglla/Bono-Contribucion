@@ -414,6 +414,56 @@ def create_default_admin():
             db.rollback()
             print(f"Correccion num_digitos COMUN→4: {e}")
 
+        # ─── PATA 0 (11/05/2026) ──────────────────────────────────────────────────
+        # multiplicador pasa de Integer a Float para soportar PATA 0 (mult 0.67 = 2/3).
+        # Fórmula nueva: num_series / 3.0 (en vez de num_series // 3).
+        # PATA 0=0.6667 / PATA 1=1.0 / PATA 2=2.0 / PATA 3=3.0
+        try:
+            _dialect_m = engine.dialect.name
+            if _dialect_m == "postgresql":
+                # PostgreSQL: convertir tipo de columna a double precision
+                db.execute(text(
+                    "ALTER TABLE taloneras "
+                    "ALTER COLUMN multiplicador TYPE DOUBLE PRECISION "
+                    "USING multiplicador::double precision"
+                ))
+            # SQLite no requiere ALTER de tipo (es laxo con tipos).
+            # Recalcular todos los multiplicadores con la fórmula nueva (num_series/3.0).
+            # Solo aplica a taloneras COMUN; CONTADO tiene mult fijo = 1.0.
+            # NO redondear: 2/3 periódico, pero × valor_cuota da exacto en Float.
+            db.execute(text(
+                "UPDATE taloneras SET multiplicador = "
+                "CAST(num_series AS DOUBLE PRECISION) / 3.0 "
+                "WHERE (tipo = 'COMUN' OR tipo IS NULL) AND num_series IS NOT NULL AND num_series > 0"
+            )) if engine.dialect.name == "postgresql" else db.execute(text(
+                "UPDATE taloneras SET multiplicador = "
+                "CAST(num_series AS REAL) / 3.0 "
+                "WHERE (tipo = 'COMUN' OR tipo IS NULL) AND num_series IS NOT NULL AND num_series > 0"
+            ))
+            db.commit()
+            print("Migracion multiplicador FLOAT taloneras: OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion multiplicador FLOAT taloneras: {e}")
+
+        # cuotas_equiv en liquidaciones_vendedor: pasa de Integer a Float (para soportar
+        # ponderados con decimales cuando hay boletas de PATA 0 en la liquidación).
+        try:
+            _dialect_ce = engine.dialect.name
+            if _dialect_ce == "postgresql":
+                db.execute(text(
+                    "ALTER TABLE liquidaciones_vendedor "
+                    "ALTER COLUMN cuotas_equiv TYPE DOUBLE PRECISION "
+                    "USING cuotas_equiv::double precision"
+                ))
+            # SQLite: tipos laxos, no hace falta ALTER.
+            db.commit()
+            print("Migracion cuotas_equiv FLOAT: OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion cuotas_equiv FLOAT: {e}")
+        # ──────────────────────────────────────────────────────────────────────────
+
         # Migrar cuota_1_total en liquidaciones_vendedor
         try:
             _dialect = engine.dialect.name
@@ -512,15 +562,16 @@ def create_default_admin():
                 if int(_liq.contados_vendidos or 0) > 0:
                     # Caso mixto: no podemos distinguir cuotas vs contado por boleta;
                     # dejamos cuotas_equiv = cuotas_vendidas (literal) como fallback seguro.
-                    _liq.cuotas_equiv = int(_liq.cuotas_vendidas or 0)
+                    _liq.cuotas_equiv = float(_liq.cuotas_vendidas or 0)
                     _backfilled += 1
                     continue
                 _bs = db.query(models.Boleta).filter_by(liquidacion_vendedor_id=_liq.id).all()
-                _equiv = 0
+                _equiv = 0.0
                 for _b in _bs:
-                    _mult = int((_b.talonera.multiplicador or 1) if _b.talonera else 1)
+                    # multiplicador es Float desde 11/05/2026 (PATA 0 = 0.67)
+                    _mult = float((_b.talonera.multiplicador or 1.0) if _b.talonera else 1.0)
                     _equiv += _mult
-                _liq.cuotas_equiv = _equiv if _equiv > 0 else int(_liq.cuotas_vendidas or 0)
+                _liq.cuotas_equiv = _equiv if _equiv > 0 else float(_liq.cuotas_vendidas or 0)
                 _backfilled += 1
             if _backfilled:
                 db.commit()

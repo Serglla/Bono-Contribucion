@@ -255,7 +255,7 @@ async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depen
             "color": b.talonera.color if b.talonera else "#cccccc",
             "condicion": b.condicion.value if b.condicion else "?",
             "comprador": b.comprador.apellido_nombre if b.comprador else None,
-            "multiplicador": int((b.talonera.multiplicador or 1) if b.talonera else 1),
+            "multiplicador": float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0),
             "reasignado_a_id":     reasignado_a_id,
             "reasignado_a_nombre": reasignado_a_nombre,
         })
@@ -288,12 +288,13 @@ async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depen
     # cuotas_equiv puede estar en 0 para registros previos a la migracion: fallback
     # a la suma de multiplicadores de las boletas asociadas si no hay contados, o
     # al conteo literal si hay mezcla (no podemos distinguir por boleta).
-    _cuotas_equiv = int(getattr(liq, "cuotas_equiv", 0) or 0)
+    # Float desde 11/05/2026 (PATA 0 con mult 0.67).
+    _cuotas_equiv = float(getattr(liq, "cuotas_equiv", 0) or 0)
     if _cuotas_equiv == 0:
         if int(liq.contados_vendidos or 0) == 0 and boletas:
-            _cuotas_equiv = sum(int(b.get("multiplicador") or 1) for b in boletas_out)
+            _cuotas_equiv = sum(float(b.get("multiplicador") or 1.0) for b in boletas_out)
         else:
-            _cuotas_equiv = int(liq.cuotas_vendidas or 0)
+            _cuotas_equiv = float(liq.cuotas_vendidas or 0)
 
     return JSONResponse({
         "id": liq.id,
@@ -699,7 +700,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             "color":        b.talonera.color         if b.talonera else "#cccccc",
             "valor_cuota":  b.talonera.valor_cuota   if b.talonera else 0.0,
             "num_cuotas":   (b.talonera.num_cuotas   if b.talonera and b.talonera.num_cuotas else 12),
-            "multiplicador": int(b.talonera.multiplicador or 1) if b.talonera else 1,
+            "multiplicador": float(b.talonera.multiplicador or 1.0) if b.talonera else 1.0,
             "talonera_id":  b.talonera_id            if b.talonera else None,
         }
         for b in sorted(pendientes, key=lambda x: (x.talonera.nombre if x.talonera else "", x.numero_principal))
@@ -737,9 +738,10 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     ) + _pool_count
     # Ponderado: cada boleta cuenta como su multiplicador (PATA 1 ×1, PATA 2 ×2, ...)
     # Las boletas contado-de-boleta (con numero_especial) cuentan como 1 (ya están ponderadas en monto)
+    # Float desde PATA 0 (mult 0.67) — el display lo redondea a entero
     total_boletas_liquidadas_eq = sum(
-        (1 if (b.numero_especial is not None or b.numero_especial_2 is not None)
-         else int((b.talonera.multiplicador or 1) if b.talonera else 1))
+        (1.0 if (b.numero_especial is not None or b.numero_especial_2 is not None)
+         else float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0))
         for b in boletas if b.liquidacion_vendedor_id
     ) + _pool_count
     # Ingresos del vendedor: lo que se queda en su bolsillo.
@@ -771,9 +773,9 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             ingreso_por_liq[b.liquidacion_vendedor_id] += float(b.talonera.valor_cuota or 0)
 
     ingresos_total = sum(ingreso_por_liq.values())
-    # Total vendidas: boletas con comprador cargado, ponderado por multiplicador de PATA
+    # Total vendidas: boletas con comprador cargado, ponderado por multiplicador de PATA (Float)
     total_vendidas_pond = sum(
-        int((b.talonera.multiplicador or 1) if b.talonera else 1)
+        float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
         for b in boletas if b.comprador_id is not None
     )
 
@@ -912,10 +914,10 @@ async def liquidar(
 
     # Cuota 1 (informativa): el vendedor YA la cobró directo del socio. NO se le paga ni se le cobra.
     cuota_1_total  = sum((b.talonera.valor_cuota if b.talonera else 0.0) for b in cuotas)
-    # Cuotas equivalentes = ponderado por multiplicador de PATA
-    # (PATA 1 ×1, PATA 2 ×2, etc.). Se guarda aparte para mostrarlo en la UI sin
+    # Cuotas equivalentes = ponderado por multiplicador de PATA (Float desde 11/05/2026)
+    # (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, etc.). Se guarda aparte para mostrarlo en la UI sin
     # tener que recalcular cada vez (y por si cambia el valor_cuota de PATA 1).
-    cuotas_equiv = sum(int((b.talonera.multiplicador or 1) if b.talonera else 1) for b in cuotas)
+    cuotas_equiv = sum(float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0) for b in cuotas)
 
     # Monto de cuotas (referencial — coincide con cuota_1_total porque es 1 cuota por boleta)
     monto_cuotas   = cuota_1_total

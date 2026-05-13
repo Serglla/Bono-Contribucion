@@ -77,12 +77,13 @@ async def listar(request: Request, db: Session = Depends(get_db),
         .all()
     )
     tabs = [
-        {"nombre": t[0], "total": t[1], "multiplicador": int(t[2] or 1)}
+        {"nombre": t[0], "total": t[1], "multiplicador": float(t[2] or 1.0)}
         for t in taloneras_raw
     ]
     # Total ponderado: 39 PATA1×1 + 9 PATA2×2 + 1 PATA3×3 + 1 PATA4×4 + 3 PATA8×8
-    # = 39 + 18 + 3 + 4 + 24 = 88
-    total_compradores = sum(t["total"] * t["multiplicador"] for t in tabs)
+    # = 39 + 18 + 3 + 4 + 24 = 88. Con PATA 0 (×0.67) el total puede tener decimales —
+    # redondeo a entero al mostrar (decisión 11/05/2026).
+    total_compradores = round(sum(t["total"] * t["multiplicador"] for t in tabs))
 
     # Cantidad de socios sin vendedor/cobrador (para mostrar alertas en el template)
     sin_vendedor = sum(1 for c in compradores if c.boletas and not c.boletas[0].vendedor_id)

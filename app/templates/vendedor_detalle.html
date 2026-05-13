@@ -766,7 +766,7 @@
                       <tr style="cursor:pointer;" ondblclick="verDetalleLiq({{ liq.id }})"
                           title="Doble-click para ver el detalle de esta liquidación">
                         <td class="text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
-                        <td class="text-center" title="Boletas reales: {{ liq.cuotas_vendidas }}">{{ liq.cuotas_equiv or liq.cuotas_vendidas }}</td>
+                        <td class="text-center" title="Boletas reales: {{ liq.cuotas_vendidas }} · Ponderado exacto: {{ '%.2f'|format(liq.cuotas_equiv or liq.cuotas_vendidas) }}">{{ ((liq.cuotas_equiv or liq.cuotas_vendidas) | round(0) | int) }}</td>
                         <td class="text-center">{{ liq.contados_vendidos }}</td>
                         <td class="text-end">${{ '%.2f'|format(liq.monto_contados or 0) }}</td>
                         <td class="text-center text-muted">{{ liq.comision_contados_pct }}%</td>
@@ -911,10 +911,10 @@ function renderPatas() {
         <div class="d-flex flex-wrap gap-1">`;
 
     data.boletas.forEach(b => {
-      const mult = b.multiplicador || 1;
+      const mult = parseFloat(b.multiplicador) || 1;
       const cuota1Unit = mult * PATA1_VC;
       const contadoTotal = mult * PATA1_NC * PATA1_VC;
-      const title = `×${mult} — Cuota 1: $${cuota1Unit.toLocaleString('es-AR')} · Contado total: $${contadoTotal.toLocaleString('es-AR')}`;
+      const title = `×${fmtMult(mult)} — Cuota 1: $${cuota1Unit.toLocaleString('es-AR')} · Contado total: $${contadoTotal.toLocaleString('es-AR')}`;
       html += `
           <div class="d-inline-flex align-items-center gap-1" style="margin:0 4px 4px 0;">
             <label title="${title}" style="margin:0;cursor:pointer;">
@@ -1031,7 +1031,8 @@ function recalcular() {
   let nContados = 0, montoContados = 0;
 
   document.querySelectorAll('.boleta-chk:checked').forEach(chk => {
-    const mult = parseInt(chk.dataset.mult) || 1;
+    // parseFloat (no parseInt) para soportar PATA 0 (mult 0.67). parseInt(0.67) = 0 → rompería todo.
+    const mult = parseFloat(chk.dataset.mult) || 1;
     const modalidad = modalidadBoleta(chk.dataset.bid);
     // Refrescar color del badge segun modalidad actual
     const lbl = chk.closest('label');
@@ -1209,6 +1210,19 @@ function fmtMoney(n) {
   return '$' + (Number(n)||0).toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
 }
 
+// Formato de multiplicador de PATA: entero si es entero, 2 decimales si no.
+// PATA 0 → "0.67" / PATA 1 → "1" / PATA 2 → "2" / PATA 3 → "3"
+function fmtMult(m) {
+  const v = Number(m) || 0;
+  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+}
+
+// Total ponderado: redondear a entero al mostrar (decisión 11/05/2026).
+// El valor exacto Float se preserva en tooltip donde corresponde.
+function fmtPonderado(p) {
+  return Math.round(Number(p) || 0);
+}
+
 // Confirma antes de eliminar una liquidación (solo admin). Usado por el botón
 // del modal Detalle y por los botones de cada fila del historial.
 function confirmEliminarLiq(form) {
@@ -1271,7 +1285,7 @@ async function verDetalleLiq(liqId) {
           <table class="table table-sm table-borderless mb-0" style="font-size:.82rem;">
             <tbody>
               <tr class="text-muted fst-italic">
-                <td>Cuota 1 (${d.cuotas_equiv ?? d.cuotas_vendidas} boleta/s) — ya en mano del vendedor</td>
+                <td>Cuota 1 (${fmtPonderado(d.cuotas_equiv ?? d.cuotas_vendidas)} boleta/s) — ya en mano del vendedor</td>
                 <td class="text-end">${fmtMoney(d.cuota_1_total)}</td>
               </tr>
               <tr>
@@ -1304,16 +1318,16 @@ async function verDetalleLiq(liqId) {
     const tienePool    = Object.keys(grupos_pool).length > 0;
 
     if (tieneBoletas) {
-      // Total ponderado = suma de multiplicadores (PATA 1 ×1, PATA 2 ×2, PATA 3 ×3, etc.)
-      const totalPonderado = (d.boletas || []).reduce((acc, b) => acc + (b.multiplicador || 1), 0);
+      // Total ponderado = suma de multiplicadores (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, etc.)
+      const totalPonderado = (d.boletas || []).reduce((acc, b) => acc + (parseFloat(b.multiplicador) || 1), 0);
       const totalCrudo     = (d.boletas || []).length;
       // Boletas reasignadas a otro vendedor (tipico jefe de equipo → vendedor)
       const reasignadas = (d.boletas || []).filter(b => b.reasignado_a_nombre);
       html += `<div class="small fw-semibold text-muted mb-2">
         <i class="bi bi-collection me-1"></i>Taloneras liquidadas
         <span class="badge bg-secondary ms-1"
-              title="${totalCrudo} boleta/s reales, ponderado por multiplicador de PATA">
-          ${totalPonderado}
+              title="${totalCrudo} boleta/s reales, ponderado por multiplicador de PATA (exacto: ${totalPonderado.toFixed(2)})">
+          ${fmtPonderado(totalPonderado)}
         </span>
       </div>`;
       if (reasignadas.length > 0) {
@@ -1338,8 +1352,8 @@ async function verDetalleLiq(liqId) {
         const g = grupos[pata];
         const colorBg  = (g.color || '#cccccc') + '20';
         const colorBdr = g.color || '#cccccc';
-        const mult     = (g.boletas[0] && g.boletas[0].multiplicador) || 1;
-        const ponderado = g.boletas.reduce((acc, b) => acc + (b.multiplicador || 1), 0);
+        const mult     = parseFloat(g.boletas[0] && g.boletas[0].multiplicador) || 1;
+        const ponderado = g.boletas.reduce((acc, b) => acc + (parseFloat(b.multiplicador) || 1), 0);
         let badges = '';
         g.boletas.forEach(b => {
           const opaco = (b.condicion === 'VENDIDO') ? 'opacity:.55;' : '';
@@ -1368,8 +1382,9 @@ async function verDetalleLiq(liqId) {
               <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">
                 ${escapeHtml(pata)}
               </span>
-              <span class="text-muted small">
-                ${g.boletas.length} boleta/s × ${mult} = <strong>${ponderado}</strong>
+              <span class="text-muted small"
+                    title="Ponderado exacto: ${ponderado.toFixed(2)}">
+                ${g.boletas.length} boleta/s × ${fmtMult(mult)} = <strong>${fmtPonderado(ponderado)}</strong>
               </span>
             </div>
             <div class="card-body py-2">

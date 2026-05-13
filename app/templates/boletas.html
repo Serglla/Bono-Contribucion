@@ -5,7 +5,7 @@
   <div>
     <a href="/taloneras/" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
     <span class="fw-bold fs-5"><i class="bi bi-journal-text text-danger me-2"></i>{{ talonera.nombre }}</span>
-    <span class="badge bg-danger ms-2">×{{ talonera.multiplicador }}</span>
+    <span class="badge bg-danger ms-2">×{% if (talonera.multiplicador or 1.0) == ((talonera.multiplicador or 1.0) | round(0)) %}{{ (talonera.multiplicador or 1.0) | int }}{% else %}{{ '%.2f'|format(talonera.multiplicador or 1.0) }}{% endif %}</span>
   </div>
   <div class="d-flex gap-2">
     {% if user.is_admin and talonera.numero_inicio and talonera.numero_fin %}

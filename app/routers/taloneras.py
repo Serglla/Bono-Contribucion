@@ -71,7 +71,11 @@ async def crear(
     db: Session = Depends(get_db)
 ):
     await auth_module.require_admin(request, db)
-    multiplicador = num_series // 3
+    # multiplicador es Float — permite PATA 0 (2/3) y futuras fracciones.
+    # PATA 1=1.0, PATA 2=2.0, PATA 3=3.0, PATA 0=0.666... (num_series=2)
+    # NO redondear: 2/3 es periódico, pero (2/3)*15000 = 10000.0 exacto en Float Python.
+    # Si redondeo a 0.6667 → ×15000 = 10000.5 (error de 50 centavos por boleta).
+    multiplicador = (num_series / 3.0) if num_series else 1.0
     offset = (serie_inicio[1] - serie_inicio[0]) if len(serie_inicio) >= 2 else 0
     numero_inicio = serie_inicio[0] if serie_inicio else None
     numero_fin = serie_fin[0] if serie_fin else None
@@ -116,7 +120,7 @@ async def crear_contado(
     nd = max(1, min(int(num_digitos or 3), 6))
     t = models.Talonera(
         nombre=nombre.strip() or "CONTADO",
-        multiplicador=1,
+        multiplicador=1.0,
         numero_inicio=numero_inicio,
         numero_fin=numero_fin,
         num_series=1,
@@ -247,7 +251,8 @@ async def editar_talonera(
         raise HTTPException(404)
     t.nombre = nombre
     t.num_series = num_series
-    t.multiplicador = num_series // 3
+    # Float nativo (sin round) — 2/3 exacto en aritmética Float Python para producto × 15000
+    t.multiplicador = (num_series / 3.0) if num_series else 1.0
     t.offset_series = offset_series
     t.numero_inicio = numero_inicio
     t.numero_fin = numero_fin

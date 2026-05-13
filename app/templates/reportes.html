@@ -7,19 +7,19 @@
 <div class="row g-3 mb-4">
   <div class="col-sm-3">
     <div class="card border-0 shadow-sm text-center p-3">
-      <div class="fs-1 fw-bold text-danger">{{ totales.boletas }}</div>
+      <div class="fs-1 fw-bold text-danger">{{ (totales.boletas or 0) | round(0) | int }}</div>
       <div class="text-muted small">Total Boletas</div>
     </div>
   </div>
   <div class="col-sm-3">
     <div class="card border-0 shadow-sm text-center p-3">
-      <div class="fs-1 fw-bold text-success">{{ totales.vendidas }}</div>
+      <div class="fs-1 fw-bold text-success">{{ (totales.vendidas or 0) | round(0) | int }}</div>
       <div class="text-muted small">Taloneras Vendidas</div>
     </div>
   </div>
   <div class="col-sm-3">
     <div class="card border-0 shadow-sm text-center p-3">
-      <div class="fs-1 fw-bold text-danger">{{ totales.baja }}</div>
+      <div class="fs-1 fw-bold text-danger">{{ (totales.baja or 0) | round(0) | int }}</div>
       <div class="text-muted small">Baja</div>
     </div>
   </div>
@@ -48,12 +48,12 @@
             onclick="window.location='/compradores/?pata={{ s.nombre | urlencode }}'"
             title="Ver socios de {{ s.nombre }}">
           <td><span class="badge bg-danger">{{ s.nombre | replace('PATA ', 'X') }}</span></td>
-          <td>{{ s.total }}</td>
-          <td><span class="text-success fw-semibold">{{ s.vendidas }}</span></td>
-          <td><span class="text-danger">{{ s.baja }}</span></td>
-          <td><span class="text-primary">{{ s.en_caja }}</span></td>
-          <td><span class="text-warning">{{ s.en_cobranza }}</span></td>
-          <td><span class="text-secondary">{{ s.sin_vender }}</span></td>
+          <td>{{ (s.total or 0) | round(0) | int }}</td>
+          <td><span class="text-success fw-semibold">{{ (s.vendidas or 0) | round(0) | int }}</span></td>
+          <td><span class="text-danger">{{ (s.baja or 0) | round(0) | int }}</span></td>
+          <td><span class="text-primary">{{ (s.en_caja or 0) | round(0) | int }}</span></td>
+          <td><span class="text-warning">{{ (s.en_cobranza or 0) | round(0) | int }}</span></td>
+          <td><span class="text-secondary">{{ (s.sin_vender or 0) | round(0) | int }}</span></td>
           <td onclick="event.stopPropagation()">
             <a href="/compradores/?pata={{ s.nombre | urlencode }}"
                class="btn btn-sm btn-outline-danger" title="Ver socios">
@@ -89,12 +89,12 @@
           <td><span class="badge bg-dark">{{ s.zona.nombre }}</span></td>
           <td class="text-muted small">{{ s.vendedor }}</td>
           <td class="text-muted small">{{ s.cobrador }}</td>
-          <td><span class="fw-semibold">{{ s.taloneras }}</span></td>
+          <td><span class="fw-semibold">{{ (s.taloneras or 0) | round(0) | int }}</span></td>
           <td>{{ s.compradores }}</td>
-          <td><span class="text-success fw-semibold">{{ s.vendidas }}</span></td>
-          <td><span class="text-danger">{{ s.baja }}</span></td>
-          <td><span class="text-warning">{{ s.en_cobranza }}</span></td>
-          <td><span class="text-secondary">{{ s.sin_vender }}</span></td>
+          <td><span class="text-success fw-semibold">{{ (s.vendidas or 0) | round(0) | int }}</span></td>
+          <td><span class="text-danger">{{ (s.baja or 0) | round(0) | int }}</span></td>
+          <td><span class="text-warning">{{ (s.en_cobranza or 0) | round(0) | int }}</span></td>
+          <td><span class="text-secondary">{{ (s.sin_vender or 0) | round(0) | int }}</span></td>
         </tr>
         {% else %}
         <tr><td colspan="9" class="text-center text-muted py-3">Sin zonas</td></tr>
@@ -112,7 +112,7 @@
       <ul class="list-group list-group-flush">
         {% for v in top_vendedores %}
         <li class="list-group-item d-flex justify-content-between">
-          {{ v.nombre }} <span class="badge bg-secondary">{{ v.cantidad }}</span>
+          {{ v.nombre }} <span class="badge bg-secondary">{{ (v.cantidad or 0) | round(0) | int }}</span>
         </li>
         {% else %}
         <li class="list-group-item text-muted">Sin datos</li>
@@ -126,7 +126,7 @@
       <ul class="list-group list-group-flush">
         {% for c in top_cobradores %}
         <li class="list-group-item d-flex justify-content-between">
-          {{ c.nombre }} <span class="badge bg-secondary">{{ c.cantidad }}</span>
+          {{ c.nombre }} <span class="badge bg-secondary">{{ (c.cantidad or 0) | round(0) | int }}</span>
         </li>
         {% else %}
         <li class="list-group-item text-muted">Sin datos</li>

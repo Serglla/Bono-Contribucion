@@ -106,7 +106,8 @@ class LiquidacionVendedor(Base):
     cuotas_vendidas    = Column(Integer, default=0)
     # Ponderado por multiplicador de PATA: 17 PATA1 + 7 PATA2 + 1 PATA3 = 17 + 14 + 3 = 34
     # cuotas_vendidas guarda el conteo literal (25); cuotas_equiv el ponderado (34).
-    cuotas_equiv       = Column(Integer, default=0)
+    # Float desde PATA 0 (mult 0.67) — guardamos decimales, redondeamos a entero al mostrar.
+    cuotas_equiv       = Column(Float, default=0.0)
     cuota_1_total      = Column(Float, default=0.0)   # valor cuota 1 × n boletas (el vendedor ya lo tiene)
     monto_cuotas       = Column(Float, default=0.0)
     comision_cuotas_pct= Column(Float, default=5.0)
@@ -179,7 +180,7 @@ class Talonera(Base):
     __tablename__ = "taloneras"
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, nullable=False)
-    multiplicador = Column(Integer, default=1)
+    multiplicador = Column(Float, default=1.0)
     numero_inicio = Column(Integer)
     numero_fin = Column(Integer)
     num_series = Column(Integer, default=3)
