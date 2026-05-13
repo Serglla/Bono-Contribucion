@@ -443,7 +443,7 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
 </div>
 
 <div class="modal fade" id="modalNueva" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <form method="post" action="/taloneras/crear" id="formNuevaTalonera">
         <div class="modal-header">
@@ -452,23 +452,23 @@ document.querySelectorAll('.color-picker').forEach(function(picker) {
         </div>
         <div class="modal-body">
 
-          <!-- Fila superior: N° series + Nombre + Valor cuota -->
-          <div class="d-flex gap-3 mb-4">
-            <div style="flex:0 0 160px;">
-              <label class="form-label fw-semibold">N° de series por boleta</label>
+          <!-- Fila superior: N° series + Nombre + Valor cuota + N° cuotas -->
+          <div class="d-flex gap-3 mb-4 align-items-start">
+            <div style="flex:0 0 210px;">
+              <label class="form-label fw-semibold text-nowrap">N° de series por boleta</label>
               <input type="text" inputmode="numeric" id="selNumSeries" name="num_series"
                      class="form-control" value="3" placeholder="Ej: 3" required>
               <div class="form-text" id="pataHint">PATA 1</div>
             </div>
-            <div style="flex:1;">
+            <div style="flex:1 1 auto;">
               <label class="form-label fw-semibold">Nombre</label>
               <input type="text" id="inputNombre" name="nombre" class="form-control" required placeholder="Ej: PATA 1">
             </div>
-            <div style="flex:0 0 140px;">
+            <div style="flex:0 0 160px;">
               <label class="form-label fw-semibold">Valor cuota $</label>
               <input type="text" inputmode="decimal" name="valor_cuota" class="form-control" value="0" placeholder="0">
             </div>
-            <div style="flex:0 0 110px;">
+            <div style="flex:0 0 120px;">
               <label class="form-label fw-semibold">N° cuotas</label>
               <input type="number" name="num_cuotas" class="form-control" value="12" min="1" max="60" step="1">
             </div>
