@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request, Query, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from datetime import date
 from typing import List, Optional
 import json
@@ -176,10 +176,12 @@ async def planilla_editar_form(request: Request, planilla_id: int,
                    .order_by(models.Boleta.numero_principal)
                    .all())
 
-    # Boletas activas del mismo cobrador que NO tienen planilla aún
+    # Boletas activas del mismo cobrador que NO están en esta planilla
+    # (incluye las sin planilla y las de otras planillas del mismo cobrador)
     disponibles = (db.query(models.Boleta)
                    .filter(models.Boleta.cobrador_id == planilla.cobrador_id,
-                           models.Boleta.planilla_id.is_(None),
+                           or_(models.Boleta.planilla_id.is_(None),
+                               models.Boleta.planilla_id != planilla_id),
                            models.Boleta.condicion.in_([CondicionBoleta.VENDIDO, CondicionBoleta.EN_COBRANZA]))
                    .join(models.Comprador, isouter=True)
                    .order_by(models.Boleta.numero_principal)
