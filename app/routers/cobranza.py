@@ -164,7 +164,7 @@ async def emplanillado(request: Request, db: Session = Depends(get_db),
 @router.get("/planilla/{planilla_id}/editar", response_class=HTMLResponse)
 async def planilla_editar_form(request: Request, planilla_id: int,
                                db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    user = await auth_module.require_user(request, db)
     planilla = db.query(models.Planilla).get(planilla_id)
     if not planilla:
         raise HTTPException(404)
@@ -186,6 +186,7 @@ async def planilla_editar_form(request: Request, planilla_id: int,
                    .all())
 
     return templates.TemplateResponse(request, "cobranza_planilla_editar.html", {
+        "user": user,
         "planilla": planilla,
         "en_planilla": en_planilla,
         "disponibles": disponibles,
