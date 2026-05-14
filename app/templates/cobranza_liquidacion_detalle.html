@@ -40,7 +40,8 @@
   </div>
 
   <!-- Tabla grilla -->
-  <div style="overflow-x:auto; background:#fff; border:1.5px solid #888; border-radius:4px;">
+  <div id="scrollWrapper" style="overflow-x:auto;">
+  <div style="background:#fff; border:1.5px solid #888; border-radius:4px; display:inline-block;">
     <table id="tablaLiq" style="border-collapse:collapse; table-layout:fixed; font-size: 7.5pt; font-family:Arial,sans-serif;">
       <colgroup>
         {# Sección 1 #}
@@ -119,20 +120,35 @@
 
   {% if boletas %}
   <!-- ─── Resumen de liquidación por mes ──────────────────────────────────── -->
-  <div class="mt-4" style="overflow-x:auto;">
+  <div class="mt-4">
     <table id="tablaResumen" class="table table-bordered table-sm align-middle mb-0"
-           style="font-size:0.78rem; max-width:980px;">
+           style="font-size:0.78rem; width:920px; border-collapse:collapse;">
+      <colgroup>
+        <col style="width:130px">
+        <col style="width:88px">
+        <col style="width:4px">
+        <col style="width:88px">
+        <col style="width:4px">
+        <col style="width:88px">
+        <col style="width:80px">
+        <col style="width:88px">
+        <col style="width:116px">
+        <col style="width:116px">
+        <col style="width:118px">
+      </colgroup>
       <thead style="background:#dc3545; color:#fff;">
         <tr>
-          <th style="text-align:left; padding-left:.6rem; width:120px;">MES</th>
-          <th style="text-align:center; width:75px;">COL. 1</th>
-          <th style="text-align:center; width:75px;">COL. 2</th>
-          <th style="text-align:center; width:75px;">COL. 3</th>
-          <th style="text-align:center; width:75px;">TOTAL</th>
-          <th style="text-align:center; width:80px;">CUOTA $</th>
-          <th style="text-align:right; width:110px;">DINERO TC.</th>
-          <th style="text-align:right; width:110px;">COMISIÓN</th>
-          <th style="text-align:right; width:110px;">NETO</th>
+          <th style="text-align:left; padding-left:.6rem;">MES</th>
+          <th style="text-align:center;">COL. 1</th>
+          <th style="background:#333; border:none; padding:0;"></th>
+          <th style="text-align:center;">COL. 2</th>
+          <th style="background:#333; border:none; padding:0;"></th>
+          <th style="text-align:center;">COL. 3</th>
+          <th style="text-align:center;">TOTAL</th>
+          <th style="text-align:center;">CUOTA $</th>
+          <th style="text-align:right;">DINERO TC.</th>
+          <th style="text-align:right;">COMISIÓN</th>
+          <th style="text-align:right;">NETO</th>
         </tr>
       </thead>
       <tbody>
@@ -142,7 +158,9 @@
             {{ nombre_mes }} <span style="opacity:.75;">({{ num_mes }})</span>
           </td>
           <td class="rs-c1" data-base="{{ resumen_otros[num_mes][1] }}" style="text-align:center;">{{ resumen_otros[num_mes][1] or '' }}</td>
+          <td style="background:#333; border:none; padding:0;"></td>
           <td class="rs-c2" data-base="{{ resumen_otros[num_mes][2] }}" style="text-align:center;">{{ resumen_otros[num_mes][2] or '' }}</td>
+          <td style="background:#333; border:none; padding:0;"></td>
           <td class="rs-c3" data-base="{{ resumen_otros[num_mes][3] }}" style="text-align:center;">{{ resumen_otros[num_mes][3] or '' }}</td>
           <td class="rs-tot fw-bold" style="text-align:center;"></td>
           <td class="rs-cv" style="text-align:center;"></td>
@@ -154,7 +172,9 @@
         <tr id="rsTotal" style="background:#222; color:#fff; font-weight:800;">
           <td style="padding-left:.6rem;">TOTAL</td>
           <td id="rstC1" style="text-align:center;"></td>
+          <td style="background:#333; border:none; padding:0;"></td>
           <td id="rstC2" style="text-align:center;"></td>
+          <td style="background:#333; border:none; padding:0;"></td>
           <td id="rstC3" style="text-align:center;"></td>
           <td id="rstTot" style="text-align:center;"></td>
           <td></td>
@@ -170,18 +190,32 @@
     </small>
   </div>
 
+  </div><!-- /scrollWrapper -->
+
   <div class="d-flex justify-content-end gap-2 mt-3">
     <a href="/cobranza/liquidacion?mes={{ planilla.mes }}&anio={{ planilla.anio }}"
        class="btn btn-secondary">Cancelar</a>
+    <button type="button" class="btn btn-outline-secondary" onclick="imprimirLiquidacion()">
+      <i class="bi bi-printer me-1"></i>Imprimir
+    </button>
     <button type="submit" class="btn btn-danger">
       <i class="bi bi-save me-1"></i>Guardar liquidación
     </button>
   </div>
+  {% else %}
+  </div><!-- /scrollWrapper sin resumen -->
   {% endif %}
 
 </form>
 
 <style>
+  @media print {
+    .navbar, .alert, .d-flex.gap-2.mb-2, .d-flex.justify-content-end { display: none !important; }
+    #scrollWrapper { overflow: visible !important; }
+    body { font-size: 9pt; }
+    #tablaResumen { font-size: 7pt !important; }
+    h5 { margin-bottom: .3rem !important; }
+  }
   .lq-demo {
     display:inline-block; width:18px; height:15px; line-height:15px;
     text-align:center; font-size:7pt; font-weight:700;
@@ -342,5 +376,7 @@
 
   actualizarTotal();
   recalcResumen();
+
+  function imprimirLiquidacion() { window.print(); }
 </script>
 {% endblock %}
