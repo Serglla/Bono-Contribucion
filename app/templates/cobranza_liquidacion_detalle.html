@@ -210,11 +210,30 @@
 
 <style>
   @media print {
-    .navbar, .alert, .d-flex.gap-2.mb-2, .d-flex.justify-content-end { display: none !important; }
+    @page { size: A4 portrait; margin: 8mm; }
+    html { zoom: 77%; }
+
+    /* Ocultar chrome de UI */
+    .navbar,
+    .alert,
+    .d-flex.gap-3.mb-2,
+    .d-flex.justify-content-end,
+    #hiddenInputs
+      { display: none !important; }
+
+    /* Ocultar botón volver pero conservar el título */
+    .d-flex.align-items-center.gap-2.mb-2 > a { display: none !important; }
+
+    /* Sin scroll, sin saltos de página dentro de tablas */
     #scrollWrapper { overflow: visible !important; }
-    body { font-size: 9pt; }
-    #tablaResumen { font-size: 7pt !important; }
-    h5 { margin-bottom: .3rem !important; }
+    #tablaLiq, #tablaResumen { page-break-inside: avoid; break-inside: avoid; }
+
+    /* Compactar espaciado */
+    h5 { margin-bottom: 3px !important; font-size: 10pt !important; }
+    .mt-4 { margin-top: 6px !important; }
+
+    /* Preservar colores de fondo al imprimir */
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
   .lq-demo {
     display:inline-block; width:18px; height:15px; line-height:15px;
