@@ -137,14 +137,13 @@
       </thead>
       <tbody>
         {% for nombre_mes, num_mes in meses_campana %}
-        {% set cn = loop.index %}
-        <tr data-cuota="{{ cn }}">
+        <tr data-mes="{{ num_mes }}">
           <td style="background:#dc3545; color:#fff; font-weight:700; padding-left:.6rem;">
             {{ nombre_mes }} <span style="opacity:.75;">({{ num_mes }})</span>
           </td>
-          <td class="rs-c1" style="text-align:center;">{{ resumen_inicial[cn][1] or '' }}</td>
-          <td class="rs-c2" style="text-align:center;">{{ resumen_inicial[cn][2] or '' }}</td>
-          <td class="rs-c3" style="text-align:center;">{{ resumen_inicial[cn][3] or '' }}</td>
+          <td class="rs-c1" data-base="{{ resumen_otros[num_mes][1] }}" style="text-align:center;">{{ resumen_otros[num_mes][1] or '' }}</td>
+          <td class="rs-c2" data-base="{{ resumen_otros[num_mes][2] }}" style="text-align:center;">{{ resumen_otros[num_mes][2] or '' }}</td>
+          <td class="rs-c3" data-base="{{ resumen_otros[num_mes][3] }}" style="text-align:center;">{{ resumen_otros[num_mes][3] or '' }}</td>
           <td class="rs-tot fw-bold" style="text-align:center;"></td>
           <td class="rs-cv" style="text-align:center;"></td>
           <td class="rs-din" style="text-align:right;"></td>
@@ -204,6 +203,7 @@
   const COMISION_PCT  = {{ planilla.comision_pct|default(0) }};
   const NUM_CUOTAS    = {{ num_cuotas }};
   const COL_DE_BOLETA = {{ columna_de_boleta | tojson }};
+  const BOLETAS_INFO  = {{ boletas_info | tojson }};
 
   // Inicializar selección desde el servidor
   const sel = {};
@@ -230,32 +230,53 @@
     return '$ ' + n.toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
   }
 
-  function recalcResumen() {
-    // matriz cuota_n → {1,2,3} contadores
-    const cnt = {};
-    for (let n = 1; n <= NUM_CUOTAS; n++) cnt[n] = {1:0, 2:0, 3:0};
+  // ¿La cuota N de la boleta `bid` está paga (anticipada / histórica / sel actual)?
+  function cuotaPaga(bid, n) {
+    const info = BOLETAS_INFO[bid];
+    if (!info) return false;
+    if (n <= info.anticipadas) return true;
+    const h = info.historial[n];
+    if (h && h !== MES_ACTUAL) return true;
+    if (sel[bid] && sel[bid].has(n)) return true;
+    return false;
+  }
 
-    for (const [bid, set] of Object.entries(sel)) {
+  function recalcResumen() {
+    // Las cuotas marcadas EN EL MES ACTUAL se cuentan todas juntas en la
+    // fila del mes actual (sin importar el número de cuota).
+    const cntMesActual = {1: 0, 2: 0, 3: 0};
+    for (const [bid, s] of Object.entries(sel)) {
       const col = COL_DE_BOLETA[bid];
       if (!col) continue;
-      for (const cn of set) {
-        if (cnt[cn]) cnt[cn][col] += 1;
-      }
+      cntMesActual[col] += s.size;
     }
 
     let totC1=0, totC2=0, totC3=0, totTot=0, totDin=0, totCom=0, totNeto=0;
 
-    document.querySelectorAll('#tablaResumen tbody tr[data-cuota]').forEach(tr => {
-      const cn = parseInt(tr.dataset.cuota);
-      const c1 = cnt[cn][1], c2 = cnt[cn][2], c3 = cnt[cn][3];
-      const tot = c1 + c2 + c3;
+    document.querySelectorAll('#tablaResumen tbody tr[data-mes]').forEach(tr => {
+      const mes = parseInt(tr.dataset.mes);
+      const esMesActual = (mes === MES_ACTUAL);
+
+      const td1 = tr.querySelector('.rs-c1');
+      const td2 = tr.querySelector('.rs-c2');
+      const td3 = tr.querySelector('.rs-c3');
+
+      const b1 = parseInt(td1.dataset.base) || 0;
+      const b2 = parseInt(td2.dataset.base) || 0;
+      const b3 = parseInt(td3.dataset.base) || 0;
+
+      const c1 = b1 + (esMesActual ? cntMesActual[1] : 0);
+      const c2 = b2 + (esMesActual ? cntMesActual[2] : 0);
+      const c3 = b3 + (esMesActual ? cntMesActual[3] : 0);
+
+      const tot    = c1 + c2 + c3;
       const dinero = tot * VALOR_CUOTA;
       const comis  = dinero * (COMISION_PCT / 100);
       const neto   = dinero - comis;
 
-      tr.querySelector('.rs-c1').textContent  = c1 || '';
-      tr.querySelector('.rs-c2').textContent  = c2 || '';
-      tr.querySelector('.rs-c3').textContent  = c3 || '';
+      td1.textContent = c1 || '';
+      td2.textContent = c2 || '';
+      td3.textContent = c3 || '';
       tr.querySelector('.rs-tot').textContent = tot || '';
       tr.querySelector('.rs-cv').textContent  = tot ? fmt$(VALOR_CUOTA) : '';
       tr.querySelector('.rs-din').textContent = tot ? fmt$(dinero) : '';
@@ -280,8 +301,18 @@
     if (!td) return;
     const bid   = parseInt(td.dataset.bid);
     const cuota = parseInt(td.dataset.cuota);
+    const info  = BOLETAS_INFO[bid] || {anticipadas: 0, pactadas: NUM_CUOTAS, historial: {}};
 
     if (td.classList.contains('cq-mes')) {
+      // Desmarcar: bloquear si hay cuotas posteriores marcadas en el mes actual
+      const pactadas = info.pactadas || NUM_CUOTAS;
+      for (let i = cuota + 1; i <= pactadas; i++) {
+        if (sel[bid].has(i)) {
+          alert('No podés desmarcar la cuota ' + cuota + ' mientras la ' + i +
+                ' siga marcada. Desmarcá primero las posteriores.');
+          return;
+        }
+      }
       sel[bid].delete(cuota);
       td.textContent = '';
       td.classList.replace('cq-mes', 'cq-libre');
@@ -289,6 +320,14 @@
       td.style.color = '';
       td.style.fontWeight = '';
     } else {
+      // Marcar: bloquear si alguna cuota anterior NO está paga
+      for (let i = 1; i < cuota; i++) {
+        if (!cuotaPaga(bid, i)) {
+          alert('No se puede marcar la cuota ' + cuota +
+                ' sin haber marcado antes la cuota ' + i + '.');
+          return;
+        }
+      }
       sel[bid].add(cuota);
       td.textContent = MES_ACTUAL;
       td.classList.replace('cq-libre', 'cq-mes');

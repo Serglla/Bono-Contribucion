@@ -391,16 +391,36 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     # ── Meses de la campaña (cuota 1 = mes siguiente al mes de la planilla) ──
     meses_campana = _meses_campana_desde(planilla.mes, num_cuotas)
 
-    # ── Resumen inicial por cuota/mes y columna ─────────────────────────────
-    # cuota_n (1..num_cuotas) → {1: count, 2: count, 3: count}
-    resumen_inicial = {n: {1: 0, 2: 0, 3: 0} for n in range(1, num_cuotas + 1)}
+    # ── Resumen inicial por MES CALENDARIO en que se cobró y columna ────────
+    # Cada fila del resumen representa el mes (calendario) en que se cobraron
+    # las cuotas. El mes actual lo recalcula el JS desde la selección.
+    # resumen_otros[mes_calendario] = {1: count, 2: count, 3: count} — solo
+    # cuotas cobradas en meses DISTINTOS al de la planilla.
+    resumen_otros = {m: {1: 0, 2: 0, 3: 0} for m in range(1, 13)}
     for b in boletas:
         col = columna_de_boleta.get(b.id)
         if not col:
             continue
-        for cn in cuotas_mes_actual.get(b.id, []):
-            if 1 <= cn <= num_cuotas:
-                resumen_inicial[cn][col] += 1
+        for k, v in historial_map[b.id].items():
+            try:
+                mes_pago = int(v)
+            except (TypeError, ValueError):
+                continue
+            if mes_pago == planilla.mes:
+                continue  # el JS lo maneja en la fila del mes actual
+            if 1 <= mes_pago <= 12:
+                resumen_otros[mes_pago][col] += 1
+
+    # ── Info por boleta para validación secuencial en JS ────────────────────
+    boletas_info = {
+        b.id: {
+            "anticipadas": int(b.cuotas_anticipadas or 0),
+            "pactadas": int(b.cuotas_pactadas or 0),
+            "historial": {int(k): int(v) for k, v in historial_map[b.id].items()
+                          if str(k).isdigit() and str(v).lstrip('-').isdigit()},
+        }
+        for b in boletas
+    }
 
     return templates.TemplateResponse(request, "cobranza_liquidacion_detalle.html", {
         "user": user,
@@ -420,7 +440,8 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "columna_de_boleta": columna_de_boleta,
         "valor_cuota": valor_cuota,
         "meses_campana": meses_campana,
-        "resumen_inicial": resumen_inicial,
+        "resumen_otros": resumen_otros,
+        "boletas_info": boletas_info,
     })
 
 
