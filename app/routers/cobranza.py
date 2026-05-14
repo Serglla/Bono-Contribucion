@@ -54,7 +54,7 @@ async def index(request: Request, db: Session = Depends(get_db),
     for co in cobradores:
         base_filter = [
             models.Boleta.cobrador_id == co.id,
-            models.Boleta.condicion.in_([CondicionBoleta.VENDIDO, CondicionBoleta.EN_COBRANZA]),
+            models.Boleta.condicion != CondicionBoleta.BAJA,
         ]
         total = (db.query(func.count(models.Boleta.id))
                  .filter(*base_filter)
@@ -112,7 +112,7 @@ async def armar_planilla(request: Request, cobrador_id: int,
         (db.query(models.Boleta)
            .filter(models.Boleta.cobrador_id == cobrador_id,
                    models.Boleta.planilla_id.is_(None),
-                   models.Boleta.condicion.in_([CondicionBoleta.VENDIDO, CondicionBoleta.EN_COBRANZA]))
+                   models.Boleta.condicion != CondicionBoleta.BAJA)
            .update({"planilla_id": planilla.id}, synchronize_session=False))
         db.commit()
 
@@ -137,7 +137,7 @@ async def emplanillado(request: Request, db: Session = Depends(get_db),
         # Boletas activas de este cobrador
         activas = (db.query(models.Boleta)
                    .filter(models.Boleta.cobrador_id == co.id,
-                           models.Boleta.condicion.in_([CondicionBoleta.VENDIDO, CondicionBoleta.EN_COBRANZA]))
+                           models.Boleta.condicion != CondicionBoleta.BAJA)
                    .all())
         sin_planilla = [b for b in activas if b.planilla_id is None]
         planilla = db.query(models.Planilla).filter_by(cobrador_id=co.id, mes=mes, anio=anio).first()
@@ -182,7 +182,7 @@ async def planilla_editar_form(request: Request, planilla_id: int,
                    .filter(models.Boleta.cobrador_id == planilla.cobrador_id,
                            or_(models.Boleta.planilla_id.is_(None),
                                models.Boleta.planilla_id != planilla_id),
-                           models.Boleta.condicion.in_([CondicionBoleta.VENDIDO, CondicionBoleta.EN_COBRANZA]))
+                           models.Boleta.condicion != CondicionBoleta.BAJA)
                    .join(models.Comprador, isouter=True)
                    .order_by(models.Boleta.numero_principal)
                    .all())
@@ -549,7 +549,7 @@ async def planilla(request: Request, cobrador_id: int,
         boletas = (db.query(models.Boleta)
                    .filter(models.Boleta.cobrador_id == cobrador_id,
                            models.Boleta.planilla_id.is_(None),
-                           models.Boleta.condicion.in_([CondicionBoleta.VENDIDO, CondicionBoleta.EN_COBRANZA]))
+                           models.Boleta.condicion != CondicionBoleta.BAJA)
                    .join(models.Comprador, isouter=True)
                    .order_by(models.Boleta.numero_principal)
                    .all())
