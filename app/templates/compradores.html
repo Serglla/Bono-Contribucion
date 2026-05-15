@@ -62,12 +62,12 @@ function completarFaltantes(tipo, btn, alertaId) {
 </script>
 {% endif %}
 
-<!-- Tabs por talonera -->
+<!-- Tabs por talonera + Sin cobrador -->
 <div class="mb-3">
   <div class="d-flex flex-wrap gap-2 align-items-center">
     <a href="/compradores/?q={{ q }}"
-       class="btn btn-sm {{ 'btn-danger' if not pata else 'btn-outline-secondary' }}">
-      Todas <span class="badge {{ 'bg-white text-danger' if not pata else 'bg-secondary' }} ms-1">{{ total_compradores }}</span>
+       class="btn btn-sm {{ 'btn-danger' if not pata and not filtro_sin_cob else 'btn-outline-secondary' }}">
+      Todas <span class="badge {{ 'bg-white text-danger' if not pata and not filtro_sin_cob else 'bg-secondary' }} ms-1">{{ total_compradores }}</span>
     </a>
     {% for tab in tabs %}
     <a href="/compradores/?q={{ q }}&pata={{ tab.nombre }}"
@@ -76,22 +76,51 @@ function completarFaltantes(tipo, btn, alertaId) {
       <span class="badge {{ 'bg-white text-danger' if pata == tab.nombre else 'bg-secondary' }} ms-1">{{ tab.total }}</span>
     </a>
     {% endfor %}
+    <a href="/compradores/?sin_cob=1"
+       class="btn btn-sm {{ 'btn-warning' if filtro_sin_cob else 'btn-outline-warning' }}">
+      <i class="bi bi-person-x me-1"></i>Sin cobrador
+      <span class="badge {{ 'bg-white text-warning' if filtro_sin_cob else 'bg-warning text-dark' }} ms-1">{{ sin_cobrador }}</span>
+    </a>
   </div>
 </div>
+
+<!-- Filtro rápido por cobrador actual -->
+<div class="mb-3 d-flex gap-2 align-items-center flex-wrap">
+  <label class="form-label mb-0 small fw-semibold text-muted me-1">
+    <i class="bi bi-person-badge me-1"></i>Filtrar por cobrador actual:
+  </label>
+  <select id="filtroCobradorActual" class="form-select form-select-sm" style="max-width:240px;">
+    <option value="">— Todos —</option>
+    {% for c in cobradores %}
+    <option value="{{ c.id }}" {% if filtro_cob == c.id|string %}selected{% endif %}>{{ c.nombre }}</option>
+    {% endfor %}
+  </select>
+  {% if filtro_cob %}
+  <a href="/compradores/" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-x-lg me-1"></i>Quitar filtro
+  </a>
+  {% endif %}
+</div>
+<script>
+document.getElementById('filtroCobradorActual').addEventListener('change', function() {
+  const v = this.value;
+  window.location.href = v ? `/compradores/?cob=${v}` : '/compradores/';
+});
+</script>
 
 <!-- Búsqueda — un solo input con selector de columna (cliente) -->
 <div class="mb-3 d-flex gap-2 align-items-center">
   <select id="busquedaColumna" class="form-select" style="max-width:180px;">
     <option value="-1">Todo</option>
-    <option value="0">N° Boleta</option>
-    <option value="1">Apellido y Nombre</option>
-    <option value="2">Dirección</option>
-    <option value="3">Zona</option>
-    <option value="4">Fecha compra</option>
-    <option value="5">Vendedor</option>
-    <option value="6">Cobrador</option>
-    <option value="7">Teléfono</option>
-    <option value="8">Condición</option>
+    <option value="1">N° Boleta</option>
+    <option value="2">Apellido y Nombre</option>
+    <option value="3">Dirección</option>
+    <option value="4">Zona</option>
+    <option value="5">Fecha compra</option>
+    <option value="6">Vendedor</option>
+    <option value="7">Cobrador</option>
+    <option value="8">Teléfono</option>
+    <option value="9">Condición</option>
   </select>
   <input type="text" id="busquedaTexto" class="form-control" placeholder="Buscar..." value="{{ q }}" autocomplete="off">
   <button type="button" class="btn btn-outline-danger" id="btnBusquedaLimpiar" title="Limpiar búsqueda">
@@ -99,33 +128,51 @@ function completarFaltantes(tipo, btn, alertaId) {
   </button>
 </div>
 
+<!-- Barra de acción masiva (visible al haber selecciones) -->
+<div id="barraMasiva" class="alert alert-info d-none d-flex align-items-center justify-content-between py-2 mb-2">
+  <span><i class="bi bi-check2-square me-2"></i>
+    <strong id="contadorSeleccionados">0</strong> socio(s) seleccionado(s)
+  </span>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#modalAsignarCobrador">
+      <i class="bi bi-person-badge me-1"></i>Asignar cobrador
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" id="btnLimpiarSeleccion">
+      <i class="bi bi-x-lg me-1"></i>Limpiar selección
+    </button>
+  </div>
+</div>
+
 <div class="card border-0 shadow-sm">
   <div class="table-responsive">
     <table class="table table-hover table-sm align-middle mb-0" id="tablaCompradores">
       <thead class="table-light">
         <tr>
-          <th class="sortable" data-col="0" style="cursor:pointer; user-select:none; white-space:nowrap;">
+          <th style="width:32px;" class="text-center">
+            <input type="checkbox" id="chkTodos" class="form-check-input" title="Seleccionar todos los visibles">
+          </th>
+          <th class="sortable" data-col="1" style="cursor:pointer; user-select:none; white-space:nowrap;">
             N° Boleta <span class="sort-icon text-muted ms-1">⇅</span>
           </th>
-          <th class="sortable" data-col="1" style="cursor:pointer; user-select:none;">
+          <th class="sortable" data-col="2" style="cursor:pointer; user-select:none;">
             Apellido y Nombre <span class="sort-icon text-muted ms-1">⇅</span>
           </th>
-          <th class="sortable" data-col="2" style="cursor:pointer; user-select:none;">
+          <th class="sortable" data-col="3" style="cursor:pointer; user-select:none;">
             Dirección <span class="sort-icon text-muted ms-1">⇅</span>
           </th>
-          <th class="sortable" data-col="3" style="cursor:pointer; user-select:none;">
+          <th class="sortable" data-col="4" style="cursor:pointer; user-select:none;">
             Zona <span class="sort-icon text-muted ms-1">⇅</span>
           </th>
-          <th class="sortable" data-col="4" style="cursor:pointer; user-select:none; white-space:nowrap;">
+          <th class="sortable" data-col="5" style="cursor:pointer; user-select:none; white-space:nowrap;">
             Fecha compra <span class="sort-icon text-muted ms-1">⇅</span>
           </th>
-          <th class="sortable" data-col="5" style="cursor:pointer; user-select:none;">
+          <th class="sortable" data-col="6" style="cursor:pointer; user-select:none;">
             Vendedor <span class="sort-icon text-muted ms-1">⇅</span>
           </th>
-          <th class="sortable" data-col="6" style="cursor:pointer; user-select:none;">
+          <th class="sortable" data-col="7" style="cursor:pointer; user-select:none;">
             Cobrador <span class="sort-icon text-muted ms-1">⇅</span>
           </th>
-          <th class="sortable" data-col="7" style="cursor:pointer; user-select:none;">
+          <th class="sortable" data-col="8" style="cursor:pointer; user-select:none;">
             Teléfono <span class="sort-icon text-muted ms-1">⇅</span>
           </th>
           <th>Condición</th>
@@ -139,6 +186,9 @@ function completarFaltantes(tipo, btn, alertaId) {
         <tr data-comprador-id="{{ c.id }}"
             style="cursor:pointer; --bs-table-bg: {{ row_color }}40; --bs-table-hover-bg: {{ row_color }}70;"
             title="Doble clic para ver detalle completo">
+          <td class="text-center" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
+            <input type="checkbox" class="form-check-input chk-socio" value="{{ c.id }}">
+          </td>
           <td data-val="{% for boleta in c.boletas %}{{ boleta.numero_principal }}{% if boleta.numeros_adicionales %} {{ boleta.numeros_adicionales }}{% endif %} {% endfor %}">
             {% for boleta in c.boletas %}
               <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:0.68rem;">{{ (boleta.talonera.nombre if boleta.talonera else "") | replace('PATA ', 'X') }}</span>
@@ -164,12 +214,17 @@ function completarFaltantes(tipo, btn, alertaId) {
               <span class="text-muted">—</span>
             {% endif %}
           </td>
-          <td>
-            {% if b and b.cobrador %}
-              {{ b.cobrador.nombre }}
-            {% else %}
-              <span class="text-muted">—</span>
-            {% endif %}
+          <td data-val="{{ b.cobrador.nombre if b and b.cobrador else '' }}"
+              onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
+            <select class="form-select form-select-sm sel-cobrador-inline"
+                    data-comprador-id="{{ c.id }}"
+                    data-prev="{{ b.cobrador_id if b and b.cobrador_id else '' }}"
+                    style="min-width:130px; max-width:170px; font-size:0.75rem; padding:1px 4px;">
+              <option value="">— Sin cobrador —</option>
+              {% for cob in cobradores %}
+              <option value="{{ cob.id }}" {% if b and b.cobrador_id == cob.id %}selected{% endif %}>{{ cob.nombre }}</option>
+              {% endfor %}
+            </select>
           </td>
           <td>{{ c.telefono or "—" }}</td>
           <td>
@@ -206,7 +261,7 @@ function completarFaltantes(tipo, btn, alertaId) {
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="10" class="text-center text-muted py-3">No hay compradores registrados</td></tr>
+        <tr><td colspan="11" class="text-center text-muted py-3">No hay compradores registrados</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -260,10 +315,8 @@ function completarFaltantes(tipo, btn, alertaId) {
   function getCellText(row, col) {
     const td = row.querySelectorAll('td')[col];
     if (!td) return '';
-    // Columna N° boleta: usar data-val numérico
-    if (col === 0 && td.dataset.val !== undefined) return td.dataset.val;
-    // Columna fecha: usar data-val ISO para ordenar correctamente
-    if (col === 4 && td.dataset.val !== undefined) return td.dataset.val;
+    // Columna N° boleta (col 1) y Fecha (col 5): usar data-val numérico/ISO
+    if ((col === 1 || col === 5 || col === 7) && td.dataset.val !== undefined) return td.dataset.val;
     return td.innerText.trim();
   }
 
@@ -287,7 +340,8 @@ function completarFaltantes(tipo, btn, alertaId) {
   // col >= 0  → busca solo en esa columna
   function textoCelda(td, col) {
     if (!td) return '';
-    if ((col === 0 || col === 4) && td.dataset.val !== undefined) {
+    // col 1 = N° Boleta, col 5 = Fecha, col 7 = Cobrador (todos con data-val)
+    if ((col === 1 || col === 5 || col === 7) && td.dataset.val !== undefined) {
       return (td.dataset.val + ' ' + td.innerText).toLowerCase();
     }
     return td.innerText.toLowerCase();
@@ -299,13 +353,13 @@ function completarFaltantes(tipo, btn, alertaId) {
     let visible = 0;
     tbody.querySelectorAll('tr').forEach(row => {
       const tds = row.querySelectorAll('td');
-      if (tds.length < 7) { row.style.display = ''; return; }
+      if (tds.length < 8) { row.style.display = ''; return; }
       let show = true;
       if (q) {
         if (col === -1) {
-          // Buscar en todas las columnas relevantes (0..8)
+          // Buscar en columnas de datos (1..9), saltea checkbox (0)
           show = false;
-          for (let c = 0; c <= 8; c++) {
+          for (let c = 1; c <= 9; c++) {
             if (textoCelda(tds[c], c).includes(q)) { show = true; break; }
           }
         } else {
@@ -839,6 +893,194 @@ document.querySelectorAll('.input-upper').forEach(el => {
 
     document.getElementById('detalle-body').innerHTML = html;
   }
+})();
+</script>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     Asignación / Transferencia de cobrador (inline + masivo)
+     ════════════════════════════════════════════════════════════════════ -->
+
+<!-- Modal: asignar cobrador a varios -->
+<div class="modal fade" id="modalAsignarCobrador" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white py-2">
+        <h6 class="modal-title mb-0"><i class="bi bi-person-badge me-2"></i>Asignar cobrador a seleccionados</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">
+          <strong id="modalAsigCantidad">0</strong> socio(s) seleccionado(s).
+        </p>
+        <div class="alert alert-warning py-2 small mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Si alguno ya estaba en una planilla <strong>no liquidada</strong> de otro cobrador,
+          se lo retira de esa planilla para que aparezca en el emplantillado del nuevo cobrador.
+          Las cuotas ya cobradas (historial) se mantienen.
+        </div>
+        <label class="form-label fw-semibold">Cobrador a asignar</label>
+        <select id="modalAsigSelectCob" class="form-select">
+          <option value="">— Sin cobrador (quitar) —</option>
+          {% for cob in cobradores %}
+          <option value="{{ cob.id }}">{{ cob.nombre }}</option>
+          {% endfor %}
+        </select>
+        <div id="modalAsigResultado" class="alert alert-success mt-3 d-none"></div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btnConfirmarAsigMasivo">
+          <i class="bi bi-check-lg me-1"></i>Asignar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const barra      = document.getElementById('barraMasiva');
+  const contadorSel = document.getElementById('contadorSeleccionados');
+  const chkTodos   = document.getElementById('chkTodos');
+  const btnLimpiar = document.getElementById('btnLimpiarSeleccion');
+  const tbody      = document.getElementById('tbodyCompradores');
+
+  function checksMarcados() {
+    return Array.from(tbody.querySelectorAll('.chk-socio:checked'));
+  }
+
+  function refreshBarra() {
+    const n = checksMarcados().length;
+    contadorSel.textContent = n;
+    barra.classList.toggle('d-none', n === 0);
+  }
+
+  // Click en checkbox individual
+  tbody.addEventListener('change', e => {
+    if (e.target.classList.contains('chk-socio')) refreshBarra();
+  });
+
+  // "Seleccionar todos los visibles"
+  chkTodos.addEventListener('change', () => {
+    const visibles = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none');
+    visibles.forEach(tr => {
+      const chk = tr.querySelector('.chk-socio');
+      if (chk) chk.checked = chkTodos.checked;
+    });
+    refreshBarra();
+  });
+
+  btnLimpiar.addEventListener('click', () => {
+    tbody.querySelectorAll('.chk-socio').forEach(c => c.checked = false);
+    chkTodos.checked = false;
+    refreshBarra();
+  });
+
+  // ── Selector inline por fila ──────────────────────────────────────────
+  function flashCelda(td, ok) {
+    const orig = td.style.background;
+    td.style.transition = 'background 0.3s';
+    td.style.background = ok ? '#d1e7dd' : '#f8d7da';
+    setTimeout(() => { td.style.background = orig; }, 1200);
+  }
+
+  tbody.addEventListener('change', async e => {
+    const sel = e.target;
+    if (!sel.classList.contains('sel-cobrador-inline')) return;
+
+    const cid = sel.dataset.compradorId;
+    const prev = sel.dataset.prev || '';
+    const nuevo = sel.value || '';
+
+    if (prev === nuevo) return;
+
+    sel.disabled = true;
+    const fd = new FormData();
+    fd.append('comprador_ids', cid);
+    if (nuevo) fd.append('cobrador_id', nuevo);
+
+    try {
+      const resp = await fetch('/compradores/asignar-cobrador', { method: 'POST', body: fd });
+      const data = await resp.json();
+      if (data.ok) {
+        sel.dataset.prev = nuevo;
+        flashCelda(sel.closest('td'), true);
+        // Avisar transferencia si hubo
+        if (data.boletas_transferidas > 0) {
+          const td = sel.closest('td');
+          const aviso = document.createElement('div');
+          aviso.className = 'text-success small fw-semibold';
+          aviso.innerHTML = `<i class="bi bi-arrow-left-right"></i> Transferido (${data.boletas_transferidas} boleta/s)`;
+          aviso.style.fontSize = '0.65rem';
+          td.appendChild(aviso);
+          setTimeout(() => aviso.remove(), 2500);
+        }
+      } else {
+        sel.value = prev;
+        flashCelda(sel.closest('td'), false);
+        alert(data.error || 'Error al asignar');
+      }
+    } catch (err) {
+      sel.value = prev;
+      flashCelda(sel.closest('td'), false);
+      alert('Error de conexión');
+    } finally {
+      sel.disabled = false;
+    }
+  });
+
+  // ── Modal masivo ──────────────────────────────────────────────────────
+  document.getElementById('modalAsignarCobrador').addEventListener('show.bs.modal', () => {
+    const n = checksMarcados().length;
+    document.getElementById('modalAsigCantidad').textContent = n;
+    document.getElementById('modalAsigSelectCob').value = '';
+    document.getElementById('modalAsigResultado').classList.add('d-none');
+  });
+
+  document.getElementById('btnConfirmarAsigMasivo').addEventListener('click', async () => {
+    const ids = checksMarcados().map(c => c.value);
+    if (ids.length === 0) return;
+    const cobId = document.getElementById('modalAsigSelectCob').value;
+    const btn = document.getElementById('btnConfirmarAsigMasivo');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Procesando...';
+
+    const fd = new FormData();
+    ids.forEach(id => fd.append('comprador_ids', id));
+    if (cobId) fd.append('cobrador_id', cobId);
+
+    try {
+      const resp = await fetch('/compradores/asignar-cobrador', { method: 'POST', body: fd });
+      const data = await resp.json();
+      const box = document.getElementById('modalAsigResultado');
+      if (data.ok) {
+        const nombre = data.cobrador_nombre || '— sin cobrador —';
+        box.className = 'alert alert-success mt-3';
+        box.innerHTML = `
+          <i class="bi bi-check-circle-fill me-1"></i>
+          Listo. <strong>${data.socios_tocados}</strong> socio(s) actualizados a
+          <strong>${nombre}</strong>.<br>
+          <small>
+            ${data.boletas_asignadas} boleta(s) asignada(s) ·
+            ${data.boletas_transferidas} transferida(s) desde planilla abierta ·
+            ${data.sin_cambios} sin cambios.
+          </small><br>
+          <small class="text-muted">Recargando...</small>`;
+        box.classList.remove('d-none');
+        setTimeout(() => location.reload(), 1600);
+      } else {
+        box.className = 'alert alert-danger mt-3';
+        box.textContent = data.error || 'Error al asignar';
+        box.classList.remove('d-none');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Asignar';
+      }
+    } catch (err) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Asignar';
+      alert('Error de conexión');
+    }
+  });
 })();
 </script>
 {% endblock %}

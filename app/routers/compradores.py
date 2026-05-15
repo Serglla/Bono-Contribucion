@@ -26,7 +26,8 @@ router = APIRouter(prefix="/compradores", tags=["compradores"])
 
 @router.get("/", response_class=HTMLResponse)
 async def listar(request: Request, db: Session = Depends(get_db),
-                 q: str = "", pata: str = "", zona: str = ""):
+                 q: str = "", pata: str = "", zona: str = "",
+                 sin_cob: str = "", cob: str = ""):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'compradores', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
@@ -41,6 +42,22 @@ async def listar(request: Request, db: Session = Depends(get_db),
                  .join(models.Talonera, models.Talonera.id == models.Boleta.talonera_id)
                  .filter(models.Talonera.nombre == pata)
                  .distinct())
+    # Filtro: solo socios sin cobrador en alguna boleta
+    if sin_cob in ("1", "true", "yes"):
+        query = (query
+                 .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
+                 .filter(models.Boleta.cobrador_id.is_(None))
+                 .distinct())
+    # Filtro: socios cuyo cobrador actual es X
+    if cob:
+        try:
+            cob_id = int(cob)
+            query = (query
+                     .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
+                     .filter(models.Boleta.cobrador_id == cob_id)
+                     .distinct())
+        except (TypeError, ValueError):
+            pass
     if zona:
         # Filtro por zona — acepta id numérico o nombre exacto
         try:
@@ -91,17 +108,21 @@ async def listar(request: Request, db: Session = Depends(get_db),
 
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
+    cobradores = db.query(models.Cobrador).filter(models.Cobrador.activo == True).order_by(models.Cobrador.nombre).all()
     return templates.TemplateResponse(request, "compradores.html", {
         "user": user,
         "compradores": compradores,
         "zonas": zonas,
         "vendedores": vendedores,
+        "cobradores": cobradores,
         "q": q,
         "pata": pata,
         "tabs": tabs,
         "total_compradores": total_compradores,
         "sin_vendedor": sin_vendedor,
         "sin_cobrador": sin_cobrador,
+        "filtro_sin_cob": sin_cob in ("1", "true", "yes"),
+        "filtro_cob": cob,
     })
 
 
@@ -192,6 +213,116 @@ async def completar_cobradores(request: Request, db: Session = Depends(get_db)):
     db.commit()
     from fastapi.responses import JSONResponse
     return JSONResponse({"ok": True, "arreglados": arreglados})
+
+
+@router.post("/asignar-cobrador")
+async def asignar_cobrador(request: Request, db: Session = Depends(get_db)):
+    """
+    Asigna (o transfiere) un cobrador a uno o varios compradores.
+
+    Comportamiento (decidido con Sergio 15/05/2026):
+    - Para cada boleta del comprador NO dada de baja:
+        * setea b.cobrador_id = nuevo_cobrador_id
+        * si la boleta ya estaba en una planilla y esa planilla NO está liquidada
+          (no tiene Liquidacion asociada), la saca de esa planilla (planilla_id=None)
+          para que el emplantillado del nuevo cobrador la incluya en el mes actual.
+        * si la planilla YA está liquidada (mes cerrado), se respeta el historial y
+          solo se cambia el cobrador para los meses futuros.
+    - Las cuotas ya cobradas (historial_cuotas) se preservan.
+
+    Body (form o JSON):
+        comprador_ids: list[int]   (puede venir como múltiples 'comprador_ids' en form)
+        cobrador_id:   int | "" (vacío = quitar cobrador)
+    """
+    from fastapi.responses import JSONResponse
+
+    _user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    form = await request.form()
+    ids_raw = form.getlist("comprador_ids") if hasattr(form, "getlist") else []
+    if not ids_raw:
+        # fallback: un solo id
+        single = form.get("comprador_id")
+        if single:
+            ids_raw = [single]
+    try:
+        comprador_ids = [int(x) for x in ids_raw if str(x).strip()]
+    except (ValueError, TypeError):
+        return JSONResponse({"ok": False, "error": "IDs inválidos"}, status_code=400)
+
+    if not comprador_ids:
+        return JSONResponse({"ok": False, "error": "No se recibieron compradores"}, status_code=400)
+
+    cobrador_id_raw = (form.get("cobrador_id") or "").strip()
+    nuevo_cobrador_id: Optional[int] = None
+    if cobrador_id_raw:
+        try:
+            nuevo_cobrador_id = int(cobrador_id_raw)
+        except ValueError:
+            return JSONResponse({"ok": False, "error": "cobrador_id inválido"}, status_code=400)
+
+    # Validar que el cobrador exista y esté activo (si vino uno)
+    cobrador_nombre = None
+    if nuevo_cobrador_id is not None:
+        cob = db.query(models.Cobrador).get(nuevo_cobrador_id)
+        if not cob:
+            return JSONResponse({"ok": False, "error": "Cobrador no encontrado"}, status_code=404)
+        cobrador_nombre = cob.nombre
+
+    # IDs de planillas que YA están liquidadas → no las tocamos
+    planillas_liquidadas = {
+        pid for (pid,) in db.query(models.Liquidacion.planilla_id)
+        .filter(models.Liquidacion.planilla_id.isnot(None)).all()
+    }
+
+    asignados = 0       # boletas que recibieron un cobrador (nuevo o cambio)
+    transferidos = 0    # boletas que se sacaron de una planilla abierta de otro cobrador
+    sin_cambios = 0     # boletas que ya tenían ese cobrador
+    socios_tocados = 0
+
+    for cid in comprador_ids:
+        c = db.query(models.Comprador).get(cid)
+        if not c:
+            continue
+        toco_algo = False
+        for b in c.boletas:
+            # Respetar boletas dadas de baja (sticky, requieren acción explícita)
+            if b.condicion == CondicionBoleta.BAJA:
+                continue
+
+            prev_cob = b.cobrador_id
+            prev_planilla = b.planilla_id
+
+            if prev_cob == nuevo_cobrador_id:
+                sin_cambios += 1
+                continue
+
+            # Cambio de cobrador
+            b.cobrador_id = nuevo_cobrador_id
+            asignados += 1
+            toco_algo = True
+
+            # Si estaba en una planilla y esa planilla NO está cerrada → sacarla
+            # (la planilla del nuevo cobrador la captará en el próximo emplantillado).
+            if prev_planilla and prev_planilla not in planillas_liquidadas:
+                b.planilla_id = None
+                transferidos += 1
+
+        if toco_algo:
+            socios_tocados += 1
+
+    db.commit()
+
+    return JSONResponse({
+        "ok": True,
+        "socios_tocados": socios_tocados,
+        "boletas_asignadas": asignados,
+        "boletas_transferidas": transferidos,
+        "sin_cambios": sin_cambios,
+        "cobrador_nombre": cobrador_nombre,
+    })
 
 
 def _resolver_zona(zona_id: Optional[int], zona_nueva: str, db: Session) -> Optional[int]:
