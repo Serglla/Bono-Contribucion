@@ -57,112 +57,88 @@
 - **Migraciones PostgreSQL**: usar `ALTER TABLE x ADD COLUMN IF NOT EXISTS ...` (no soportado en SQLite → detectar dialect con `engine.dialect.name`)
 - **Jinja2 + dicts**: acceso por punto (`s.clave`) en Jinja2 lanza `UndefinedError` si la clave no existe en el dict — siempre incluir todas las claves en el dict o usar `s.get("clave", 0)`
 - **_stats_bulk**: el dict de stats DEBE incluir la clave `"baja"` aunque sea 0, porque el template accede a `s.baja`
-- **Sandbox bash mount stale**: a veces el mount /sessions/.../mnt/ no sincroniza con los Edit del file tool; confiar en lo que devuelve Read y verificar contenido con grep si bash da errores raros. Cuando esto pasa, los cambios SÍ están en disco real (Windows), pero bash no los ve. Sergio debe hacer commit/push desde PowerShell.
-- **Funciones truncadas silenciosamente** (10/05/2026): un Edit/Write previo dejó `guardar_resultado` cortada después de un comentario `# Normaliza` sin código. FastAPI devolvía `null` (200 OK) → el JS caía en catch con "Error al guardar". Auditar archivos sospechosos cuando aparezcan errores raros 200/null. Auditoría completa del 10/05/2026 verificó que ya no hay otros archivos truncados.
-- **Modales dentro de `<div class="tab-pane">` inactivos NO se ven**: los `tab-pane` que no son la activa tienen `display:none`, y los hijos heredan eso (incluido un `<div class="modal">` que está dentro). Los modales SIEMPRE deben ir a nivel raíz del bloque content (o al `<body>`), nunca anidados dentro de un tab-pane que pueda estar inactivo.
-- **`data-bs-toggle="collapse"` puede fallar silencioso**: si por algún motivo el data-api de Bootstrap no engancha, el botón parece no hacer nada. Fallback robusto: usar `onclick="bootstrap.Collapse.getOrCreateInstance(el, {toggle:false}).toggle()"` directo.
+- **Sandbox bash mount stale**: a veces el mount /sessions/.../mnt/ no sincroniza con los Edit del file tool; confiar en lo que devuelve Read y verificar contenido con grep si bash da errores raros.
+- **Funciones truncadas silenciosamente** (10/05/2026 y 11/05/2026): Edits encadenados en archivos >500 líneas pueden truncar el archivo sin error. `ast.parse` falla con `SyntaxError: unterminated string literal`. Read tool muestra versión cacheada que no está en disco. Detección con `python3 -c "print(open(f,'rb').read()[-300:])"`. Patch con Python directo desde bash, no con Edit.
+- **Modales dentro de `<div class="tab-pane">` inactivos NO se ven**: el tab-pane inactivo tiene `display:none` y los hijos heredan eso. Los modales SIEMPRE deben ir a nivel raíz del bloque content.
+- **`data-bs-toggle="collapse"` puede fallar silencioso**: fallback robusto con `onclick="bootstrap.Collapse.getOrCreateInstance(el, {toggle:false}).toggle()"` directo.
 
 ---
 
 ### Modelo de datos — resumen de relaciones clave
 
 #### Taloneras y boletas
-- Cada talonera tiene `num_series` y `offset_series` (separación entre series)
-- **PATA 1:** 3 series, offset 1501 → ej: 0001 / 1502 / 3003
-- **PATA 2:** 6 series, offset 350 → ej: 4503 / 4853 / 5203 / 5553 / 5903 / 6253
+- Cada talonera tiene `num_series` y `offset_series`
+- **PATA 0** (11/05/2026): 2 series → mult 0.6667 (2/3 de PATA 1). Cuota 1 = $10.000. Talonera "barata" agregada por situación económica.
+- **PATA 1:** 3 series, offset 1501 → ej: 0001 / 1502 / 3003. Cuota 1 = $15.000. Mult 1.0.
+- **PATA 2:** 6 series, offset 350 → mult 2.0.
 - Función `calcular_numeros(numero_principal, num_series, offset)` en `app/routers/taloneras.py`
 - Condiciones de boleta: SIN_VENDER → CAJA → VENDIDO (también BAJA, EN_COBRANZA)
-  - BAJA y EN_COBRANZA solo vienen de cobranza, los vendedores no usan BAJA
-- `Talonera.num_cuotas` (Integer, default 12, **deferred**) — editable en UI; puede bajar si se regalan cuotas finales con el tiempo
-- `Talonera.valor_cuota` (Float, default 0.0) — editable en UI de taloneras
-- `Talonera.num_digitos` — COMUN siempre 4 (0001-9999), CONTADO usa 3. CRÍTICO: migración inicial puso DEFAULT 3 para todas; hay migración correctora en startup que hace UPDATE COMUN → 4
-- `Talonera.multiplicador` — num_series // 3. PATA 1=1, PATA 2=2, PATA 3=3. Unidad de peso para liquidación
+- `Talonera.num_cuotas` (Integer, default 12, **deferred**) — editable en UI
+- `Talonera.valor_cuota` (Float, default 0.0) — editable en UI
+- `Talonera.num_digitos` — COMUN siempre 4 (0001-9999), CONTADO usa 3.
+- `Talonera.multiplicador` — **Float desde 11/05/2026** (antes Integer). Fórmula: `num_series / 3.0` (antes `// 3`). PATA 0=0.6667 (2/3) / PATA 1=1.0 / PATA 2=2.0 / PATA 3=3.0. **NO redondear** el storage: `2/3 × 15000 = 10000.0` exacto en Float Python; con `round(0.6667) × 15000 = 10000.5` (error de $0.50 por boleta).
 
 #### Zona-Cobrador (muchos-a-muchos, desde 02/05/2026)
 - Tabla `zona_cobradores`: zona_id PK, cobrador_id PK, asignado_en (DateTime)
 - Una zona puede tener múltiples cobradores simultáneamente
-- `Zona.cobrador_id` legacy: columna en DB ignorada por ORM; datos migrados a zona_cobradores en startup
-- `Zona.cobrador_id` (property) → ID del último cobrador (mayor asignado_en)
+- `Zona.cobrador_id` (property) → ID del último cobrador
 - `Zona.cobrador` (property) → objeto Cobrador del último asignado
 - **CRÍTICO:** ZonaCobrador debe definirse ANTES que Zona y Cobrador en models.py
 
 #### Zona-Vendedor
 - `Zona.vendedor_id` FK a vendedores (nullable) — una zona = un vendedor
-- Se vincula al crear el primer comprador con esa zona
 
 ---
 
 ### Módulo Vendedores — actualizado 07/05/2026
 
-#### Modelos nuevos/modificados
+#### Modelos
 - `Vendedor.es_jefe_equipo` (Boolean, default False) — solo un jefe activo a la vez
-- `LiquidacionVendedor` (tabla `liquidaciones_vendedor`): registra liquidación de comisión al vendedor
-  - Campos: vendedor_id, fecha, cuotas_vendidas, **cuota_1_total**, monto_cuotas, comision_cuotas_pct, comision_cuotas,
-    contados_vendidos, monto_contados, comision_contados_pct (default 30%), comision_contados, total_comision, observacion
-  - **Posición en models.py:** definida ENTRE Vendedor y Cobrador (relación bidireccional)
-- `Boleta.liquidacion_vendedor_id` (FK a liquidaciones_vendedor, nullable) — enlaza boleta con su liquidación
-- `Boleta.liquidacion_vendedor` — relación ORM a LiquidacionVendedor
-- `EntregaCaja.vendedor_id` (FK a vendedores, nullable) — a qué vendedor se entregó
+- `LiquidacionVendedor`: vendedor_id, fecha, cuotas_vendidas, **cuotas_equiv (Float desde 11/05/2026)**, cuota_1_total, monto_cuotas, comision_cuotas_pct, comision_cuotas, contados_vendidos, monto_contados, comision_contados_pct (default 30%), comision_contados, total_comision, observacion
+- `Boleta.liquidacion_vendedor_id` (FK a liquidaciones_vendedor, nullable)
+- `EntregaCaja.vendedor_id` (FK a vendedores, nullable)
 
-#### Flujo correcto de boletas por vendedor (CRÍTICO — confirmado con Sergio)
+#### Flujo correcto de boletas por vendedor
 ```
 SIN_VENDER
-  → [Entrega a caja] → CAJA (sin liquidacion_vendedor_id) — boleta en mano del vendedor
-  → [Liquidar vendedor] → CAJA (con liquidacion_vendedor_id) — liquidado, pendiente cargar comprador
-  → [Cargar comprador en sistema] → VENDIDO — comprador registrado
+  → [Entrega a caja] → CAJA (sin liquidacion_vendedor_id)
+  → [Liquidar vendedor] → CAJA (con liquidacion_vendedor_id)
+  → [Cargar comprador] → VENDIDO
 ```
-- La liquidación al vendedor se hace sobre boletas en CAJA (sin liq_id) — NO sobre VENDIDO
-- Las boletas conservan condición CAJA después de liquidar, solo pasan a VENDIDO cuando se carga el comprador
+- La liquidación se hace sobre boletas en CAJA (sin liq_id)
 - Los vendedores NO tienen boletas en BAJA — la baja viene solo de cobranza
 
-#### Modelo de comisión del vendedor — SIMPLIFICADO (confirmado 07/05/2026)
-**Unidad base = PATA 1. Todo se calcula en múltiplos de PATA 1.**
+#### Modelo de comisión — SIMPLIFICADO
+**Unidad base = PATA 1. Todo en múltiplos de PATA 1.**
 - `PATA1_VC` = valor_cuota de la talonera COMUN con multiplicador==1
 - `PATA1_NC` = num_cuotas de PATA 1
-- **Cuota 1 por boleta** = `multiplicador × PATA1_VC` (PATA 2 = 2 × $15.000 = $30.000)
-- **Contado por boleta** = `multiplicador × PATA1_NC × PATA1_VC` (PATA 3 = 3 × 12 × $15.000 = $540.000 → 30% = $162.000)
-- **Cuotas extras** (cuota 2, 3, ... cobradas al socio) = cantidad × PATA1_VC
-- Backend calcula `pata1_vc` y `pata1_nc` y los pasa al template como constantes JS `PATA1_VC` y `PATA1_NC`
-- Cada boleta en `pendientes_json` tiene campo `multiplicador` (int); badge lleva `data-mult`
+- **Cuota 1 por boleta** = `multiplicador × PATA1_VC` (PATA 0 = 0.6667 × $15.000 = $10.000)
+- **Contado por boleta** = `multiplicador × PATA1_NC × PATA1_VC` (PATA 0 = 0.6667 × 12 × $15.000 = $120.000 → 30% = $36.000)
+- **Cuotas extras** = cantidad × PATA1_VC
+- Cada boleta en `pendientes_json` tiene `multiplicador` (Float desde 11/05/2026); badge lleva `data-mult`
 
-#### Modal de liquidación — comportamiento
-- Boletas agrupadas por PATA con checkboxes; botones Todo/Ninguno por PATA y globales
-- Cálculo en tiempo real con PATA1_VC y PATA1_NC como base
-- "Valor de cada cuota" en sección extras: auto-fill con PATA1_VC al seleccionar primera boleta; hint "PATA 1: $X.XXX"; botón ↺ para restaurar; se resetea al cerrar modal
-- Confirmar deshabilitado hasta seleccionar al menos una boleta
-
-#### Taloneras — campos editables en UI (07/05/2026)
-- `valor_cuota` y `num_cuotas` editables en modal Editar y modal Nueva
-- Lista de taloneras muestra: `Cuota: $15.000 | 12 cuotas`
-- Endpoints `/crear` y `/{id}/editar` aceptan `num_cuotas` como Form param
-- Taloneras COMUN nuevas se crean con `num_digitos=4` explícito
+#### Modal de liquidación
+- Boletas agrupadas por PATA con checkboxes
+- Cálculo en tiempo real con PATA1_VC y PATA1_NC
+- **`parseFloat(chk.dataset.mult)` (no `parseInt`)** desde 11/05/2026 — parseInt(0.67) = 0 rompía PATA 0.
 
 #### Router vendedores.py — endpoints clave
-- `_stats_bulk(db)`: dict por vendedor con claves `caja`, `liq_pendiente`, `vendido`, `baja`. **Ojo:** desde 09/05/2026 `vendido` cuenta TODAS las boletas con `comprador_id IS NOT NULL` (sin importar condicion). Las claves caja/liq_pendiente/baja siguen contando por condicion específica. Implementación: GROUP BY (vendedor, condicion) para caja/liq/baja + segunda query separada para vendido.
-- `GET /vendedores/`: lista vendedores con stats (caja, baja, vendido), jefe_equipo
-- `GET /vendedores/{vid}/detalle`: incluye `pendientes_json` (con `multiplicador`), `pata1_vc`, `pata1_nc`
-- `POST /vendedores/{vid}/liquidar`: modelo de comisión basado en multiplicador × PATA1
-- `POST /vendedores/{vid}/toggle-jefe`: marca jefe (primero resetea todos, luego activa el nuevo)
-- `POST /vendedores/entrega-caja`: SIN_VENDER → CAJA + REASIGNAR entre vendedores en CAJA (sin liquidar)
-- `POST /vendedores/entrega-caja/{id}/editar` y `eliminar`: gestión del historial de entregas
+- `_stats_bulk(db)`: dict por vendedor con `caja`, `liq_pendiente`, `vendido`, `baja`. Desde 09/05/2026 `vendido` cuenta TODAS las boletas con `comprador_id IS NOT NULL`.
+- `GET /vendedores/{vid}/detalle`: incluye `pendientes_json` (multiplicador Float), `pata1_vc`, `pata1_nc`
+- `POST /vendedores/{vid}/liquidar`: comisión basada en multiplicador × PATA1
+- `POST /vendedores/entrega-caja`: SIN_VENDER → CAJA + REASIGNAR
 
-#### Detalle del vendedor — orden y CONTADO en pool (07/05/2026)
-- **Orden jerárquico de PATAs** (función `_pata_sort_key`):
-  1. PATA con número (PATA 1, 2, 3...) — numéricamente
+#### Detalle del vendedor — orden y CONTADO
+- **Orden jerárquico de PATAs** (`_pata_sort_key`):
+  1. PATA con número (PATA 0, 1, 2, 3...) — numéricamente
   2. Otras COMUN sin número — alfabéticamente
   3. CONTADO al final
-- **CONTADO pool**: números entregados al vendedor aún no asignados a boletas; aparecen como badge ★ pero NO son liquidables
-- **Flag `contado`**: `b.numero_especial is not None or b.numero_especial_2 is not None`
-
-#### Entrega a Caja — actualizado 06/05/2026
-- UI vive en el detalle del vendedor (no en el listado global)
-- Dos botones en orden de flujo: Entregar a Caja (rojo) → Liquidar vendedor (verde)
-- Backend: SIN_VENDER→CAJA (nuevas) + CAJA sin liq→reasignar (reasignadas). Si total=0 hace rollback y no crea fila
-- Para CONTADO: `es_contado=True`, no toca boletas, solo registra rango
+- **CONTADO pool**: números entregados al vendedor aún no asignados; badge ★ pero NO liquidables
 
 #### Templates vendedores
-- `vendedores.html`: tabla limpia, doble-click → detalle, badge jefe, stats
-- `vendedor_detalle.html`: tarjetas + leyenda + **nav-tabs (Caja / Liquidaciones)** + modales (ver Sesión 10/05/2026 cont. 4)
+- `vendedores.html`: tabla limpia, doble-click → detalle
+- `vendedor_detalle.html`: tarjetas + nav-tabs (Caja / Liquidaciones) + modales a nivel raíz
+- **Helpers JS (11/05/2026):** `fmtMult(m)` (entero si entero, 2 decimales si no) y `fmtPonderado(p)` (redondea a entero).
 
 #### 3 estados de boleta en el detalle (colores)
 - Azul claro (`#e7f1ff`): CAJA sin liq_id — pendiente liquidar
@@ -170,14 +146,13 @@ SIN_VENDER
 - Azul opaco: VENDIDO — comprador registrado
 
 #### Migraciones en main.py (startup) — todas en try/except
-- `es_jefe_equipo` en vendedores, `vendedor_id` en entregas_caja
+- `es_jefe_equipo`, `vendedor_id` en entregas_caja
 - CREATE TABLE `liquidaciones_vendedor`
 - `liquidacion_vendedor_id` en boletas
-- `num_cuotas` en taloneras (INTEGER DEFAULT 12)
-- `num_digitos` en taloneras (INTEGER DEFAULT 3) + corrección UPDATE COMUN→4
-- `cuota_1_total` en liquidaciones_vendedor
-- `numero_especial_2` y `talonera_especial_2_id` en boletas
-- **CRÍTICO**: todas en try/except. `inspector.get_columns()` fuera de try/except crashea el startup
+- `num_cuotas`, `num_digitos` en taloneras
+- `cuota_1_total`, `cuotas_equiv` en liquidaciones_vendedor
+- `numero_especial_2`, `talonera_especial_2_id` en boletas
+- **11/05/2026:** `ALTER COLUMN multiplicador TYPE DOUBLE PRECISION` en taloneras (postgres) + recalcular `num_series / 3.0`. Mismo ALTER TYPE para `cuotas_equiv`.
 
 ---
 
@@ -186,8 +161,8 @@ SIN_VENDER
 - Planilla: template standalone hoja A4, 3 columnas, 4 bloques de 10 filas (120 slots)
 - Cuotas anticipadas: celda negra + X blanca
 - Tabs: Planillas | Emplantillado | Liquidación
-- Modelos: Planilla (cobrador_id, numero, mes, anio, comision_pct), Liquidacion, LiquidacionDetalle
-- **Filtros de boletas activas** (cobranza.py): usan `condicion IN [VENDIDO, EN_COBRANZA]` — CORRECTO. NO incluye CAJA-Al-contado (ya pagada) ni BAJA. NO tocar.
+- Modelos: Planilla, Liquidacion, LiquidacionDetalle
+- **Filtros de boletas activas** (cobranza.py): usan `condicion IN [VENDIDO, EN_COBRANZA]` — CORRECTO. NO tocar.
 
 ---
 
@@ -196,20 +171,15 @@ SIN_VENDER
 **Modelo Boleta — dos slots:**
 - `Talonera.tipo` — "COMUN" o "CONTADO"
 - Slot 1: `Boleta.numero_especial` + `Boleta.talonera_especial_id`
-- Slot 2: `Boleta.numero_especial_2` + `Boleta.talonera_especial_2_id` (ambos deferred)
-- `Talonera.boletas` con `foreign_keys="Boleta.talonera_id"` (3 FK a taloneras)
+- Slot 2: `Boleta.numero_especial_2` + `Boleta.talonera_especial_2_id` (deferred)
+- `Talonera.boletas` con `foreign_keys="Boleta.talonera_id"`
 
 **Reglas de negocio:**
 - CONTADO = pool para sorteo extra al pagar al contado total
 - CONTADO 2 VECES = pool para sorteo extra al pagar en 2 cuotas
 - Modalidades: cuotas (sin extras) | 1pago (ambos slots) | 2pagos (solo slot 2)
 
-**ETAPA 2 — asignación a boletas:**
-- `GET /compradores/boleta/{bid}/contado-disponibles` → numeros_libres por talonera del vendedor
-- `POST /compradores/{id}/editar` procesa `modalidad_<bid>`, `te_<bid>`, `ne_<bid>`, `te2_<bid>`, `ne2_<bid>`
-- Validación: `_esta_libre(num, talonera_id, except_boleta_id)`
-
-**Pendiente — ETAPA 3:** sorteo CONTADO cruzando Boleta.numero_especial y numero_especial_2
+**Pendiente — ETAPA 3:** sorteo CONTADO cruzando numero_especial y numero_especial_2
 
 ---
 
@@ -220,264 +190,280 @@ SIN_VENDER
 - Auto-asignación de cobrador al guardar comprador (por zona)
 - Exportación Excel socios: GET /compradores/exportar (openpyxl==3.1.2)
 - Dashboard /reportes/: cards + tablas por talonera, zona, top vendedores/cobradores
-  - **Top Vendedores** (corregido 08/05/2026): cuenta TODA boleta cargada con socio (`Boleta.comprador_id IS NOT NULL`), sin filtrar por condición. Query va por `Boleta.vendedor_id` (no via Zona — la cadena Vendedor→Zona→Comprador→Boleta excluía boletas de zonas sin vendedor o de vendedores que vendían fuera de su zona). Ponderado por `Talonera.multiplicador` (PATA 1=1, PATA 2=2, PATA 3=3, PATA 4=4, PATA 8=8, etc.). **CRÍTICO: NO filtrar por `condicion=VENDIDO`** — las boletas pueden derivar a EN_COBRANZA (asignadas a planilla), CAJA (al contado pagado), o BAJA, y deben seguir contándose. El criterio correcto del usuario: "contarse cuando son cargados con los socios".
-- Módulo Sorteos: ABM Tómbola Nocturna Entre Ríos (SEMANAL/MENSUAL/FINAL/CONTADO) — carga manual
+  - **Top Vendedores**: cuenta toda boleta con socio cargado, ponderado por `Talonera.multiplicador` (PATA 0=0.67, PATA 1=1, PATA 2=2, ...). NO filtrar por `condicion=VENDIDO`.
+  - **11/05/2026:** valores agregados se renderizan con `| round(0) | int` (Float guardado, entero mostrado).
+- Módulo Sorteos: ABM Tómbola Nocturna Entre Ríos (SEMANAL/MENSUAL/FINAL/CONTADO)
 - Módulo Ganadores: cruza 4c/3c/2c con exclusión
 - Color por PATA: Talonera.color, picker en UI
 
 ---
 
 ### Preferencias de UI consolidadas
-- Tablas: table-sm + font-size: 0.8rem + filas ~28px (compactas)
-- ~~Filtros inline por columna~~ **Ya no — desde 09/05/2026** se usa un solo buscador con selector de columna ("Todo / N° Boleta / Apellido y Nombre / Dirección / …")
+- Tablas: table-sm + font-size: 0.8rem + filas ~28px
+- Buscador único con selector de columna (desde 09/05/2026)
 - Sortable en todos los encabezados
 - Fecha: almacena ISO en data-val, muestra dd/mm/yyyy
-- Dirección: CSS text-transform: uppercase en la celda
-- Sin botón eliminar en tablas — solo lápiz; el eliminar queda en la pantalla de edición
-- **Vendedores**: Entrega a Caja vive en el detalle del vendedor (acceso por doble-click en listado)
-- **PATA 1, PATA 2, etc. → mostrar como X1, X2** (preferencia visual desde 09/05/2026, solo display via `replace('PATA ', 'X')`. La DB sigue con "PATA N")
-- **Navbar horizontal arriba** (10/05/2026) — antes era sidebar lateral 220px. Ahora topbar Bootstrap 5 sticky-top, brand a la izquierda + items + user/Salir a la derecha. Mobile: colapsa en hamburguesa con bloque de usuario al pie. Mismos colores (#1a2a4a azul oscuro + #e63946 rojo activo).
-- **Sub-secciones dentro de páginas grandes → preferir nav-tabs Bootstrap** sobre acordeón o segmented. **Listas históricas → modales en vez de collapse inline** (ver sesión 10/05/2026 cont. 4 sobre detalle de vendedor).
+- Dirección: CSS text-transform: uppercase
+- Sin botón eliminar en tablas — solo lápiz
+- Vendedores: Entrega a Caja en detalle del vendedor
+- **PATA 0, 1, 2, etc. → mostrar como X0, X1, X2** (display via `replace('PATA ', 'X')`)
+- Navbar horizontal Bootstrap 5 sticky-top (10/05/2026)
+- Sub-secciones grandes → preferir nav-tabs; listas históricas → modales
+- **Multiplicador fraccionario** (PATA 0): display numérico `× 0.67` (no fracción `× ⅔`). Agregados redondean a entero al mostrar, Float en DB.
 
 ---
 
 ### Sesión 09/05/2026 — Auditoría completa del criterio "vendidas/vendido"
 
-**Bug original detectado:** el dashboard "Por Talonera" mostraba 0 vendidas para PATA 2 y PATA 8, aunque había boletas Al contado y En cobranza con socio cargado. Causa: filtro `condicion = VENDIDO`, pero las boletas pasan a `CAJA` (Al contado) o `EN_COBRANZA` (asignadas a planilla) tras cargar el socio.
+**Bug original:** dashboard "Por Talonera" mostraba 0 vendidas para PATA 2/8. Causa: filtro `condicion = VENDIDO`, pero boletas pasan a `CAJA` (Al contado) o `EN_COBRANZA` tras cargar socio.
 
-**Lugares corregidos** (todos cambiaron `condicion = VENDIDO` → `comprador_id IS NOT NULL`):
-1. `app/routers/reportes.py` líneas 38-49 → `vendidas` en stats_por_talonera (dashboard "Por Talonera")
-   - También `en_caja` ahora cuenta solo `CAJA AND comprador_id IS NULL` (físicas en mano sin cargar)
-   - `sin_vender` calculado por consulta directa (no por resta) para evitar overlap
-2. `app/routers/reportes.py` línea 171 → `vendidas_zona` en stats_por_zona (dashboard "Por Zona")
-3. `app/routers/taloneras.py` línea 306 → validación al ELIMINAR talonera (riesgo serio: permitía borrar boletas con comprador asignado)
-4. `app/templates/taloneras.html` línea 130 → badge "X vend." en lista de taloneras: `selectattr('comprador_id')` en lugar de `selectattr('condicion','equalto','VENDIDO')`
-5. `app/routers/vendedores.py` `_stats_bulk` → `vendido` cuenta todas las boletas del vendedor con socio (incluye VENDIDO + CAJA-Al-contado + EN_COBRANZA + BAJA). `baja` queda como sub-estado informativo (subconjunto de `vendido`). **Confirmado por Sergio:** una boleta cargada por el vendedor sigue siendo "vendida del vendedor" aunque después pase a EN_COBRANZA o BAJA.
+**Lugares corregidos** (cambiaron `condicion = VENDIDO` → `comprador_id IS NOT NULL`):
+1. `reportes.py` stats_por_talonera + stats_por_zona
+2. `taloneras.py` validación al ELIMINAR talonera
+3. `taloneras.html` badge "X vend."
+4. `vendedores.py` `_stats_bulk` → `vendido`
 
-**Filtros revisados que SÍ están bien (no se tocaron):**
-- `cobranza.py` (5 lugares con `[VENDIDO, EN_COBRANZA]`) — correcto, las Al contado ya pagadas no van a planilla
-- Asignaciones `b.condicion = VENDIDO` en `compradores.py` — son writes, no filtros
-- Badge individual de boleta en `ganadores.html:94` — display por fila
+**Filtros que SÍ están bien:** `cobranza.py` con `[VENDIDO, EN_COBRANZA]` — NO tocar.
 
-**Nota visual:** en el dashboard "Por Zona", las columnas "Taloneras" y "Vendidas" ahora muestran el mismo número (ambas suman boletas con socio ponderadas por multiplicador). Si Sergio quiere eliminar una columna o darle otra semántica, pendiente de validar.
+---
 
 ### Sesión 09/05/2026 — UI Socios
 
-**Buscador único** (`app/templates/compradores.html`):
-- Reemplazó la fila de filtros por columna (9 inputs) por un solo input + select de columna
-- Opciones del select: Todo / N° Boleta / Apellido y Nombre / Dirección / Zona / Fecha compra / Vendedor / Cobrador / Teléfono / Condición
-- "Todo" busca en todas las columnas. Filtro client-side en tiempo real, no recarga.
-- Botón ✕ rojo para limpiar.
-- Función JS: `aplicarBusqueda()` reemplaza la antigua `applyFilters()`.
+**Buscador único** en compradores.html: input + select de columna (Todo / N° Boleta / Apellido / etc.), filtro client-side.
 
-**Mostrar X1/X2 en lugar de PATA 1/PATA 2:**
-- En `compradores.html`: tabs, badges de filas y badge del footer usan `{{ nombre | replace('PATA ', 'X') }}`.
-- La DB no se modifica — sigue "PATA 1", "PATA 2", etc. Es solo display.
-- El backend filtra por nombre real ("PATA 1") en `?pata=...`, así que los hrefs envían el nombre crudo.
-- **Pendiente** (si Sergio lo pide): extender a otras pantallas (Reportes, Taloneras, Vendedores, Cobranza, Boletas) — lo más limpio sería un filtro Jinja personalizado registrado en `templates_config.py` (ej. `pata_label`).
+**Mostrar X0/X1/X2:** tabs, badges con `{{ nombre | replace('PATA ', 'X') }}`. DB sigue con "PATA N".
 
 ---
 
 ### Sesión 10/05/2026 — Navbar horizontal + Sorteos rediseñados
 
-#### Navbar horizontal (`app/templates/base.html`)
-- Antes: sidebar lateral fijo de 220px que en celular comía mucho ancho
-- Ahora: topbar Bootstrap 5 (`navbar-expand-lg`, `sticky-top`)
-- Desktop: brand izquierda + items horizontales + user/Salir derecha
-- Mobile (<992px): hamburguesa que colapsa el menú vertical, bloque de usuario al pie con borde superior
-- Mantiene mismos colores (#1a2a4a azul / #e63946 rojo activo) y todos los `has_permission`
-- `main-content` ahora ocupa todo el ancho
+#### Navbar horizontal (`base.html`)
+- Topbar Bootstrap 5 navbar-expand-lg sticky-top
+- Mobile (<992px): hamburguesa con bloque de usuario al pie
+- Colores #1a2a4a azul / #e63946 rojo activo
 
 #### Módulo Sorteos — agrupado por mes (acordeón)
-- Backend (`app/routers/sorteos.py`): el `listar` ahora también devuelve `sorteos_por_mes` (lista de dicts con `key`, `year`, `month`, `label`, `sorteos`, `total`, `con_resultado`) y `mes_actual_key`
-- Helper: constante `_MESES_ES` y orden cronológico — mes actual y futuros primero, pasados después (más reciente arriba)
-- Template (`app/templates/sorteos.html`): la tabla larga se reemplazó por accordion Bootstrap; mes actual abierto por defecto, otros colapsados; podés abrir varios a la vez (sin `data-bs-parent`)
-- Cabecera de mes muestra: ícono calendar3, label "Mayo 2026", badge "N sorteos", badge "X con resultado" o "Sin resultados aún", botón "Extracto" (solo si `con_resultado > 0`)
-- **HTML válido**: el `<a>` Extracto va FUERA del `<button>` de accordion (position:absolute, right:48px) — anidar `<a>` dentro de `<button>` es inválido
-- JS de filtros (`aplicarFiltros`): selecciona `.tabla-sorteos tbody tr[data-tipo]`, oculta meses sin filas visibles, abre automáticamente meses con coincidencias cuando hay filtro activo
-- Selectores antiguos `#tablaSorteos` ya no existen — todo usa `.tabla-sorteos`
+- Backend: `listar` devuelve `sorteos_por_mes` (lista de dicts) y `mes_actual_key`
+- Template: accordion Bootstrap, mes actual abierto por defecto
+- `<a>` Extracto fuera del `<button>` (HTML válido)
 
-#### Generación de Extracto Mensual (Fase 2)
-- Endpoint nuevo: `GET /sorteos/extracto/{year}/{month}` en `sorteos.py`
-- Lógica de cruce de números ganadores vs boletas:
-  - **SEMANAL / MENSUAL / CONTADO**: 1° premio
-  - **FINAL**: hasta el 3° premio
-  - Cruza con TODAS las cifras configuradas en el sorteo (ej. cifras="3,4" → cruza por 3 y por 4)
-  - Coincidencia por sufijo: últimos N dígitos del número de boleta = últimos N del premio (formateado a 4)
-  - Filtros: `fecha_venta < fecha_sorteo` y `comprador_id IS NOT NULL`
-  - **Deduplica por boleta** (si una boleta coincide en 3 y 4 cifras, sale una sola vez)
-  - Para tipo CONTADO: cruza con `numero_especial` y `numero_especial_2` (NO `numero_principal`)
-  - Excluye boletas de talonera tipo CONTADO (son pool, no boletas reales)
-- Helpers nuevos: `_TIPO_LABEL_PLURAL`, `_ultimo_dia_mes`, `_premios_por_tipo`, `_build_ganador`
-- Carga las boletas en una sola query con `joinedload(comprador, talonera)` y filtra por fecha_venta < max(fechas_sorteos)
-- Agrupa sorteos del mes por tipo, arma un bloque por tipo (orden: SEMANAL, MENSUAL, CONTADO, FINAL)
+#### Generación de Extracto Mensual
+- Endpoint `GET /sorteos/extracto/{year}/{month}`
+- SEMANAL/MENSUAL/CONTADO: 1° premio; FINAL: hasta 3° premio
+- Coincidencia por sufijo, filtros `fecha_venta < fecha_sorteo` y `comprador_id IS NOT NULL`
+- Deduplica por boleta, excluye taloneras CONTADO (son pool)
 
-#### Plantilla A4 imprimible (Fase 3)
-- Template nuevo: `app/templates/sorteo_extracto.html`
-- Tipografía Times New Roman para imitar el formato impreso original
-- Vista pantalla: hoja simulada 210mm × 297mm con sombra
-- Toolbar (oculta en print): selector **columnas 1/2/3** y **tamaño S/M/L** con persistencia en `localStorage` (keys `extracto_cols` y `extracto_size`)
-- Multi-columna CSS para los ganadores (`column-count: var(--cols)`); por defecto 2 columnas, tamaño M
-- `break-inside: avoid` por línea de ganador → no se corta un nombre entre columnas/páginas
-- `overflow-wrap: anywhere` para nombres largos
-- `@page { size: A4 portrait; margin: 8mm 10mm }`
-- Si un mes tiene varios bloques de tipo distinto (ej. semanal + final), `page-break-before: always` entre bloques → cada uno en su hoja
-- Tamaño S = 8.5pt para máxima densidad (~70-80 ganadores por hoja)
-- Encabezado: "BOMBEROS VOLUNTARIOS / DE CONCEPCION DEL URUGUAY / TOMBOLA NOCTURNA DE E. RIOS / EXTRACTO SORTEOS [TIPO] DEL MES DE [MES] [AÑO] / A 4 Y 3 CIFRAS."
-- Pie: "PEDIDOS Y CONSULTAS AL 3442-484286" (hardcodeado por decisión de Sergio)
-- Línea de ganador: `{nombre}-{direccion}` en mayúsculas, ordenado alfabéticamente
+#### Plantilla A4 imprimible (`sorteo_extracto.html`)
+- Times New Roman, hoja simulada 210mm × 297mm
+- Toolbar: columnas 1/2/3, tamaño S/M/L, copias 1/4/9 con persistencia localStorage
+- Multi-column CSS, `break-inside: avoid`
+- Copias 4-up (2×2) y 9-up (3×3) con replicación JS
 
 #### Bug fix — `guardar_resultado` truncada
-- Encontrado al cargar resultado de sorteo en producción (Railway): "Error al guardar" con status 200 pero respuesta `null`
-- Causa: la función `guardar_resultado` en `sorteos.py` quedó cortada después de un comentario `# Normaliza` sin cuerpo. FastAPI devolvía implícit `None` → JSON `null` → el JS hacía `data.ok` sobre null → TypeError → catch → toast genérico
-- Reconstrucción: normaliza cada número con `zfill(4)`, padding/truncado a `s.num_premios`, valida al menos un número distinto de `0000`, `try/except` con `db.rollback()`, retorna `{"ok": True, "numeros": nums_norm}`
-- Auditoría completa de los 19 .py y 25 templates del proyecto: ningún otro archivo está truncado
+- Función cortada después de `# Normaliza`. FastAPI devolvía null (200 OK).
+- Reconstrucción con normalización zfill(4), validación, try/except.
 
 ---
 
-### Sesión 10/05/2026 (cont.) — Ganadores y Extracto: ajustes UX
+### Sesión 10/05/2026 (cont. 2) — Modal Liquidar compacto + Detalle ponderado
 
-#### Fix — Conteo de "ganadores" solo cuenta boletas con socio cargado
-- **Problema:** badge "N ganadores" en `/sorteos/{id}/ganadores` y per-grupo contaba TODAS las boletas que coincidían numéricamente, incluyendo las que no tenían comprador (socio) asignado. Sergio: "esas taloneras no tienen comprador aun, no se les cargó un socio, o sea no hay ganadores".
-- **Fix backend** (`app/routers/sorteos.py`, función `ganadores`): cada grupo ahora trae también `ganadores_reales = sum(1 for f in filas if f["comprador"])`. El `total_ganadores` que va al header suma los `ganadores_reales` de todos los grupos.
-- **Fix template** (`app/templates/ganadores.html`):
-  - Header (al lado de fecha): badge amarillo "N ganadores" SOLO aparece si `total_ganadores > 0`.
-  - Por grupo: si `ganadores_reales > 0` → badge amarillo "N ganadores"; si hay coincidencias pero ningún socio → badge gris claro "N coincidencias sin socio" (informativo); si no hay coincidencias → "Sin ganadores".
-
-#### Fix — Extracto: selectores de columnas/tamaño no daban feedback visible cuando no había ganadores
-- **Problema:** los botones S/M/L y 1/2/3 columnas funcionaban (toggleaban active y data-attrs), pero las CSS variables `--ganador-size` y `--cols` solo aplicaban a `.ext-ganadores`. Si el bloque estaba vacío ("Sin ganadores en este bloque"), no se veía cambiar nada.
-- **Fix CSS** (`app/templates/sorteo_extracto.html`):
-  - `.ext-vacio` ahora usa `font-size: var(--ganador-size, 10pt)` → la línea italic responde al selector de tamaño.
-  - `.ext-premios` también responde al tamaño con `calc(var(--ganador-size, 10pt) + 0.5pt)`.
-  - Aviso info en cabecera cuando `total_ganadores_mes == 0`, explicando qué afectan los controles.
-
-#### Feature — Selector "Copias por hoja" 1/4/9 con replicación en grilla
-- **Caso de uso:** Sergio imprime el extracto en formato 9-up (3×3) en una sola A4 para distribución física (cada copia se recorta).
-- **Toolbar:** nuevo grupo de botones "Copias/hoja: 1 / 4 / 9" entre Tamaño y el botón Imprimir, con persistencia en `localStorage` (key `extracto_copies`).
-- **HTML:** cada bloque ahora vive dentro de `<div class="extracto-grid">`. El bloque interno tiene clase `extracto-bloque-original` para que el JS lo identifique al clonar.
-- **JS** función `replicarBloques(n)`: clona el bloque original N-1 veces dentro de cada `.extracto-grid`. Los clones llevan clase `extracto-bloque-clone`. Se llama al cambiar copies o al restaurar de localStorage.
-- **CSS multi-up:**
-  - 4-up: grid 2×2, gap 4mm, altura 281mm (A4 menos padding), font-sizes ~7-10pt, borde dashed por copia.
-  - 9-up: grid 3×3, gap 2mm, altura 281mm, font-sizes ~5-7pt. Premios cambian a `display: block` (uno por línea). Ganadores forzados a `column-count: 1` (con `!important`).
-  - En multi-up se oculta `.stat-line` (queda raro replicada).
-- **Print:** `@media print` añade `height: 100vh` a `.extracto-grid` con copies > 1 + `page-break-after: always` para que cada grilla ocupe una hoja completa.
-- **Compatibilidad:** se mantiene 1-up como default. El page-break entre tipos (semanal + final) ahora usa `.extracto-grid + .extracto-grid` en lugar de `.extracto-bloque + .extracto-bloque`.
+- Etiquetas modal acortadas: Cuotas→Cuo, Contado→Cont, Contado 2 veces→Cont en 2
+- Badge total "Taloneras liquidadas" ponderado por multiplicador (no conteo crudo)
+- Cabeceras de PATA: "N boleta/s × M = X" usa suma de multiplicadores (desde 11/05/2026 con `fmtMult`/`fmtPonderado`)
 
 ---
 
-### Sesión 10/05/2026 (cont. 2) — Modal Liquidar: select compacto + Detalle ponderado
+### Sesión 10/05/2026 (cont. 3) — cuotas_equiv persistido + Refresh post-entrega + Renombrar zonas
 
-#### Modal "Liquidar — {vendedor}" (`vendedor_detalle.html`, función `renderBoletas`)
-- **Etiquetas del select de modalidad acortadas** para que entren al lado del badge de cada boleta sin romper el layout:
-  - `Cuotas` → **Cuo**
-  - `Contado` → **Cont**
-  - `Contado 2 veces` → **Cont en 2**
-- **Estilo del select más justo:** `font-size:.68rem`, `padding:.05rem 1rem .05rem .3rem`, `min-width:0`, flecha del dropdown achicada con `background-size:10px 8px` y pegada al borde con `background-position:right .15rem center`
-- Los `option value` siguen siendo `cuotas` / `contado` / `contado2` — el backend no se tocó
+#### Refresh tras "Pasar a CAJA"
+- En `entregarCajaVendedor()` rama ok con total > 0, programa `setTimeout(reload, 900)`.
 
-#### Modal "Detalle de liquidación" (`vendedor_detalle.html`, función que arma el detalle desde `/vendedores/liquidaciones/{liq_id}/detalle`)
-- **Bug:** el badge "Taloneras liquidadas" mostraba el conteo crudo de boletas (ej. 25 = 17+7+1) sin aplicar el multiplicador. Mismo problema en cada cabecera de PATA donde decía "X boleta/s".
-- **Fix:** se usa `b.multiplicador` (que el endpoint ya devuelve) para ponderar:
-  - **Badge total** = `Σ b.multiplicador` de todas las boletas. Tooltip aclara cuántas boletas reales hay.
-  - **Por PATA** = ahora muestra `"N boleta/s × M = X"` siendo X la suma de multiplicadores del grupo (no `length × mult[0]`, por si llegan boletas con mult distinto en el mismo grupo).
-- Aplica para **todos los vendedores** porque el cambio es en el template compartido, no en datos de un vendedor puntual.
-- Ejemplo: PATA 1 (17 ×1) + PATA 2 (7 ×2) + PATA 3 (1 ×3) = 17 + 14 + 3 = **34** ponderado (antes mostraba 25).
+#### Columna `cuotas_equiv` (ponderado) en LiquidacionVendedor
+- `cuotas_equiv = Column(Float, default=0.0)` (Float desde 11/05/2026)
+- Migración: `ALTER TABLE ADD COLUMN cuotas_equiv INTEGER DEFAULT 0` + 11/05/2026 `ALTER COLUMN TYPE DOUBLE PRECISION`
+- Backfill: suma multiplicador de boletas atadas; fallback a literal si hay contados mezclados
+- Template: tabla muestra `{{ (liq.cuotas_equiv or liq.cuotas_vendidas) | round(0) | int }}` con tooltip exacto
 
----
+#### Badge "Todas" en /compradores/
+- Pondera por multiplicador: `total_compradores = round(sum(t["total"] * t["multiplicador"] for t in tabs))`
+- `sin_cobrador` queda literal (personas)
 
-### Sesión 10/05/2026 (cont. 3) — Persistencia del ponderado en liquidaciones + Refresh post-entrega + Renombrar zonas
-
-#### Fix — Refresh tras "Pasar a CAJA" en detalle de vendedor (`vendedor_detalle.html`)
-- **Bug:** al apretar "Pasar a CAJA" en el modal Entregar a Caja, sólo se agregaba la fila al historial de entregas. Los contadores de arriba ("En caja — sin liquidar", "Liquidado", "En sistema"), el badge "X boleta(s)" del botón "Liquidar vendedor" y los paneles por PATA no se actualizaban — había que salir y volver.
-- **Fix:** en `entregarCajaVendedor()` rama `data.ok`, si `total > 0` se programa `setTimeout(() => window.location.reload(), 900)`. El delay deja ver el alert verde con el resumen antes del reload. No recarga si `total === 0` ni en caso de error, para que el usuario pueda corregir el rango.
-- Cambio mínimo, sin tocar backend ni el flujo de Liquidar (que ya hace POST normal + redirect).
-
-#### Fix grande — Columna `cuotas_equiv` (ponderado por multiplicador) en LiquidacionVendedor
-- **Bug:** el detalle de liquidación mostraba "Cuota 1 (25 boleta/s)" cuando en realidad correspondía 34 (17 PATA1 + 7×2 PATA2 + 1×3 PATA3). El monto $510.000 ya estaba bien (porque `talonera.valor_cuota` ya encodea el multiplicador), pero el conteo de boletas era el literal.
-- **Decisión de modelo:** agregar columna nueva `LiquidacionVendedor.cuotas_equiv` (Integer, default 0) para guardar el ponderado al insertar. `cuotas_vendidas` se conserva como el conteo literal de boletas (para tooltip / referencia histórica).
-  - `app/models.py`: `cuotas_equiv = Column(Integer, default=0)` entre `cuotas_vendidas` y `cuota_1_total`.
-  - `app/main.py`: migración `ALTER TABLE liquidaciones_vendedor ADD COLUMN cuotas_equiv INTEGER DEFAULT 0` con detección de dialect (postgresql usa `IF NOT EXISTS`, SQLite chequea `inspector.get_columns`). En el mismo bloque, **backfill**: para liquidaciones con `cuotas_vendidas > 0` y `cuotas_equiv = 0`, calcula `cuotas_equiv = sum(boleta.talonera.multiplicador)` por las boletas atadas. Si `contados_vendidos > 0` (caso mixto: no se puede distinguir cuotas vs contado por boleta), cae a `cuotas_vendidas` como fallback seguro.
-  - `app/routers/vendedores.py` `liquidar`: calcula `cuotas_equiv = sum((b.talonera.multiplicador or 1) for b in cuotas)` y lo pasa al constructor de `LiquidacionVendedor`.
-  - `app/routers/vendedores.py` `liquidacion_detalle`: el JSON ahora incluye `cuotas_equiv`. Si la columna estaba en 0 (registro pre-migración), calcula al vuelo desde `boletas_out` (cuando `contados_vendidos == 0`) o cae al literal.
-- **Frontend (`vendedor_detalle.html`):**
-  - **Historial de liquidaciones**: la columna "Cuotas" muestra `{{ liq.cuotas_equiv or liq.cuotas_vendidas }}` con tooltip "Boletas reales: 25". Encabezado actualizado: "Cuotas ponderadas por multiplicador de PATA (PATA 1 ×1, PATA 2 ×2, ...)".
-  - **Modal Detalle de liquidación**: línea "Cuota 1 (${d.cuotas_equiv ?? d.cuotas_vendidas} boleta/s)" usa el ponderado.
-  - **Modal Liquidar — preview vivo (`recalcular()`)**: separa `nCuotasReal` (conteo literal) de `nCuotasEq` (ponderado: `nCuotasEq += mult`). El span `lbl-n-cuotas` muestra `nCuotasEq` (que coincide con el historial); `lbl-sel-count` ("X boletas seleccionadas") sigue con el literal (`nCuotasReal + nContados`).
-- Ejemplo: 17 PATA1 + 7 PATA2 + 1 PATA3 = literal 25 / ponderado 34. Ambos se muestran (34 en grande, 25 en tooltip).
-
-#### Decisión — `/compradores/` "Todas" badge SÍ pondera, "X socios sin cobrador" NO
-- **Discusión iterativa:** primero se quiso ponderar el badge "Todas". Después Sergio aclaró que son socios (personas). Después rectificó: el badge "Todas" SÍ es volumen de bono (debe ponderar como las liquidaciones), pero la alerta "X socios sin cobrador" queda en literal (personas).
-- **Resultado** (`app/routers/compradores.py`):
-  - `tabs` ahora incluyen `multiplicador` (extraído de `Talonera.multiplicador`). El template no cambia — sólo recibe la clave extra.
-  - `total_compradores = sum(t["total"] * t["multiplicador"] for t in tabs)` — antes era `db.query(Comprador).count()`.
-  - `sin_cobrador` y `sin_vendedor` siguen como conteos literales (no se modifican).
-- Ejemplo: 39 X1 + 9 X2 + 1 X3 + 1 X4 + 3 X8 → badge "Todas" = 39+18+3+4+24 = **88** (antes mostraba 53).
-
-#### Feature — Renombrar zonas con propagación automática a socios
-- **Caso de uso:** Sergio quería poder cambiar el nombre de una zona y que los socios ya cargados aparezcan con el nombre nuevo automáticamente. Como `Comprador.zona_id` es FK por ID, sólo falta exponer el endpoint de edición — no hay datos a migrar.
-- **Backend (`app/routers/zonas.py`):**
-  - Nuevo endpoint `POST /zonas/{zid}/editar` (Form: `nombre`, `descripcion`). Trimea, valida no-vacío, valida unicidad excluyendo la propia zona (porque `Zona.nombre` es UNIQUE). Si el nombre cambió, actualiza; siempre actualiza `descripcion`. Redirige a `/zonas/?ok=editada` (verde), `?err=nombre_duplicado&n=NOMBRE` (rojo) o `?err=nombre_vacio` (amarillo).
-  - `listar` ahora acepta `ok`, `err`, `n` (Optional[str]) como query params para mostrar el flash en el template.
-- **Frontend (`app/templates/zonas.html`):**
-  - Alertas Bootstrap arriba de la tabla según `msg_ok` / `msg_err` / `msg_nombre`.
-  - Botón ✏️ outline-primary al lado del 🗑️ rojo en cada fila, con `data-zona-id`, `data-zona-nombre`, `data-zona-desc`, `data-zona-compradores`.
-  - Modal compartido `#modalEditar` con script IIFE que escucha `show.bs.modal`, lee los `data-*` del botón disparador, setea `form.action = '/zonas/{id}/editar'` y precarga inputs. Si la zona tiene compradores > 0, muestra hint: "Hay X socio(s) en esta zona — al guardar van a aparecer con el nombre nuevo automáticamente."
-  - `setTimeout(() => input.select(), 50)` para preseleccionar el texto del nombre al abrir.
+#### Renombrar zonas con propagación automática
+- Endpoint `POST /zonas/{zid}/editar`. Modal compartido con script IIFE para precargar inputs.
 
 ---
 
-### Sesión 10/05/2026 (cont. 4) — Detalle de vendedor: tabs Caja/Liquidaciones + historiales en modal
+### Sesión 10/05/2026 (cont. 4) — Detalle vendedor: tabs Caja/Liquidaciones + modales
 
-**Motivación:** la página `vendedor_detalle.html` se había vuelto larga y plana (tarjetas + 2 botones + cards por PATA + tabla de entregas + tabla de liquidaciones todo seguido). Sergio pidió separar en sub-secciones para que cada acción y su historial queden agrupados.
+- Nav-tabs Bootstrap: Caja (default, badge azul) / Liquidaciones (badge verde)
+- Historiales como modales (no collapse) a nivel raíz, NO dentro de tab-panes
+- Modales `#modalHistEntregas` y `#modalHistLiquidaciones` (modal-xl scrollable)
 
-#### Layout final del template `vendedor_detalle.html`
-1. **Header** (vendedor + badge jefe, mensajes de alerta `msg=liquidado`/`sin_pendientes`)
-2. **Tarjetas resumen** (En caja / Liquidado / En sistema) — comunes a ambas tabs
-3. **Leyenda de colores** — común
-4. **Nav-tabs Bootstrap** con dos pestañas:
-   - **Tab "Caja"** (default activa, badge azul = `ns.en_caja + ns.liq_pend_comp`)
-     - Botón rojo **Entregar a Caja** → abre `#modalEntregarCaja` (sin cambios)
-     - Botón outline-secondary **Historial de cajas entregadas** → abre `#modalHistEntregas`
-     - Cards por PATA con badges de boletas (idéntico al diseño previo)
-     - Modales `modalEditarEntrega{{e.id}}` quedaron dentro de la tab Caja (loop sobre `entregas_vendedor`)
-   - **Tab "Liquidaciones"** (badge verde = `liquidaciones|length`)
-     - Botón verde **Liquidar vendedor** con badge "X boleta(s)" → abre `#modalLiquidar` (sin cambios)
-     - Botón outline-secondary **Historial de liquidaciones** → abre `#modalHistLiquidaciones`
-5. **Modales a nivel raíz** (FUERA de las tabs, antes del `<script>`):
-   - `#modalDetalleLiq` — sin cambios, sigue envuelto en `{% if liquidaciones %}`
-   - `#modalLiquidar` — sin cambios
-   - `#modalEntregarCaja` — sin cambios
-   - **`#modalHistEntregas`** (nuevo): modal-xl scrollable con la tabla de entregas a caja del vendedor. Conserva los IDs `ec-tbody-vendedor` y `ec-row-{{e.id}}` que usa `agregarFilaEntrega()`. Footer muestra "N entrega(s) registrada(s)" + botón Cerrar.
-   - **`#modalHistLiquidaciones`** (nuevo): modal-xl scrollable con la tabla de historial. Conserva el `ondblclick="verDetalleLiq({{liq.id}})"` para abrir el modal de detalle existente. Si no hay liquidaciones, muestra estado vacío con ícono.
+---
 
-#### Iteraciones descartadas (lecciones)
-- **Primer intento:** historiales como `<div class="collapse">` desplegables debajo del botón con `data-bs-toggle="collapse"`. **Falló silencioso** — el botón no hacía nada (causa probable: data-api no enganchó o caché del navegador). 
-- **Segundo intento:** mismo collapse pero con `onclick="bootstrap.Collapse.getOrCreateInstance(...).toggle()"` directo. **Funcionó** pero Sergio prefirió modal.
-- **Decisión final:** modal — más limpio, consistente con `modalDetalleLiq` que ya existía, y no compite con el contenido de la tab.
+### Sesión 10/05/2026 (cont. 5) — Jefe de equipo + Total liquidados solo boletas propias
 
-#### Gotcha importante: modales y tab-panes
-- **Los modales NO pueden ir DENTRO de un `<div class="tab-pane">` que pueda estar inactivo.** El tab-pane inactivo tiene `display:none` y los hijos heredan eso (incluido el modal con `display:block`). Resultado: el modal "se abre" pero no se ve.
-- **Regla:** todos los modales viven a nivel raíz del bloque `{% block content %}` (o se mueven al `<body>` por Bootstrap al abrirse, pero por cómo está el HTML inicial, mejor a nivel raíz desde el principio).
+#### Concepto de negocio
+- Jefe de equipo (Ariel) recibe taloneras → institución lo liquida.
+- Ariel hace "Pasar Caja" a Pajaro → `Boleta.vendedor_id` cambia.
+- Pajaro cobra cuota 1 al socio.
+- Al cargar socio en `compradores.py`, `b.vendedor_id` se sobrescribe por `Zona.vendedor_id`. Boleta queda con `liquidacion_vendedor_id = liq_de_Ariel` pero `vendedor_id = Pajaro`. NO es bug.
 
-#### Validación de integridad
-- 41 `{% if %}` / 41 `{% endif %}`, 14 `{% for %}` / 14 `{% endfor %}` (balanceados)
-- `id="ec-tbody-vendedor"` único en el DOM (sigue siendo el target de `agregarFilaEntrega()`)
-- Sin código muerto: `toggleColl()` (función JS de la iteración con collapse) eliminada del script
+#### Backend (`vendedores.py`)
+- `liquidacion_detalle`: cada boleta trae `reasignado_a_id` / `reasignado_a_nombre` cuando `b.vendedor_id != liq.vendedor_id`.
+- `detalle`: cada boleta trae `liq_por_otro_nombre` / `liq_por_otro_es_jefe`.
 
-#### JS sin cambios
-- Todo el script al final del archivo quedó intacto: `renderPatas()`, `recalcular()`, `entregarCajaVendedor()`, `verDetalleLiq()`, etc. Sólo cambió la estructura HTML de envoltura.
+#### Frontend (`vendedor_detalle.html`)
+- Modal "Detalle de liquidación" de Ariel: alert info "N boletas pasaron a otro vendedor". Pills compuestos `[0733][→ Pajaro]`.
+- Detalle del vendedor (Pajaro): pills compuestos `[0733][★ Ariel]` con tooltip "Liquidado por Ariel (jefe de equipo)".
+
+#### Fix "Total liquidados" SOLO boletas propias
+- `total_boletas_liquidadas` y `total_boletas_liquidadas_eq` se calculan iterando `boletas` (ya filtradas por `vendedor_id=vid`) en lugar de sumar campos persistidos de `LiquidacionVendedor`.
+- Pool items CONTADO se siguen sumando.
+
+#### Lección técnica — truncamiento silencioso recurrente
+- Síntoma: Edits encadenados en archivos grandes pueden cortar el final sin error visible.
+- **Volvió a pasar el 11/05/2026 con main.py.**
+- Detección: `python3 -c "print(open(f,'rb').read()[-200:])"` muestra contenido real.
+- Patch: Python directo desde bash (no Edit). Validar con `ast.parse` y `env.get_template`.
+
+---
+
+### Sesión 11/05/2026 — PATA 0 (talonera 2 series, $10.000)
+
+**Contexto:** debido a situación económica, la institución sumó talonera barata con 2 números a $10.000 (vs PATA 1 con 3 números a $15.000). Es **2/3 exacto** de PATA 1, lo que ya habíamos previsto cuando se diseñó `multiplicador = num_series // 3`.
+
+**Decisiones:**
+- **Nombre:** `PATA 0` (display **X0**).
+- **num_cuotas:** definible al crear/editar talonera (ya soportado desde 07/05/2026).
+- **Display multiplicador:** numérico con 2 decimales (`× 0.67`). Helpers `fmtMult(m)` y `fmtPonderado(p)`.
+- **Redondeo agregados:** entero al mostrar, Float guardado en DB.
+
+**Cambios técnicos:**
+
+1. **`app/models.py`:**
+   - `Talonera.multiplicador`: `Integer → Float`, default `1.0`.
+   - `LiquidacionVendedor.cuotas_equiv`: `Integer → Float`, default `0.0`.
+
+2. **`app/routers/taloneras.py`:**
+   - Fórmula: `multiplicador = num_series / 3.0` (antes `num_series // 3`).
+   - **CRÍTICO: NO redondear**: `(2/3) * 15000 = 10000.0` exacto; con `round(2/3, 4) = 0.6667` da `10000.5` (error de $0.50).
+
+3. **`app/main.py` migración (entre num_digitos y cuota_1_total):**
+   - `ALTER TABLE taloneras ALTER COLUMN multiplicador TYPE DOUBLE PRECISION USING multiplicador::double precision` (postgres only; SQLite laxo).
+   - `UPDATE taloneras SET multiplicador = CAST(num_series AS DOUBLE PRECISION) / 3.0 WHERE tipo='COMUN' AND num_series > 0`.
+   - Mismo ALTER TYPE para `liquidaciones_vendedor.cuotas_equiv`.
+   - Backfill: `_mult` queda Float (no `int(...)`).
+
+4. **`app/schemas.py`:** `TaloneraCreate.multiplicador: int → float`.
+
+5. **`app/routers/vendedores.py`** (5 lugares con `int(multiplicador)` → `float`):
+   - `liquidacion_detalle`: dict boletas + fallback `cuotas_equiv` Float.
+   - `detalle`: `multiplicador` en `pendientes_items`, `total_boletas_liquidadas_eq`, `total_vendidas_pond`.
+   - `liquidar`: `cuotas_equiv` al persistir.
+
+6. **`app/routers/compradores.py`** badge "Todas":
+   - `multiplicador` en tabs: `int(...) → float(...)`.
+   - `total_compradores = round(sum(...))`.
+
+7. **Templates:**
+   - **`vendedor_detalle.html` (script):**
+     - Helpers JS: `fmtMult(m)` y `fmtPonderado(p)`.
+     - **CRÍTICO:** `parseInt(chk.dataset.mult) → parseFloat(...)` en `recalcular()`. `parseInt(0.67) = 0` rompía PATA 0.
+     - Tabla histórica: `{{ liq.cuotas_equiv | round(0) | int }}` con tooltip exacto.
+   - **`reportes.html`** (6 lugares): `| round(0) | int` en agregados.
+   - **`boletas.html`**: badge `×N` entero si entero, decimal si no.
+
+**Validación matemática (post-fix):**
+- PATA 0: mult = `2/3 ≈ 0.6667`, cuota 1 = `0.6667 × $15.000 = $10.000` exacto, contado = `0.6667 × 12 × $15.000 = $120.000` exacto, comisión 30% = `$36.000`.
+- Mixto: `5×PATA0 + 17×PATA1 + 7×PATA2 + 1×PATA3 = 37.33` → display `37`.
+
+**Truncamiento de main.py (segunda vez del bug):**
+- `ast.parse` falló con `SyntaxError: unterminated string literal (line 587)`. Últimas 12 líneas desaparecieron.
+- Read tool engaña: mostraba 599 líneas. Bash mostró 586 líneas, terminaba en `"Creando usua`.
+- Patch: Python directo appendeando bytes. Validar `ast.parse` después.
+- Pattern confirmado: archivos >500 líneas + 3+ Edits encadenados = riesgo de truncamiento.
+
+---
+
+### Sesión 14/05/2026 — Liquidación: restricción secuencial + resumen agrupado por mes calendario
+
+**Contexto:** dos correcciones a `/cobranza/liquidacion/{planilla_id}` (template `cobranza_liquidacion_detalle.html` + router `cobranza.py`).
+
+#### 1) Restricción secuencial al marcar cuotas
+- **Regla:** no se puede marcar la cuota N sin que la N-1 esté paga. Tampoco se puede desmarcar la N si la N+1 sigue marcada en el mes actual.
+- "Paga" incluye: anticipada (`n <= cuotas_anticipadas`, celda `×`), histórica (`historial[n]` con un mes distinto al actual, celda azul), o ya marcada en el mes actual (`sel[bid].has(n)`).
+- Backend pasa `boletas_info = {bid: {anticipadas, pactadas, historial: {cuota:mes}}}` al template (vía `| tojson`).
+- JS: helper `cuotaPaga(bid, n)` + checks dentro del handler de click. Alertas claras al usuario.
+
+#### 2) Resumen agrupado por MES CALENDARIO (no por número de cuota)
+- **Antes:** cada fila del resumen era una cuota (1..12) etiquetada por su mes — cuota 1 → JUNIO, cuota 2 → JULIO, etc. Si un socio pagaba 7 cuotas en mayo, aparecía 1 en JUNIO + 1 en JULIO + ... + 1 en DICIEMBRE.
+- **Ahora:** cada fila es el mes calendario en que se cobró. Si pagás 7 cuotas hoy en mayo, MAYO COL 1 = 7, el resto vacío.
+- Filas siguen siendo los 12 meses de la campaña (`meses_campana`), label "NOMBRE (num_mes)".
+- Server (`cobranza.py`): construye `resumen_otros[mes_calendario] = {1:0, 2:0, 3:0}` con TODOS los meses, excluyendo el mes actual (lo maneja JS).
+  ```python
+  for k, v in historial_map[b.id].items():
+      mes_pago = int(v)
+      if mes_pago == planilla.mes: continue
+      if 1 <= mes_pago <= 12: resumen_otros[mes_pago][col] += 1
+  ```
+- Template: cada `<tr data-mes="{{ num_mes }}">`, cada `<td>` de columna lleva `data-base="{{ resumen_otros[num_mes][col] }}"` (baseline server).
+- JS `recalcResumen()`:
+  - Suma todas las cuotas marcadas en `sel` agrupadas por columna → `cntMesActual = {1: N, 2: M, 3: K}`.
+  - Para cada fila: `c1 = base + (esMesActual ? cntMesActual[1] : 0)`. Mes actual recibe la suma total; los demás solo el baseline.
+
+#### Validación (mental + simulada con Python)
+- **Test 1 (7 cuotas mayo)**: hist={1:5..7:5}, col=1, planilla.mes=5 → MAYO COL 1 = 7, otros 0 ✓
+- **Test 2 (mixto)**: B101 col1 con {1:3,2:3,3:3,4:5,5:5} + B202 col2 con {1:4,2:4,3:5}, planilla.mes=5 → MARZO COL1=3, ABRIL COL2=2, MAYO COL1=2 + COL2=1 ✓
+
+#### Decisiones de UX confirmadas con Sergio
+- Mostrar TODOS los meses con históricos en el resumen (vista anual completa).
+- Anticipadas/históricas habilitan la siguiente cuota (no exigir re-marcar).
+
+#### Archivos modificados
+- `app/routers/cobranza.py` (`liquidacion_detalle`): reemplaza `resumen_inicial` por `resumen_otros`, agrega `boletas_info`.
+- `app/templates/cobranza_liquidacion_detalle.html`: filas `data-mes`/`data-base`, JS con `cuotaPaga`/secuencial/recálculo nuevo.
+
+---
+
+### Sesión 14/05/2026 (cont.) — Fix emplanillado + Rearmado de liquidaciones de vendedores
+
+#### Fix: la cobradora no veía sus boletas en Emplanillado
+- **Síntoma:** en `/cobranza/emplanillado`, al editar la planilla de una cobradora (ej. CARO) no aparecían boletas que en la sección Socios figuran como "En cobranza".
+- **Causa:** todas las queries de `cobranza.py` filtraban `condicion IN [VENDIDO, EN_COBRANZA]`. Pero una boleta puede quedar con `condicion = CAJA` tras liquidarse al vendedor — al cargar el socio (`compradores.py` ~línea 268) solo se cambia `SIN_VENDER → VENDIDO`, NO se re-deriva la condicion. La lista de Socios igual la muestra "En cobranza" porque ese badge se basa en `cobrador_id`, no en `condicion`.
+- **Fix aplicado:** en `app/routers/cobranza.py`, los 5 filtros `condicion.in_([VENDIDO, EN_COBRANZA])` → `condicion != CondicionBoleta.BAJA`. Quedan alineados con el criterio del badge "En cobranza" de Socios (basado en `cobrador_id`, excluye BAJA). Líneas: index resumen (57), armar_planilla (115), emplanillado resumen (140), disponibles de planilla_editar (185), planilla preview (552).
+- **OJO:** esto contradice la nota vieja "Filtros cobranza.py [VENDIDO, EN_COBRANZA] — NO tocar". Esa nota quedó obsoleta: el escenario CAJA-tras-liquidación no estaba contemplado.
+
+#### Script `rearmar_liquidaciones_10052026.py` — liquidaciones de vendedores al 10/05
+- **Contexto:** las liquidaciones viejas (sistema anterior) quedaron desfasadas — solo 26 de 53 boletas vendidas estaban liquidadas.
+- **Decisiones con Sergio:** una liquidación por CADA vendedor (agrupado por `Boleta.vendedor_id`); REEMPLAZAR las viejas (borrar cabeceras `LiquidacionVendedor` + limpiar `liquidacion_vendedor_id`); criterio "vendido" = `comprador_id IS NOT NULL` sin filtrar por `fecha_venta`.
+- **Qué hace:** borra todas las `LiquidacionVendedor` + limpia enlaces, agrupa boletas con socio por vendedor, crea 1 liquidación por vendedor con `fecha = 10/05/2026`, replica la matemática de `POST /vendedores/{vid}/liquidar`. Modalidad contado = boleta con `numero_especial` o `numero_especial_2`. `cuotas_extras_* = 0` (no derivables). No toca `vendedor_id` ni `condicion`.
+- **Flags:** `--dry-run` (no escribe) y `--yes` (sin confirmar). Sigue el patrón de `crear_liquidacion_ariel_10052026.py`.
+- **Aplicado en producción (Railway) 14/05/2026:** 53 boletas, 4 liquidaciones — ARIEL 13 (pond. 36), HUGO 26 (pond. 35), PAJARO 7 (pond. 10), VICTOR 7 (pond. 7). Cuota 1 total $1.320.000. Cero contados.
+- Verificado en sandbox con copia de la DB local: dry-run, apply e idempotencia OK.
+
+#### Notas operativas — correr scripts contra Railway desde Windows
+- Falta `psycopg2-binary` localmente → `py -3.12 -m pip install psycopg2-binary`.
+- La `DATABASE_URL` de Railway con host `postgres.railway.internal` NO funciona desde la PC — usar la URL **pública** (`DATABASE_PUBLIC_URL`, host tipo `xxxx.proxy.rlwy.net`).
+- Sintaxis PowerShell: `$env:DATABASE_URL="postgresql://..."` (sin espacio después de `$env:`).
+
+#### Lección técnica — mount stale del sandbox (volvió a pasar)
+- Tras editar `cobranza.py` con el file tool, el mount de bash mostró el archivo con 180 bytes nulos intercalados → `import` y `ast.parse` fallaban con "source code string cannot contain null bytes".
+- El archivo en disco estaba bien (confirmado con el Read tool, que es autoritativo).
+- Para testear en el sandbox: copiar `app/` a `/tmp/`, hacer `open(f,'rb').read().replace(b'\x00',b'')` en cada `.py`, y correr ahí.
 
 ---
 
 ### Pendientes / próximos pasos
-- **Talonera CONTADO Etapa 3**: sorteo cruzando Boleta.numero_especial y numero_especial_2
+- **Talonera CONTADO Etapa 3**: sorteo cruzando numero_especial y numero_especial_2
 - Sección especial de Recaudado (separada del dashboard)
 - Posible importación de datos desde el Excel original
 - Mejorar scraper automático (Selenium o Playwright)
-- **Validar con Sergio**: las columnas "Taloneras" y "Vendidas" en dashboard Por Zona quedaron con el mismo dato — ¿eliminar una o redefinir?
-- **Posible extensión visual**: aplicar el reemplazo "PATA N" → "XN" en todas las pantallas de la app (filtro Jinja global)
-- **Validar multi-up extracto**: probar 4-up y 9-up con datos reales (extracto con muchos ganadores) para ajustar font-sizes si hay overflow en las celdas. Si los ganadores no entran, bajar a ~4.5pt en 9-up o reducir cantidad de premios mostrados.
-- **Posible mejora UX detalle vendedor**: si Sergio lo pide, mostrar la leyenda de colores SOLO cuando la tab Caja está activa (ya que los colores aplican únicamente a las taloneras de esa tab). Hoy quedó arriba común.
+- Validar con Sergio: columnas "Taloneras" y "Vendidas" en dashboard Por Zona — ¿eliminar una?
+- Posible extensión: aplicar `PATA N → XN` en todas las pantallas (filtro Jinja global)
+- Validar multi-up extracto con datos reales
+- **PATA 0 — probar en producción**: crear talonera real en Railway (num_series=2, valor_cuota=10000, num_cuotas=?). Verificar cuota 1 = $10.000 exacto, modal Liquidar con selecciones mixtas PATA 0 + PATA 1, reportes muestran enteros sin decimales raros.
+- **Liquidación — probar en producción**: marcar 7 cuotas seguidas en mayo y verificar resumen MAYO=7. Probar bloqueo al saltar cuota (marcar cuota 9 sin 8 → alerta). Probar bloqueo al desmarcar fuera de orden.
 
 ---
-*Última actualización: 10 de mayo de 2026 (sesión cont. 4) — Detalle de vendedor reorganizado en tabs Caja/Liquidaciones con historiales en modal-xl + lecciones sobre modales dentro de tab-panes inactivos*
+*Última actualización: 14 de mayo de 2026 (cont.) — Fix emplanillado (cobranza.py: filtros `condicion IN [VENDIDO, EN_COBRANZA]` → `!= BAJA` en 5 lugares, alineado con el badge 'En cobranza' de Socios). Script `rearmar_liquidaciones_10052026.py`: rearma todas las liquidaciones de vendedores al 10/05 agrupando por `vendedor_id`, modo reemplazo, criterio `comprador_id IS NOT NULL`. Aplicado en Railway: 53 boletas, 4 liquidaciones. Notas operativas: psycopg2-binary + DATABASE_PUBLIC_URL para correr scripts desde Windows.*
