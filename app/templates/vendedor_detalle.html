@@ -504,17 +504,77 @@
             </div>
           </div>
 
-          {# ── Resumen de cálculo ── #}
+          {# ── Resumen VENDIDOS (en columnas) ── #}
+          {# Conteos ponderados: PATA 1 ×1, PATA 2 ×2, PATA 0 ×0.67. El número
+             grande es el ponderado (para contabilización); el chico, las boletas reales. #}
+          <div class="card border-success-subtle border mb-2">
+            <div class="card-body p-2">
+              <table class="table table-bordered table-sm text-center align-middle mb-0"
+                     style="font-size:.8rem;">
+                <thead>
+                  <tr class="table-success">
+                    <th colspan="4" class="fw-bold" style="letter-spacing:.08em;">VENDIDOS</th>
+                    <th rowspan="2" class="align-middle bg-white" style="min-width:140px;">
+                      TOTAL A RENDIR
+                    </th>
+                  </tr>
+                  <tr class="text-muted" style="font-size:.72rem;">
+                    <th>CUOTAS</th>
+                    <th>CONTADOS</th>
+                    <th>TOTAL VENDIDOS</th>
+                    <th>CUOTAS EXTRAS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td title="Boletas pasadas a cuotas, ponderadas por PATA">
+                      <div class="fs-5 fw-bold text-success" id="vd-cuotas-pond">0</div>
+                      <div class="text-muted" style="font-size:.68rem;">
+                        <span id="vd-cuotas-crudo">0</span> bol.
+                      </div>
+                    </td>
+                    <td title="Boletas al contado, ponderadas por PATA">
+                      <div class="fs-5 fw-bold text-success" id="vd-contados-pond">0</div>
+                      <div class="text-muted" style="font-size:.68rem;">
+                        <span id="vd-contados-crudo">0</span> bol.
+                      </div>
+                    </td>
+                    <td title="CUOTAS + CONTADOS (ponderado)">
+                      <div class="fs-5 fw-bold" id="vd-total-pond">0</div>
+                      <div class="text-muted" style="font-size:.68rem;">
+                        <span id="vd-total-crudo">0</span> bol.
+                      </div>
+                    </td>
+                    <td title="Cantidad de cuotas extras cobradas (cuota 2, 3, ...)">
+                      <div class="fs-5 fw-bold" id="vd-extras-cant">0</div>
+                      <div class="text-muted" style="font-size:.68rem;">cuotas</div>
+                    </td>
+                    <td class="bg-success-subtle">
+                      <div class="fs-4 fw-bold text-success" id="lbl-total">$0,00</div>
+                      <div class="text-muted" style="font-size:.68rem;">
+                        <span id="lbl-sel-count">0</span> boletas selec.
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {# ── Desglose del cálculo (detalle para verificar el total) ── #}
           <div class="card border-0 bg-light mb-3">
             <div class="card-body py-2 small">
-              <table class="table table-sm table-borderless mb-0" style="font-size:.82rem;">
+              <div class="text-muted fst-italic mb-1" style="font-size:.72rem;">
+                <i class="bi bi-calculator me-1"></i>Desglose del cálculo
+              </div>
+              <table class="table table-sm table-borderless mb-0" style="font-size:.76rem;">
                 <tbody>
                   <tr class="text-muted fst-italic">
-                    <td title="Ponderado: PATA 1 ×1, PATA 2 ×2, ...">Cuota 1 (<span id="lbl-n-cuotas">0</span> boletas, base PATA 1) — <span class="text-success">ya en mano del vendedor</span></td>
+                    <td title="Ponderado: PATA 1 ×1, PATA 2 ×2, PATA 0 ×0.67">Cuota 1 (<span id="lbl-n-cuotas">0</span> ponderado, base PATA 1) — <span class="text-success">ya en mano del vendedor</span></td>
                     <td class="text-end" id="lbl-cuota1">$0,00</td>
                   </tr>
                   <tr>
-                    <td>Contados cobrados (<span id="lbl-n-contados">0</span> boletas · <span id="lbl-nc">{{ pata1_nc }}</span> cuotas × $<span id="lbl-vc">{{ "%.0f"|format(pata1_vc) }}</span>)</td>
+                    <td>Contados cobrados (<span id="lbl-n-contados">0</span> ponderado · <span id="lbl-nc">{{ pata1_nc }}</span> cuotas × $<span id="lbl-vc">{{ "%.0f"|format(pata1_vc) }}</span>)</td>
                     <td class="text-end" id="lbl-monto-contados">$0,00</td>
                   </tr>
                   <tr class="text-danger">
@@ -532,12 +592,6 @@
                 </tbody>
               </table>
             </div>
-          </div>
-
-          <div class="alert alert-success py-3 text-center mb-3">
-            <div class="small text-muted mb-1">Total que rinde el vendedor a la organización</div>
-            <div class="fs-3 fw-bold" id="lbl-total">$0,00</div>
-            <div class="small text-muted mt-1"><span id="lbl-sel-count">0</span> boletas seleccionadas</div>
           </div>
 
           <div>
@@ -1027,8 +1081,11 @@ function recalcular() {
   // Cada boleta vale mult × PATA1_VC (cuota1) o mult × PATA1_NC × PATA1_VC (contado).
   // nCuotasEq = ponderado por multiplicador (lo que muestra el historial).
   // nCuotasReal = conteo literal de boletas (para "X boletas seleccionadas").
+  // *Eq = ponderado por multiplicador de PATA (PATA 1 ×1, PATA 2 ×2, PATA 0 ×0.67)
+  //        → es el número que se usa para contabilización.
+  // *Real = conteo literal de boletas físicas.
   let nCuotasEq = 0, nCuotasReal = 0, cuota1 = 0;
-  let nContados = 0, montoContados = 0;
+  let nContadosEq = 0, nContados = 0, montoContados = 0;
 
   document.querySelectorAll('.boleta-chk:checked').forEach(chk => {
     // parseFloat (no parseInt) para soportar PATA 0 (mult 0.67). parseInt(0.67) = 0 → rompería todo.
@@ -1040,6 +1097,7 @@ function recalcular() {
     if (bdg) actualizarEstiloBadge(bdg, true, modalidad !== 'cuotas');
     if (modalidad === 'contado' || modalidad === 'contado2') {
       nContados++;
+      nContadosEq += mult;          // ponderado: PATA 1 ×1, PATA 2 ×2, PATA 0 ×0.67
       montoContados += mult * PATA1_NC * PATA1_VC;  // mult × total_pata1
     } else {
       nCuotasReal++;
@@ -1057,8 +1115,19 @@ function recalcular() {
   const habilitar   = (nSel > 0) || (extrasCant > 0 && extrasValor > 0);
 
   const el = id => document.getElementById(id);
-  if (el('lbl-n-cuotas'))      el('lbl-n-cuotas').textContent    = nCuotasEq;
-  if (el('lbl-n-contados'))    el('lbl-n-contados').textContent  = nContados;
+
+  // ── Tabla VENDIDOS (ponderado grande + crudo chico) ──
+  if (el('vd-cuotas-pond'))    el('vd-cuotas-pond').textContent   = fmtPonderado(nCuotasEq);
+  if (el('vd-cuotas-crudo'))   el('vd-cuotas-crudo').textContent  = nCuotasReal;
+  if (el('vd-contados-pond'))  el('vd-contados-pond').textContent = fmtPonderado(nContadosEq);
+  if (el('vd-contados-crudo')) el('vd-contados-crudo').textContent= nContados;
+  if (el('vd-total-pond'))     el('vd-total-pond').textContent    = fmtPonderado(nCuotasEq + nContadosEq);
+  if (el('vd-total-crudo'))    el('vd-total-crudo').textContent   = nCuotasReal + nContados;
+  if (el('vd-extras-cant'))    el('vd-extras-cant').textContent   = extrasCant;
+
+  // ── Desglose del cálculo ──
+  if (el('lbl-n-cuotas'))      el('lbl-n-cuotas').textContent    = fmtPonderado(nCuotasEq);
+  if (el('lbl-n-contados'))    el('lbl-n-contados').textContent  = fmtPonderado(nContadosEq);
   if (el('lbl-n-extras'))      el('lbl-n-extras').textContent    = extrasCant;
   if (el('lbl-pct-cuotas'))    el('lbl-pct-cuotas').textContent  = pctCuotas;
   if (el('lbl-pct-contados'))  el('lbl-pct-contados').textContent= pctContados;
