@@ -799,38 +799,53 @@
                  aria-labelledby="liqMesH{{ grupo.key }}">
               <div class="accordion-body p-0">
                 <div class="table-responsive">
-                  <table class="table table-sm align-middle mb-0 small table-hover" style="font-size:.82rem;">
+                  {# Tabla en formato VENDIDOS: CUOTAS / CONTADOS / TOTAL VENDIDOS,
+                     todo ponderado por multiplicador de PATA (número grande) con el
+                     conteo crudo de boletas debajo en chico. #}
+                  <table class="table table-sm align-middle mb-0 small table-hover text-center"
+                         style="font-size:.82rem;">
                     <thead class="table-light">
                       <tr>
-                        <th>Fecha</th>
-                        <th class="text-center" title="Cuotas ponderadas por multiplicador de PATA (PATA 1 ×1, PATA 2 ×2, ...). Cuota 1 ya en mano del vendedor.">Cuotas</th>
-                        <th class="text-center">Contados</th>
-                        <th class="text-end">Monto contados</th>
-                        <th class="text-center">% Cont.</th>
-                        <th class="text-center" title="Cuotas extras cobradas (cuota 2, 3, ...)">Extras</th>
-                        <th class="text-end">Monto extras</th>
-                        <th class="text-center">% Cuot.</th>
-                        <th class="text-end fw-semibold text-success" title="Total que el vendedor rinde a la organización">Total rinde</th>
-                        <th>Obs.</th>
-                        {% if user and user.is_admin %}<th class="text-end" style="width:50px;"></th>{% endif %}
+                        <th rowspan="2" class="align-middle text-start">Fecha</th>
+                        <th colspan="3" class="table-success fw-bold"
+                            style="letter-spacing:.06em;">VENDIDOS</th>
+                        <th rowspan="2" class="align-middle"
+                            title="Cantidad de cuotas extras cobradas (cuota 2, 3, ...)">CUOTAS<br>EXTRAS</th>
+                        <th rowspan="2" class="align-middle text-end text-success"
+                            title="Total que el vendedor rinde a la organización">TOTAL A<br>RENDIR</th>
+                        <th rowspan="2" class="align-middle text-start">Obs.</th>
+                        {% if user and user.is_admin %}<th rowspan="2" style="width:40px;"></th>{% endif %}
+                      </tr>
+                      <tr class="text-muted" style="font-size:.72rem;">
+                        <th title="Boletas en cuotas, ponderadas por PATA">CUOTAS</th>
+                        <th title="Boletas al contado, ponderadas por PATA">CONTADOS</th>
+                        <th title="CUOTAS + CONTADOS (ponderado)">TOTAL VENDIDOS</th>
                       </tr>
                     </thead>
                     <tbody>
                       {% for liq in grupo.liquidaciones %}
+                      {% set _cu_eq = liq.cuotas_equiv or liq.cuotas_vendidas or 0 %}
+                      {% set _co_eq = liq.contados_equiv or liq.contados_vendidos or 0 %}
                       <tr style="cursor:pointer;" ondblclick="verDetalleLiq({{ liq.id }})"
                           title="Doble-click para ver el detalle de esta liquidación">
-                        <td class="text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
-                        <td class="text-center" title="Boletas reales: {{ liq.cuotas_vendidas }} · Ponderado exacto: {{ '%.2f'|format(liq.cuotas_equiv or liq.cuotas_vendidas) }}">{{ ((liq.cuotas_equiv or liq.cuotas_vendidas) | round(0) | int) }}</td>
-                        <td class="text-center">{{ liq.contados_vendidos }}</td>
-                        <td class="text-end">${{ '%.2f'|format(liq.monto_contados or 0) }}</td>
-                        <td class="text-center text-muted">{{ liq.comision_contados_pct }}%</td>
-                        <td class="text-center">{{ liq.cuotas_extras_cantidad or 0 }}</td>
-                        <td class="text-end">${{ '%.2f'|format(liq.cuotas_extras_monto or 0) }}</td>
-                        <td class="text-center text-muted">{{ liq.comision_cuotas_pct }}%</td>
+                        <td class="text-start text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
+                        <td title="Boletas reales: {{ liq.cuotas_vendidas }} · Ponderado exacto: {{ '%.2f'|format(_cu_eq) }}">
+                          <span class="fw-bold text-success">{{ _cu_eq | round(0) | int }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">{{ liq.cuotas_vendidas }} bol.</span>
+                        </td>
+                        <td title="Boletas reales: {{ liq.contados_vendidos }} · Ponderado exacto: {{ '%.2f'|format(_co_eq) }} · Monto contados: ${{ '%.2f'|format(liq.monto_contados or 0) }} ({{ liq.comision_contados_pct }}% comisión)">
+                          <span class="fw-bold text-success">{{ _co_eq | round(0) | int }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">{{ liq.contados_vendidos }} bol.</span>
+                        </td>
+                        <td title="Total ponderado vendido (cuotas + contados)">
+                          <span class="fw-bold">{{ (_cu_eq + _co_eq) | round(0) | int }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">{{ liq.cuotas_vendidas + liq.contados_vendidos }} bol.</span>
+                        </td>
+                        <td title="Monto extras: ${{ '%.2f'|format(liq.cuotas_extras_monto or 0) }} ({{ liq.comision_cuotas_pct }}% comisión)">{{ liq.cuotas_extras_cantidad or 0 }}</td>
                         <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_a_rendir or 0) }}</td>
-                        <td class="text-muted fst-italic">{{ liq.observacion or "—" }}</td>
+                        <td class="text-start text-muted fst-italic">{{ liq.observacion or "—" }}</td>
                         {% if user and user.is_admin %}
-                        <td class="text-end" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
+                        <td onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
                           <form method="post" action="/vendedores/liquidaciones/{{ liq.id }}/eliminar"
                                 class="d-inline" onsubmit="return confirmEliminarLiq(this);"
                                 title="Eliminar esta liquidación (solo admin)">
@@ -845,9 +860,22 @@
                     </tbody>
                     <tfoot class="table-light">
                       <tr style="font-weight:600;">
-                        <td class="text-end" colspan="8">Total {{ grupo.label }}:</td>
+                        <td class="text-start">Total {{ grupo.label }}:</td>
+                        <td>
+                          <span class="text-success">{{ grupo.total_cuotas_eq | round(0) | int }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">{{ grupo.total_cuotas_crudo }} bol.</span>
+                        </td>
+                        <td>
+                          <span class="text-success">{{ grupo.total_contados_eq | round(0) | int }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">{{ grupo.total_contados_crudo }} bol.</span>
+                        </td>
+                        <td>
+                          <span>{{ (grupo.total_cuotas_eq + grupo.total_contados_eq) | round(0) | int }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">{{ grupo.total_cuotas_crudo + grupo.total_contados_crudo }} bol.</span>
+                        </td>
+                        <td>{{ grupo.total_extras }}</td>
                         <td class="text-end text-success">${{ '%.2f'|format(grupo.total_rinde) }}</td>
-                        <td class="text-muted small">Ganó: <span class="text-success fw-bold">${{ '{:,.0f}'.format(grupo.total_ingresos)|replace(',', '.') }}</span></td>
+                        <td class="text-start text-muted small">Ganó: <span class="text-success fw-bold">${{ '{:,.0f}'.format(grupo.total_ingresos)|replace(',', '.') }}</span></td>
                         {% if user and user.is_admin %}<td></td>{% endif %}
                       </tr>
                     </tfoot>

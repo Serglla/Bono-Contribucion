@@ -114,6 +114,10 @@ class LiquidacionVendedor(Base):
     comision_cuotas    = Column(Float, default=0.0)
     # Contados
     contados_vendidos  = Column(Integer, default=0)
+    # Ponderado por multiplicador de PATA (mismo criterio que cuotas_equiv).
+    # contados_vendidos guarda el conteo literal de boletas; contados_equiv el ponderado
+    # (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, ...). deferred: puede no existir en DB vieja.
+    contados_equiv     = deferred(Column(Float, default=0.0))
     monto_contados     = Column(Float, default=0.0)   # num_cuotas × valor_cuota × n boletas
     comision_contados_pct = Column(Float, default=30.0)
     comision_contados  = Column(Float, default=0.0)

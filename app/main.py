@@ -580,6 +580,49 @@ def create_default_admin():
             db.rollback()
             print("Backfill cuotas_equiv: " + str(e))
 
+        # Migrar columna contados_equiv (contados ponderados por multiplicador de PATA)
+        try:
+            _dialect_ceq = engine.dialect.name
+            if _dialect_ceq == "postgresql":
+                db.execute(text("ALTER TABLE liquidaciones_vendedor ADD COLUMN IF NOT EXISTS contados_equiv DOUBLE PRECISION DEFAULT 0.0"))
+            else:
+                _cols_ceq = [c["name"] for c in inspector.get_columns("liquidaciones_vendedor")]
+                if "contados_equiv" not in _cols_ceq:
+                    db.execute(text("ALTER TABLE liquidaciones_vendedor ADD COLUMN contados_equiv REAL DEFAULT 0.0"))
+            db.commit()
+            print("Migracion contados_equiv liquidaciones_vendedor: OK")
+        except Exception as e:
+            db.rollback()
+            print("Migracion contados_equiv liquidaciones_vendedor: " + str(e))
+
+        # Backfill contados_equiv para liquidaciones existentes:
+        # Suma el multiplicador de la PATA de cada boleta CONTADO (numero_especial o
+        # numero_especial_2 no nulo) atada a la liquidacion. Idempotente: solo procesa
+        # filas con contados_equiv en 0/NULL y contados_vendidos > 0.
+        try:
+            _liqs_ceq = db.query(models.LiquidacionVendedor).filter(
+                ((models.LiquidacionVendedor.contados_equiv == 0)
+                 | (models.LiquidacionVendedor.contados_equiv.is_(None))),
+                models.LiquidacionVendedor.contados_vendidos > 0,
+            ).all()
+            _bf_ceq = 0
+            for _liq in _liqs_ceq:
+                _bs = db.query(models.Boleta).filter_by(liquidacion_vendedor_id=_liq.id).all()
+                _eq = 0.0
+                for _b in _bs:
+                    _es_cont = (_b.numero_especial is not None) or (_b.numero_especial_2 is not None)
+                    if not _es_cont:
+                        continue
+                    _eq += float((_b.talonera.multiplicador or 1.0) if _b.talonera else 1.0)
+                _liq.contados_equiv = _eq if _eq > 0 else float(_liq.contados_vendidos or 0)
+                _bf_ceq += 1
+            if _bf_ceq:
+                db.commit()
+                print("Backfill contados_equiv: " + str(_bf_ceq) + " liquidacion/es")
+        except Exception as e:
+            db.rollback()
+            print("Backfill contados_equiv: " + str(e))
+
 
         if not db.query(models.User).filter_by(username="admin").first():
             import logging

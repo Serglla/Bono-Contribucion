@@ -451,6 +451,102 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     })
 
 
+@router.get("/historial-liquidaciones", response_class=HTMLResponse)
+async def historial_liquidaciones(request: Request, db: Session = Depends(get_db)):
+    """Historial de liquidaciones agrupado por semana (lunes a domingo) y, dentro
+    de cada semana, por vendedor. Cada celda VENDIDOS va ponderada por multiplicador
+    de PATA (PATA 0 x0.67, PATA 1 x1, PATA 2 x2, ...)."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "ver"):
+        raise HTTPException(403, "Sin permiso")
+
+    from datetime import datetime as _dt, timedelta as _td
+    _MESES_ABREV = ["", "ene", "feb", "mar", "abr", "may", "jun",
+                    "jul", "ago", "sep", "oct", "nov", "dic"]
+
+    # Nombre de vendedor por id (incluye inactivos para no perder historial)
+    nombres_vendedores = {v.id: v.nombre for v in db.query(models.Vendedor).all()}
+
+    liquidaciones = (
+        db.query(models.LiquidacionVendedor)
+        .order_by(models.LiquidacionVendedor.fecha.desc())
+        .all()
+    )
+
+    semanas = {}
+    for liq in liquidaciones:
+        if not liq.fecha:
+            continue
+        f = liq.fecha
+        lunes = (f - _td(days=f.weekday())).date()   # lunes de esa semana
+        domingo = lunes + _td(days=6)
+        key = lunes.isoformat()
+        if key not in semanas:
+            semanas[key] = {
+                "key": key,
+                "label": (
+                    f"{lunes.day:02d}/{_MESES_ABREV[lunes.month]} - "
+                    f"{domingo.day:02d}/{_MESES_ABREV[domingo.month]}/{domingo.year}"
+                ),
+                "vendedores": {},
+                "n_liquidaciones": 0,
+                "tot_cuotas_eq": 0.0, "tot_cuotas_crudo": 0,
+                "tot_contados_eq": 0.0, "tot_contados_crudo": 0,
+                "tot_extras": 0, "tot_rinde": 0.0,
+            }
+        sem = semanas[key]
+        vid = liq.vendedor_id
+        if vid not in sem["vendedores"]:
+            sem["vendedores"][vid] = {
+                "vendedor_id": vid,
+                "nombre": nombres_vendedores.get(vid, "?"),
+                "n_liquidaciones": 0,
+                "cuotas_eq": 0.0, "cuotas_crudo": 0,
+                "contados_eq": 0.0, "contados_crudo": 0,
+                "extras": 0, "rinde": 0.0,
+            }
+        fila = sem["vendedores"][vid]
+        _cu_eq = float(liq.cuotas_equiv or liq.cuotas_vendidas or 0)
+        _co_eq = float(liq.contados_equiv or liq.contados_vendidos or 0)
+        _crudo_cu = int(liq.cuotas_vendidas or 0)
+        _crudo_co = int(liq.contados_vendidos or 0)
+        _ext = int(liq.cuotas_extras_cantidad or 0)
+        _rinde = float(liq.total_a_rendir or 0)
+        fila["n_liquidaciones"] += 1
+        fila["cuotas_eq"]      += _cu_eq
+        fila["cuotas_crudo"]   += _crudo_cu
+        fila["contados_eq"]    += _co_eq
+        fila["contados_crudo"] += _crudo_co
+        fila["extras"]         += _ext
+        fila["rinde"]          += _rinde
+        sem["n_liquidaciones"]    += 1
+        sem["tot_cuotas_eq"]      += _cu_eq
+        sem["tot_cuotas_crudo"]   += _crudo_cu
+        sem["tot_contados_eq"]    += _co_eq
+        sem["tot_contados_crudo"] += _crudo_co
+        sem["tot_extras"]         += _ext
+        sem["tot_rinde"]          += _rinde
+
+    # Semana mas reciente arriba; vendedores ordenados por nombre
+    historial_semanal = []
+    for key in sorted(semanas.keys(), reverse=True):
+        sem = semanas[key]
+        sem["vendedores"] = sorted(
+            sem["vendedores"].values(), key=lambda r: (r["nombre"] or "").lower()
+        )
+        historial_semanal.append(sem)
+
+    _hoy = _dt.utcnow().date()
+    semana_actual_key = (_hoy - _td(days=_hoy.weekday())).isoformat()
+
+    return templates.TemplateResponse(request, "vendedor_historial_liquidaciones.html", {
+        "user": user,
+        "historial_semanal": historial_semanal,
+        "semana_actual_key": semana_actual_key,
+    })
+
+
+
 @router.get("/{vid}/detalle", response_class=HTMLResponse)
 async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
@@ -800,6 +896,12 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 "total_ingresos": 0.0,
                 "total_rinde": 0.0,
                 "total_boletas": 0,
+                # Totales ponderados para el resumen en columnas VENDIDOS
+                "total_cuotas_eq": 0.0,
+                "total_cuotas_crudo": 0,
+                "total_contados_eq": 0.0,
+                "total_contados_crudo": 0,
+                "total_extras": 0,
             }
         g = grupos_mes_dict[key]
         g["liquidaciones"].append(liq)
@@ -807,7 +909,14 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         # reasignadas a otro vendedor — mismo criterio que la tarjeta header).
         g["total_ingresos"] += ingreso_por_liq.get(liq.id, 0.0)
         g["total_rinde"] += (liq.total_a_rendir or 0)
-        g["total_boletas"] += (liq.cuotas_equiv or liq.cuotas_vendidas or 0) + (liq.contados_vendidos or 0)
+        _liq_cuotas_eq   = float(liq.cuotas_equiv or liq.cuotas_vendidas or 0)
+        _liq_contados_eq = float(liq.contados_equiv or liq.contados_vendidos or 0)
+        g["total_boletas"]        += _liq_cuotas_eq + _liq_contados_eq
+        g["total_cuotas_eq"]      += _liq_cuotas_eq
+        g["total_cuotas_crudo"]   += int(liq.cuotas_vendidas or 0)
+        g["total_contados_eq"]    += _liq_contados_eq
+        g["total_contados_crudo"] += int(liq.contados_vendidos or 0)
+        g["total_extras"]         += int(liq.cuotas_extras_cantidad or 0)
 
     # Orden cronológico inverso: mes actual primero, luego pasados (más reciente arriba)
     liquidaciones_por_mes = sorted(
@@ -930,6 +1039,11 @@ async def liquidar(
         for b in contados_b
     )
     contados_count = len(contados_b)
+    # Ponderado por multiplicador de PATA (PATA 0 x0.67, PATA 1 x1, PATA 2 x2, ...)
+    contados_equiv = sum(
+        float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
+        for b in contados_b
+    )
     com_contados   = round(monto_contados * comision_contados_pct / 100, 2)
 
     # Cuotas extras: input manual (cantidad × valor)
@@ -954,6 +1068,7 @@ async def liquidar(
         comision_cuotas_pct=comision_cuotas_pct,
         comision_cuotas=com_cuotas,
         contados_vendidos=contados_count,
+        contados_equiv=contados_equiv,
         monto_contados=monto_contados,
         comision_contados_pct=comision_contados_pct,
         comision_contados=com_contados,
