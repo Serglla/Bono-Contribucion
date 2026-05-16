@@ -2,14 +2,14 @@
 {% block title %}Vendedores{% endblock %}
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h4 class="fw-bold mb-0"><i class="bi bi-person-badge text-danger me-2"></i>Vendedores</h4>
   <div class="d-flex gap-2">
-    <a href="/vendedores/historial-liquidaciones" class="btn btn-outline-success">
-      <i class="bi bi-receipt-cutoff me-1"></i>Historial de liquidaciones
+    <a href="/vendedores/historial-liquidaciones" class="btn btn-outline-success btn-sm-mobile">
+      <i class="bi bi-receipt-cutoff me-1"></i><span class="d-none d-sm-inline">Historial de liquidaciones</span><span class="d-sm-none">Historial</span>
     </a>
-    <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNuevo">
-      <i class="bi bi-plus-lg me-1"></i>Nuevo vendedor
+    <button class="btn btn-danger btn-sm-mobile" data-bs-toggle="modal" data-bs-target="#modalNuevo">
+      <i class="bi bi-plus-lg me-1"></i><span class="d-none d-sm-inline">Nuevo vendedor</span><span class="d-sm-none">Nuevo</span>
     </button>
   </div>
 </div>
@@ -28,8 +28,220 @@
 </div>
 {% endif %}
 
-<!-- Tabla vendedores -->
-<div class="card border-0 shadow-sm mb-4">
+<!-- ============================================================== -->
+<!-- VISTA CELULAR: tarjetas (oculta en md+)                        -->
+<!-- ============================================================== -->
+<div class="d-md-none mb-3">
+  {% for v in vendedores %}
+  {% set s = stats.get(v.id, {"caja":0,"liq_pendiente":0,"baja":0,"vendido":0,"liquidados":0,"liquidados_cuotas":0,"liquidados_contados":0}) %}
+  {% set cs = contado_stats.get(v.id, {"contado":0,"contado2":0}) %}
+  <div class="card border-0 shadow-sm mb-2 vendedor-card-mobile" style="cursor:pointer;"
+       ondblclick="window.location='/vendedores/{{ v.id }}/detalle'"
+       onclick="window.location='/vendedores/{{ v.id }}/detalle'">
+    <div class="card-body p-2">
+      <!-- Encabezado: nombre + acciones -->
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="d-flex align-items-center flex-wrap gap-1">
+          <span class="fw-bold" style="font-size:1rem;">{{ v.nombre }}</span>
+          {% if v.es_jefe_equipo %}
+          <span class="badge bg-warning text-dark" style="font-size:.65rem;">
+            <i class="bi bi-star-fill me-1"></i>Jefe
+          </span>
+          {% endif %}
+        </div>
+        <div class="d-flex gap-1" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
+          <form method="post" action="/vendedores/{{ v.id }}/toggle" class="d-inline">
+            <button class="btn btn-sm {% if v.activo %}btn-success{% else %}btn-outline-secondary{% endif %}" style="font-size:.65rem;padding:1px 6px;">
+              {% if v.activo %}Activo{% else %}Inactivo{% endif %}
+            </button>
+          </form>
+          <form method="post" action="/vendedores/{{ v.id }}/toggle-jefe" class="d-inline">
+            <button class="btn btn-sm {% if v.es_jefe_equipo %}btn-warning{% else %}btn-outline-secondary{% endif %}" style="padding:1px 6px;font-size:.7rem;">
+              <i class="bi bi-star{% if v.es_jefe_equipo %}-fill{% endif %}"></i>
+            </button>
+          </form>
+          <button class="btn btn-sm btn-outline-primary" style="padding:1px 6px;font-size:.7rem;"
+                  data-bs-toggle="modal" data-bs-target="#modalEditar{{ v.id }}">
+            <i class="bi bi-pencil"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Grilla de stats: 4 columnas -->
+      <div class="row g-1 text-center" style="font-size:.78rem;">
+        <!-- Caja -->
+        <div class="col-3">
+          <div class="text-muted text-uppercase" style="font-size:.6rem;letter-spacing:.3px;">Caja</div>
+          <div class="d-flex flex-column align-items-center gap-1 mt-1">
+            {% if s.caja > 0 %}
+              <span class="badge bg-primary" style="font-size:.72rem;">{{ s.caja }}</span>
+            {% endif %}
+            {% if s.liq_pendiente > 0 %}
+              <span class="badge" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.72rem;">{{ s.liq_pendiente }}</span>
+            {% endif %}
+            {% if s.caja == 0 and s.liq_pendiente == 0 %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+        <!-- Contado ★ -->
+        <div class="col-3">
+          <div class="text-muted text-uppercase" style="font-size:.6rem;letter-spacing:.3px;">Cont. ★</div>
+          <div class="mt-1">
+            {% if cs.get("contado", 0) > 0 %}
+              <span class="badge" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;font-size:.72rem;">
+                <i class="bi bi-star-fill me-1" style="font-size:.6rem;"></i>{{ cs.get("contado", 0) }}
+              </span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+        <!-- Contado 2x ★ -->
+        <div class="col-3">
+          <div class="text-muted text-uppercase" style="font-size:.6rem;letter-spacing:.3px;">Cont. 2× ★</div>
+          <div class="mt-1">
+            {% if cs.get("contado2", 0) > 0 %}
+              <span class="badge" style="background:#fff3cd;color:#664d03;border:1px solid #ffc10740;font-size:.72rem;">
+                <i class="bi bi-star-fill me-1" style="font-size:.6rem;"></i>{{ cs.get("contado2", 0) }}
+              </span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+        <!-- Bajas -->
+        <div class="col-3">
+          <div class="text-muted text-uppercase" style="font-size:.6rem;letter-spacing:.3px;">Bajas</div>
+          <div class="mt-1">
+            {% if s.baja > 0 %}
+              <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size:.72rem;">{{ s.baja }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Separador sutil -->
+      <hr class="my-2" style="opacity:.1;">
+
+      <!-- Liquidaciones: 3 columnas -->
+      <div class="row g-1 text-center" style="font-size:.78rem;">
+        <div class="col-4">
+          <div class="text-success text-uppercase fw-semibold" style="font-size:.6rem;letter-spacing:.3px;">Liq. Cuotas</div>
+          <div class="mt-1">
+            {% if s.liquidados_cuotas > 0 %}
+              <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size:.72rem;">{{ s.liquidados_cuotas }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="text-success text-uppercase fw-semibold" style="font-size:.6rem;letter-spacing:.3px;">Liq. Cont.</div>
+          <div class="mt-1">
+            {% if s.liquidados_contados > 0 %}
+              <span class="badge" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;font-size:.72rem;">{{ s.liquidados_contados }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="text-success text-uppercase fw-semibold" style="font-size:.6rem;letter-spacing:.3px;">Liq. Total</div>
+          <div class="mt-1">
+            {% if s.liquidados > 0 %}
+              <span class="badge bg-success" style="font-size:.72rem;">{{ s.liquidados }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="card border-0 shadow-sm">
+    <div class="card-body text-center text-muted py-4">Sin vendedores registrados</div>
+  </div>
+  {% endfor %}
+
+  <!-- Card TOTAL en celular -->
+  {% if vendedores and totales %}
+  <div class="card border-0 shadow-sm mb-2"
+       style="cursor:pointer;background:#f1f3f9;border-top:3px solid #1a2a4a !important;"
+       ondblclick="abrirHistorialTotal()"
+       onclick="abrirHistorialTotal()">
+    <div class="card-body p-2">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="fw-bold" style="color:#1a2a4a;">
+          <i class="bi bi-bar-chart-fill me-1"></i>TOTAL
+          <span class="text-muted fw-normal small ms-1">
+            ({{ vendedores|length }} vend.)
+          </span>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary"
+                style="padding:1px 6px;font-size:.7rem;"
+                onclick="event.stopPropagation();abrirHistorialTotal()"
+                title="Histórico mensual">
+          <i class="bi bi-calendar3"></i>
+        </button>
+      </div>
+      <div class="row g-1 text-center" style="font-size:.78rem;">
+        <div class="col-3">
+          <div class="text-muted text-uppercase" style="font-size:.6rem;letter-spacing:.3px;">Caja</div>
+          <div class="d-flex flex-column align-items-center gap-1 mt-1">
+            {% if totales.caja > 0 %}<span class="badge bg-primary" style="font-size:.72rem;">{{ totales.caja }}</span>{% endif %}
+            {% if totales.liq_pendiente > 0 %}<span class="badge" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.72rem;">{{ totales.liq_pendiente }}</span>{% endif %}
+            {% if totales.caja == 0 and totales.liq_pendiente == 0 %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="col-3">
+          <div class="text-muted text-uppercase" style="font-size:.6rem;letter-spacing:.3px;">Cont. ★</div>
+          <div class="mt-1">
+            {% if totales.contado > 0 %}<span class="badge" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;font-size:.72rem;"><i class="bi bi-star-fill me-1" style="font-size:.6rem;"></i>{{ totales.contado }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="col-3">
+          <div class="text-muted text-uppercase" style="font-size:.6rem;letter-spacing:.3px;">Cont. 2×</div>
+          <div class="mt-1">
+            {% if totales.contado2 > 0 %}<span class="badge" style="background:#fff3cd;color:#664d03;border:1px solid #ffc10740;font-size:.72rem;"><i class="bi bi-star-fill me-1" style="font-size:.6rem;"></i>{{ totales.contado2 }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="col-3">
+          <div class="text-muted text-uppercase" style="font-size:.6rem;letter-spacing:.3px;">Bajas</div>
+          <div class="mt-1">
+            {% if totales.baja > 0 %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size:.72rem;">{{ totales.baja }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <hr class="my-2" style="opacity:.1;">
+      <div class="row g-1 text-center" style="font-size:.78rem;">
+        <div class="col-4">
+          <div class="text-success text-uppercase fw-semibold" style="font-size:.6rem;letter-spacing:.3px;">Liq. Cuotas</div>
+          <div class="mt-1">
+            {% if totales.liquidados_cuotas > 0 %}<span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size:.72rem;">{{ totales.liquidados_cuotas }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="text-success text-uppercase fw-semibold" style="font-size:.6rem;letter-spacing:.3px;">Liq. Cont.</div>
+          <div class="mt-1">
+            {% if totales.liquidados_contados > 0 %}<span class="badge" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;font-size:.72rem;">{{ totales.liquidados_contados }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="text-success text-uppercase fw-semibold" style="font-size:.6rem;letter-spacing:.3px;">Liq. Total</div>
+          <div class="mt-1">
+            {% if totales.liquidados > 0 %}<span class="badge bg-success" style="font-size:.72rem;">{{ totales.liquidados }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="text-muted small px-1 mt-2">
+    <i class="bi bi-info-circle me-1"></i>Tocá una tarjeta para ver el detalle del vendedor.
+  </div>
+</div>
+
+<!-- ============================================================== -->
+<!-- VISTA ESCRITORIO: tabla (oculta en celular)                    -->
+<!-- ============================================================== -->
+<div class="card border-0 shadow-sm mb-4 d-none d-md-block">
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0" style="font-size:.9rem;">
       <thead class="table-light">
@@ -323,7 +535,7 @@ function abrirHistorialTotal() {
 <div class="alert alert-light border small mb-4 d-flex align-items-center gap-2">
   <i class="bi bi-info-circle text-primary"></i>
   <span>
-    Para <strong>entregar boletas a la caja de un vendedor</strong>, hacé doble clic sobre su fila —
+    Para <strong>entregar boletas a la caja de un vendedor</strong>, <span class="d-none d-md-inline">hacé doble clic sobre su fila</span><span class="d-md-none">tocá su tarjeta</span> —
     desde su detalle podés cargar las entregas y ver su historial.
   </span>
 </div>
