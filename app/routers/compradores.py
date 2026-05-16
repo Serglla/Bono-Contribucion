@@ -468,6 +468,13 @@ async def editar_form(comprador_id: int, request: Request, db: Session = Depends
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
     cobradores = db.query(models.Cobrador).filter(models.Cobrador.activo == True).order_by(models.Cobrador.nombre).all()
+    # Taloneras COMUNES para reasignacion de numero (boton "asignar nueva talonera")
+    taloneras_comunes = (
+        db.query(models.Talonera)
+        .filter(models.Talonera.tipo == "COMUN")
+        .order_by(models.Talonera.multiplicador, models.Talonera.nombre)
+        .all()
+    )
     cond_derivada = _derivar_condicion(c.boletas[0]) if c.boletas else "SIN_VENDER"
     return templates.TemplateResponse(request, "comprador_editar.html", {
         "user": user,
@@ -475,6 +482,7 @@ async def editar_form(comprador_id: int, request: Request, db: Session = Depends
         "zonas": zonas,
         "vendedores": vendedores,
         "cobradores": cobradores,
+        "taloneras_comunes": taloneras_comunes,
         "cond_derivada": cond_derivada,
     })
 
@@ -664,6 +672,115 @@ async def actualizar_cuotas(
     db.commit()
     from fastapi.responses import JSONResponse
     return JSONResponse({"ok": True, "cuotas_pagadas": b.cuotas_pagadas})
+
+
+@router.post("/{comprador_id}/boleta/{boleta_id}/reasignar-talonera")
+async def reasignar_talonera(
+    comprador_id: int, boleta_id: int, request: Request,
+    nueva_talonera_id: int = Form(...),
+    nuevo_numero: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Reasigna una boleta del socio a OTRO numero/talonera.
+    Caso de uso: el operador cargo el socio con el numero de talonera/boleta
+    equivocado y necesita corregirlo despues. Decision (Sergio 16/05/2026):
+    en lugar de mover datos entre dos registros (con sus referencias a
+    LiquidacionDetalle, planillas, etc.) hacemos un INTERCAMBIO de
+    (talonera_id, numero_principal, numeros_adicionales) entre la boleta
+    actual del socio (B1) y la boleta libre destino (B2). Asi:
+      - B1 conserva su id y todas las referencias externas, pero pasa a
+        representar el numero CORRECTO.
+      - B2 queda con la identidad del numero VIEJO (sigue SIN_VENDER, libre)
+        y puede ser asignada a otro socio en el futuro.
+    Validaciones:
+      - La boleta destino DEBE existir como Boleta pre-generada.
+      - Debe estar libre (sin comprador_id, condicion SIN_VENDER).
+      - La talonera destino debe ser COMUN (no CONTADO).
+      - El numero debe estar dentro del rango de la talonera.
+    """
+    from fastapi.responses import JSONResponse
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    b1 = db.query(models.Boleta).get(boleta_id)
+    if not b1 or b1.comprador_id != comprador_id:
+        return JSONResponse({"ok": False, "error": "Boleta no encontrada para este socio"}, status_code=404)
+
+    nueva_t = db.query(models.Talonera).get(nueva_talonera_id)
+    if not nueva_t:
+        return JSONResponse({"ok": False, "error": "Talonera no encontrada"}, status_code=404)
+    if (nueva_t.tipo or "COMUN") != "COMUN":
+        return JSONResponse({"ok": False, "error": "Solo se puede reasignar a taloneras COMUNES"}, status_code=400)
+
+    if nueva_t.numero_inicio is not None and nueva_t.numero_fin is not None:
+        if not (nueva_t.numero_inicio <= nuevo_numero <= nueva_t.numero_fin):
+            return JSONResponse({
+                "ok": False,
+                "error": f"El número {nuevo_numero} está fuera del rango de la talonera "
+                         f"({nueva_t.numero_inicio}-{nueva_t.numero_fin})"
+            }, status_code=400)
+
+    b2 = db.query(models.Boleta).filter(
+        models.Boleta.talonera_id == nueva_talonera_id,
+        models.Boleta.numero_principal == nuevo_numero,
+    ).first()
+
+    if not b2:
+        return JSONResponse({
+            "ok": False,
+            "error": f"El número {nuevo_numero} no existe en {nueva_t.nombre}. "
+                     f"Primero generá las boletas en /taloneras/."
+        }, status_code=404)
+
+    if b2.id == b1.id:
+        return JSONResponse({"ok": False, "error": "Es la misma boleta — no hay nada que cambiar"}, status_code=400)
+
+    # No permitir intercambiar con una boleta que ya tiene socio asignado
+    if b2.comprador_id is not None:
+        comp_other = db.query(models.Comprador).get(b2.comprador_id)
+        nombre_other = comp_other.apellido_nombre if comp_other else f"socio #{b2.comprador_id}"
+        return JSONResponse({
+            "ok": False,
+            "error": f"El número {nuevo_numero} de {nueva_t.nombre} ya está asignado a: {nombre_other}"
+        }, status_code=400)
+
+    # Estado no-libre: SIN_VENDER es el unico estado valido para una boleta destino
+    if b2.condicion and b2.condicion != CondicionBoleta.SIN_VENDER:
+        return JSONResponse({
+            "ok": False,
+            "error": f"El número {nuevo_numero} de {nueva_t.nombre} no está libre "
+                     f"(estado: {b2.condicion.value})"
+        }, status_code=400)
+
+    # ── INTERCAMBIO de identidad de talonera/numero entre B1 y B2 ──────────
+    from .taloneras import calcular_numeros
+
+    old_tal_id = b1.talonera_id
+    old_num    = b1.numero_principal
+    old_adic   = b1.numeros_adicionales
+
+    # B2 toma la identidad VIEJA (libre, en el lugar viejo)
+    b2.talonera_id        = old_tal_id
+    b2.numero_principal   = old_num
+    b2.numeros_adicionales = old_adic
+
+    # B1 toma la identidad NUEVA y mantiene todos sus datos de socio
+    b1.talonera_id      = nueva_talonera_id
+    b1.numero_principal = nuevo_numero
+    b1.numeros_adicionales = (
+        calcular_numeros(nuevo_numero, nueva_t.num_series or 1, nueva_t.offset_series or 0) or None
+    )
+
+    db.commit()
+
+    return JSONResponse({
+        "ok": True,
+        "boleta_id": b1.id,
+        "nuevo_numero": nuevo_numero,
+        "talonera_nombre": nueva_t.nombre,
+        "numeros_adicionales": b1.numeros_adicionales or "",
+    })
 
 
 @router.post("/{comprador_id}/eliminar")

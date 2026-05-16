@@ -21,7 +21,7 @@
         {% for b in comprador.boletas %}
         {% set _mod = '1pago' if (b.numero_especial and b.numero_especial_2) else ('2pagos' if b.numero_especial_2 else 'cuotas') %}
         <div class="boleta-wrap mb-2 border rounded bg-light">
-          <div class="d-flex align-items-center gap-2 px-2 py-1">
+          <div class="d-flex align-items-center gap-2 px-2 py-1 flex-wrap">
             <span class="badge bg-dark">{{ "%04d" % b.numero_principal }}</span>
             {% if b.numeros_adicionales %}
               {% for n in b.numeros_adicionales.split(', ') %}
@@ -29,6 +29,13 @@
               {% endfor %}
             {% endif %}
             <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.65rem;">{{ b.talonera.nombre if b.talonera else "" }}</span>
+            <button type="button"
+                    class="btn btn-outline-warning btn-sm py-0 px-2 btn-reasignar"
+                    style="font-size:.7rem;"
+                    data-boleta-id="{{ b.id }}"
+                    title="Si te equivocaste al cargar el número de talonera, podés reasignar este socio a otro número libre">
+              <i class="bi bi-arrow-repeat me-1"></i>Asignar nueva talonera
+            </button>
             <div class="ms-auto d-flex align-items-center gap-2">
               <span class="small text-muted">Cuotas pagas:</span>
               <input type="number" name="cpag_{{ b.id }}"
@@ -38,6 +45,47 @@
                      style="width:56px;">
               <span class="small text-muted">/ {{ b.cuotas_pactadas }}</span>
             </div>
+          </div>
+
+          <!-- Panel reasignacion talonera/numero (oculto por defecto) -->
+          <div class="reasignar-panel px-2 py-2 border-top bg-warning-subtle d-none"
+               data-boleta-id="{{ b.id }}"
+               data-url="/compradores/{{ comprador.id }}/boleta/{{ b.id }}/reasignar-talonera">
+            <div class="small text-warning-emphasis mb-2">
+              <i class="bi bi-exclamation-triangle-fill me-1"></i>
+              <strong>Reasignar a otra talonera/número.</strong>
+              El número viejo (<strong>{{ "%04d" % b.numero_principal }} {{ b.talonera.nombre if b.talonera else "" }}</strong>)
+              quedará libre y disponible para otro socio.
+            </div>
+            <div class="row g-2 align-items-end">
+              <div class="col-5">
+                <label class="form-label small mb-1 fw-semibold">Nueva talonera</label>
+                <select class="form-select form-select-sm sel-nueva-talonera">
+                  {% for t in taloneras_comunes %}
+                  <option value="{{ t.id }}"
+                          data-inicio="{{ t.numero_inicio or '' }}"
+                          data-fin="{{ t.numero_fin or '' }}"
+                          {% if b.talonera_id == t.id %}selected{% endif %}>
+                    {{ t.nombre }}{% if t.numero_inicio and t.numero_fin %} ({{ t.numero_inicio }}–{{ t.numero_fin }}){% endif %}
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-3">
+                <label class="form-label small mb-1 fw-semibold">Nuevo número</label>
+                <input type="number" class="form-control form-control-sm inp-nuevo-numero"
+                       placeholder="Ej: 1234" min="1">
+              </div>
+              <div class="col-4 d-flex gap-1">
+                <button type="button" class="btn btn-warning btn-sm flex-grow-1 btn-confirmar-reasignar">
+                  <i class="bi bi-check-lg me-1"></i>Confirmar
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm btn-cancelar-reasignar">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+            <div class="reasignar-status small mt-2"></div>
           </div>
 
           <!-- Bloque CONTADO (ETAPA 2) -->
@@ -353,6 +401,78 @@
     refreshNumbers(sel2Tal, sel2Num, tCONTADO2, curNe2);
   }
   document.querySelectorAll('.contado-block').forEach(initContadoBlock);
+
+  // ════════════════ REASIGNAR TALONERA / NUMERO ════════════════
+  // Mostrar / ocultar el panel
+  document.querySelectorAll('.btn-reasignar').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const bid = btn.dataset.boletaId;
+      const panel = document.querySelector(`.reasignar-panel[data-boleta-id="${bid}"]`);
+      if (!panel) return;
+      panel.classList.toggle('d-none');
+      // Limpiar status al reabrir
+      const status = panel.querySelector('.reasignar-status');
+      if (status) status.innerHTML = '';
+    });
+  });
+
+  // Cancelar
+  document.querySelectorAll('.btn-cancelar-reasignar').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.closest('.reasignar-panel').classList.add('d-none');
+    });
+  });
+
+  // Confirmar reasignacion (AJAX)
+  document.querySelectorAll('.btn-confirmar-reasignar').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const panel  = btn.closest('.reasignar-panel');
+      const url    = panel.dataset.url;
+      const selTal = panel.querySelector('.sel-nueva-talonera');
+      const inpNum = panel.querySelector('.inp-nuevo-numero');
+      const status = panel.querySelector('.reasignar-status');
+      const nuevaTalId = parseInt(selTal.value);
+      const nuevoNum   = parseInt(inpNum.value);
+
+      if (!nuevaTalId || !nuevoNum) {
+        status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Elegí una talonera y un número válido.';
+        return;
+      }
+      // Validacion local de rango
+      const opt = selTal.options[selTal.selectedIndex];
+      const ini = parseInt(opt.dataset.inicio);
+      const fin = parseInt(opt.dataset.fin);
+      if (ini && fin && (nuevoNum < ini || nuevoNum > fin)) {
+        status.innerHTML = `<i class="bi bi-x-circle text-danger"></i> El número debe estar entre ${ini} y ${fin}.`;
+        return;
+      }
+
+      const talNombre = opt.textContent.trim().split(' ')[0];
+      const numFmt    = String(nuevoNum).padStart(4, '0');
+      if (!confirm(`¿Confirmás reasignar este socio al número ${numFmt} de ${talNombre}?\n\nEl número viejo quedará libre.`)) return;
+
+      btn.disabled = true;
+      status.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Reasignando…';
+
+      try {
+        const fd = new FormData();
+        fd.append('nueva_talonera_id', nuevaTalId);
+        fd.append('nuevo_numero', nuevoNum);
+        const resp = await fetch(url, { method: 'POST', body: fd, credentials: 'include' });
+        const data = await resp.json();
+        if (data.ok) {
+          status.innerHTML = '<i class="bi bi-check-circle text-success"></i> ¡Listo! Recargando…';
+          setTimeout(() => location.reload(), 600);
+        } else {
+          status.innerHTML = `<i class="bi bi-x-circle text-danger"></i> ${data.error || 'No se pudo reasignar.'}`;
+          btn.disabled = false;
+        }
+      } catch (e) {
+        status.innerHTML = `<i class="bi bi-x-circle text-danger"></i> Error de red: ${e}`;
+        btn.disabled = false;
+      }
+    });
+  });
 })();
 </script>
 <style>
