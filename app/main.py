@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -30,6 +30,31 @@ app.include_router(backup.router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ─── PWA endpoints ────────────────────────────────────────────────────────────
+# El service worker y el manifest se sirven desde la raíz para que el "scope"
+# del SW cubra toda la app (si lo servimos desde /static/ solo cubriría /static/).
+@app.get("/service-worker.js", include_in_schema=False)
+def service_worker():
+    return FileResponse(
+        "app/static/service-worker.js",
+        media_type="application/javascript",
+        headers={
+            # Evitamos que el navegador cachee el SW: si lo cachea no detecta
+            # actualizaciones nuevas. El propio SW versiona los caches internos.
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Service-Worker-Allowed": "/",
+        },
+    )
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def manifest():
+    return FileResponse(
+        "app/static/manifest.webmanifest",
+        media_type="application/manifest+json",
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
