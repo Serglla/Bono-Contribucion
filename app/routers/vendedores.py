@@ -18,11 +18,17 @@ def _stats_bulk(db):
     - caja: CAJA sin liquidar (vendedor las tiene físicamente, sin liq_id)
     - liq_pendiente: CAJA con liq pero sin comprador cargado todavía
     - baja: BAJA (sub-estado informativo, solo viene de cobranza tras carga de socio)
-    - liquidados: TODAS las boletas del vendedor con liquidacion_vendedor_id != NULL,
-      sin importar condicion posterior. Es decir: cuántos números ya pasaron por
-      una liquidación firmada por este vendedor. Reemplaza a "vendido" (que contaba
-      boletas con socio cargado) en la vista de listado — Sergio prefiere ver el
-      total liquidado, mismo criterio que la tarjeta "Total liquidados" del detalle.
+    - liquidados_cuotas: ponderado por PATA de las boletas liquidadas EN CUOTAS
+      (snapshot guardado en LiquidacionVendedor.cuotas_equiv).
+    - liquidados_contados: ponderado por PATA de las boletas liquidadas AL CONTADO
+      (snapshot guardado en LiquidacionVendedor.contados_equiv) + items del pool
+      CONTADO declarados (números puros sin boleta).
+    - liquidados: TOTAL liquidados = liquidados_cuotas + liquidados_contados.
+      Reemplaza a "vendido" en la vista de listado — Sergio prefiere ver el total
+      liquidado, mismo criterio que la tarjeta "Total liquidados" del detalle.
+      OJO: se usan los SNAPSHOTS (cuotas_equiv, contados_equiv) y no la suma actual
+      de talonera.multiplicador, porque la boleta no guarda su modalidad — solo la
+      liquidación sabe distinguir cuotas vs contado.
     - vendido: se conserva la clave para compatibilidad (boletas con comprador_id).
     """
     # `liq_sin_comp` cuenta boletas CAJA con liq_id pero AÚN sin socio cargado.
@@ -52,10 +58,16 @@ def _stats_bulk(db):
         models.Boleta.vendedor_id.isnot(None)
     ).group_by(models.Boleta.vendedor_id, models.Boleta.condicion).all()
 
+    def _empty():
+        return {
+            "caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0,
+            "liquidados": 0, "liquidados_cuotas": 0, "liquidados_contados": 0,
+        }
+
     stats = {}
     for vid, cond, total, liq_sin_comp, sin_liq in rows:
         if vid not in stats:
-            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0, "liquidados": 0}
+            stats[vid] = _empty()
         if cond == CondicionBoleta.CAJA:
             stats[vid]["caja"] = int(sin_liq or 0)             # CAJA sin liquidar (físicas en mano)
             stats[vid]["liq_pendiente"] = int(liq_sin_comp or 0)  # CAJA con liq, sin socio aún
@@ -73,29 +85,25 @@ def _stats_bulk(db):
     ).group_by(models.Boleta.vendedor_id).all()
     for vid, total in vendidos_rows:
         if vid not in stats:
-            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0, "liquidados": 0}
+            stats[vid] = _empty()
         stats[vid]["vendido"] = total
 
-    # Liquidados: TODAS las boletas que pasaron por una liquidación firmada por
-    # este vendedor (sin importar si después se reasignaron a otro vendedor),
-    # ponderadas por el multiplicador de PATA (X1=1, X2=2, X3=3, ...). Plus
-    # los items del pool CONTADO declarados en esas liquidaciones (cuentan
-    # como 1 c/u, son números puros). Mismo criterio que pide Sergio:
-    # "todas las liquidadas por él, con el sistema que cuenta pata 1 x1, pata 2 x2".
-    liq_pond_rows = db.query(
+    # Liquidados — desglose cuotas vs contados.
+    # Usamos los snapshots cuotas_equiv y contados_equiv de cada LiquidacionVendedor
+    # (la boleta sola no guarda su modalidad; solo la liq distingue ambos).
+    liq_split_rows = db.query(
         models.LiquidacionVendedor.vendedor_id,
-        func.coalesce(func.sum(models.Talonera.multiplicador), 0)
-    ).join(
-        models.Boleta, models.Boleta.liquidacion_vendedor_id == models.LiquidacionVendedor.id
-    ).join(
-        models.Talonera, models.Talonera.id == models.Boleta.talonera_id
+        func.coalesce(func.sum(models.LiquidacionVendedor.cuotas_equiv), 0),
+        func.coalesce(func.sum(models.LiquidacionVendedor.contados_equiv), 0),
     ).group_by(models.LiquidacionVendedor.vendedor_id).all()
-    for vid, total in liq_pond_rows:
+    for vid, cuotas_eq, contados_eq in liq_split_rows:
         if vid not in stats:
-            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0, "liquidados": 0}
-        stats[vid]["liquidados"] = int(total or 0)
+            stats[vid] = _empty()
+        stats[vid]["liquidados_cuotas"]   = int(round(float(cuotas_eq or 0)))
+        stats[vid]["liquidados_contados"] = int(round(float(contados_eq or 0)))
 
     # Pool CONTADO declarados en liquidaciones del vendedor (números puros sin boleta).
+    # Cuentan como contado (1 c/u).
     pool_rows = db.query(
         models.LiquidacionVendedor.vendedor_id,
         func.count(models.LiquidacionContadoItem.id)
@@ -105,8 +113,15 @@ def _stats_bulk(db):
     ).group_by(models.LiquidacionVendedor.vendedor_id).all()
     for vid, total in pool_rows:
         if vid not in stats:
-            stats[vid] = {"caja": 0, "liq_pendiente": 0, "vendido": 0, "baja": 0, "liquidados": 0}
-        stats[vid]["liquidados"] = stats[vid].get("liquidados", 0) + int(total or 0)
+            stats[vid] = _empty()
+        stats[vid]["liquidados_contados"] += int(total or 0)
+
+    # Total = cuotas + contados (incluido pool).
+    for vid in stats:
+        stats[vid]["liquidados"] = (
+            stats[vid].get("liquidados_cuotas", 0)
+            + stats[vid].get("liquidados_contados", 0)
+        )
 
     return stats
 
@@ -365,12 +380,14 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     # (doble-click sobre la fila TOTAL).
     # ------------------------------------------------------------------
     totales = {
-        "caja":          sum(int(s.get("caja", 0))         for s in stats.values()),
-        "liq_pendiente": sum(int(s.get("liq_pendiente", 0))for s in stats.values()),
-        "contado":       sum(int(c.get("contado", 0))      for c in contado_stats.values()),
-        "contado2":      sum(int(c.get("contado2", 0))     for c in contado_stats.values()),
-        "liquidados":    sum(int(s.get("liquidados", 0))   for s in stats.values()),
-        "baja":          sum(int(s.get("baja", 0))         for s in stats.values()),
+        "caja":               sum(int(s.get("caja", 0))               for s in stats.values()),
+        "liq_pendiente":      sum(int(s.get("liq_pendiente", 0))      for s in stats.values()),
+        "contado":            sum(int(c.get("contado", 0))            for c in contado_stats.values()),
+        "contado2":           sum(int(c.get("contado2", 0))           for c in contado_stats.values()),
+        "liquidados_cuotas":  sum(int(s.get("liquidados_cuotas", 0))  for s in stats.values()),
+        "liquidados_contados":sum(int(s.get("liquidados_contados", 0))for s in stats.values()),
+        "liquidados":         sum(int(s.get("liquidados", 0))         for s in stats.values()),
+        "baja":               sum(int(s.get("baja", 0))               for s in stats.values()),
     }
 
     # --- Histórico mensual ---
