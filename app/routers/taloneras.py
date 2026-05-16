@@ -196,22 +196,42 @@ async def enumeracion(request: Request, db: Session = Depends(get_db)):
     if not auth_module.has_permission(user, 'taloneras', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
 
-    # Mapa numero_principal -> condicion para TODAS las boletas
+    # Mapa numero -> condicion para TODOS los números cubiertos por boletas.
+    # Cada boleta cubre su numero_principal + los numeros_adicionales (CSV).
+    # Por ejemplo una boleta PATA 1 cubre 3 números: 1 principal + 2 adicionales,
+    # y todos comparten la misma condición (VENDIDO / CAJA / etc.).
     boletas_dict: dict = {}
-    todas = db.query(models.Boleta).all()
-    for b in todas:
-        boletas_dict[b.numero_principal] = b.condicion.value
-
-    # Detectar repetidos: número_principal que también aparece como adicional de otra boleta
+    principales_set: set = set()
     adicionales_set: set = set()
+    todas = db.query(models.Boleta).all()
+
+    # 1ra pasada: registrar TODOS los números principales (tienen prioridad
+    # sobre cualquier adicional homónimo de otra boleta).
     for b in todas:
-        if b.numeros_adicionales:
-            for parte in b.numeros_adicionales.split(","):
-                try:
-                    adicionales_set.add(int(parte.strip()))
-                except ValueError:
-                    pass
-    repetidos = sum(1 for n in boletas_dict if n in adicionales_set)
+        cond = b.condicion.value
+        boletas_dict[b.numero_principal] = cond
+        principales_set.add(b.numero_principal)
+
+    # 2da pasada: registrar adicionales, sin pisar principales.
+    for b in todas:
+        if not b.numeros_adicionales:
+            continue
+        cond = b.condicion.value
+        for parte in b.numeros_adicionales.split(","):
+            try:
+                n_adic = int(parte.strip())
+            except ValueError:
+                continue
+            adicionales_set.add(n_adic)
+            # Si el número ya es principal de otra boleta, no lo pisamos
+            # (eso lo contamos como "repetidos" más abajo). Si no, hereda
+            # la condición de la boleta a la que pertenece.
+            if n_adic not in principales_set:
+                boletas_dict.setdefault(n_adic, cond)
+
+    # Repetidos: números que aparecen como principal de una boleta Y
+    # como adicional de otra (indicador de data inconsistente).
+    repetidos = sum(1 for n in principales_set if n in adicionales_set)
 
     # Rango fijo 0001-9999
     numeros = []
