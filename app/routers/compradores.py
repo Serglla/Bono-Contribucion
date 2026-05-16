@@ -783,6 +783,99 @@ async def reasignar_talonera(
     })
 
 
+@router.post("/{comprador_id}/boleta/{boleta_id}/liberar")
+async def liberar_boleta(
+    comprador_id: int, boleta_id: int, request: Request,
+    confirmacion: str = Form(""),
+    db: Session = Depends(get_db)
+):
+    """Libera una boleta: desvincula al socio, resetea TODOS los datos de venta
+    y la devuelve al estado SIN_VENDER. La talonera vuelve a estar disponible
+    para asignar a otro socio.
+
+    Doble seguro:
+      - El cliente debe enviar `confirmacion` con el numero_principal exacto
+        de la boleta (ej: "8608"). Sin eso, no se libera.
+      - El JS de la UI ya tiene un confirm() previo + input tipeado.
+
+    Si el socio queda sin boletas tras la liberacion, tambien se elimina el
+    registro del Comprador (mismo criterio que el endpoint /eliminar).
+
+    Se borran:
+      - comprador_id, vendedor_id, cobrador_id, planilla_id
+      - fecha_venta, condicion (SIN_VENDER), historial_cuotas
+      - cuotas_pagadas (0), cuotas_anticipadas (1), total_pagado (0)
+      - numero_especial, talonera_especial_id, numero_especial_2, talonera_especial_2_id
+      - liquidacion_vendedor_id
+
+    Decision (Sergio 16/05/2026): este boton es para CORREGIR cargas erroneas,
+    no para dar de baja por morosidad. Por eso resetea todo. Para baja por
+    morosidad existe el boton "Dar de baja" que preserva el historial.
+    """
+    from fastapi.responses import JSONResponse
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    b = db.query(models.Boleta).get(boleta_id)
+    if not b or b.comprador_id != comprador_id:
+        return JSONResponse({"ok": False, "error": "Boleta no encontrada para este socio"}, status_code=404)
+
+    # Doble seguro: confirmacion debe ser exactamente el numero_principal
+    confirmacion_esperada = str(b.numero_principal)
+    if (confirmacion or "").strip() != confirmacion_esperada:
+        return JSONResponse({
+            "ok": False,
+            "error": f"Confirmación inválida. Debes tipear exactamente '{confirmacion_esperada}' para confirmar."
+        }, status_code=400)
+
+    c = db.query(models.Comprador).get(comprador_id)
+    if not c:
+        return JSONResponse({"ok": False, "error": "Socio no encontrado"}, status_code=404)
+
+    talonera_nombre = b.talonera.nombre if b.talonera else ""
+    numero_liberado = b.numero_principal
+
+    # ── Reset COMPLETO de la boleta ────────────────────────────────────────
+    b.comprador_id          = None
+    b.vendedor_id           = None
+    b.cobrador_id           = None
+    b.planilla_id           = None
+    b.fecha_venta           = None
+    b.condicion             = CondicionBoleta.SIN_VENDER
+    b.cuotas_pagadas        = 0
+    b.cuotas_anticipadas    = 1
+    b.total_pagado          = 0.0
+    b.historial_cuotas      = None
+    b.numero_especial       = None
+    b.talonera_especial_id  = None
+    b.numero_especial_2     = None
+    b.talonera_especial_2_id = None
+    b.liquidacion_vendedor_id = None
+
+    # ── Si el socio queda sin boletas, eliminarlo ─────────────────────────
+    db.flush()
+    socio_eliminado = False
+    boletas_restantes = (
+        db.query(models.Boleta)
+        .filter(models.Boleta.comprador_id == comprador_id)
+        .count()
+    )
+    if boletas_restantes == 0:
+        db.delete(c)
+        socio_eliminado = True
+
+    db.commit()
+
+    return JSONResponse({
+        "ok": True,
+        "numero_liberado": numero_liberado,
+        "talonera_nombre": talonera_nombre,
+        "socio_eliminado": socio_eliminado,
+        "boletas_restantes": boletas_restantes,
+    })
+
+
 @router.post("/{comprador_id}/eliminar")
 async def eliminar(comprador_id: int, request: Request, db: Session = Depends(get_db)):
     _perm_user = await auth_module.require_user(request, db)

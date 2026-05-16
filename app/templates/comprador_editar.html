@@ -36,6 +36,13 @@
                     title="Si te equivocaste al cargar el número de talonera, podés reasignar este socio a otro número libre">
               <i class="bi bi-arrow-repeat me-1"></i>Asignar nueva talonera
             </button>
+            <button type="button"
+                    class="btn btn-outline-danger btn-sm py-0 px-2 btn-liberar"
+                    style="font-size:.7rem;"
+                    data-boleta-id="{{ b.id }}"
+                    title="Liberar esta boleta de la talonera — la deja disponible para vender a otro socio (acción con doble confirmación)">
+              <i class="bi bi-trash me-1"></i>Liberar boleta
+            </button>
             <div class="ms-auto d-flex align-items-center gap-2">
               <span class="small text-muted">Cuotas pagas:</span>
               <input type="number" name="cpag_{{ b.id }}"
@@ -86,6 +93,47 @@
               </div>
             </div>
             <div class="reasignar-status small mt-2"></div>
+          </div>
+
+          <!-- Panel LIBERAR boleta (oculto por defecto) - doble seguro -->
+          <div class="liberar-panel px-2 py-2 border-top d-none"
+               data-boleta-id="{{ b.id }}"
+               data-numero="{{ b.numero_principal }}"
+               data-talonera="{{ b.talonera.nombre if b.talonera else '' }}"
+               data-url="/compradores/{{ comprador.id }}/boleta/{{ b.id }}/liberar"
+               style="background-color:#fff5f5;">
+            <div class="small text-danger mb-2">
+              <i class="bi bi-exclamation-octagon-fill me-1"></i>
+              <strong>¡ATENCIÓN! Acción irreversible.</strong>
+              Vas a liberar la boleta <strong>{{ "%04d" % b.numero_principal }} {{ b.talonera.nombre if b.talonera else "" }}</strong>.
+              Se borrarán: el vínculo con el socio, las
+              <strong>{{ b.cuotas_pagadas or 0 }} cuota{{ 's' if (b.cuotas_pagadas or 0) != 1 else '' }} pagada{{ 's' if (b.cuotas_pagadas or 0) != 1 else '' }}</strong>,
+              el historial de pagos y los números CONTADO asignados.
+              La boleta volverá a estar <strong>libre para la venta</strong>.
+              {% if comprador.boletas|length == 1 %}
+              <br><span class="text-danger-emphasis">⚠️ Como es la única boleta del socio, también se eliminará el registro del socio.</span>
+              {% endif %}
+            </div>
+            <div class="row g-2 align-items-end">
+              <div class="col-7">
+                <label class="form-label small mb-1 fw-semibold">
+                  Para confirmar, tipeá el número de la boleta:
+                  <span class="font-monospace text-danger">{{ b.numero_principal }}</span>
+                </label>
+                <input type="text" class="form-control form-control-sm inp-liberar-confirmacion"
+                       placeholder="Tipeá: {{ b.numero_principal }}"
+                       autocomplete="off">
+              </div>
+              <div class="col-5 d-flex gap-1">
+                <button type="button" class="btn btn-danger btn-sm flex-grow-1 btn-confirmar-liberar" disabled>
+                  <i class="bi bi-trash-fill me-1"></i>Liberar
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm btn-cancelar-liberar">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+            <div class="liberar-status small mt-2"></div>
           </div>
 
           <!-- Bloque CONTADO (ETAPA 2) -->
@@ -409,6 +457,9 @@
       const bid = btn.dataset.boletaId;
       const panel = document.querySelector(`.reasignar-panel[data-boleta-id="${bid}"]`);
       if (!panel) return;
+      // Cerrar el panel de liberar de la misma boleta si está abierto
+      const liberar = document.querySelector(`.liberar-panel[data-boleta-id="${bid}"]`);
+      if (liberar) liberar.classList.add('d-none');
       panel.classList.toggle('d-none');
       // Limpiar status al reabrir
       const status = panel.querySelector('.reasignar-status');
@@ -420,6 +471,96 @@
   document.querySelectorAll('.btn-cancelar-reasignar').forEach(btn => {
     btn.addEventListener('click', () => {
       btn.closest('.reasignar-panel').classList.add('d-none');
+    });
+  });
+
+  // ════════════════ LIBERAR BOLETA (doble seguro) ════════════════
+  // Mostrar / ocultar el panel
+  document.querySelectorAll('.btn-liberar').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const bid = btn.dataset.boletaId;
+      const panel = document.querySelector(`.liberar-panel[data-boleta-id="${bid}"]`);
+      if (!panel) return;
+      // Cerrar otros paneles (reasignar de la misma boleta) para no confundir
+      const reasignar = document.querySelector(`.reasignar-panel[data-boleta-id="${bid}"]`);
+      if (reasignar) reasignar.classList.add('d-none');
+      panel.classList.toggle('d-none');
+      // Limpiar input + status al abrir
+      const inp = panel.querySelector('.inp-liberar-confirmacion');
+      const status = panel.querySelector('.liberar-status');
+      const btnOk = panel.querySelector('.btn-confirmar-liberar');
+      if (inp) { inp.value = ''; }
+      if (status) status.innerHTML = '';
+      if (btnOk) btnOk.disabled = true;
+    });
+  });
+
+  // Cancelar
+  document.querySelectorAll('.btn-cancelar-liberar').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.closest('.liberar-panel').classList.add('d-none');
+    });
+  });
+
+  // Habilitar/deshabilitar el boton segun el texto tipeado
+  document.querySelectorAll('.inp-liberar-confirmacion').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const panel    = inp.closest('.liberar-panel');
+      const esperado = panel.dataset.numero;
+      const btnOk    = panel.querySelector('.btn-confirmar-liberar');
+      btnOk.disabled = (inp.value.trim() !== esperado);
+    });
+  });
+
+  // Confirmar liberacion (AJAX) — paso final con confirm() del navegador
+  document.querySelectorAll('.btn-confirmar-liberar').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const panel       = btn.closest('.liberar-panel');
+      const url         = panel.dataset.url;
+      const numero      = panel.dataset.numero;
+      const talonera    = panel.dataset.talonera;
+      const inp         = panel.querySelector('.inp-liberar-confirmacion');
+      const status      = panel.querySelector('.liberar-status');
+
+      if (inp.value.trim() !== numero) {
+        status.innerHTML = `<i class="bi bi-x-circle text-danger"></i> Tenés que tipear exactamente "${numero}".`;
+        return;
+      }
+
+      // Segundo seguro: confirm() del navegador
+      const msg = `¿LIBERAR DEFINITIVAMENTE la boleta ${numero} ${talonera}?\n\n` +
+                  `• Se perderán las cuotas pagadas y el historial.\n` +
+                  `• La boleta quedará disponible para vender a otro socio.\n` +
+                  `• Esta acción NO se puede deshacer.\n\n` +
+                  `Solo confirmá si estás 100% seguro.`;
+      if (!confirm(msg)) return;
+
+      btn.disabled = true;
+      status.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Liberando…';
+
+      try {
+        const fd = new FormData();
+        fd.append('confirmacion', numero);
+        const resp = await fetch(url, { method: 'POST', body: fd, credentials: 'include' });
+        const data = await resp.json();
+        if (data.ok) {
+          status.innerHTML = '<i class="bi bi-check-circle text-success"></i> ¡Listo! Redirigiendo…';
+          // Si el socio fue eliminado por completo, volver al listado
+          setTimeout(() => {
+            if (data.socio_eliminado) {
+              location.href = '/compradores/';
+            } else {
+              location.reload();
+            }
+          }, 600);
+        } else {
+          status.innerHTML = `<i class="bi bi-x-circle text-danger"></i> ${data.error || 'No se pudo liberar.'}`;
+          btn.disabled = false;
+        }
+      } catch (e) {
+        status.innerHTML = `<i class="bi bi-x-circle text-danger"></i> Error de red: ${e}`;
+        btn.disabled = false;
+      }
     });
   });
 
