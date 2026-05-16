@@ -108,11 +108,14 @@ async def armar_planilla(request: Request, cobrador_id: int,
         db.add(planilla)
         db.flush()
 
-        # Asignar boletas sin planilla de este cobrador a la nueva planilla
+        # Asignar boletas sin planilla de este cobrador a la nueva planilla.
+        # Excluye las pagadas al contado (1 pago o 2 pagos): tienen numero_especial_2
+        # asignado y no tienen cuotas para cobrar, no corresponde emplantillarlas.
         (db.query(models.Boleta)
            .filter(models.Boleta.cobrador_id == cobrador_id,
                    models.Boleta.planilla_id.is_(None),
-                   models.Boleta.condicion != CondicionBoleta.BAJA)
+                   models.Boleta.condicion != CondicionBoleta.BAJA,
+                   models.Boleta.numero_especial_2.is_(None))
            .update({"planilla_id": planilla.id}, synchronize_session=False))
         db.commit()
 
@@ -134,10 +137,14 @@ async def emplanillado(request: Request, db: Session = Depends(get_db),
     cobradores = db.query(models.Cobrador).filter_by(activo=True).order_by(models.Cobrador.nombre).all()
     resumen = []
     for co in cobradores:
-        # Boletas activas de este cobrador
+        # Boletas activas de este cobrador (con cuotas para cobrar).
+        # Excluye las pagadas al contado (numero_especial_2 IS NOT NULL): tanto
+        # las "al contado" (1 pago, ambos slots) como las "contado 2 veces" (solo slot 2)
+        # ya no tienen cuotas pendientes, no corresponde mostrarlas en el emplantillado.
         activas = (db.query(models.Boleta)
                    .filter(models.Boleta.cobrador_id == co.id,
-                           models.Boleta.condicion != CondicionBoleta.BAJA)
+                           models.Boleta.condicion != CondicionBoleta.BAJA,
+                           models.Boleta.numero_especial_2.is_(None))
                    .all())
         sin_planilla = [b for b in activas if b.planilla_id is None]
         planilla = db.query(models.Planilla).filter_by(cobrador_id=co.id, mes=mes, anio=anio).first()
@@ -169,7 +176,18 @@ async def planilla_editar_form(request: Request, planilla_id: int,
     if not planilla:
         raise HTTPException(404)
 
-    # Boletas ya en esta planilla
+    # Limpieza silenciosa: si en esta planilla hay boletas pagadas al contado
+    # (numero_especial_2 IS NOT NULL → no tienen cuotas para cobrar), las
+    # descontamos de la planilla antes de mostrarla. Evita que queden huérfanas
+    # por data antigua o por una baja anterior.
+    limpiadas = (db.query(models.Boleta)
+                 .filter(models.Boleta.planilla_id == planilla_id,
+                         models.Boleta.numero_especial_2.isnot(None))
+                 .update({"planilla_id": None}, synchronize_session=False))
+    if limpiadas:
+        db.commit()
+
+    # Boletas ya en esta planilla (después de la limpieza, todas tienen cuotas)
     en_planilla = (db.query(models.Boleta)
                    .filter(models.Boleta.planilla_id == planilla_id)
                    .join(models.Comprador, isouter=True)
@@ -177,12 +195,15 @@ async def planilla_editar_form(request: Request, planilla_id: int,
                    .all())
 
     # Boletas activas del mismo cobrador que NO están en esta planilla
-    # (incluye las sin planilla y las de otras planillas del mismo cobrador)
+    # (incluye las sin planilla y las de otras planillas del mismo cobrador).
+    # Excluye las pagadas al contado: no tienen cuotas para cobrar, no se
+    # emplantillan.
     disponibles = (db.query(models.Boleta)
                    .filter(models.Boleta.cobrador_id == planilla.cobrador_id,
                            or_(models.Boleta.planilla_id.is_(None),
                                models.Boleta.planilla_id != planilla_id),
-                           models.Boleta.condicion != CondicionBoleta.BAJA)
+                           models.Boleta.condicion != CondicionBoleta.BAJA,
+                           models.Boleta.numero_especial_2.is_(None))
                    .join(models.Comprador, isouter=True)
                    .order_by(models.Boleta.numero_principal)
                    .all())
@@ -215,11 +236,14 @@ async def planilla_editar_guardar(request: Request, planilla_id: int,
                models.Boleta.id.notin_(ids_seleccionados))
        .update({"planilla_id": None}, synchronize_session=False))
 
-    # Agregar a la planilla las nuevas seleccionadas
+    # Agregar a la planilla las nuevas seleccionadas. Filtra defensivamente
+    # las pagadas al contado: aunque la UI no las muestra, nunca asignar una
+    # boleta sin cuotas a una planilla de cobranza.
     if ids_seleccionados:
         (db.query(models.Boleta)
            .filter(models.Boleta.id.in_(ids_seleccionados),
-                   models.Boleta.cobrador_id == planilla.cobrador_id)
+                   models.Boleta.cobrador_id == planilla.cobrador_id,
+                   models.Boleta.numero_especial_2.is_(None))
            .update({"planilla_id": planilla_id}, synchronize_session=False))
 
     db.commit()

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func as func_count
@@ -327,15 +327,26 @@ async def asignar_cobrador(request: Request, db: Session = Depends(get_db)):
 
 def _resolver_zona(zona_id: Optional[int], zona_nueva: str, db: Session) -> Optional[int]:
     """Devuelve el zona_id a usar: crea la zona si es nueva."""
+    z_id, _ = _resolver_zona_ex(zona_id, zona_nueva, db)
+    return z_id
+
+
+def _resolver_zona_ex(zona_id: Optional[int], zona_nueva: str, db: Session):
+    """Igual que _resolver_zona pero ademas devuelve el objeto Zona si fue
+    recien creada (para que el endpoint pueda informarselo al frontend).
+    Devuelve (zona_id, zona_creada_or_None).
+    """
     nombre = zona_nueva.strip().upper() if zona_nueva else ""
     if nombre:
         z = db.query(models.Zona).filter(models.Zona.nombre == nombre).first()
+        creada = None
         if not z:
             z = models.Zona(nombre=nombre)
             db.add(z)
             db.flush()
-        return z.id
-    return zona_id or None
+            creada = z
+        return z.id, creada
+    return (zona_id or None), None
 
 
 @router.post("/crear")
@@ -356,7 +367,7 @@ async def crear(
     _perm_user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(_perm_user, 'compradores', 'editar'):
         raise HTTPException(403, 'No tenés permiso para editar en esta sección')
-    zona = _resolver_zona(_parse_zona_id(zona_id), zona_nueva, db)
+    zona, zona_creada = _resolver_zona_ex(_parse_zona_id(zona_id), zona_nueva, db)
 
     # ── Vínculo zona ↔ vendedor (una zona tiene un solo vendedor) ─────────
     effective_vendedor_id = vendedor_id
@@ -399,6 +410,28 @@ async def crear(
             if b.condicion == CondicionBoleta.SIN_VENDER:
                 b.condicion = CondicionBoleta.VENDIDO
     db.commit()
+
+    # Si el cliente espera JSON (modal AJAX), devolvemos info de la zona creada
+    # para que el frontend pueda agregarla al dropdown sin recargar la pagina.
+    accept = (request.headers.get("accept") or "").lower()
+    quiere_json = (
+        "application/json" in accept
+        or request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
+    )
+    if quiere_json:
+        nueva_zona_payload = None
+        if zona_creada is not None:
+            nueva_zona_payload = {
+                "id": zona_creada.id,
+                "nombre": zona_creada.nombre,
+                "vendedor_id": zona_creada.vendedor_id,
+            }
+        return JSONResponse({
+            "ok": True,
+            "comprador_id": c.id,
+            "zona_id": zona,
+            "nueva_zona": nueva_zona_payload,
+        })
     return RedirectResponse("/compradores/", status_code=302)
 
 

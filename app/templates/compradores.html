@@ -736,8 +736,38 @@ document.querySelectorAll('.input-upper').forEach(el => {
     guardarMemoria();
     const fd = new FormData(document.getElementById('formNuevoComprador'));
     try {
-      const resp = await fetch('/compradores/crear', { method: 'POST', body: fd });
+      const resp = await fetch('/compradores/crear', {
+        method: 'POST',
+        body: fd,
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      });
       if (resp.ok) {
+        // Si el backend creó una zona nueva, insertarla en el <select> para que
+        // quede disponible en cargas siguientes sin tener que reabrir el modal.
+        let data = null;
+        try { data = await resp.json(); } catch (_) { /* respuesta no-JSON: ignorar */ }
+        if (data && data.nueva_zona) {
+          const nz = data.nueva_zona;
+          // Evitar duplicados si ya existe (por carrera o doble click)
+          if (!zonaSelect.querySelector(`option[value="${nz.id}"]`)) {
+            const opt = document.createElement('option');
+            opt.value = String(nz.id);
+            opt.textContent = nz.nombre;
+            opt.dataset.vendedorId = nz.vendedor_id ?? '';
+            // Insertar antes de la opción "__nueva__" (última)
+            const placeholderNueva = zonaSelect.querySelector('option[value="__nueva__"]');
+            if (placeholderNueva) zonaSelect.insertBefore(opt, placeholderNueva);
+            else zonaSelect.appendChild(opt);
+          }
+          // Dejar la zona recién creada seleccionada y limpiar el input de "zona nueva"
+          zonaSelect.value = String(nz.id);
+          zonaNuevaInput.value = '';
+          zonaNuevaInput.classList.add('d-none');
+          zonaNuevaInput.required = false;
+          // Persistir la nueva zona en memoria local para próximas cargas
+          try { localStorage.setItem(MEMORIA.zona.key, String(nz.id)); } catch (_) {}
+          autoFillVendedorDesdeZona();
+        }
         flash();
         resetComprador();
         irA('nuevoBoleta_num');
