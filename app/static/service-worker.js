@@ -9,7 +9,7 @@
  * Para forzar a los clientes a tomar una versión nueva del SW, subir CACHE_VERSION.
  */
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const STATIC_CACHE  = `bonos-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `bonos-runtime-${CACHE_VERSION}`;
 
