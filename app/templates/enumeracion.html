@@ -26,10 +26,6 @@
     <span class="enum-stat-label">CAJA</span>
     <span class="enum-stat-val">{{ stats.get('CAJA', 0) }}</span>
   </div>
-  <div class="enum-stat" style="--clr:#0dcaf0; --txt:#000;">
-    <span class="enum-stat-label">EN COBRANZA</span>
-    <span class="enum-stat-val">{{ stats.get('EN_COBRANZA', 0) }}</span>
-  </div>
   <div class="enum-stat" style="--clr:#dc3545; --txt:#fff;">
     <span class="enum-stat-label">BAJA</span>
     <span class="enum-stat-val">{{ stats.get('BAJA', 0) }}</span>
@@ -49,7 +45,6 @@
   <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#fd7e14;"></span> Vendido</span>
   <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#6c757d;"></span> Sin vender</span>
   <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#198754;"></span> Caja</span>
-  <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#0dcaf0;"></span> En cobranza</span>
   <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#dc3545;"></span> Baja</span>
   <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#f8f9fa; border:1px dashed #adb5bd;"></span> Sin imprimir</span>
 </div>
@@ -61,7 +56,6 @@
   <button class="btn btn-sm btn-outline-warning enum-filter" data-filter="VENDIDO">Vendidos</button>
   <button class="btn btn-sm btn-outline-secondary enum-filter" data-filter="SIN_VENDER">Sin vender</button>
   <button class="btn btn-sm btn-outline-success enum-filter" data-filter="CAJA">Caja</button>
-  <button class="btn btn-sm btn-outline-info enum-filter" data-filter="EN_COBRANZA">En cobranza</button>
   <button class="btn btn-sm btn-outline-danger enum-filter" data-filter="BAJA">Baja</button>
   <button class="btn btn-sm enum-filter" data-filter="SIN_IMPRIMIR"
           style="border:1px dashed #adb5bd; color:#999;">Sin imprimir</button>

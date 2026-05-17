@@ -200,6 +200,14 @@ async def enumeracion(request: Request, db: Session = Depends(get_db)):
     # Cada boleta cubre su numero_principal + los numeros_adicionales (CSV).
     # Por ejemplo una boleta PATA 1 cubre 3 números: 1 principal + 2 adicionales,
     # y todos comparten la misma condición (VENDIDO / CAJA / etc.).
+    #
+    # NOTA UX: para esta pantalla "EN_COBRANZA" y "VENDIDO" se muestran como
+    # lo mismo ("número usado"). Remapeamos EN_COBRANZA→VENDIDO al armar el
+    # dict, sin tocar la condición real en DB ni en otras pantallas.
+    def _cond_normalizada(b):
+        v = b.condicion.value
+        return "VENDIDO" if v == "EN_COBRANZA" else v
+
     boletas_dict: dict = {}
     principales_set: set = set()
     adicionales_set: set = set()
@@ -208,7 +216,7 @@ async def enumeracion(request: Request, db: Session = Depends(get_db)):
     # 1ra pasada: registrar TODOS los números principales (tienen prioridad
     # sobre cualquier adicional homónimo de otra boleta).
     for b in todas:
-        cond = b.condicion.value
+        cond = _cond_normalizada(b)
         boletas_dict[b.numero_principal] = cond
         principales_set.add(b.numero_principal)
 
@@ -216,7 +224,7 @@ async def enumeracion(request: Request, db: Session = Depends(get_db)):
     for b in todas:
         if not b.numeros_adicionales:
             continue
-        cond = b.condicion.value
+        cond = _cond_normalizada(b)
         for parte in b.numeros_adicionales.split(","):
             try:
                 n_adic = int(parte.strip())
