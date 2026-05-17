@@ -515,6 +515,19 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
             boleta.cuotas_pactadas
         )
 
+        # Recalcular condicion después de actualizar cuotas_pagadas:
+        #   - Si quedó toda paga (o es contado, o no tiene cobrador) → VENDIDO
+        #   - Si todavía hay cuotas pendientes con cobrador y no contado → EN_COBRANZA
+        # No tocamos BAJA / SIN_VENDER / CAJA.
+        from ..models import CondicionBoleta as _CB
+        _es_contado = (boleta.numero_especial is not None) or (boleta.numero_especial_2 is not None)
+        _cuotas_pendientes = (boleta.cuotas_pagadas or 0) < (boleta.cuotas_pactadas or 0)
+        if boleta.condicion not in (_CB.BAJA, _CB.SIN_VENDER, _CB.CAJA):
+            if boleta.cobrador_id and _cuotas_pendientes and not _es_contado:
+                boleta.condicion = _CB.EN_COBRANZA
+            else:
+                boleta.condicion = _CB.VENDIDO
+
         cobradas = len(cuotas_nuevas)
         if cobradas > 0:
             db.add(models.LiquidacionDetalle(

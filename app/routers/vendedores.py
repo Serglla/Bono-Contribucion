@@ -1100,9 +1100,13 @@ async def liquidar(
     db.add(liq)
     db.flush()
 
-    # Marcar boletas: conservan condicion CAJA hasta que se cargue el comprador
+    # Al liquidar, TODAS las boletas (cuotas y contado) pasan a VENDIDO. La decisión
+    # de cobranza (EN_COBRANZA) se toma después, cuando se carga el socio: si la
+    # boleta termina con cobrador y cuotas pendientes y no es contado → EN_COBRANZA.
+    # Si es contado o ya está toda paga → se queda en VENDIDO.
     for b in boletas_sel:
         b.liquidacion_vendedor_id = liq.id
+        b.condicion = CondicionBoleta.VENDIDO
     db.commit()
 
     return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liquidado", status_code=302)

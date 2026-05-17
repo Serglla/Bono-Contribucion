@@ -648,6 +648,36 @@ def create_default_admin():
             db.rollback()
             print("Backfill contados_equiv: " + str(e))
 
+        # ─── Backfill ciclo de boletas (16/05/2026, v2) ────────────────────────
+        # Regla acordada con Sergio:
+        #   VENDIDO    : rendida a la institución (con o sin socio), incluye
+        #                contado y cuotas finalizadas (todas pagas).
+        #   EN_COBRANZA: vendida en CUOTAS con cuotas pendientes y cobrador,
+        #                y NO contado.
+        # CAJA y SIN_VENDER y BAJA no se tocan.
+        # Idempotente: un solo UPDATE con CASE que reasigna todas las boletas
+        # que ya pasaron por liquidación o tienen socio.
+        try:
+            sql_backfill = (
+                "UPDATE boletas SET condicion = CASE "
+                "  WHEN cobrador_id IS NOT NULL "
+                "   AND COALESCE(cuotas_pagadas, 0) < COALESCE(cuotas_pactadas, 0) "
+                "   AND numero_especial IS NULL "
+                "   AND numero_especial_2 IS NULL "
+                "  THEN 'EN_COBRANZA' "
+                "  ELSE 'VENDIDO' "
+                "END "
+                "WHERE condicion IN ('CAJA', 'VENDIDO', 'EN_COBRANZA') "
+                "  AND (liquidacion_vendedor_id IS NOT NULL "
+                "       OR comprador_id IS NOT NULL)"
+            )
+            r = db.execute(text(sql_backfill))
+            db.commit()
+            print("Backfill ciclo boletas v2: " + str(r.rowcount) + " filas actualizadas")
+        except Exception as e:
+            db.rollback()
+            print("Backfill ciclo boletas v2: " + str(e))
+
 
         if not db.query(models.User).filter_by(username="admin").first():
             import logging

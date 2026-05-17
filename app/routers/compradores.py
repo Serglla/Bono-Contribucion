@@ -407,8 +407,24 @@ async def crear(
                 z = db.query(models.Zona).get(c.zona_id)
                 if z and z.cobrador_id:
                     b.cobrador_id = z.cobrador_id
-            if b.condicion == CondicionBoleta.SIN_VENDER:
-                b.condicion = CondicionBoleta.VENDIDO
+            # Transición de condición según el flujo correcto:
+            #   EN_COBRANZA = solo cuotas pendientes con cobrador asignado y no contado.
+            #   VENDIDO     = todo lo demás (contado, cuotas finalizadas, sin cobrador).
+            # Si la boleta venía de BAJA no se toca.
+            _es_contado = (b.numero_especial is not None) or (b.numero_especial_2 is not None)
+            _cuotas_pendientes = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
+            _en_cobranza = bool(
+                b.cobrador_id and _cuotas_pendientes and not _es_contado
+            )
+            if b.condicion in (
+                CondicionBoleta.SIN_VENDER,
+                CondicionBoleta.CAJA,
+                CondicionBoleta.VENDIDO,
+                CondicionBoleta.EN_COBRANZA,
+            ):
+                b.condicion = (
+                    CondicionBoleta.EN_COBRANZA if _en_cobranza else CondicionBoleta.VENDIDO
+                )
     db.commit()
 
     # Si el cliente espera JSON (modal AJAX), devolvemos info de la zona creada
@@ -437,23 +453,40 @@ async def crear(
 
 def _derivar_condicion(boleta) -> str:
     """Calcula la condición de una boleta a partir de su estado real.
-    Reglas (en orden de prioridad):
-      - BAJA: si la condición actual es BAJA (sticky, requiere acción manual)
-      - CAJA (Al contado): si todas las cuotas están pagas
-      - EN_COBRANZA: si tiene cobrador asignado Y está emplanillado
-      - VENDIDO (Activo): si tiene comprador y fecha de venta
-      - SIN_VENDER: cualquier otro caso
+
+    Flujo de negocio (acordado con Sergio, mayo 2026):
+      - SIN_VENDER : impresa, todavía no entregada a vendedor
+      - CAJA       : en mano del vendedor, sin rendir ni vender
+      - VENDIDO    : ya rendida a la institución; cubre tanto las que aún no tienen
+                     socio como las de contado, y las de cuotas con todas las cuotas
+                     pagas (categoría "contado / finalizada")
+      - EN_COBRANZA: vendida en cuotas con cuotas pendientes y cobrador asignado,
+                     y NO contado (sin numero_especial)
+      - BAJA       : anulada (sticky)
     """
     if not boleta:
         return "SIN_VENDER"
+    # BAJA es sticky.
     if boleta.condicion and boleta.condicion.value == "BAJA":
         return "BAJA"
-    if (boleta.cuotas_pactadas or 0) > 0 and (boleta.cuotas_pagadas or 0) >= boleta.cuotas_pactadas:
-        return "CAJA"
-    if boleta.cobrador_id and boleta.planilla_id:
+
+    es_contado = (boleta.numero_especial is not None) or (boleta.numero_especial_2 is not None)
+    cuotas_pendientes = (boleta.cuotas_pagadas or 0) < (boleta.cuotas_pactadas or 0)
+    rendida = (boleta.liquidacion_vendedor_id is not None) or (boleta.comprador_id is not None)
+
+    # Si está vendida y tiene cobrador con cuotas pendientes y NO es contado → EN_COBRANZA
+    if rendida and boleta.cobrador_id and cuotas_pendientes and not es_contado:
         return "EN_COBRANZA"
-    if boleta.comprador_id and boleta.fecha_venta:
+
+    # Si está rendida (con o sin socio) y no es EN_COBRANZA → VENDIDO
+    if rendida:
         return "VENDIDO"
+
+    # No rendida: si la boleta tiene vendedor_id (= está en caja de algún vendedor) → CAJA
+    if boleta.vendedor_id:
+        return "CAJA"
+
+    # Fallback
     return "SIN_VENDER"
 
 
@@ -545,11 +578,9 @@ async def editar(
         for b_exist in c.boletas:
             b_exist.cobrador_id = effective_cobrador_id
 
-    # Condición en boletas si cambió la zona
-    if zona:
-        for b_exist in c.boletas:
-            if b_exist.condicion == CondicionBoleta.SIN_VENDER and b_exist.fecha_venta:
-                b_exist.condicion = CondicionBoleta.VENDIDO
+    # Condición en boletas: la recalculamos al final del request (después de actualizar
+    # cuotas_pagadas y la modalidad contado) en el helper de abajo. Ver bloque marcado
+    # "RECALCULO FINAL DE CONDICION".
 
     # Actualizar cuotas_pagadas por boleta (campos cpag_<id>)
     form_data = await request.form()
