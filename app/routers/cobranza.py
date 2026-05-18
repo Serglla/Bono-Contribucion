@@ -5,7 +5,25 @@ from sqlalchemy import func, or_
 from datetime import date
 from typing import List, Optional
 import json
+import re
 from .. import models, auth as auth_module
+
+# Regex para extraer el número de PATA. Acepta "PATA 0", "PATA 12", "X4", etc.
+# Da prioridad al patrón "PATA N"; si no, busca "Xn" como fallback.
+_PATA_RE = re.compile(r'PATA\s*(\d+)', re.IGNORECASE)
+_X_RE = re.compile(r'X(\d+)', re.IGNORECASE)
+
+
+def _extraer_pata(nombre: str) -> str:
+    """Devuelve el dígito de la PATA (ej: '4' para 'PATA 4' o 'X4') o '?' si no encuentra.
+
+    Centraliza la lógica para que el bug 'X?' no se repita en cada uso suelto.
+    """
+    if not nombre:
+        return "?"
+    n = nombre.upper()
+    m = _PATA_RE.search(n) or _X_RE.search(n)
+    return m.group(1) if m else "?"
 from ..templates_config import templates
 from ..models import CondicionBoleta
 from ..database import get_db
@@ -354,10 +372,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     # ── Mismo grid 3 columnas que la planilla ──────────────────────────────
     def _get_pata(b):
         if b and b.talonera:
-            nombre = b.talonera.nombre.upper()
-            for n in ("1","2","3","4","5","6","7","8","9"):
-                if f"PATA {n}" in nombre or nombre.endswith(n):
-                    return n
+            return _extraer_pata(b.talonera.nombre)
         return "?"
 
     def _get_color(b):
@@ -384,10 +399,20 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     for i, grupo in enumerate(pata_grupos):
         if i > 0:
             new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
-            label_pos = new_block - 1
-            if 0 <= label_pos < TOTAL and grid[label_pos] is None:
-                grid[label_pos] = {"type":"label","pata":f"X{_get_pata(grupo[0])}","color":_get_color(grupo[0])}
-            pos = new_block
+            # Si el nuevo bloque arranca justo al inicio de una columna,
+            # poner la etiqueta ARRIBA de esa columna (no huérfana al final de
+            # la anterior). En cualquier otro caso, comportamiento original:
+            # etiqueta en la última fila del bloque previo.
+            is_new_column = new_block > 0 and new_block % ROWS_PER_COL == 0
+            label = {"type":"label","pata":f"X{_get_pata(grupo[0])}","color":_get_color(grupo[0])}
+            if is_new_column and new_block < TOTAL:
+                grid[new_block] = label
+                pos = new_block + 1
+            else:
+                label_pos = new_block - 1
+                if 0 <= label_pos < TOTAL and grid[label_pos] is None:
+                    grid[label_pos] = label
+                pos = new_block
         for b in grupo:
             if pos < TOTAL:
                 grid[pos] = b; pos += 1
@@ -607,10 +632,7 @@ async def planilla(request: Request, cobrador_id: int,
     # ── Helpers PATA ──
     def _get_pata(b):
         if b and b.talonera:
-            nombre = b.talonera.nombre.upper()
-            for n in ("1", "2", "3"):
-                if n in nombre:
-                    return n
+            return _extraer_pata(b.talonera.nombre)
         return "?"
 
     def _get_color(b):
@@ -654,15 +676,23 @@ async def planilla(request: Request, cobrador_id: int,
         if i > 0:
             # Saltar al inicio del próximo bloque de 10
             new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
-            # Poner etiqueta en la ÚLTIMA fila del bloque anterior (si está libre)
-            label_pos = new_block - 1
-            if 0 <= label_pos < TOTAL and grid[label_pos] is None:
-                grid[label_pos] = {
-                    "type": "label",
-                    "pata": f"X{_get_pata(grupo[0])}",
-                    "color": _get_color(grupo[0]),
-                }
-            pos = new_block
+            # Si el bloque arranca al inicio de una columna nueva, la etiqueta va
+            # ARRIBA de esa columna (no huérfana al final de la columna previa).
+            # Si arranca a mitad de columna, etiqueta en la última fila del bloque previo.
+            is_new_column = new_block > 0 and new_block % ROWS_PER_COL == 0
+            label = {
+                "type": "label",
+                "pata": f"X{_get_pata(grupo[0])}",
+                "color": _get_color(grupo[0]),
+            }
+            if is_new_column and new_block < TOTAL:
+                grid[new_block] = label
+                pos = new_block + 1
+            else:
+                label_pos = new_block - 1
+                if 0 <= label_pos < TOTAL and grid[label_pos] is None:
+                    grid[label_pos] = label
+                pos = new_block
         # Boletas del grupo
         for b in grupo:
             if pos < TOTAL:
