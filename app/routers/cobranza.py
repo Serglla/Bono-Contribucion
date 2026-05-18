@@ -435,17 +435,21 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     num_cuotas = max(num_cuotas, 10)
     cuota_nums = list(range(1, num_cuotas + 1))
 
-    # ── Mapa boleta_id → columna (1, 2 o 3) según el grid ───────────────────
+    # ── Mapa boleta_id → columna (1, 2 o 3) según la PATA REAL ──────────────
+    # IMPORTANTE: se usa la PATA de la boleta, NO la columna física del grid.
+    # Si una boleta PATA 3 cayó en col 1 del grid (porque sobró espacio),
+    # igual debe contar como COL. 3 en el resumen.
     columna_de_boleta = {}
-    for cell in c1:
-        if cell and not isinstance(cell, dict):
-            columna_de_boleta[cell.id] = 1
-    for cell in c2:
-        if cell and not isinstance(cell, dict):
-            columna_de_boleta[cell.id] = 2
-    for cell in c3:
-        if cell and not isinstance(cell, dict):
-            columna_de_boleta[cell.id] = 3
+    for col in (c1, c2, c3):
+        for cell in col:
+            if cell and not isinstance(cell, dict):
+                p = _get_pata(cell)
+                try:
+                    pn = int(p)
+                    if 1 <= pn <= 3:
+                        columna_de_boleta[cell.id] = pn
+                except (ValueError, TypeError):
+                    pass
 
     # ── Valor de la cuota (uniforme) ────────────────────────────────────────
     valor_cuota = 0.0
