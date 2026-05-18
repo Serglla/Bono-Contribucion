@@ -431,6 +431,17 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
                 if p != "?": return f"X{p}"
         return ""
 
+    def _col_color(col):
+        """Color de la PATA de inicio de la columna (para pintar el header)."""
+        for cell in col:
+            if isinstance(cell, dict):
+                return cell["color"]
+            elif cell:
+                c = _get_color(cell)
+                if c:
+                    return c
+        return ""
+
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
     num_cuotas = max(num_cuotas, 10)
     cuota_nums = list(range(1, num_cuotas + 1))
@@ -510,6 +521,9 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "col1_label": _col_header(c1),
         "col2_label": _col_header(c2),
         "col3_label": _col_header(c3),
+        "col1_color": _col_color(c1),
+        "col2_color": _col_color(c2),
+        "col3_color": _col_color(c3),
         "historial_map": historial_map,
         "cuotas_mes_actual": cuotas_mes_actual,
         "liquidacion": liq,

@@ -59,15 +59,18 @@
         {% for n in cuota_nums %}<col style="width:22px">{% endfor %}
       </colgroup>
       <thead>
+        {% set _c1bg = ('background:' ~ col1_color ~ ';color:#000;') if col1_color else '' %}
+        {% set _c2bg = ('background:' ~ col2_color ~ ';color:#000;') if col2_color else '' %}
+        {% set _c3bg = ('background:' ~ col3_color ~ ';color:#000;') if col3_color else '' %}
         <tr style="height:20px; background:#333; color:#fff;">
-          <th style="border:1px solid #555; text-align:center; padding:0; font-size:6.5pt;">{{ col1_label }}</th>
-          {% for n in cuota_nums %}<th style="border:1px solid #555; text-align:center; padding:0; font-size:6pt;">{{ n }}</th>{% endfor %}
+          <th style="border:1px solid #555; text-align:center; padding:0; font-size:6.5pt; {{ _c1bg }}">{{ col1_label }}</th>
+          {% for n in cuota_nums %}<th style="border:1px solid #555; text-align:center; padding:0; font-size:6pt; {{ _c1bg }}">{{ n }}</th>{% endfor %}
           <th style="background:#111; border:none; padding:0;"></th>
-          <th style="border:1px solid #555; text-align:center; padding:0; font-size:6.5pt;">{{ col2_label }}</th>
-          {% for n in cuota_nums %}<th style="border:1px solid #555; text-align:center; padding:0; font-size:6pt;">{{ n }}</th>{% endfor %}
+          <th style="border:1px solid #555; text-align:center; padding:0; font-size:6.5pt; {{ _c2bg }}">{{ col2_label }}</th>
+          {% for n in cuota_nums %}<th style="border:1px solid #555; text-align:center; padding:0; font-size:6pt; {{ _c2bg }}">{{ n }}</th>{% endfor %}
           <th style="background:#111; border:none; padding:0;"></th>
-          <th style="border:1px solid #555; text-align:center; padding:0; font-size:6.5pt;">{{ col3_label }}</th>
-          {% for n in cuota_nums %}<th style="border:1px solid #555; text-align:center; padding:0; font-size:6pt;">{{ n }}</th>{% endfor %}
+          <th style="border:1px solid #555; text-align:center; padding:0; font-size:6.5pt; {{ _c3bg }}">{{ col3_label }}</th>
+          {% for n in cuota_nums %}<th style="border:1px solid #555; text-align:center; padding:0; font-size:6pt; {{ _c3bg }}">{{ n }}</th>{% endfor %}
         </tr>
       </thead>
       <tbody>
