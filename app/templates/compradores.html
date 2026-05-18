@@ -219,26 +219,33 @@ document.getElementById('filtroCobradorActual').addEventListener('change', funct
           {# ── Columna Cobrador unificada con Condición ──────────────────────
              Reglas en orden de prioridad:
              1. BAJA → badge rojo "Baja" (sticky)
-             2. Contado (numero_especial) o toda paga SIN cobrador → "AL CONTADO"
-             3. Toda paga CON cobrador → "PAGADO" + nombre del cobrador
-             4. Tiene cobrador y le quedan cuotas → dropdown (en cobranza)
-             5. Le quedan cuotas y sin cobrador → dropdown "— Sin cobrador —" #}
+             2. CONTADO → entró con todo pago de entrada (cuotas_anticipadas >= cuotas_pactadas)
+                          o tiene numero_especial asignado. NO depende del cobrador
+                          (puede tener cobrador histórico por bugs viejos).
+             3. PAGADO  → cerró pagando mes a mes (cuotas_pagadas >= cuotas_pactadas
+                          PERO cuotas_anticipadas < cuotas_pactadas — sea cual sea
+                          el caso, hay que haber pagado parte vía cobranza).
+             4. En cobranza con cobrador → dropdown (le quedan cuotas)
+             5. Sin cobrador y con cuotas → dropdown "— Sin cobrador —" #}
           {% set cond = b.condicion.value if b and b.condicion else '' %}
-          {% set pagado = b and b.cuotas_pagadas is not none and b.cuotas_pactadas and b.cuotas_pagadas >= b.cuotas_pactadas %}
+          {% set _pac = b.cuotas_pactadas if b and b.cuotas_pactadas else 0 %}
+          {% set _pag = b.cuotas_pagadas if b and b.cuotas_pagadas is not none else 0 %}
+          {% set _ant = b.cuotas_anticipadas if b and b.cuotas_anticipadas is not none else 0 %}
+          {% set anticipo_total = _pac and _ant >= _pac %}
+          {% set pagado = _pac and _pag >= _pac %}
           {% set es_contado = b and (b.numero_especial is not none or b.numero_especial_2 is not none) %}
-          {% set tiene_cobrador = b and b.cobrador_id %}
           {% set cob_nombre = b.cobrador.nombre if b and b.cobrador else '' %}
-          <td data-val="{% if cond == 'BAJA' %}baja{% elif es_contado or (pagado and not tiene_cobrador) %}al contado{% elif pagado and tiene_cobrador %}pagado {{ cob_nombre }}{% else %}{{ cob_nombre }}{% endif %}"
+          <td data-val="{% if cond == 'BAJA' %}baja{% elif es_contado or anticipo_total %}contado{% elif pagado %}pagado {{ cob_nombre }}{% else %}{{ cob_nombre }}{% endif %}"
               onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
             {% if cond == 'BAJA' %}
               <span class="badge bg-danger">Baja</span>
               {% if cob_nombre %}<div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">{{ cob_nombre }}</div>{% endif %}
-            {% elif es_contado or (pagado and not tiene_cobrador) %}
-              <span class="badge bg-success">AL CONTADO</span>
+            {% elif es_contado or anticipo_total %}
+              <span class="badge bg-success">CONTADO</span>
               {% if cob_nombre %}<div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">{{ cob_nombre }}</div>{% endif %}
-            {% elif pagado and tiene_cobrador %}
+            {% elif pagado %}
               <span class="badge bg-secondary">PAGADO</span>
-              <div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">{{ cob_nombre }}</div>
+              {% if cob_nombre %}<div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">{{ cob_nombre }}</div>{% endif %}
             {% else %}
               <select class="form-select form-select-sm sel-cobrador-inline"
                       data-comprador-id="{{ c.id }}"
