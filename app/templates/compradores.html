@@ -242,7 +242,6 @@ document.getElementById('filtroCobradorActual').addEventListener('change', funct
               {% if cob_nombre %}<div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">{{ cob_nombre }}</div>{% endif %}
             {% elif es_contado or anticipo_total %}
               <span class="badge bg-success">CONTADO</span>
-              {% if cob_nombre %}<div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">{{ cob_nombre }}</div>{% endif %}
             {% elif pagado %}
               <span class="badge bg-secondary">PAGADO</span>
               {% if cob_nombre %}<div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">{{ cob_nombre }}</div>{% endif %}
