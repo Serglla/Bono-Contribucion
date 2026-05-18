@@ -159,14 +159,25 @@
       .toolbar { display: none !important; }
       .page {
         margin: 0 !important;
-        padding: 0 !important;
+        padding: 2mm 3mm !important;
         box-shadow: none !important;
-        width: 100% !important;
-        height: auto !important;
-        overflow: visible !important;
+        width: 210mm !important;
+        height: 297mm !important;
+        overflow: hidden !important;
       }
-      /* Margen chico en la hoja para que la impresora no recorte ni reescale */
-      @page { size: A4 portrait; margin: 4mm; }
+      /* Comprimir filas para que entre TODO en una sola hoja A4 */
+      table.main-table thead tr { height: 4.2mm !important; }
+      table.main-table tbody tr { height: 4.8mm !important; }
+      table.main-table tbody td { font-size: 8pt !important; }
+      table.main-table tbody .td-q { font-size: 7.5pt !important; }
+      table.main-table tbody .td-q.cuota-venta {
+        font-size: 8.5pt !important; line-height: 4.8mm !important;
+      }
+      table.res-table thead tr { height: 4.2mm !important; }
+      table.res-table tbody tr { height: 3.6mm !important; }
+      table.res-table thead th, table.res-table tbody td,
+      table.res-table .td-mes { font-size: 6pt !important; }
+      @page { size: A4 portrait; margin: 0; }
     }
   </style>
 </head>
