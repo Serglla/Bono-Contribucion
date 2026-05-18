@@ -256,6 +256,7 @@
   const COMISION_PCT  = {{ planilla.comision_pct|default(0) }};
   const NUM_CUOTAS    = {{ num_cuotas }};
   const COL_DE_BOLETA = {{ columna_de_boleta | tojson }};
+  const MULT_DE_BOLETA = {{ multiplicador_de_boleta | tojson }};
   const BOLETAS_INFO  = {{ boletas_info | tojson }};
 
   // Inicializar selección desde el servidor
@@ -297,11 +298,14 @@
   function recalcResumen() {
     // Las cuotas marcadas EN EL MES ACTUAL se cuentan todas juntas en la
     // fila del mes actual (sin importar el número de cuota).
+    // Cada cuota suma según el multiplicador de la PATA (PATA 1 x1, PATA 2 x2,
+    // PATA 3 x3, etc).
     const cntMesActual = {1: 0, 2: 0, 3: 0};
     for (const [bid, s] of Object.entries(sel)) {
       const col = COL_DE_BOLETA[bid];
       if (!col) continue;
-      cntMesActual[col] += s.size;
+      const mult = MULT_DE_BOLETA[bid] || 1;
+      cntMesActual[col] += s.size * mult;
     }
 
     let totC1=0, totC2=0, totC3=0, totTot=0, totDin=0, totCom=0, totNeto=0;

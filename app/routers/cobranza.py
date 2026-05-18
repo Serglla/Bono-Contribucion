@@ -435,21 +435,30 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     num_cuotas = max(num_cuotas, 10)
     cuota_nums = list(range(1, num_cuotas + 1))
 
-    # ── Mapa boleta_id → columna (1, 2 o 3) según la PATA REAL ──────────────
-    # IMPORTANTE: se usa la PATA de la boleta, NO la columna física del grid.
-    # Si una boleta PATA 3 cayó en col 1 del grid (porque sobró espacio),
-    # igual debe contar como COL. 3 en el resumen.
+    # ── Mapa boleta_id → columna (1, 2 o 3) según el grid FÍSICO ────────────
+    # COL. 1/2/3 del resumen = las 3 secciones verticales de la planilla.
+    # El cobrador suma por columna física al recorrer la planilla.
     columna_de_boleta = {}
-    for col in (c1, c2, c3):
-        for cell in col:
-            if cell and not isinstance(cell, dict):
-                p = _get_pata(cell)
-                try:
-                    pn = int(p)
-                    if 1 <= pn <= 3:
-                        columna_de_boleta[cell.id] = pn
-                except (ValueError, TypeError):
-                    pass
+    for cell in c1:
+        if cell and not isinstance(cell, dict):
+            columna_de_boleta[cell.id] = 1
+    for cell in c2:
+        if cell and not isinstance(cell, dict):
+            columna_de_boleta[cell.id] = 2
+    for cell in c3:
+        if cell and not isinstance(cell, dict):
+            columna_de_boleta[cell.id] = 3
+
+    # ── Mapa boleta_id → multiplicador (PATA 1 ×1, PATA 2 ×2, PATA 3 ×3, …) ──
+    # Cada cuota cobrada SUMA según el número de la PATA de la boleta:
+    # una cuota de PATA 3 cuenta como 3 unidades, una de PATA 2 como 2, etc.
+    multiplicador_de_boleta = {}
+    for b in boletas:
+        p = _get_pata(b)
+        try:
+            multiplicador_de_boleta[b.id] = max(1, int(p))
+        except (ValueError, TypeError):
+            multiplicador_de_boleta[b.id] = 1
 
     # ── Valor de la cuota (uniforme) ────────────────────────────────────────
     valor_cuota = 0.0
@@ -471,6 +480,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         col = columna_de_boleta.get(b.id)
         if not col:
             continue
+        mult = multiplicador_de_boleta.get(b.id, 1)
         for k, v in historial_map[b.id].items():
             try:
                 mes_pago = int(v)
@@ -479,7 +489,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
             if mes_pago == planilla.mes:
                 continue  # el JS lo maneja en la fila del mes actual
             if 1 <= mes_pago <= 12:
-                resumen_otros[mes_pago][col] += 1
+                resumen_otros[mes_pago][col] += mult
 
     # ── Info por boleta para validación secuencial en JS ────────────────────
     boletas_info = {
@@ -508,6 +518,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "cuota_nums": cuota_nums,
         "num_cuotas": num_cuotas,
         "columna_de_boleta": columna_de_boleta,
+        "multiplicador_de_boleta": multiplicador_de_boleta,
         "valor_cuota": valor_cuota,
         "meses_campana": meses_campana,
         "resumen_otros": resumen_otros,
