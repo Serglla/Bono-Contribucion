@@ -402,8 +402,13 @@ async def crear(
             ant = cuotas_anticipadas if cuotas_anticipadas and cuotas_anticipadas > 0 else 1
             b.cuotas_anticipadas = ant
             b.cuotas_pagadas = ant   # las cuotas anticipadas ya están cobradas
-            # Auto-asignar cobrador según la zona del comprador
-            if c.zona_id:
+            # Auto-asignar cobrador según la zona del comprador,
+            # SOLO si la boleta tiene cuotas pendientes para cobrar.
+            # Las "al contado" (cuotas_pagadas >= cuotas_pactadas) NO necesitan
+            # cobrador, aunque todavía no tengan numero_especial asignado
+            # (se asigna recién al cerrarse el talonario especial).
+            _toda_paga = (b.cuotas_pagadas or 0) >= (b.cuotas_pactadas or 0)
+            if c.zona_id and not _toda_paga:
                 z = db.query(models.Zona).get(c.zona_id)
                 if z and z.cobrador_id:
                     b.cobrador_id = z.cobrador_id
