@@ -147,10 +147,26 @@
 
     /* ── PRINT ── */
     @media print {
+      /* Forzar impresión de colores de fondo (sino el navegador los descarta) */
+      *,
+      *::before,
+      *::after {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
       body { background: #fff !important; }
       .toolbar { display: none !important; }
-      .page { margin: 0 !important; box-shadow: none !important; }
-      @page { size: A4 portrait; margin: 0; }
+      .page {
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        width: 100% !important;
+        height: auto !important;
+        overflow: visible !important;
+      }
+      /* Margen chico en la hoja para que la impresora no recorte ni reescale */
+      @page { size: A4 portrait; margin: 4mm; }
     }
   </style>
 </head>
