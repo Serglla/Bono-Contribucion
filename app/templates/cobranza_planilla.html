@@ -163,20 +163,26 @@
         box-shadow: none !important;
         width: 210mm !important;
         height: 297mm !important;
+        max-height: 297mm !important;
         overflow: hidden !important;
+        page-break-after: avoid !important;
+        page-break-inside: avoid !important;
       }
+      /* Pegar la tabla principal con la del resumen (sin gap entre ellas) */
+      table.main-table { margin-bottom: 0 !important; }
+      table.res-table { margin-top: 0 !important; }
       /* Comprimir filas para que entre TODO en una sola hoja A4 */
-      table.main-table thead tr { height: 4.2mm !important; }
-      table.main-table tbody tr { height: 4.8mm !important; }
-      table.main-table tbody td { font-size: 8pt !important; }
-      table.main-table tbody .td-q { font-size: 7.5pt !important; }
+      table.main-table thead tr { height: 4mm !important; }
+      table.main-table tbody tr { height: 4.6mm !important; }
+      table.main-table tbody td { font-size: 7.8pt !important; }
+      table.main-table tbody .td-q { font-size: 7.3pt !important; }
       table.main-table tbody .td-q.cuota-venta {
-        font-size: 8.5pt !important; line-height: 4.8mm !important;
+        font-size: 8pt !important; line-height: 4.6mm !important;
       }
-      table.res-table thead tr { height: 4.2mm !important; }
-      table.res-table tbody tr { height: 3.6mm !important; }
+      table.res-table thead tr { height: 4mm !important; }
+      table.res-table tbody tr { height: 3.4mm !important; }
       table.res-table thead th, table.res-table tbody td,
-      table.res-table .td-mes { font-size: 6pt !important; }
+      table.res-table .td-mes { font-size: 5.8pt !important; }
       @page { size: A4 portrait; margin: 0; }
     }
   </style>
