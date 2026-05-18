@@ -406,8 +406,9 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
             is_new_column = new_block > 0 and new_block % ROWS_PER_COL == 0
             label = {"type":"label","pata":f"X{_get_pata(grupo[0])}","color":_get_color(grupo[0])}
             if is_new_column and new_block < TOTAL:
-                grid[new_block] = label
-                pos = new_block + 1
+                # El header de la columna ya queda pintado con el color de esta
+                # PATA — NO insertamos fila label en el tbody (sería duplicado).
+                pos = new_block
             else:
                 label_pos = new_block - 1
                 if 0 <= label_pos < TOTAL and grid[label_pos] is None:
@@ -697,8 +698,9 @@ async def planilla(request: Request, cobrador_id: int,
                 "color": _get_color(grupo[0]),
             }
             if is_new_column and new_block < TOTAL:
-                grid[new_block] = label
-                pos = new_block + 1
+                # El header de la columna ya queda pintado con el color de esta
+                # PATA — NO insertamos fila label en el tbody (sería duplicado).
+                pos = new_block
             else:
                 label_pos = new_block - 1
                 if 0 <= label_pos < TOTAL and grid[label_pos] is None:
