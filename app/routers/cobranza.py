@@ -652,6 +652,17 @@ async def planilla(request: Request, cobrador_id: int,
                     return f"X{p}"
         return ""
 
+    def _col_color(col):
+        """Color de la PATA de inicio de la columna (para pintar el header)."""
+        for cell in col:
+            if isinstance(cell, dict):
+                return cell["color"]
+            elif cell:
+                c = _get_color(cell)
+                if c:
+                    return c
+        return ""
+
     # ── Agrupar boletas consecutivas por PATA ──
     ROWS_PER_COL = 40
     TOTAL = ROWS_PER_COL * 3
@@ -707,6 +718,9 @@ async def planilla(request: Request, cobrador_id: int,
     col1_label = _col_header(c1)
     col2_label = _col_header(c2)
     col3_label = _col_header(c3)
+    col1_color = _col_color(c1)
+    col2_color = _col_color(c2)
+    col3_color = _col_color(c3)
 
     # Cantidad de cuotas (máximo entre todas las boletas, mínimo 10)
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
@@ -728,6 +742,9 @@ async def planilla(request: Request, cobrador_id: int,
         "col1_label": col1_label,
         "col2_label": col2_label,
         "col3_label": col3_label,
+        "col1_color": col1_color,
+        "col2_color": col2_color,
+        "col3_color": col3_color,
         "num_cuotas": num_cuotas,
         "cuota_nums": cuota_nums,
         "meses_campana": meses_campana,
