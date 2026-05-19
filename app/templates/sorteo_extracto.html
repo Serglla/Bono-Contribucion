@@ -298,9 +298,11 @@
   }
   @media print {
     .d-print-none { display: none !important; }
+    /* Ocultar navbar superior (azul) y cualquier barra del layout */
+    .topbar, nav.topbar, .navbar.topbar { display: none !important; }
     body { background: #fff !important; padding: 0 !important; margin: 0 !important; }
-    /* Anular el padding de la navbar/main-content */
-    .main-content { padding: 0 !important; }
+    /* Anular el padding y altura mínima del main-content */
+    .main-content { padding: 0 !important; margin: 0 !important; min-height: 0 !important; }
     .hoja-a4 {
       width: auto;
       min-height: 0;
