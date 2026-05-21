@@ -534,11 +534,15 @@ def create_default_admin():
         try:
             _dialect_lv = engine.dialect.name
             _nuevas_cols_lv = [
-                ("cuotas_extras_cantidad", "INTEGER DEFAULT 0"),
-                ("cuotas_extras_valor",    "REAL DEFAULT 0.0"),
-                ("cuotas_extras_monto",    "REAL DEFAULT 0.0"),
-                ("comision_cuotas_extras", "REAL DEFAULT 0.0"),
-                ("total_a_rendir",         "REAL DEFAULT 0.0"),
+                ("cuotas_extras_cantidad",    "INTEGER DEFAULT 0"),
+                ("cuotas_extras_valor",       "REAL DEFAULT 0.0"),
+                ("cuotas_extras_monto",       "REAL DEFAULT 0.0"),
+                ("comision_cuotas_extras",    "REAL DEFAULT 0.0"),
+                ("total_a_rendir",            "REAL DEFAULT 0.0"),
+                ("cuotas_extras_p0_cantidad", "INTEGER DEFAULT 0"),
+                ("cuotas_extras_p0_valor",    "REAL DEFAULT 0.0"),
+                ("cuotas_extras_p0_monto",    "REAL DEFAULT 0.0"),
+                ("comision_cuotas_extras_p0", "REAL DEFAULT 0.0"),
             ]
             if _dialect_lv == "postgresql":
                 for _col, _tipo in _nuevas_cols_lv:

@@ -126,6 +126,11 @@ class LiquidacionVendedor(Base):
     cuotas_extras_valor    = deferred(Column(Float, default=0.0))   # valor de cada cuota extra (referencial)
     cuotas_extras_monto    = deferred(Column(Float, default=0.0))   # cantidad × valor
     comision_cuotas_extras = deferred(Column(Float, default=0.0))   # cuotas_extras_monto × comision_cuotas_pct%
+    # Cuotas extras PATA 0 (cuota 2, 3, ... de boletas PATA 0, valor $10.000 c/u)
+    cuotas_extras_p0_cantidad = deferred(Column(Integer, default=0))
+    cuotas_extras_p0_valor    = deferred(Column(Float, default=0.0))   # valor cuota PATA 0 (referencial)
+    cuotas_extras_p0_monto    = deferred(Column(Float, default=0.0))   # p0_cantidad × p0_valor
+    comision_cuotas_extras_p0 = deferred(Column(Float, default=0.0))   # p0_monto × comision_cuotas_pct%
     # Totales
     total_comision     = Column(Float, default=0.0)   # legacy: se mantiene como total de comision pagada al vendedor
     total_a_rendir     = deferred(Column(Float, default=0.0))   # NUEVO: lo que el vendedor entrega a la org

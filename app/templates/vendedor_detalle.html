@@ -453,27 +453,55 @@
                 <i class="bi bi-currency-dollar text-warning me-1"></i>
                 Cuotas extras cobradas (cuota 2, 3, ... cobradas por el vendedor al socio)
               </div>
-              <div class="row g-2">
+              {# Fila PATAs normales (PATA 1, 2, 3...) — valor $15.000 #}
+              <div class="row g-2 mb-2">
                 <div class="col-md-6">
-                  <label class="form-label small mb-0">Cantidad de cuotas extras</label>
+                  <label class="form-label small mb-0">Extras PATAs normales
+                    <span class="text-muted fw-normal" style="font-size:.72rem;" id="lbl-vc-hint"></span>
+                  </label>
                   <input type="number" name="cuotas_extras_cantidad" id="inp-extras-cant"
                          class="form-control form-control-sm" value="0" min="0" step="1"
                          oninput="recalcular()">
                 </div>
                 <div class="col-md-6">
-                  <label class="form-label small mb-0">Valor de cada cuota
-                    <span id="lbl-vc-hint" class="text-muted fw-normal" style="font-size:.72rem;"></span>
-                  </label>
+                  <label class="form-label small mb-0">Valor cuota normal</label>
                   <div class="input-group input-group-sm">
                     <span class="input-group-text">$</span>
                     <input type="number" name="cuotas_extras_valor" id="inp-extras-valor"
                            class="form-control" value="0" min="0" step="0.01"
                            oninput="recalcular()">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" title="Restaurar valor de la talonera"
+                    <button type="button" class="btn btn-outline-secondary btn-sm" title="Restaurar valor PATA 1"
                             onclick="resetValorCuota()" style="font-size:.72rem;">↺</button>
                   </div>
                 </div>
               </div>
+              {# Fila PATA 0 — valor $10.000; solo visible si existe talonera PATA 0 #}
+              {% if pata0_vc > 0 %}
+              <div class="row g-2 border-top pt-2 mt-1">
+                <div class="col-md-6">
+                  <label class="form-label small mb-0">Extras X0 (PATA 0)
+                    <span class="text-muted fw-normal" style="font-size:.72rem;">· ${{ "%.0f"|format(pata0_vc) }}</span>
+                  </label>
+                  <input type="number" name="cuotas_extras_p0_cantidad" id="inp-extras-p0-cant"
+                         class="form-control form-control-sm" value="0" min="0" step="1"
+                         oninput="recalcular()">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small mb-0">Valor cuota X0</label>
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text">$</span>
+                    <input type="number" name="cuotas_extras_p0_valor" id="inp-extras-p0-valor"
+                           class="form-control" value="{{ "%.0f"|format(pata0_vc) }}" min="0" step="0.01"
+                           oninput="recalcular()">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" title="Restaurar valor PATA 0"
+                            onclick="resetValorCuotaP0()" style="font-size:.72rem;">↺</button>
+                  </div>
+                </div>
+              </div>
+              {% else %}
+              <input type="hidden" name="cuotas_extras_p0_cantidad" value="0">
+              <input type="hidden" name="cuotas_extras_p0_valor" value="0">
+              {% endif %}
             </div>
           </div>
 
@@ -582,12 +610,20 @@
                     <td class="text-end" id="lbl-com-contados">$0,00</td>
                   </tr>
                   <tr>
-                    <td>Cuotas extras cobradas (<span id="lbl-n-extras">0</span> cuotas)</td>
+                    <td>Cuotas extras normales (<span id="lbl-n-extras">0</span> cuotas)</td>
                     <td class="text-end" id="lbl-monto-extras">$0,00</td>
                   </tr>
                   <tr class="text-danger">
-                    <td>− Comisión cuotas extras (<span id="lbl-pct-cuotas">5</span>%)</td>
+                    <td>− Comisión extras normales (<span id="lbl-pct-cuotas">5</span>%)</td>
                     <td class="text-end" id="lbl-com-extras">$0,00</td>
+                  </tr>
+                  <tr id="fila-extras-p0" style="display:none;">
+                    <td>Cuotas extras X0 (<span id="lbl-n-extras-p0">0</span> cuotas)</td>
+                    <td class="text-end" id="lbl-monto-extras-p0">$0,00</td>
+                  </tr>
+                  <tr class="text-danger" id="fila-com-extras-p0" style="display:none;">
+                    <td>− Comisión extras X0 (<span id="lbl-pct-cuotas-p0">5</span>%)</td>
+                    <td class="text-end" id="lbl-com-extras-p0">$0,00</td>
                   </tr>
                 </tbody>
               </table>
@@ -931,6 +967,7 @@ const NOMBRES_CONTADO = {{ nombres_contado | tojson }};
 // Unidad base: PATA 1 — todo se calcula en múltiplos de PATA 1
 const PATA1_VC = {{ pata1_vc }};  // valor_cuota de PATA 1
 const PATA1_NC = {{ pata1_nc }};  // num_cuotas de PATA 1
+const PATA0_VC = {{ pata0_vc }};  // valor_cuota de PATA 0 (~$10.000); 0 si no existe
 
 function fmt(n) {
   return '$' + n.toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -1062,6 +1099,11 @@ function resetValorCuota() {
   if (!inp) return;
   if (PATA1_VC > 0) { inp.value = PATA1_VC; recalcular(); }
 }
+function resetValorCuotaP0() {
+  const inp = document.getElementById('inp-extras-p0-valor');
+  if (!inp) return;
+  if (PATA0_VC > 0) { inp.value = PATA0_VC; recalcular(); }
+}
 
 function onChkChange(chk) {
   const label = chk.closest('label');
@@ -1134,13 +1176,18 @@ function recalcular() {
     }
   });
 
-  const montoExtras = extrasCant * extrasValor;
-  const comContados = montoContados * pctContados / 100;
-  const comExtras   = montoExtras   * pctCuotas   / 100;
-  // Total a rendir = (contado - comision) + (cuotas extras cobradas - comision)
-  const totalRinde  = (montoContados - comContados) + (montoExtras - comExtras);
+  const extrasP0Cant  = parseInt(document.getElementById('inp-extras-p0-cant')?.value)    || 0;
+  const extrasP0Valor = parseFloat(document.getElementById('inp-extras-p0-valor')?.value) || 0;
+
+  const montoExtras   = extrasCant   * extrasValor;
+  const montoExtrasP0 = extrasP0Cant * extrasP0Valor;
+  const comContados   = montoContados  * pctContados / 100;
+  const comExtras     = montoExtras    * pctCuotas   / 100;
+  const comExtrasP0   = montoExtrasP0  * pctCuotas   / 100;
+  // Total a rendir = (contado - comision) + (extras normales - comision) + (extras PATA 0 - comision)
+  const totalRinde  = (montoContados - comContados) + (montoExtras - comExtras) + (montoExtrasP0 - comExtrasP0);
   const nSel        = nCuotasReal + nContados;
-  const habilitar   = (nSel > 0) || (extrasCant > 0 && extrasValor > 0);
+  const habilitar   = (nSel > 0) || (extrasCant > 0 && extrasValor > 0) || (extrasP0Cant > 0 && extrasP0Valor > 0);
 
   const el = id => document.getElementById(id);
 
@@ -1151,7 +1198,7 @@ function recalcular() {
   if (el('vd-contados-crudo')) el('vd-contados-crudo').textContent= nContados;
   if (el('vd-total-pond'))     el('vd-total-pond').textContent    = fmtPonderado(nCuotasEq + nContadosEq);
   if (el('vd-total-crudo'))    el('vd-total-crudo').textContent   = nCuotasReal + nContados;
-  if (el('vd-extras-cant'))    el('vd-extras-cant').textContent   = extrasCant;
+  if (el('vd-extras-cant'))    el('vd-extras-cant').textContent   = extrasCant + extrasP0Cant;
 
   // ── Desglose del cálculo ──
   if (el('lbl-n-cuotas'))      el('lbl-n-cuotas').textContent    = fmtPonderado(nCuotasEq);
@@ -1164,6 +1211,14 @@ function recalcular() {
   if (el('lbl-com-contados'))  el('lbl-com-contados').textContent= fmt(comContados);
   if (el('lbl-monto-extras'))  el('lbl-monto-extras').textContent= fmt(montoExtras);
   if (el('lbl-com-extras'))    el('lbl-com-extras').textContent  = fmt(comExtras);
+  // PATA 0 extras — mostrar filas solo si hay cantidad > 0
+  if (el('lbl-n-extras-p0'))     el('lbl-n-extras-p0').textContent     = extrasP0Cant;
+  if (el('lbl-pct-cuotas-p0'))   el('lbl-pct-cuotas-p0').textContent   = pctCuotas;
+  if (el('lbl-monto-extras-p0')) el('lbl-monto-extras-p0').textContent = fmt(montoExtrasP0);
+  if (el('lbl-com-extras-p0'))   el('lbl-com-extras-p0').textContent   = fmt(comExtrasP0);
+  const showP0 = extrasP0Cant > 0;
+  if (el('fila-extras-p0'))    el('fila-extras-p0').style.display    = showP0 ? '' : 'none';
+  if (el('fila-com-extras-p0'))el('fila-com-extras-p0').style.display= showP0 ? '' : 'none';
   if (el('lbl-total'))         el('lbl-total').textContent       = fmt(totalRinde);
   if (el('lbl-sel-count'))     el('lbl-sel-count').textContent   = nSel;
 
@@ -1182,13 +1237,19 @@ document.getElementById('modalLiquidar')?.addEventListener('shown.bs.modal', () 
   recalcular();
 });
 document.getElementById('modalLiquidar')?.addEventListener('hidden.bs.modal', () => {
-  // Al cerrar, resetear el valor de cuota a 0 para que la próxima apertura se auto-llene de nuevo
+  // Al cerrar, resetear campos de extras para que la próxima apertura se auto-llene de nuevo
   const inp = document.getElementById('inp-extras-valor');
   if (inp) inp.value = 0;
   const cant = document.getElementById('inp-extras-cant');
   if (cant) cant.value = 0;
   const hint = document.getElementById('lbl-vc-hint');
   if (hint) hint.textContent = '';
+  // PATA 0
+  const cantP0 = document.getElementById('inp-extras-p0-cant');
+  if (cantP0) cantP0.value = 0;
+  // valor PATA 0 se restaura al default (PATA0_VC) en lugar de 0
+  const valP0 = document.getElementById('inp-extras-p0-valor');
+  if (valP0 && PATA0_VC > 0) valP0.value = PATA0_VC;
 });
 
 // ════════════════ ENTREGA A CAJA — VENDEDOR ════════════════
@@ -1540,10 +1601,10 @@ async function verDetalleLiq(liqId) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// Modo "Pasar Caja": selección de boletas en caja para pasar a otro
+// Modo "Pasar Caja": seleccion de boletas en caja para pasar a otro
 // vendedor antes de liquidar. Reutiliza las celditas azul claro como
 // checkboxes visuales.
-// ══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 (function() {
   const btnAbrir   = document.getElementById('btnPasarCaja');
   const toolbar    = document.getElementById('toolbarPasarCaja');

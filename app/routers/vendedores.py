@@ -320,12 +320,16 @@ async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depen
         "monto_contados":          float(liq.monto_contados or 0),
         "comision_contados_pct":   float(liq.comision_contados_pct or 0),
         "comision_contados":       float(liq.comision_contados or 0),
-        "cuotas_extras_cantidad":  int(getattr(liq, "cuotas_extras_cantidad", 0) or 0),
-        "cuotas_extras_valor":     float(getattr(liq, "cuotas_extras_valor", 0) or 0),
-        "cuotas_extras_monto":     float(getattr(liq, "cuotas_extras_monto", 0) or 0),
-        "comision_cuotas_pct":     float(liq.comision_cuotas_pct or 0),
-        "comision_cuotas_extras":  float(getattr(liq, "comision_cuotas_extras", 0) or 0),
-        "total_a_rendir":          float(getattr(liq, "total_a_rendir", 0) or 0),
+        "cuotas_extras_cantidad":     int(getattr(liq, "cuotas_extras_cantidad", 0) or 0),
+        "cuotas_extras_valor":        float(getattr(liq, "cuotas_extras_valor", 0) or 0),
+        "cuotas_extras_monto":        float(getattr(liq, "cuotas_extras_monto", 0) or 0),
+        "comision_cuotas_pct":        float(liq.comision_cuotas_pct or 0),
+        "comision_cuotas_extras":     float(getattr(liq, "comision_cuotas_extras", 0) or 0),
+        "cuotas_extras_p0_cantidad":  int(getattr(liq, "cuotas_extras_p0_cantidad", 0) or 0),
+        "cuotas_extras_p0_valor":     float(getattr(liq, "cuotas_extras_p0_valor", 0) or 0),
+        "cuotas_extras_p0_monto":     float(getattr(liq, "cuotas_extras_p0_monto", 0) or 0),
+        "comision_cuotas_extras_p0":  float(getattr(liq, "comision_cuotas_extras_p0", 0) or 0),
+        "total_a_rendir":             float(getattr(liq, "total_a_rendir", 0) or 0),
         "cuota_1_total":           float(liq.cuota_1_total or 0),
         "observacion":             liq.observacion or "",
         "boletas":                 boletas_out,
@@ -803,6 +807,12 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     )
     pata1_vc = float(pata1_t.valor_cuota or 0) if pata1_t else 0.0
     pata1_nc = int(pata1_t.num_cuotas or 12)   if pata1_t else 12
+    # PATA 0: talonera con multiplicador ≈ 2/3 (0.6667)
+    pata0_t  = next(
+        (t for t in taloneras if (t.tipo or "COMUN") == "COMUN" and abs((t.multiplicador or 1) - 2/3) < 0.01),
+        None
+    )
+    pata0_vc = float(pata0_t.valor_cuota or 0) if pata0_t else 0.0
 
     pendientes_items = [
         {
@@ -868,7 +878,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     _liqs_by_id = {liq.id: liq for liq in liquidaciones}
     # Acumulador por liquidación → permite también desglose por mes más abajo
     ingreso_por_liq = {
-        liq.id: float(liq.comision_cuotas_extras or 0)
+        liq.id: (float(liq.comision_cuotas_extras or 0)
+                 + float(getattr(liq, "comision_cuotas_extras_p0", 0) or 0))
         for liq in liquidaciones
     }
     for b in boletas:
@@ -933,7 +944,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         g["total_cuotas_crudo"]   += int(liq.cuotas_vendidas or 0)
         g["total_contados_eq"]    += _liq_contados_eq
         g["total_contados_crudo"] += int(liq.contados_vendidos or 0)
-        g["total_extras"]         += int(liq.cuotas_extras_cantidad or 0)
+        g["total_extras"]         += (int(liq.cuotas_extras_cantidad or 0)
+                                      + int(getattr(liq, "cuotas_extras_p0_cantidad", 0) or 0))
 
     # Orden cronológico inverso: mes actual primero, luego pasados (más reciente arriba)
     liquidaciones_por_mes = sorted(
@@ -961,6 +973,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         "nd_por_talonera": nd_por_talonera,
         "entregas_vendedor": entregas_vendedor,
         "pata1_vc": pata1_vc,
+        "pata0_vc": pata0_vc,
         "pata1_nc": pata1_nc,
         # nuevas métricas para el header
         "total_liquidaciones": len(liquidaciones),
@@ -1002,9 +1015,11 @@ async def liquidar(
     raw_ids = form.getlist("boleta_ids")
     comision_cuotas_pct   = float(form.get("comision_cuotas_pct",   5.0))
     comision_contados_pct = float(form.get("comision_contados_pct", 30.0))
-    cuotas_extras_cantidad = int(float(form.get("cuotas_extras_cantidad", 0) or 0))
-    cuotas_extras_valor    = float(form.get("cuotas_extras_valor", 0) or 0)
-    observacion           = (form.get("observacion") or "").strip()
+    cuotas_extras_cantidad    = int(float(form.get("cuotas_extras_cantidad", 0) or 0))
+    cuotas_extras_valor       = float(form.get("cuotas_extras_valor", 0) or 0)
+    cuotas_extras_p0_cantidad = int(float(form.get("cuotas_extras_p0_cantidad", 0) or 0))
+    cuotas_extras_p0_valor    = float(form.get("cuotas_extras_p0_valor", 0) or 0)
+    observacion               = (form.get("observacion") or "").strip()
 
     boleta_ids = []
     for x in raw_ids:
@@ -1013,7 +1028,7 @@ async def liquidar(
         except Exception:
             continue
 
-    if not boleta_ids and cuotas_extras_cantidad == 0:
+    if not boleta_ids and cuotas_extras_cantidad == 0 and cuotas_extras_p0_cantidad == 0:
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
     # Verificar que las boletas pertenezcan al vendedor y estén en CAJA sin liquidar
@@ -1026,7 +1041,7 @@ async def liquidar(
             models.Boleta.liquidacion_vendedor_id.is_(None),
         ).all()
 
-    if not boletas_sel and cuotas_extras_cantidad == 0:
+    if not boletas_sel and cuotas_extras_cantidad == 0 and cuotas_extras_p0_cantidad == 0:
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
     # Modalidad por boleta: 'cuotas' (default) | 'contado' | 'contado2'
@@ -1063,18 +1078,24 @@ async def liquidar(
     )
     com_contados   = round(monto_contados * comision_contados_pct / 100, 2)
 
-    # Cuotas extras: input manual (cantidad × valor)
+    # Cuotas extras normales: input manual (cantidad × valor PATA 1)
     cuotas_extras_monto = round(cuotas_extras_cantidad * cuotas_extras_valor, 2)
     com_cuotas_extras   = round(cuotas_extras_monto * comision_cuotas_pct / 100, 2)
 
+    # Cuotas extras PATA 0: input manual (cantidad × valor PATA 0, ~$10.000)
+    cuotas_extras_p0_monto    = round(cuotas_extras_p0_cantidad * cuotas_extras_p0_valor, 2)
+    com_cuotas_extras_p0      = round(cuotas_extras_p0_monto * comision_cuotas_pct / 100, 2)
+
     # Total a rendir = lo que el vendedor entrega a la organización
     total_rendir = round(
-        (monto_contados - com_contados) + (cuotas_extras_monto - com_cuotas_extras),
+        (monto_contados - com_contados)
+        + (cuotas_extras_monto    - com_cuotas_extras)
+        + (cuotas_extras_p0_monto - com_cuotas_extras_p0),
         2
     )
 
     # total_comision (legacy) = suma de comisiones que se queda el vendedor (sin cuota 1)
-    total_comision_legacy = round(com_contados + com_cuotas_extras, 2)
+    total_comision_legacy = round(com_contados + com_cuotas_extras + com_cuotas_extras_p0, 2)
 
     liq = models.LiquidacionVendedor(
         vendedor_id=vid,
@@ -1093,6 +1114,10 @@ async def liquidar(
         cuotas_extras_valor=cuotas_extras_valor,
         cuotas_extras_monto=cuotas_extras_monto,
         comision_cuotas_extras=com_cuotas_extras,
+        cuotas_extras_p0_cantidad=cuotas_extras_p0_cantidad,
+        cuotas_extras_p0_valor=cuotas_extras_p0_valor,
+        cuotas_extras_p0_monto=cuotas_extras_p0_monto,
+        comision_cuotas_extras_p0=com_cuotas_extras_p0,
         total_comision=total_comision_legacy,
         total_a_rendir=total_rendir,
         observacion=observacion or None,
