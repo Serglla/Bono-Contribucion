@@ -5,7 +5,7 @@
   <span class="badge bg-secondary">{{ total_socios }} socios activos</span>
 </div>
 
-<!-- ── KPI Cards row 1: Recaudación ─────────────────────────────────── -->
+<!-- ── KPI row 1: Recaudacion ─────────────────────────────────────────── -->
 <div class="row g-3 mb-3">
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-success">
@@ -44,29 +44,70 @@
   </div>
 </div>
 
-<!-- ── KPI Cards row 2: Comisiones y Ganancia ────────────────────────── -->
-<div class="row g-3 mb-4">
-  <div class="col-6 col-md-4">
+<!-- ── KPI row 2: Egresos ─────────────────────────────────────────────── -->
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-danger">
       <div class="card-body py-3">
-        <div class="small text-muted mb-1"><i class="bi bi-person-badge me-1"></i>Comisiones vendedores</div>
+        <div class="small text-muted mb-1"><i class="bi bi-person-badge me-1"></i>Com. vendedores</div>
         <div class="h5 fw-bold text-danger mb-0">{{ total_com_vendedores | pesos }}</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-md-4">
+  <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-danger">
       <div class="card-body py-3">
-        <div class="small text-muted mb-1"><i class="bi bi-people me-1"></i>Comisiones cobradores</div>
+        <div class="small text-muted mb-1"><i class="bi bi-people me-1"></i>Com. cobradores</div>
         <div class="h5 fw-bold text-danger mb-0">{{ total_com_cobradores | pesos }}</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-md-4">
-    <div class="card border-0 shadow-sm h-100 border-start border-4" style="border-color:#198754!important;">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-danger">
       <div class="card-body py-3">
-        <div class="small text-muted mb-1"><i class="bi bi-bank me-1"></i>Ganancia neta institución</div>
-        <div class="h5 fw-bold mb-0" style="color:#198754;">{{ ganancia_neta | pesos }}</div>
+        <div class="small text-muted mb-1"><i class="bi bi-building me-1"></i>Pago Bomberos</div>
+        <div class="h5 fw-bold text-danger mb-0">{{ total_bomberos | pesos }}</div>
+        <div class="small text-muted">{{ meses_liquidados }} mes{{ "es" if meses_liquidados != 1 else "" }} x {{ pago_mensual_bomberos | pesos }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-danger">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-receipt me-1"></i>Gastos varios</div>
+        <div class="h5 fw-bold text-danger mb-0">{{ total_gastos | pesos }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── KPI row 3: Resultado ───────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-secondary">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-dash-circle me-1"></i>Total egresos</div>
+        <div class="h5 fw-bold text-secondary mb-0">{{ total_egresos | pesos }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 {% if ganancia_neta >= 0 %}border-success{% else %}border-danger{% endif %}">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-bank me-1"></i>Ganancia neta real</div>
+        <div class="h5 fw-bold mb-0 {% if ganancia_neta >= 0 %}text-success{% else %}text-danger{% endif %}">{{ ganancia_neta | pesos }}</div>
+        <div class="small text-muted">(sobre lo recaudado hasta hoy)</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-info">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-graph-up me-1"></i>Ganancia proyectada</div>
+        {% set ganancia_proy = total_esperado - total_egresos - falta_cobrar + total_recaudado - total_recaudado %}
+        {% set ganancia_proy = total_esperado - (total_com_vendedores + total_com_cobradores + total_bomberos + total_gastos) %}
+        <div class="h5 fw-bold mb-0 {% if ganancia_proy >= 0 %}text-info{% else %}text-danger{% endif %}">{{ ganancia_proy | pesos }}</div>
+        <div class="small text-muted">(si se cobra todo lo esperado)</div>
       </div>
     </div>
   </div>
@@ -91,6 +132,12 @@
       <span class="badge bg-danger ms-1">{{ total_com_cobradores | pesos }}</span>
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link" data-bs-toggle="tab" href="#tabGastos">
+      <i class="bi bi-receipt me-1"></i>Egresos
+      <span class="badge bg-danger ms-1">{{ (total_bomberos + total_gastos) | pesos }}</span>
+    </a>
+  </li>
 </ul>
 
 <div class="tab-content">
@@ -98,15 +145,15 @@
   <!-- Tab: Por mes ──────────────────────────────────────────────────── -->
   <div class="tab-pane fade show active" id="tabMensual">
     <div class="card shadow-sm border-0">
-      <div class="card-header bg-light fw-semibold small py-2">Recaudación mensual (liquidaciones de cobranza)</div>
+      <div class="card-header bg-light fw-semibold small py-2">Recaudacion mensual (liquidaciones de cobranza)</div>
       <div class="table-responsive">
         <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
           <thead class="table-dark">
             <tr>
               <th>Mes</th>
               <th class="text-end">Monto cobrado</th>
-              <th class="text-end">Comisión cobradores</th>
-              <th class="text-end">Neto institución</th>
+              <th class="text-end">Com. cobradores</th>
+              <th class="text-end">Neto institucion</th>
             </tr>
           </thead>
           <tbody>
@@ -118,7 +165,7 @@
               <td class="text-end fw-bold">{{ r.neto | pesos }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="4" class="text-center text-muted py-3">Sin liquidaciones de cobranza aún.</td></tr>
+            <tr><td colspan="4" class="text-center text-muted py-3">Sin liquidaciones de cobranza aun.</td></tr>
             {% endfor %}
           </tbody>
           {% if rec_por_mes_list %}
@@ -139,7 +186,7 @@
   <!-- Tab: Vendedores ──────────────────────────────────────────────── -->
   <div class="tab-pane fade" id="tabVendedores">
     {% if not vendedores_list %}
-      <p class="text-muted">Sin liquidaciones de vendedores aún.</p>
+      <p class="text-muted">Sin liquidaciones de vendedores aun.</p>
     {% else %}
     <div class="accordion" id="accVend">
       {% for v in vendedores_list %}
@@ -160,7 +207,7 @@
                 <tr>
                   <th>Fecha</th><th>Mes</th><th class="text-end">Cuotas eq.</th>
                   <th class="text-end">Com. cuotas</th><th class="text-end">Com. contados</th>
-                  <th class="text-end fw-bold">Total comisión</th>
+                  <th class="text-end fw-bold">Total comision</th>
                 </tr>
               </thead>
               <tbody>
@@ -193,7 +240,7 @@
   <!-- Tab: Cobradores ─────────────────────────────────────────────── -->
   <div class="tab-pane fade" id="tabCobradores">
     {% if not cobradores_list %}
-      <p class="text-muted">Sin liquidaciones de cobradores aún.</p>
+      <p class="text-muted">Sin liquidaciones de cobradores aun.</p>
     {% else %}
     <div class="accordion" id="accCob">
       {% for c in cobradores_list %}
@@ -204,7 +251,7 @@
                   type="button" data-bs-toggle="collapse" data-bs-target="#cob{{ cid }}">
             <span class="fw-bold me-2">{{ c.nombre }}</span>
             <span class="badge bg-success me-2">{{ c.total_monto | pesos }} cobrado</span>
-            <span class="badge bg-danger ms-auto me-2">{{ c.total_comision | pesos }} comisión</span>
+            <span class="badge bg-danger ms-auto me-2">{{ c.total_comision | pesos }} comision</span>
           </button>
         </h2>
         <div id="cob{{ cid }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}"
@@ -215,8 +262,8 @@
                 <tr>
                   <th>Fecha liq.</th><th>Mes planilla</th>
                   <th class="text-end">Monto cobrado</th>
-                  <th class="text-end">Comisión</th>
-                  <th class="text-end fw-bold">Neto institución</th>
+                  <th class="text-end">Comision</th>
+                  <th class="text-end fw-bold">Neto institucion</th>
                 </tr>
               </thead>
               <tbody>
@@ -247,5 +294,217 @@
     {% endif %}
   </div>
 
+  <!-- Tab: Egresos ────────────────────────────────────────────────── -->
+  <div class="tab-pane fade" id="tabGastos">
+
+    <!-- Config pago Bomberos -->
+    <div class="card shadow-sm border-0 mb-3">
+      <div class="card-header bg-light fw-semibold small py-2">
+        <i class="bi bi-building me-1"></i>Pago mensual a Bomberos
+      </div>
+      <div class="card-body py-3">
+        <form id="frmBomberos" class="row g-2 align-items-end">
+          <div class="col-auto">
+            <label class="form-label small mb-1">Monto por mes</label>
+            <input type="number" id="inpBomberos" class="form-control form-control-sm"
+                   value="{{ pago_mensual_bomberos | int }}" min="0" step="1000" style="width:160px;">
+          </div>
+          <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+            <span id="msgBomberos" class="ms-2 small text-success d-none">Guardado</span>
+          </div>
+          <div class="col-auto align-self-center small text-muted pt-3">
+            Total acumulado: <strong>{{ meses_liquidados }} mes{{ "es" if meses_liquidados != 1 else "" }} x {{ pago_mensual_bomberos | pesos }} = {{ total_bomberos | pesos }}</strong>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ABM gastos varios -->
+    <div class="card shadow-sm border-0">
+      <div class="card-header bg-light d-flex justify-content-between align-items-center py-2">
+        <span class="fw-semibold small"><i class="bi bi-receipt me-1"></i>Gastos varios — premios, viajes, alojamiento, etc.</span>
+        <button class="btn btn-sm btn-success" onclick="abrirModalGasto()">
+          <i class="bi bi-plus-lg"></i> Agregar
+        </button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem;" id="tblGastos">
+          <thead class="table-dark">
+            <tr>
+              <th>Descripcion</th>
+              <th>Categoria</th>
+              <th>Fecha</th>
+              <th class="text-end">Monto</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tbodyGastos">
+            {% for g in gastos_list %}
+            <tr id="gasto-row-{{ g.id }}" data-id="{{ g.id }}">
+              <td>{{ g.descripcion }}</td>
+              <td><span class="badge bg-secondary">{{ g.categoria }}</span></td>
+              <td>{{ g.fecha }}</td>
+              <td class="text-end fw-semibold text-danger">{{ g.monto | pesos }}</td>
+              <td class="text-end">
+                <button class="btn btn-sm btn-outline-primary py-0 px-1"
+                        onclick="editarGasto({{ g.id }}, '{{ g.descripcion | replace("'", "\\'") }}', '{{ g.categoria }}', '{{ g.fecha_iso }}', {{ g.monto }})">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-1"
+                        onclick="eliminarGasto({{ g.id }})">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </td>
+            </tr>
+            {% else %}
+            <tr id="fila-vacia"><td colspan="5" class="text-center text-muted py-3">Sin gastos registrados aun.</td></tr>
+            {% endfor %}
+          </tbody>
+          {% if gastos_list %}
+          <tfoot class="table-secondary fw-bold">
+            <tr>
+              <td colspan="3">TOTAL gastos varios</td>
+              <td class="text-end text-danger" id="totalGastosFoot">{{ total_gastos | pesos }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div><!-- /tabGastos -->
+
+</div><!-- /tab-content -->
+
+
+<!-- ── Modal gasto ─────────────────────────────────────────────────────── -->
+<div class="modal fade" id="modalGasto" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="modalGastoTitulo">Agregar gasto</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="gastoId" value="">
+        <div class="mb-2">
+          <label class="form-label small mb-1">Descripcion</label>
+          <input type="text" id="gastoDesc" class="form-control form-control-sm" placeholder="Ej: Premio 1er lugar">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">Categoria</label>
+          <select id="gastoCat" class="form-select form-select-sm">
+            {% for cat in categorias %}
+            <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">Fecha (opcional)</label>
+          <input type="date" id="gastoFecha" class="form-control form-control-sm">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">Monto</label>
+          <input type="number" id="gastoMonto" class="form-control form-control-sm" min="0" step="100">
+        </div>
+        <div id="gastoErr" class="text-danger small d-none"></div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" onclick="guardarGasto()">Guardar</button>
+      </div>
+    </div>
+  </div>
 </div>
+
+<script>
+(function() {
+
+  // ── helpers ──────────────────────────────────────────────────────────
+  function fmtPesos(n) {
+    if (n == null) return "$0";
+    return "$" + Math.round(n).toLocaleString("es-AR");
+  }
+
+  // ── config Bomberos ──────────────────────────────────────────────────
+  document.getElementById("frmBomberos").addEventListener("submit", function(e) {
+    e.preventDefault();
+    var val = parseFloat(document.getElementById("inpBomberos").value) || 0;
+    var fd = new FormData();
+    fd.append("pago_mensual", val);
+    fetch("/contabilidad/config/bomberos", { method: "POST", body: fd })
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok) {
+          var msg = document.getElementById("msgBomberos");
+          msg.classList.remove("d-none");
+          setTimeout(function() { msg.classList.add("d-none"); }, 2500);
+          location.reload();
+        }
+      });
+  });
+
+  // ── Modal gasto ──────────────────────────────────────────────────────
+  window.abrirModalGasto = function() {
+    document.getElementById("modalGastoTitulo").textContent = "Agregar gasto";
+    document.getElementById("gastoId").value   = "";
+    document.getElementById("gastoDesc").value = "";
+    document.getElementById("gastoCat").value  = "OTRO";
+    document.getElementById("gastoFecha").value= "";
+    document.getElementById("gastoMonto").value= "";
+    document.getElementById("gastoErr").classList.add("d-none");
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("modalGasto")).show();
+  };
+
+  window.editarGasto = function(id, desc, cat, fecha, monto) {
+    document.getElementById("modalGastoTitulo").textContent = "Editar gasto";
+    document.getElementById("gastoId").value    = id;
+    document.getElementById("gastoDesc").value  = desc;
+    document.getElementById("gastoCat").value   = cat;
+    document.getElementById("gastoFecha").value = fecha || "";
+    document.getElementById("gastoMonto").value = monto;
+    document.getElementById("gastoErr").classList.add("d-none");
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("modalGasto")).show();
+  };
+
+  window.guardarGasto = function() {
+    var desc  = document.getElementById("gastoDesc").value.trim();
+    var monto = parseFloat(document.getElementById("gastoMonto").value);
+    var errEl = document.getElementById("gastoErr");
+    if (!desc || isNaN(monto) || monto < 0) {
+      errEl.textContent = "Completa descripcion y monto valido.";
+      errEl.classList.remove("d-none");
+      return;
+    }
+    var id    = document.getElementById("gastoId").value;
+    var url   = id ? "/contabilidad/gastos/" + id + "/editar" : "/contabilidad/gastos";
+    var fd    = new FormData();
+    fd.append("descripcion", desc);
+    fd.append("categoria",   document.getElementById("gastoCat").value);
+    fd.append("fecha",       document.getElementById("gastoFecha").value);
+    fd.append("monto",       monto);
+    fetch(url, { method: "POST", body: fd })
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok) {
+          bootstrap.Modal.getOrCreateInstance(document.getElementById("modalGasto")).hide();
+          location.reload();
+        } else {
+          errEl.textContent = "Error al guardar.";
+          errEl.classList.remove("d-none");
+        }
+      });
+  };
+
+  window.eliminarGasto = function(id) {
+    if (!confirm("Eliminar este gasto?")) return;
+    var fd = new FormData();
+    fetch("/contabilidad/gastos/" + id + "/eliminar", { method: "POST", body: fd })
+      .then(r => r.json())
+      .then(d => { if (d.ok) location.reload(); });
+  };
+
+})();
+</script>
 {% endblock %}

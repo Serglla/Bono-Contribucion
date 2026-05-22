@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Form
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session, joinedload
+from datetime import date
+from typing import Optional
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
@@ -10,6 +12,22 @@ router = APIRouter(prefix="/contabilidad", tags=["contabilidad"])
 MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
          "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
+CATEGORIAS = ["PREMIO", "VIAJE", "ALOJAMIENTO", "OTRO"]
+
+
+def _get_config(db, clave, default=0.0):
+    row = db.query(models.ConfigBono).filter_by(clave=clave).first()
+    return row.valor_float if row else default
+
+
+def _set_config(db, clave, valor):
+    row = db.query(models.ConfigBono).filter_by(clave=clave).first()
+    if row:
+        row.valor_float = valor
+    else:
+        db.add(models.ConfigBono(clave=clave, valor_float=valor))
+    db.commit()
+
 
 @router.get("/", response_class=HTMLResponse)
 async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
@@ -17,7 +35,6 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     if not getattr(user, "is_admin", False):
         raise HTTPException(403, "Solo administradores")
 
-    # ── Boletas con socio (excluye BAJA) ──────────────────────────────────
     boletas = (
         db.query(models.Boleta)
         .filter(
@@ -40,7 +57,6 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     )
     pct_avance = round(total_recaudado / total_esperado * 100, 1) if total_esperado else 0
 
-    # ── Liquidaciones de vendedores ───────────────────────────────────────
     liqs_v = (
         db.query(models.LiquidacionVendedor)
         .options(joinedload(models.LiquidacionVendedor.vendedor))
@@ -51,26 +67,24 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
 
     vendedores_dict = {}
     for lv in liqs_v:
-        vid   = lv.vendedor_id
-        nombre = lv.vendedor.nombre if lv.vendedor else "—"
+        vid    = lv.vendedor_id
+        nombre = lv.vendedor.nombre if lv.vendedor else "---"
         if vid not in vendedores_dict:
             vendedores_dict[vid] = {"nombre": nombre, "total": 0.0, "liquidaciones": []}
         com = lv.total_comision or 0
         vendedores_dict[vid]["total"] += com
         fecha_str = lv.fecha.strftime("%d/%m/%Y") if lv.fecha else ""
-        mes_key   = (lv.fecha.year, lv.fecha.month) if lv.fecha else (0, 0)
         vendedores_dict[vid]["liquidaciones"].append({
-            "fecha":       fecha_str,
-            "mes_nombre":  MESES[lv.fecha.month - 1] if lv.fecha else "",
-            "anio":        lv.fecha.year if lv.fecha else 0,
-            "cuotas":      int(round(lv.cuotas_equiv or lv.cuotas_vendidas or 0)),
-            "com_cuotas":  lv.comision_cuotas or 0,
-            "com_contados":lv.comision_contados or 0,
-            "total":       com,
+            "fecha":        fecha_str,
+            "mes_nombre":   MESES[lv.fecha.month - 1] if lv.fecha else "",
+            "anio":         lv.fecha.year if lv.fecha else 0,
+            "cuotas":       int(round(lv.cuotas_equiv or lv.cuotas_vendidas or 0)),
+            "com_cuotas":   lv.comision_cuotas or 0,
+            "com_contados": lv.comision_contados or 0,
+            "total":        com,
         })
     vendedores_list = sorted(vendedores_dict.values(), key=lambda x: -x["total"])
 
-    # ── Liquidaciones de cobradores ───────────────────────────────────────
     liqs_c = (
         db.query(models.Liquidacion)
         .options(
@@ -87,8 +101,8 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         p = lc.planilla
         if not p:
             continue
-        cid   = p.cobrador_id
-        nombre = p.cobrador.nombre if p.cobrador else "—"
+        cid    = p.cobrador_id
+        nombre = p.cobrador.nombre if p.cobrador else "---"
         if cid not in cobradores_dict:
             cobradores_dict[cid] = {
                 "nombre": nombre,
@@ -108,7 +122,6 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         })
     cobradores_list = sorted(cobradores_dict.values(), key=lambda x: -x["total_comision"])
 
-    # ── Recaudación por mes (agrupada desde liquidaciones de cobranza) ────
     rec_por_mes = {}
     for lc in liqs_c:
         p = lc.planilla
@@ -126,8 +139,32 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         rec_por_mes[key]["neto"]     += lc.neto or 0
     rec_por_mes_list = sorted(rec_por_mes.values(), key=lambda x: (x["anio"], x["mes_nombre"]))
 
-    # ── Ganancia neta estimada institución ────────────────────────────────
-    ganancia_neta = total_recaudado - total_com_vendedores - total_com_cobradores
+    pago_mensual_bomberos = _get_config(db, "pago_mensual_bomberos", 0.0)
+    meses_liquidados      = len(rec_por_mes)
+    total_bomberos        = pago_mensual_bomberos * meses_liquidados
+
+    gastos = (
+        db.query(models.GastoContabilidad)
+        .order_by(models.GastoContabilidad.fecha.desc().nullslast(),
+                  models.GastoContabilidad.id.desc())
+        .all()
+    )
+    total_gastos = sum(g.monto or 0 for g in gastos)
+
+    gastos_list = [
+        {
+            "id":          g.id,
+            "descripcion": g.descripcion,
+            "categoria":   g.categoria,
+            "fecha":       g.fecha.strftime("%d/%m/%Y") if g.fecha else "",
+            "fecha_iso":   g.fecha.isoformat() if g.fecha else "",
+            "monto":       g.monto or 0,
+        }
+        for g in gastos
+    ]
+
+    total_egresos = total_com_vendedores + total_com_cobradores + total_bomberos + total_gastos
+    ganancia_neta = total_recaudado - total_egresos
 
     return templates.TemplateResponse(request, "contabilidad.html", {
         "user":                  user,
@@ -137,9 +174,111 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "pct_avance":            pct_avance,
         "total_com_vendedores":  total_com_vendedores,
         "total_com_cobradores":  total_com_cobradores,
+        "pago_mensual_bomberos": pago_mensual_bomberos,
+        "meses_liquidados":      meses_liquidados,
+        "total_bomberos":        total_bomberos,
+        "total_gastos":          total_gastos,
+        "gastos_list":           gastos_list,
+        "categorias":            CATEGORIAS,
+        "total_egresos":         total_egresos,
         "ganancia_neta":         ganancia_neta,
         "vendedores_list":       vendedores_list,
         "cobradores_list":       cobradores_list,
         "rec_por_mes_list":      rec_por_mes_list,
         "total_socios":          len(boletas),
     })
+
+
+@router.post("/config/bomberos")
+async def guardar_config_bomberos(
+    request: Request,
+    pago_mensual: float = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = await auth_module.require_user(request, db)
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(403)
+    _set_config(db, "pago_mensual_bomberos", pago_mensual)
+    return JSONResponse({"ok": True, "pago_mensual": pago_mensual})
+
+
+@router.post("/gastos")
+async def crear_gasto(
+    request: Request,
+    descripcion: str = Form(...),
+    categoria:   str = Form("OTRO"),
+    fecha:       Optional[str] = Form(None),
+    monto:       float = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = await auth_module.require_user(request, db)
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(403)
+    fecha_obj = date.fromisoformat(fecha) if fecha else None
+    g = models.GastoContabilidad(
+        descripcion=descripcion.strip(),
+        categoria=categoria,
+        fecha=fecha_obj,
+        monto=monto,
+    )
+    db.add(g)
+    db.commit()
+    db.refresh(g)
+    return JSONResponse({
+        "ok":          True,
+        "id":          g.id,
+        "descripcion": g.descripcion,
+        "categoria":   g.categoria,
+        "fecha":       g.fecha.strftime("%d/%m/%Y") if g.fecha else "",
+        "fecha_iso":   g.fecha.isoformat() if g.fecha else "",
+        "monto":       g.monto,
+    })
+
+
+@router.post("/gastos/{gasto_id}/editar")
+async def editar_gasto(
+    request: Request,
+    gasto_id: int,
+    descripcion: str = Form(...),
+    categoria:   str = Form("OTRO"),
+    fecha:       Optional[str] = Form(None),
+    monto:       float = Form(...),
+    db: Session = Depends(get_db),
+):
+    user = await auth_module.require_user(request, db)
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(403)
+    g = db.query(models.GastoContabilidad).get(gasto_id)
+    if not g:
+        raise HTTPException(404)
+    g.descripcion = descripcion.strip()
+    g.categoria   = categoria
+    g.fecha       = date.fromisoformat(fecha) if fecha else None
+    g.monto       = monto
+    db.commit()
+    return JSONResponse({
+        "ok":          True,
+        "id":          g.id,
+        "descripcion": g.descripcion,
+        "categoria":   g.categoria,
+        "fecha":       g.fecha.strftime("%d/%m/%Y") if g.fecha else "",
+        "fecha_iso":   g.fecha.isoformat() if g.fecha else "",
+        "monto":       g.monto,
+    })
+
+
+@router.post("/gastos/{gasto_id}/eliminar")
+async def eliminar_gasto(
+    request: Request,
+    gasto_id: int,
+    db: Session = Depends(get_db),
+):
+    user = await auth_module.require_user(request, db)
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(403)
+    g = db.query(models.GastoContabilidad).get(gasto_id)
+    if not g:
+        raise HTTPException(404)
+    db.delete(g)
+    db.commit()
+    return JSONResponse({"ok": True})

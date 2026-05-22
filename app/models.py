@@ -318,3 +318,21 @@ class Sorteo(Base):
     num_premios = Column(Integer, default=20)
     resultado_json = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+
+
+class ConfigBono(Base):
+    """Par clave/valor para configuracion global del bono (ej: pago_mensual_bomberos)."""
+    __tablename__ = "config_bono"
+    clave        = Column(String, primary_key=True)
+    valor_float  = Column(Float, default=0.0)
+
+
+class GastoContabilidad(Base):
+    """Egreso registrado manualmente: premios, viajes, alojamiento, etc."""
+    __tablename__ = "gastos_contabilidad"
+    id          = Column(Integer, primary_key=True, index=True)
+    descripcion = Column(String, nullable=False)
+    categoria   = Column(String, default="OTRO")   # PREMIO / VIAJE / ALOJAMIENTO / OTRO
+    fecha       = Column(Date, nullable=True)
+    monto       = Column(Float, default=0.0)
+    created_at  = Column(DateTime, server_default=func.now())
