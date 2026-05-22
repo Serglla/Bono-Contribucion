@@ -1062,7 +1062,7 @@ async def liquidar(
 
     # Monto de cuotas (referencial — coincide con cuota_1_total porque es 1 cuota por boleta)
     monto_cuotas   = cuota_1_total
-    com_cuotas     = 0.0  # ya no se calcula sobre cuota 1; la comisión de cuotas se aplica sobre EXTRAS
+    com_cuotas     = round(cuota_1_total, 2)  # el vendedor retiene íntegramente la cuota 1 de boletas por cuotas
 
     # Comisión contado: % sobre el valor TOTAL de la talonera (num_cuotas × valor_cuota)
     # Usa la PATA de cada boleta marcada como contado.
@@ -1095,7 +1095,7 @@ async def liquidar(
     )
 
     # total_comision (legacy) = suma de comisiones que se queda el vendedor (sin cuota 1)
-    total_comision_legacy = round(com_contados + com_cuotas_extras + com_cuotas_extras_p0, 2)
+    total_comision_legacy = round(com_cuotas + com_contados + com_cuotas_extras + com_cuotas_extras_p0, 2)
 
     liq = models.LiquidacionVendedor(
         vendedor_id=vid,

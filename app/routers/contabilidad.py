@@ -63,7 +63,14 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         .order_by(models.LiquidacionVendedor.fecha)
         .all()
     )
-    total_com_vendedores = sum(lv.total_comision or 0 for lv in liqs_v)
+    # _lv_total: incluye cuota_1_total para registros viejos donde comision_cuotas=0
+    def _lv_total(lv):
+        base = lv.total_comision or 0
+        # registros viejos: comision_cuotas=0 pero cuota_1_total tiene el valor correcto
+        if not (lv.comision_cuotas or 0) and (lv.cuota_1_total or 0):
+            base += lv.cuota_1_total
+        return base
+    total_com_vendedores = sum(_lv_total(lv) for lv in liqs_v)
 
     vendedores_dict = {}
     for lv in liqs_v:
@@ -71,7 +78,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         nombre = lv.vendedor.nombre if lv.vendedor else "---"
         if vid not in vendedores_dict:
             vendedores_dict[vid] = {"nombre": nombre, "total": 0.0, "liquidaciones": []}
-        com = lv.total_comision or 0
+        com = _lv_total(lv)
         vendedores_dict[vid]["total"] += com
         fecha_str = lv.fecha.strftime("%d/%m/%Y") if lv.fecha else ""
         vendedores_dict[vid]["liquidaciones"].append({
@@ -79,7 +86,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
             "mes_nombre":   MESES[lv.fecha.month - 1] if lv.fecha else "",
             "anio":         lv.fecha.year if lv.fecha else 0,
             "cuotas":       int(round(lv.cuotas_equiv or lv.cuotas_vendidas or 0)),
-            "com_cuotas":   lv.comision_cuotas or 0,
+            "com_cuotas":   (lv.comision_cuotas or 0) if (lv.comision_cuotas or 0) > 0 else (lv.cuota_1_total or 0),
             "com_contados": lv.comision_contados or 0,
             "total":        com,
         })
