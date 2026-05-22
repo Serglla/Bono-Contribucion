@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h4 class="mb-0 fw-bold"><i class="bi bi-calculator-fill me-2 text-success"></i>Contabilidad</h4>
+  <span class="badge bg-secondary">{{ total_socios }} socios activos</span>
+</div>
+
+<!-- ── KPI Cards row 1: Recaudación ─────────────────────────────────── -->
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-success">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-cash-coin me-1"></i>Total recaudado</div>
+        <div class="h5 fw-bold text-success mb-0">{{ total_recaudado | pesos }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-primary">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-bullseye me-1"></i>Total esperado</div>
+        <div class="h5 fw-bold text-primary mb-0">{{ total_esperado | pesos }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-warning">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-hourglass-split me-1"></i>Falta cobrar</div>
+        <div class="h5 fw-bold text-warning mb-0">{{ falta_cobrar | pesos }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-info">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-percent me-1"></i>Avance cobranza</div>
+        <div class="h5 fw-bold text-info mb-0">{{ pct_avance }}%</div>
+        <div class="progress mt-1" style="height:4px;">
+          <div class="progress-bar bg-info" style="width:{{ pct_avance }}%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── KPI Cards row 2: Comisiones y Ganancia ────────────────────────── -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-danger">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-person-badge me-1"></i>Comisiones vendedores</div>
+        <div class="h5 fw-bold text-danger mb-0">{{ total_com_vendedores | pesos }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-danger">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-people me-1"></i>Comisiones cobradores</div>
+        <div class="h5 fw-bold text-danger mb-0">{{ total_com_cobradores | pesos }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm h-100 border-start border-4" style="border-color:#198754!important;">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-bank me-1"></i>Ganancia neta institución</div>
+        <div class="h5 fw-bold mb-0" style="color:#198754;">{{ ganancia_neta | pesos }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Tabs ──────────────────────────────────────────────────────────── -->
+<ul class="nav nav-tabs mb-3" id="contabTabs">
+  <li class="nav-item">
+    <a class="nav-link active" data-bs-toggle="tab" href="#tabMensual">
+      <i class="bi bi-calendar3 me-1"></i>Por mes
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-bs-toggle="tab" href="#tabVendedores">
+      <i class="bi bi-person-badge me-1"></i>Vendedores
+      <span class="badge bg-danger ms-1">{{ total_com_vendedores | pesos }}</span>
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-bs-toggle="tab" href="#tabCobradores">
+      <i class="bi bi-people me-1"></i>Cobradores
+      <span class="badge bg-danger ms-1">{{ total_com_cobradores | pesos }}</span>
+    </a>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  <!-- Tab: Por mes ──────────────────────────────────────────────────── -->
+  <div class="tab-pane fade show active" id="tabMensual">
+    <div class="card shadow-sm border-0">
+      <div class="card-header bg-light fw-semibold small py-2">Recaudación mensual (liquidaciones de cobranza)</div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
+          <thead class="table-dark">
+            <tr>
+              <th>Mes</th>
+              <th class="text-end">Monto cobrado</th>
+              <th class="text-end">Comisión cobradores</th>
+              <th class="text-end">Neto institución</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rec_por_mes_list %}
+            <tr>
+              <td class="fw-semibold">{{ r.mes_nombre }} {{ r.anio }}</td>
+              <td class="text-end text-success fw-semibold">{{ r.monto | pesos }}</td>
+              <td class="text-end text-danger">{{ r.comision | pesos }}</td>
+              <td class="text-end fw-bold">{{ r.neto | pesos }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-3">Sin liquidaciones de cobranza aún.</td></tr>
+            {% endfor %}
+          </tbody>
+          {% if rec_por_mes_list %}
+          <tfoot class="table-secondary fw-bold">
+            <tr>
+              <td>TOTAL</td>
+              <td class="text-end text-success">{{ rec_por_mes_list | sum(attribute='monto') | pesos }}</td>
+              <td class="text-end text-danger">{{ rec_por_mes_list | sum(attribute='comision') | pesos }}</td>
+              <td class="text-end">{{ rec_por_mes_list | sum(attribute='neto') | pesos }}</td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Vendedores ──────────────────────────────────────────────── -->
+  <div class="tab-pane fade" id="tabVendedores">
+    {% if not vendedores_list %}
+      <p class="text-muted">Sin liquidaciones de vendedores aún.</p>
+    {% else %}
+    <div class="accordion" id="accVend">
+      {% for v in vendedores_list %}
+      {% set vid = loop.index %}
+      <div class="accordion-item border-0 shadow-sm mb-2">
+        <h2 class="accordion-header">
+          <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2"
+                  type="button" data-bs-toggle="collapse" data-bs-target="#vend{{ vid }}">
+            <span class="fw-bold me-2">{{ v.nombre }}</span>
+            <span class="badge bg-danger ms-auto me-2">{{ v.total | pesos }}</span>
+          </button>
+        </h2>
+        <div id="vend{{ vid }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}"
+             data-bs-parent="#accVend">
+          <div class="accordion-body p-0">
+            <table class="table table-sm mb-0" style="font-size:.8rem;">
+              <thead class="table-light">
+                <tr>
+                  <th>Fecha</th><th>Mes</th><th class="text-end">Cuotas eq.</th>
+                  <th class="text-end">Com. cuotas</th><th class="text-end">Com. contados</th>
+                  <th class="text-end fw-bold">Total comisión</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for liq in v.liquidaciones %}
+                <tr>
+                  <td>{{ liq.fecha }}</td>
+                  <td>{{ liq.mes_nombre }} {{ liq.anio }}</td>
+                  <td class="text-end">{{ liq.cuotas }}</td>
+                  <td class="text-end">{{ liq.com_cuotas | pesos }}</td>
+                  <td class="text-end">{{ liq.com_contados | pesos }}</td>
+                  <td class="text-end fw-bold text-danger">{{ liq.total | pesos }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot class="table-secondary fw-bold">
+                <tr>
+                  <td colspan="5">TOTAL {{ v.nombre }}</td>
+                  <td class="text-end text-danger">{{ v.total | pesos }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Tab: Cobradores ─────────────────────────────────────────────── -->
+  <div class="tab-pane fade" id="tabCobradores">
+    {% if not cobradores_list %}
+      <p class="text-muted">Sin liquidaciones de cobradores aún.</p>
+    {% else %}
+    <div class="accordion" id="accCob">
+      {% for c in cobradores_list %}
+      {% set cid = loop.index %}
+      <div class="accordion-item border-0 shadow-sm mb-2">
+        <h2 class="accordion-header">
+          <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2"
+                  type="button" data-bs-toggle="collapse" data-bs-target="#cob{{ cid }}">
+            <span class="fw-bold me-2">{{ c.nombre }}</span>
+            <span class="badge bg-success me-2">{{ c.total_monto | pesos }} cobrado</span>
+            <span class="badge bg-danger ms-auto me-2">{{ c.total_comision | pesos }} comisión</span>
+          </button>
+        </h2>
+        <div id="cob{{ cid }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}"
+             data-bs-parent="#accCob">
+          <div class="accordion-body p-0">
+            <table class="table table-sm mb-0" style="font-size:.8rem;">
+              <thead class="table-light">
+                <tr>
+                  <th>Fecha liq.</th><th>Mes planilla</th>
+                  <th class="text-end">Monto cobrado</th>
+                  <th class="text-end">Comisión</th>
+                  <th class="text-end fw-bold">Neto institución</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for liq in c.liquidaciones %}
+                <tr>
+                  <td>{{ liq.fecha }}</td>
+                  <td>{{ liq.mes_nombre }} {{ liq.anio }}</td>
+                  <td class="text-end text-success">{{ liq.monto | pesos }}</td>
+                  <td class="text-end text-danger">{{ liq.comision | pesos }}</td>
+                  <td class="text-end fw-bold">{{ liq.neto | pesos }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot class="table-secondary fw-bold">
+                <tr>
+                  <td colspan="2">TOTAL {{ c.nombre }}</td>
+                  <td class="text-end text-success">{{ c.total_monto | pesos }}</td>
+                  <td class="text-end text-danger">{{ c.total_comision | pesos }}</td>
+                  <td class="text-end">{{ c.total_neto | pesos }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

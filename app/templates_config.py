@@ -11,6 +11,14 @@ _env = Environment(
 # Filtros personalizados
 _env.filters["zfill"] = lambda v, n: str(v).zfill(n)
 
+def _pesos(v):
+    """Formatea un número como $1.234.567 (puntos como separador de miles)."""
+    try:
+        return "$" + f"{int(round(float(v or 0))):,}".replace(",", ".")
+    except Exception:
+        return "$0"
+_env.filters["pesos"] = _pesos
+
 # Helper de permisos disponible en todos los templates como has_permission(user, seccion, accion)
 def _has_permission(user, section: str, action: str = "ver") -> bool:
     import json
