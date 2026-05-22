@@ -49,8 +49,8 @@
         <div class="d-flex align-items-center gap-2 mb-2">
           <i class="bi bi-person-circle text-danger fs-4"></i>
           <h6 class="fw-bold mb-0">{{ r.cobrador.nombre }}</h6>
-          {% if r.planilla %}
-          <span class="badge bg-success ms-auto">P{{ r.planilla.numero }} armada</span>
+          {% if r.planillas %}
+          <span class="badge bg-success ms-auto">{{ r.planillas|length }} planilla{% if r.planillas|length != 1 %}s{% endif %}</span>
           {% endif %}
         </div>
 
@@ -64,43 +64,51 @@
         {% else %}
         <p class="text-success small mb-0"><i class="bi bi-check-circle me-1"></i>Todas emplanilladas</p>
         {% endif %}
-      </div>
 
-      <div class="card-footer bg-white">
-        {% if r.planilla %}
-          <div class="d-flex gap-2">
-            <a href="/cobranza/{{ r.cobrador.id }}/planilla?mes={{ mes }}&anio={{ anio }}"
-               class="btn btn-sm btn-outline-danger flex-fill">
-              <i class="bi bi-eye me-1"></i>Ver P{{ r.planilla.numero }}
+        {# Lista de planillas existentes para este mes #}
+        {% if r.planillas %}
+        <div class="mt-2 d-flex flex-column gap-1">
+          {% for pl in r.planillas %}
+          <div class="d-flex align-items-center gap-1">
+            <span class="badge bg-secondary" style="font-size:.7rem;">P{{ pl.numero }}</span>
+            <a href="/cobranza/planilla/{{ pl.id }}/ver"
+               class="btn btn-sm btn-outline-danger py-0 px-2 flex-fill" style="font-size:.75rem;">
+              <i class="bi bi-eye me-1"></i>Ver
             </a>
-            <a href="/cobranza/planilla/{{ r.planilla.id }}/editar"
-               class="btn btn-sm btn-outline-secondary">
+            <a href="/cobranza/planilla/{{ pl.id }}/editar"
+               class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:.75rem;">
               <i class="bi bi-pencil"></i>
             </a>
-            <button class="btn btn-sm btn-outline-danger"
-                    title="Eliminar planilla"
+            <button class="btn btn-sm btn-outline-danger py-0 px-2"
+                    style="font-size:.75rem;"
+                    title="Eliminar P{{ pl.numero }}"
                     data-bs-toggle="modal"
-                    data-bs-target="#modalEliminar{{ r.planilla.id }}">
+                    data-bs-target="#modalEliminar{{ pl.id }}">
               <i class="bi bi-trash"></i>
             </button>
           </div>
-        {% else %}
-          <!-- Modal trigger -->
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="card-footer bg-white">
+        {% if r.sin_planilla > 0 %}
           <button class="btn btn-sm btn-danger w-100"
                   data-bs-toggle="modal"
                   data-bs-target="#modalArmar{{ r.cobrador.id }}">
-            <i class="bi bi-plus-circle me-1"></i>Armar planilla
-            {% if r.sin_planilla > 0 %}
+            <i class="bi bi-plus-circle me-1"></i>Armar nueva planilla
             <span class="badge bg-light text-danger ms-1">{{ r.sin_planilla }} boletas</span>
-            {% endif %}
           </button>
+        {% else %}
+          <span class="text-success small"><i class="bi bi-check-circle me-1"></i>Sin boletas pendientes</span>
         {% endif %}
       </div>
     </div>
   </div>
 
-  <!-- Modal para armar planilla -->
-  {% if not r.planilla %}
+  <!-- Modal para armar planilla (siempre disponible si hay boletas sin emplanillar) -->
+  {% if r.sin_planilla > 0 %}
   <div class="modal fade" id="modalArmar{{ r.cobrador.id }}" tabindex="-1">
     <div class="modal-dialog modal-sm">
       <div class="modal-content">
@@ -114,7 +122,10 @@
           <div class="modal-body">
             <p class="text-muted small mb-3">
               Se van a emplanillar <strong>{{ r.sin_planilla }}</strong> boleta{% if r.sin_planilla != 1 %}s{% endif %}
-              para <strong>{{ mes_nombre }} {{ anio }}</strong>.
+              en una nueva planilla para <strong>{{ mes_nombre }} {{ anio }}</strong>.
+              {% if r.planillas %}
+              <br><span class="text-muted">Ya tiene {{ r.planillas|length }} planilla{% if r.planillas|length != 1 %}s{% endif %} este mes.</span>
+              {% endif %}
             </p>
             <label class="form-label fw-semibold small">Comisión del cobrador</label>
             <div class="input-group input-group-sm">
@@ -134,19 +145,19 @@
   </div>
   {% endif %}
 
-  <!-- Modal para eliminar planilla -->
-  {% if r.planilla %}
-  <div class="modal fade" id="modalEliminar{{ r.planilla.id }}" tabindex="-1">
+  <!-- Modales para eliminar cada planilla -->
+  {% for pl in r.planillas %}
+  <div class="modal fade" id="modalEliminar{{ pl.id }}" tabindex="-1">
     <div class="modal-dialog modal-sm">
       <div class="modal-content">
-        <form method="post" action="/cobranza/planilla/{{ r.planilla.id }}/eliminar">
+        <form method="post" action="/cobranza/planilla/{{ pl.id }}/eliminar">
           <div class="modal-header">
             <h6 class="modal-title text-danger"><i class="bi bi-exclamation-triangle me-1"></i>Eliminar planilla</h6>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
             <p class="small mb-0">
-              ¿Confirmar eliminación de <strong>P{{ r.planilla.numero }}</strong> de {{ r.cobrador.nombre }}?<br>
+              ¿Confirmar eliminación de <strong>P{{ pl.numero }}</strong> de {{ r.cobrador.nombre }}?<br>
               Las boletas quedarán sin emplanillar y podrán volver a asignarse.
             </p>
           </div>
@@ -158,7 +169,7 @@
       </div>
     </div>
   </div>
-  {% endif %}
+  {% endfor %}
 
   {% endfor %}
 </div>

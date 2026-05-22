@@ -110,25 +110,33 @@ async def armar_planilla(request: Request, cobrador_id: int,
     if not cobrador:
         return RedirectResponse("/cobranza/emplanillado", status_code=302)
 
-    # Si ya existe planilla para este cobrador+mes+anio, usarla; si no, crearla.
-    existente = db.query(models.Planilla).filter_by(cobrador_id=cobrador_id, mes=mes, anio=anio).first()
-    if not existente:
-        siguiente_numero = (db.query(func.count(models.Planilla.id))
-                            .filter_by(cobrador_id=cobrador_id)
-                            .scalar() or 0) + 1
-        planilla = models.Planilla(
-            cobrador_id=cobrador_id,
-            numero=siguiente_numero,
-            mes=mes,
-            anio=anio,
-            comision_pct=comision_pct,
-        )
-        db.add(planilla)
-        db.flush()
-    else:
-        planilla = existente
+    # Crear siempre una planilla nueva para este cobrador+mes+anio.
+    # Un cobrador puede tener múltiples planillas por mes.
+    # Solo crear si hay boletas sin emplanillar; si no, redirigir sin crear.
+    pendientes_count = (db.query(func.count(models.Boleta.id))
+                          .filter(models.Boleta.cobrador_id == cobrador_id,
+                                  models.Boleta.planilla_id.is_(None),
+                                  models.Boleta.condicion != CondicionBoleta.BAJA,
+                                  models.Boleta.numero_especial_2.is_(None),
+                                  models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
+                          .scalar() or 0)
+    if pendientes_count == 0:
+        return RedirectResponse(f"/cobranza/emplanillado?mes={mes}&anio={anio}", status_code=302)
 
-    # Asignar boletas sin planilla de este cobrador a la planilla (nueva o existente).
+    siguiente_numero = (db.query(func.count(models.Planilla.id))
+                        .filter_by(cobrador_id=cobrador_id)
+                        .scalar() or 0) + 1
+    planilla = models.Planilla(
+        cobrador_id=cobrador_id,
+        numero=siguiente_numero,
+        mes=mes,
+        anio=anio,
+        comision_pct=comision_pct,
+    )
+    db.add(planilla)
+    db.flush()
+
+    # Asignar boletas sin planilla de este cobrador a la nueva planilla.
     # Excluye las pagadas al contado (1 pago o 2 pagos): tienen numero_especial_2
     # asignado y no tienen cuotas para cobrar, no corresponde emplantillarlas.
     # Excluye también las que ya tienen TODAS las cuotas pagas (anticipadas o no):
@@ -174,13 +182,16 @@ async def emplanillado(request: Request, db: Session = Depends(get_db),
                            models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
                    .all())
         sin_planilla = [b for b in activas if b.planilla_id is None]
-        planilla = db.query(models.Planilla).filter_by(cobrador_id=co.id, mes=mes, anio=anio).first()
+        planillas = (db.query(models.Planilla)
+                     .filter_by(cobrador_id=co.id, mes=mes, anio=anio)
+                     .order_by(models.Planilla.numero)
+                     .all())
         if activas:
             resumen.append({
                 "cobrador": co,
                 "total_activas": len(activas),
                 "sin_planilla": len(sin_planilla),
-                "planilla": planilla,
+                "planillas": planillas,
             })
 
     return templates.TemplateResponse(request, "cobranza_emplanillado.html", {
@@ -624,6 +635,128 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     db.commit()
 
     return RedirectResponse(f"/cobranza/liquidacion/{planilla_id}", status_code=302)
+
+
+@router.get("/planilla/{planilla_id}/ver", response_class=HTMLResponse)
+async def planilla_ver(request: Request, planilla_id: int,
+                       db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+
+    planilla_obj = db.query(models.Planilla).get(planilla_id)
+    if not planilla_obj:
+        raise HTTPException(404)
+
+    cobrador = db.query(models.Cobrador).get(planilla_obj.cobrador_id)
+    mes  = planilla_obj.mes
+    anio = planilla_obj.anio
+
+    boletas = (db.query(models.Boleta)
+               .filter(models.Boleta.planilla_id == planilla_id)
+               .join(models.Comprador, isouter=True)
+               .order_by(models.Boleta.numero_principal)
+               .all())
+
+    def _get_pata(b):
+        if b and b.talonera:
+            return _extraer_pata(b.talonera.nombre)
+        return "?"
+
+    def _get_color(b):
+        if b and b.talonera and b.talonera.color:
+            c = b.talonera.color.strip()
+            return c if c and c != "#ffffff" else "#cccccc"
+        return "#cccccc"
+
+    def _col_header(col):
+        for cell in col:
+            if isinstance(cell, dict):
+                return cell["pata"]
+            elif cell:
+                p = _get_pata(cell)
+                if p != "?":
+                    return f"X{p}"
+        return ""
+
+    def _col_color(col):
+        for cell in col:
+            if isinstance(cell, dict):
+                return cell["color"]
+            elif cell:
+                c = _get_color(cell)
+                if c:
+                    return c
+        return ""
+
+    ROWS_PER_COL = 40
+    TOTAL = ROWS_PER_COL * 3
+    grid = [None] * TOTAL
+
+    pata_grupos = []
+    cur_pata, cur_grupo = None, []
+    for b in boletas:
+        p = _get_pata(b)
+        if p != cur_pata:
+            if cur_grupo:
+                pata_grupos.append(cur_grupo)
+            cur_pata, cur_grupo = p, [b]
+        else:
+            cur_grupo.append(b)
+    if cur_grupo:
+        pata_grupos.append(cur_grupo)
+
+    pos = 0
+    for i, grupo in enumerate(pata_grupos):
+        if i > 0:
+            new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
+            is_new_column = new_block > 0 and new_block % ROWS_PER_COL == 0
+            label = {
+                "type": "label",
+                "pata": f"X{_get_pata(grupo[0])}",
+                "color": _get_color(grupo[0]),
+            }
+            if is_new_column and new_block < TOTAL:
+                pos = new_block
+            else:
+                label_pos = new_block - 1
+                if 0 <= label_pos < TOTAL and grid[label_pos] is None:
+                    grid[label_pos] = label
+                pos = new_block
+        for b in grupo:
+            if pos < TOTAL:
+                grid[pos] = b
+                pos += 1
+
+    c1 = grid[0:ROWS_PER_COL]
+    c2 = grid[ROWS_PER_COL:ROWS_PER_COL * 2]
+    c3 = grid[ROWS_PER_COL * 2:ROWS_PER_COL * 3]
+    rows = [(c1[i], c2[i], c3[i]) for i in range(ROWS_PER_COL)]
+
+    num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
+    num_cuotas = max(num_cuotas, 10)
+    cuota_nums = list(range(1, num_cuotas + 1))
+    meses_campana = _meses_campana_desde(mes, num_cuotas)
+
+    return templates.TemplateResponse(request, "cobranza_planilla.html", {
+        "user": user,
+        "cobrador": cobrador,
+        "planilla": planilla_obj,
+        "planilla_label": f"P{planilla_obj.numero}",
+        "boletas": boletas,
+        "rows": rows,
+        "col1_label": _col_header(c1),
+        "col2_label": _col_header(c2),
+        "col3_label": _col_header(c3),
+        "col1_color": _col_color(c1),
+        "col2_color": _col_color(c2),
+        "col3_color": _col_color(c3),
+        "num_cuotas": num_cuotas,
+        "cuota_nums": cuota_nums,
+        "meses_campana": meses_campana,
+        "mes": mes, "anio": anio,
+        "mes_nombre": MESES[mes - 1],
+    })
 
 
 @router.get("/{cobrador_id}/planilla", response_class=HTMLResponse)
