@@ -471,6 +471,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
                 <span id="vendedorZonaBadge" class="d-none" style="font-size:.65rem; color:#dc3545; font-weight:600;">
                   <i class="bi bi-lock-fill"></i> Fijo por zona
                 </span>
+                <span id="vendedorBoletaBadge" class="d-none" style="font-size:.65rem; color:#198754; font-weight:600;">
+                  <i class="bi bi-lightning-charge-fill"></i> <span id="vendedorBoletaNombre"></span>
+                </span>
               </label>
               <select name="vendedor_id" id="vendedorSelect" class="form-select form-select-sm">
                 <option value="">— Sin vendedor —</option>
@@ -599,6 +602,20 @@ document.querySelectorAll('.input-upper').forEach(el => {
           } else {
             hidden.value = b.id;
             yaTiene.classList.add('d-none');
+
+            // Auto-completar vendedor desde la liquidación
+            const vendedorSel   = document.getElementById('vendedorSelect');
+            const boletaBadge   = document.getElementById('vendedorBoletaBadge');
+            const boletaNombre  = document.getElementById('vendedorBoletaNombre');
+            boletaBadge.classList.add('d-none');
+            if (b.vendedor_id && !vendedorSel.disabled) {
+              vendedorSel.value = String(b.vendedor_id);
+              if (vendedorSel.value === String(b.vendedor_id)) {
+                boletaNombre.textContent = b.vendedor_nombre || '';
+                boletaBadge.classList.remove('d-none');
+              }
+            }
+
             document.getElementById('apellidoInput').focus();
           }
         })
@@ -739,6 +756,12 @@ document.querySelectorAll('.input-upper').forEach(el => {
     document.getElementById('nuevoBoletaInfo').classList.add('d-none');
     document.getElementById('nuevoBoletaError').classList.add('d-none');
     document.getElementById('nuevoBoletaRequerida').classList.add('d-none');
+    // Ocultar badge de vendedor por boleta y restaurar el recordado (si zona no lo bloqueó)
+    document.getElementById('vendedorBoletaBadge').classList.add('d-none');
+    const vendedorSel = document.getElementById('vendedorSelect');
+    if (!vendedorSel.disabled) {
+      vendedorSel.value = localStorage.getItem('bono_vendedor') ?? '';
+    }
   }
 
   function flash() {

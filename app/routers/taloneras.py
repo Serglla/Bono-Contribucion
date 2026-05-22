@@ -153,6 +153,18 @@ async def buscar_boleta_global(numero: int, request: Request, db: Session = Depe
     ).first()
     if not b:
         raise HTTPException(404, detail="Boleta no encontrada")
+
+    # Vendedor: preferir el de la liquidación; fallback a vendedor_id directo
+    vendedor_id = None
+    vendedor_nombre = None
+    if b.liquidacion_vendedor_id and b.liquidacion_vendedor:
+        liq = b.liquidacion_vendedor
+        vendedor_id = liq.vendedor_id
+        vendedor_nombre = liq.vendedor.nombre if liq.vendedor else None
+    elif b.vendedor_id and b.vendedor:
+        vendedor_id = b.vendedor_id
+        vendedor_nombre = b.vendedor.nombre
+
     return JSONResponse({
         "id": b.id,
         "talonera": b.talonera.nombre if b.talonera else "",
@@ -160,6 +172,8 @@ async def buscar_boleta_global(numero: int, request: Request, db: Session = Depe
         "numeros_adicionales": b.numeros_adicionales or "",
         "comprador_id": b.comprador_id,
         "comprador": b.comprador.apellido_nombre if b.comprador else None,
+        "vendedor_id": vendedor_id,
+        "vendedor_nombre": vendedor_nombre,
     })
 
 
