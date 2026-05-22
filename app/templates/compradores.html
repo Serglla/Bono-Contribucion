@@ -368,8 +368,13 @@ document.getElementById('filtroCobradorActual').addEventListener('change', funct
   // col >= 0  → busca solo en esa columna
   function textoCelda(td, col) {
     if (!td) return '';
-    // col 1 = N° Boleta, col 5 = Fecha, col 7 = Cobrador (todos con data-val)
-    if ((col === 1 || col === 5 || col === 7) && td.dataset.val !== undefined) {
+    // Cobrador (col 7): SOLO data-val — innerText en celdas con <select>
+    // incluye TODOS los options y rompe la búsqueda
+    if (col === 7 && td.dataset.val !== undefined) {
+      return td.dataset.val.toLowerCase();
+    }
+    // col 1 = N° Boleta, col 5 = Fecha: data-val (ISO/numérico) + texto visible
+    if ((col === 1 || col === 5) && td.dataset.val !== undefined) {
       return (td.dataset.val + ' ' + td.innerText).toLowerCase();
     }
     return td.innerText.toLowerCase();
