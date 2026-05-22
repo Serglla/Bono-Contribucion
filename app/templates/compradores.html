@@ -603,16 +603,18 @@ document.querySelectorAll('.input-upper').forEach(el => {
             hidden.value = b.id;
             yaTiene.classList.add('d-none');
 
-            // Auto-completar vendedor desde la liquidación
+            // Auto-completar vendedor desde la liquidación (prioridad máxima, pisa la zona)
             const vendedorSel   = document.getElementById('vendedorSelect');
             const boletaBadge   = document.getElementById('vendedorBoletaBadge');
             const boletaNombre  = document.getElementById('vendedorBoletaNombre');
             boletaBadge.classList.add('d-none');
-            if (b.vendedor_id && !vendedorSel.disabled) {
+            if (b.vendedor_id) {
+              vendedorSel.disabled = false;   // desbloquear aunque la zona lo haya fijado
               vendedorSel.value = String(b.vendedor_id);
               if (vendedorSel.value === String(b.vendedor_id)) {
                 boletaNombre.textContent = b.vendedor_nombre || '';
                 boletaBadge.classList.remove('d-none');
+                document.getElementById('vendedorZonaBadge').classList.add('d-none');
               }
             }
 
