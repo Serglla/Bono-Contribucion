@@ -110,7 +110,7 @@ async def armar_planilla(request: Request, cobrador_id: int,
     if not cobrador:
         return RedirectResponse("/cobranza/emplanillado", status_code=302)
 
-    # Si ya existe planilla para este cobrador+mes+anio, solo redirigir
+    # Si ya existe planilla para este cobrador+mes+anio, usarla; si no, crearla.
     existente = db.query(models.Planilla).filter_by(cobrador_id=cobrador_id, mes=mes, anio=anio).first()
     if not existente:
         siguiente_numero = (db.query(func.count(models.Planilla.id))
@@ -125,20 +125,22 @@ async def armar_planilla(request: Request, cobrador_id: int,
         )
         db.add(planilla)
         db.flush()
+    else:
+        planilla = existente
 
-        # Asignar boletas sin planilla de este cobrador a la nueva planilla.
-        # Excluye las pagadas al contado (1 pago o 2 pagos): tienen numero_especial_2
-        # asignado y no tienen cuotas para cobrar, no corresponde emplantillarlas.
-        # Excluye también las que ya tienen TODAS las cuotas pagas (anticipadas o no):
-        # nada para cobrar → badge "Al contado" en Socios.
-        (db.query(models.Boleta)
-           .filter(models.Boleta.cobrador_id == cobrador_id,
-                   models.Boleta.planilla_id.is_(None),
-                   models.Boleta.condicion != CondicionBoleta.BAJA,
-                   models.Boleta.numero_especial_2.is_(None),
-                   models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
-           .update({"planilla_id": planilla.id}, synchronize_session=False))
-        db.commit()
+    # Asignar boletas sin planilla de este cobrador a la planilla (nueva o existente).
+    # Excluye las pagadas al contado (1 pago o 2 pagos): tienen numero_especial_2
+    # asignado y no tienen cuotas para cobrar, no corresponde emplantillarlas.
+    # Excluye también las que ya tienen TODAS las cuotas pagas (anticipadas o no):
+    # nada para cobrar → badge "Al contado" en Socios.
+    (db.query(models.Boleta)
+       .filter(models.Boleta.cobrador_id == cobrador_id,
+               models.Boleta.planilla_id.is_(None),
+               models.Boleta.condicion != CondicionBoleta.BAJA,
+               models.Boleta.numero_especial_2.is_(None),
+               models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
+       .update({"planilla_id": planilla.id}, synchronize_session=False))
+    db.commit()
 
     return RedirectResponse(f"/cobranza/emplanillado?mes={mes}&anio={anio}", status_code=302)
 
