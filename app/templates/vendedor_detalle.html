@@ -1400,6 +1400,10 @@ function escapeHtml(s) {
 async function verDetalleLiq(liqId) {
   const modalEl = document.getElementById('modalDetalleLiq');
   if (!modalEl) return;
+  // Mover al body para que Bootstrap lo apile por encima del modal de historial
+  if (modalEl.parentElement !== document.body) {
+    document.body.appendChild(modalEl);
+  }
   const body = document.getElementById('dl-body');
   const fechaLbl = document.getElementById('dl-fecha');
   body.innerHTML = `<div class="text-center text-muted py-4">
@@ -1694,7 +1698,7 @@ async function verDetalleLiq(liqId) {
       // Éxito → recargar para reflejar los cambios
       setTimeout(() => window.location.reload(), 400);
     } catch (e) {
-      alert('Error de red al pasar las boletas');
+            alert('Error de red al pasar las boletas');
       btnConfirm.disabled = false;
       btnConfirm.innerHTML = '<i class="bi bi-check-lg me-1"></i>Confirmar pase';
     }
