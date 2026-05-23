@@ -43,10 +43,15 @@ async def listar(request: Request, db: Session = Depends(get_db),
                  .filter(models.Talonera.nombre == pata)
                  .distinct())
     # Filtro: solo socios sin cobrador en alguna boleta
+    # Se excluyen las boletas con todas las cuotas pagas (al contado / finalizadas):
+    # esas no necesitan cobrador.
     if sin_cob in ("1", "true", "yes"):
         query = (query
                  .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
-                 .filter(models.Boleta.cobrador_id.is_(None))
+                 .filter(
+                     models.Boleta.cobrador_id.is_(None),
+                     models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas,
+                 )
                  .distinct())
     # Filtro: socios cuyo cobrador actual es X
     if cob:
@@ -102,9 +107,43 @@ async def listar(request: Request, db: Session = Depends(get_db),
     # redondeo a entero al mostrar (decisión 11/05/2026).
     total_compradores = round(sum(t["total"] * t["multiplicador"] for t in tabs))
 
-    # Cantidad de socios sin vendedor/cobrador (para mostrar alertas en el template)
+    # Cantidad de socios sin vendedor/cobrador (para mostrar alertas en el template).
+    # Para el cobrador: excluimos boletas ya totalmente pagas (al contado / finalizadas)
+    # porque esas no necesitan cobrador — ya no hay cuotas pendientes de cobrar.
     sin_vendedor = sum(1 for c in compradores if c.boletas and not c.boletas[0].vendedor_id)
-    sin_cobrador = sum(1 for c in compradores if c.boletas and not c.boletas[0].cobrador_id)
+    sin_cobrador = sum(
+        1 for c in compradores
+        if c.boletas
+        and not c.boletas[0].cobrador_id
+        and (c.boletas[0].cuotas_pagadas or 0) < (c.boletas[0].cuotas_pactadas or 0)
+    )
+
+    # Contado liquidado por vendedor pero todavía sin cargar en sistema:
+    # son los LiquidacionContadoItem cuyo número aún no fue asignado
+    # a ninguna Boleta con comprador (via numero_especial o numero_especial_2).
+    lci_all = db.query(models.LiquidacionContadoItem).all()
+    if lci_all:
+        asignados_slot1 = {
+            (b.talonera_especial_id, b.numero_especial)
+            for b in db.query(models.Boleta).filter(
+                models.Boleta.comprador_id.isnot(None),
+                models.Boleta.numero_especial.isnot(None),
+            ).all()
+        }
+        asignados_slot2 = {
+            (b.talonera_especial_2_id, b.numero_especial_2)
+            for b in db.query(models.Boleta).filter(
+                models.Boleta.comprador_id.isnot(None),
+                models.Boleta.numero_especial_2.isnot(None),
+            ).all()
+        }
+        contado_sin_cargar = sum(
+            1 for lci in lci_all
+            if (lci.talonera_id, lci.numero) not in asignados_slot1
+            and (lci.talonera_id, lci.numero) not in asignados_slot2
+        )
+    else:
+        contado_sin_cargar = 0
 
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
@@ -121,9 +160,74 @@ async def listar(request: Request, db: Session = Depends(get_db),
         "total_compradores": total_compradores,
         "sin_vendedor": sin_vendedor,
         "sin_cobrador": sin_cobrador,
+        "contado_sin_cargar": contado_sin_cargar,
         "filtro_sin_cob": sin_cob in ("1", "true", "yes"),
         "filtro_cob": cob,
     })
+
+
+@router.get("/contado-sin-cargar-lista")
+async def contado_sin_cargar_lista(request: Request, db: Session = Depends(get_db)):
+    """Devuelve los LiquidacionContadoItem que el vendedor declaró como contado
+    pero cuyo número aún no fue asignado a ningún Comprador (numero_especial / numero_especial_2).
+    Útil para saber qué socios faltan cargar en sistema después de una liquidación.
+    """
+    await auth_module.require_user(request, db)
+
+    lci_all = (
+        db.query(
+            models.LiquidacionContadoItem,
+            models.LiquidacionVendedor,
+            models.Talonera,
+            models.Vendedor,
+        )
+        .join(models.LiquidacionVendedor,
+              models.LiquidacionVendedor.id == models.LiquidacionContadoItem.liquidacion_id)
+        .join(models.Talonera,
+              models.Talonera.id == models.LiquidacionContadoItem.talonera_id)
+        .join(models.Vendedor,
+              models.Vendedor.id == models.LiquidacionVendedor.vendedor_id)
+        .all()
+    )
+
+    if not lci_all:
+        return JSONResponse({"ok": True, "items": [], "total": 0})
+
+    asignados_slot1 = {
+        (b.talonera_especial_id, b.numero_especial)
+        for b in db.query(models.Boleta).filter(
+            models.Boleta.comprador_id.isnot(None),
+            models.Boleta.numero_especial.isnot(None),
+        ).all()
+    }
+    asignados_slot2 = {
+        (b.talonera_especial_2_id, b.numero_especial_2)
+        for b in db.query(models.Boleta).filter(
+            models.Boleta.comprador_id.isnot(None),
+            models.Boleta.numero_especial_2.isnot(None),
+        ).all()
+    }
+
+    items = []
+    for lci, liq, tal, vend in lci_all:
+        if (lci.talonera_id, lci.numero) in asignados_slot1:
+            continue
+        if (lci.talonera_id, lci.numero) in asignados_slot2:
+            continue
+        nd = tal.num_digitos or 3
+        items.append({
+            "talonera": tal.nombre,
+            "numero": lci.numero,
+            "numero_fmt": str(lci.numero).zfill(nd),
+            "vendedor": vend.nombre,
+            "fecha_liquidacion": liq.fecha.strftime("%d/%m/%Y") if liq.fecha else None,
+            "liquidacion_id": liq.id,
+        })
+
+    # Ordenar por vendedor, luego por talonera y número
+    items.sort(key=lambda x: (x["vendedor"], x["talonera"], x["numero"]))
+
+    return JSONResponse({"ok": True, "items": items, "total": len(items)})
 
 
 @router.post("/completar-vendedores")
@@ -195,7 +299,12 @@ async def completar_cobradores(request: Request, db: Session = Depends(get_db)):
     sin_cobrador = (
         db.query(models.Comprador)
         .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
-        .filter(models.Boleta.cobrador_id == None, models.Comprador.zona_id != None)
+        .filter(
+            models.Boleta.cobrador_id == None,
+            models.Comprador.zona_id != None,
+            # Excluir boletas ya totalmente pagas (no necesitan cobrador)
+            models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas,
+        )
         .distinct()
         .all()
     )
@@ -206,7 +315,8 @@ async def completar_cobradores(request: Request, db: Session = Depends(get_db)):
         if not zona or not zona.cobrador_id:
             continue
         for b in c.boletas:
-            if not b.cobrador_id:
+            # Solo asignar cobrador a boletas con cuotas pendientes
+            if not b.cobrador_id and (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0):
                 b.cobrador_id = zona.cobrador_id
         arreglados += 1
 

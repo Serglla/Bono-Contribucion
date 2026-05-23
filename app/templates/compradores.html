@@ -18,7 +18,7 @@
   </div>
 </div>
 
-{% if sin_vendedor > 0 or sin_cobrador > 0 %}
+{% if sin_vendedor > 0 or sin_cobrador > 0 or contado_sin_cargar > 0 %}
 <div class="d-flex flex-column gap-2 mb-3">
 
   {% if sin_vendedor > 0 %}
@@ -47,7 +47,46 @@
   </div>
   {% endif %}
 
+  {% if contado_sin_cargar > 0 %}
+  <div class="alert alert-info d-flex align-items-center justify-content-between py-2 mb-0" id="alertaContadoSinCargar">
+    <span><i class="bi bi-bag-x-fill me-2"></i>
+      <strong>{{ contado_sin_cargar }}</strong> número{% if contado_sin_cargar != 1 %}s{% endif %} liquidado{% if contado_sin_cargar != 1 %}s{% endif %} por vendedor sin cargar en sistema.
+    </span>
+    <button class="btn btn-sm btn-info fw-semibold text-white" onclick="verContadoSinCargar(this)">
+      <i class="bi bi-eye me-1"></i>Ver cuáles son
+    </button>
+  </div>
+  {% endif %}
+
 </div>
+
+<!-- Modal: Contado sin cargar en sistema -->
+<div class="modal fade" id="modalContadoSinCargar" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#e3f2fd;">
+        <h5 class="modal-title">
+          <i class="bi bi-bag-x-fill text-info me-2"></i>Números liquidados sin cargar en sistema
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="contadoSinCargarBody">
+        <div class="text-center py-4">
+          <span class="spinner-border text-info me-2"></span>Cargando...
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <p class="text-muted small mb-0 me-auto">
+          <i class="bi bi-info-circle me-1"></i>
+          Estos números fueron declarados como vendidos al contado por el vendedor en su liquidación,
+          pero todavía no tienen socio cargado en sistema. Cargalos desde la pantalla de Socios → Nuevo.
+        </p>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 function completarFaltantes(tipo, btn, alertaId) {
   btn.disabled = true;
@@ -62,6 +101,47 @@ function completarFaltantes(tipo, btn, alertaId) {
           Se completaron <strong>${data.arreglados}</strong> socio${data.arreglados !== 1 ? 's' : ''}. Recargando...`;
         setTimeout(() => location.reload(), 1500);
       }
+    });
+}
+
+function verContadoSinCargar(btn) {
+  btn.disabled = true;
+  const modal = new bootstrap.Modal(document.getElementById('modalContadoSinCargar'));
+  modal.show();
+  fetch('/compradores/contado-sin-cargar-lista')
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      const body = document.getElementById('contadoSinCargarBody');
+      if (!data.ok || data.total === 0) {
+        body.innerHTML = '<p class="text-success text-center py-3"><i class="bi bi-check-circle-fill me-2"></i>No hay pendientes.</p>';
+        return;
+      }
+      // Agrupar por vendedor
+      const porVendedor = {};
+      data.items.forEach(function(item) {
+        if (!porVendedor[item.vendedor]) porVendedor[item.vendedor] = [];
+        porVendedor[item.vendedor].push(item);
+      });
+      let html = `<p class="text-muted small mb-3"><strong>${data.total}</strong> número${data.total !== 1 ? 's' : ''} pendiente${data.total !== 1 ? 's' : ''}:</p>`;
+      Object.entries(porVendedor).forEach(function([vendedor, items]) {
+        html += `<div class="mb-3">
+          <h6 class="fw-semibold text-secondary mb-2"><i class="bi bi-person-fill me-1"></i>${vendedor}</h6>
+          <div class="d-flex flex-wrap gap-2">`;
+        items.forEach(function(item) {
+          html += `<span class="badge rounded-pill text-bg-info" style="font-size:.85rem;">
+            ${item.talonera} <strong>${item.numero_fmt}</strong>
+            <span class="opacity-75 ms-1" style="font-size:.7rem;">${item.fecha_liquidacion || ''}</span>
+          </span>`;
+        });
+        html += `</div></div>`;
+      });
+      body.innerHTML = html;
+    })
+    .catch(function() {
+      btn.disabled = false;
+      document.getElementById('contadoSinCargarBody').innerHTML =
+        '<p class="text-danger text-center py-3"><i class="bi bi-x-circle me-1"></i>Error al cargar. Intentá de nuevo.</p>';
     });
 }
 </script>
