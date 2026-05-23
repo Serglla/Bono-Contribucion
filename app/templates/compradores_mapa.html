@@ -416,21 +416,162 @@
       btn.classList.remove('d-none');
       items.forEach(it => {
         const tr = document.createElement('tr');
+        tr.dataset.cid = it.comprador_id;
+        tr.dataset.direccion = it.direccion;
         tr.innerHTML = `
           <td><strong>${it.numero}</strong></td>
           <td><span class="badge bg-secondary">${it.pata_label}</span></td>
           <td>${it.apellido_nombre}</td>
-          <td><span class="text-warning-emphasis">${it.direccion}</span></td>
+          <td class="td-direccion"><span class="text-warning-emphasis">${it.direccion}</span></td>
           <td class="text-muted small">${it.vendedor_nombre || '—'}</td>
-          <td>
-            <a href="/compradores/${it.comprador_id}/editar" class="btn btn-sm btn-outline-primary" title="Editar dirección">
+          <td class="td-acciones">
+            <button class="btn btn-sm btn-outline-primary btn-editar" title="Editar dirección">
               <i class="bi bi-pencil"></i>
-            </a>
+            </button>
           </td>
         `;
+        const pt = {
+          comprador_id: it.comprador_id,
+          numero: it.numero,
+          pata: it.pata,
+          pata_label: it.pata_label,
+          color: '#9e9e9e',  // se actualiza desde puntos del mapa-data
+          apellido_nombre: it.apellido_nombre,
+          direccion: it.direccion,
+          zona: null,
+          vendedor_nombre: it.vendedor_nombre,
+        };
+        // Buscar color y zona en datos del mapa
+        const ptOrig = (datos && datos.puntos || []).find(p => p.comprador_id === it.comprador_id);
+        if (ptOrig) {
+          pt.color = ptOrig.color;
+          pt.zona = ptOrig.zona;
+          pt.vendedor_id = ptOrig.vendedor_id;
+        }
+        tr.querySelector('.btn-editar').addEventListener('click', () => entrarEdicion(tr, pt));
         cont.appendChild(tr);
       });
     } catch(e) { /* swallow */ }
+  }
+
+  // Activa modo edición inline para una fila
+  function entrarEdicion(tr, pt) {
+    const tdDir = tr.querySelector('.td-direccion');
+    const tdAcc = tr.querySelector('.td-acciones');
+    const original = tr.dataset.direccion || '';
+    tdDir.innerHTML = `
+      <input type="text" class="form-control form-control-sm inp-dir" value="${original.replace(/"/g, '&quot;')}" autofocus>
+    `;
+    tdAcc.innerHTML = `
+      <button class="btn btn-sm btn-success btn-guardar" title="Guardar">
+        <i class="bi bi-check-lg"></i>
+      </button>
+      <button class="btn btn-sm btn-outline-secondary btn-cancelar" title="Cancelar">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    `;
+    const inp = tdDir.querySelector('.inp-dir');
+    inp.focus();
+    inp.select();
+
+    tdAcc.querySelector('.btn-cancelar').addEventListener('click', () => salirEdicion(tr, pt, original, original));
+    tdAcc.querySelector('.btn-guardar').addEventListener('click', () => guardarYReubicar(tr, pt));
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); guardarYReubicar(tr, pt); }
+      if (e.key === 'Escape') { salirEdicion(tr, pt, original, original); }
+    });
+  }
+
+  // Sale del modo edición (restaura la fila con el valor dado)
+  function salirEdicion(tr, pt, original, mostrar) {
+    tr.querySelector('.td-direccion').innerHTML = `<span class="text-warning-emphasis">${mostrar}</span>`;
+    tr.querySelector('.td-acciones').innerHTML = `
+      <button class="btn btn-sm btn-outline-primary btn-editar" title="Editar dirección">
+        <i class="bi bi-pencil"></i>
+      </button>
+    `;
+    tr.dataset.direccion = mostrar;
+    pt.direccion = mostrar;
+    tr.querySelector('.btn-editar').addEventListener('click', () => entrarEdicion(tr, pt));
+  }
+
+  // Guarda la nueva dirección, intenta geocodificar y, si OK, agrega al mapa
+  async function guardarYReubicar(tr, pt) {
+    const inp = tr.querySelector('.inp-dir');
+    const nueva = (inp.value || '').trim().toUpperCase();
+    if (!nueva) { alert("La dirección no puede estar vacía."); return; }
+    const tdAcc = tr.querySelector('.td-acciones');
+    tdAcc.innerHTML = `<span class="spinner-border spinner-border-sm text-secondary"></span>`;
+
+    // 1) Guardar en DB
+    let r;
+    try {
+      r = await fetch(`/compradores/${pt.comprador_id}/actualizar-direccion-mapa`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ direccion: nueva })
+      });
+    } catch(e) {
+      alert("Error al guardar la dirección.");
+      salirEdicion(tr, pt, '', tr.dataset.direccion || '');
+      return;
+    }
+    const j = await r.json();
+    if (!j.ok) {
+      alert("Error: " + (j.error || "desconocido"));
+      salirEdicion(tr, pt, '', tr.dataset.direccion || '');
+      return;
+    }
+
+    pt.direccion = nueva;
+    tr.dataset.direccion = nueva;
+    tr.querySelector('.td-direccion').innerHTML =
+      `<span class="text-warning-emphasis">${nueva}</span> <span class="spinner-border spinner-border-sm ms-2 text-warning" title="Geocodificando..."></span>`;
+
+    // 2) Geocodificar la nueva dirección (esperando 1.1s por respeto a Nominatim)
+    await sleep(1100);
+    let coords = await geocodificar(nueva);
+    if (!coords) {
+      const sinNum = nueva.replace(/\d+/g, '').trim();
+      if (sinNum && sinNum.length > 3) {
+        await sleep(1100);
+        coords = await geocodificar(sinNum);
+      }
+    }
+
+    if (coords && dentroDeBbox(coords[0], coords[1])) {
+      // Éxito: agregar al mapa, cachear en server, quitar fila del panel
+      guardarEnServer(nueva, coords[0], coords[1]);
+      const m = crearMarcador(pt, coords[0], coords[1]);
+      m.addTo(map);
+      markers.push({ pt, marker: m, lat: coords[0], lng: coords[1] });
+      aplicarFiltros();
+      // animación: marcar fila verde y removerla
+      tr.classList.add('table-success');
+      setTimeout(() => {
+        tr.remove();
+        actualizarContador();
+      }, 700);
+    } else {
+      // Falló: guarda como no ubicable, deja fila visible para reintentar
+      guardarEnServer(nueva, null, null);
+      salirEdicion(tr, pt, '', nueva);
+      const tdDir = tr.querySelector('.td-direccion');
+      tdDir.innerHTML = `<span class="text-warning-emphasis">${nueva}</span>
+        <span class="badge bg-danger ms-2" title="Tampoco se pudo ubicar">
+          <i class="bi bi-exclamation-triangle"></i> sigue sin ubicar
+        </span>`;
+    }
+  }
+
+  function actualizarContador() {
+    const filas = document.querySelectorAll('#tblNoUbicadas tr').length;
+    document.getElementById('noUbicadasCount').textContent = filas;
+    if (filas === 0) {
+      document.getElementById('btnNoUbicadas').classList.add('d-none');
+      const panel = document.getElementById('panelNoUbicadas');
+      bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
+    }
   }
 
   // Toggle del panel

@@ -843,4 +843,59 @@ Bootstrap collapse se evitó porque en `<tr>` usa `display:block` rompiendo el l
 - En producción (Windows + uvicorn) los cambios sí se aplican porque el host file system es la fuente, no el mount bash.
 
 ---
-*Última actualización: 23 de mayo de 2026 (cont. 3) — Mapa de Socios v2: cache de geocoding compartido en DB (GeocodeCache), filtros por pata (chips toggle) y por vendedor (select).*
+
+### Sesión 23/05/2026 (cont. 4) — Mapa de Socios v3: colores 100% desde Talonera + panel "No ubicadas"
+
+#### 1) Eliminada paleta hardcoded — el mapa toma SOLO el color de Talonera
+- **Motivación:** la paleta default que tenía hardcoded (PATA 1=azul, PATA 2=verde, etc.) pintaba mal las taloneras cuyo color real es distinto. Sergio dijo "X1 es gris" y "X= es azul y blanco" — esos colores reales viven en `Talonera.color` (picker en sección Taloneras), no en una paleta inventada.
+- **Fix en `app/routers/compradores.py` `/mapa-data`:**
+  ```python
+  SIN_COLOR_FALLBACK = "#9e9e9e"   # gris neutro
+  ...
+  color = (t.color or "").strip().lower()
+  if not color or color in ("#ffffff", "#fff", "white"):
+      color = SIN_COLOR_FALLBACK
+  ```
+- Comportamiento: gris neutro `#9e9e9e` es señal visual de "esta talonera no tiene color seteado, andá a Taloneras a configurarlo". Cualquier otro color = lo que está en DB.
+- **No hay cache de colores**: cada request a `/mapa-data` releva `Talonera.color` actualizado, así que cambiar el color en Taloneras se refleja al recargar el mapa.
+- Limitación: una talonera no puede tener un color "bicolor" tipo azul+blanco en el marcador (es un solo color de fondo). El texto del número se renderiza en blanco o negro automáticamente según luminosidad del fondo.
+
+#### 2) Panel "No ubicadas" con lista y botón Reintentar
+
+**Backend — nuevos endpoints en `compradores.py`:**
+- `GET /compradores/mapa-no-ubicadas` → devuelve lista de socios cuya dirección está en `GeocodeCache` con `lat IS NULL` (= fallaron previamente). Cada item: `{comprador_id, apellido_nombre, direccion, numero, pata, pata_label, vendedor_nombre}`. JOIN con Talonera y Vendedor, filtrado a taloneras COMUN.
+- `POST /compradores/mapa-geocode-retry` → borra del `GeocodeCache` SOLO las entradas con `lat IS NULL` (no toca las ubicadas OK). Cualquier usuario logueado puede ejecutar (no requiere admin). La próxima carga del mapa va a reintentar esas direcciones con Nominatim.
+- Diferencia con `/mapa-geocode-reset` (admin): reset borra TODO, retry borra solo los fallos.
+
+**Frontend — `compradores_mapa.html`:**
+- Botón naranja "No ubicadas (N)" en la fila de filtros, oculto si N=0. Click → toggle del panel (Bootstrap Collapse via `getOrCreateInstance`).
+- Panel `<div class="collapse" id="panelNoUbicadas">` con:
+  - Header: ícono warning + botón "Reintentar geocoding".
+  - Tabla: N° boleta / Pata / Socio / Dirección (resaltada) / Vendedor / botón lápiz para editar el socio.
+  - Footer informativo: "Si corregís la dirección del socio, apretá Reintentar y recargá".
+- Función `cargarNoUbicadas()` fetcha `/mapa-no-ubicadas` y renderiza la tabla. Se llama:
+  1. Cuando termina la primera fase (puntos desde cache server).
+  2. Cuando termina el loop de geocoding cliente (refresca con los fallos nuevos).
+- Botón "Reintentar geocoding" llama a `/mapa-geocode-retry` con `POST`, muestra cuántas se borraron y recarga la página.
+
+#### Flujo típico para Sergio
+1. Abre el mapa, ve "No ubicadas (5)" naranja.
+2. Click → ve tabla con 5 socios, copia la dirección del primero.
+3. Click en lápiz → edita el socio, corrige la dirección (ej: agrega altura), guarda.
+4. Vuelve al mapa, panel "No ubicadas" sigue mostrando los 5.
+5. Click en "Reintentar geocoding" dentro del panel → confirma → se borran las 5 del cache → se recarga.
+6. El mapa vuelve a geocodificar las 5 con Nominatim (1.1 seg c/u = ~6 seg). Las que ahora matchean salen ubicadas; las que siguen fallando vuelven al panel.
+
+#### Archivos modificados
+- `app/routers/compradores.py`: helper `_norm_direccion`, `/mapa-data` (color cleanup), `/mapa-no-ubicadas` (GET), `/mapa-geocode-retry` (POST). Reset queda igual.
+- `app/templates/compradores_mapa.html`: panel `#panelNoUbicadas`, botón `#btnNoUbicadas`, función `cargarNoUbicadas()`, handlers de toggle/retry.
+
+#### Pendiente
+- Git push a Railway.
+- Probar con las direcciones reales — anotar cuántas falla Nominatim para CdelU. Si son muchas, considerar:
+  - Reglas heurísticas de normalización (ej: "BV." → "BOULEVARD", "AV." → "AVENIDA").
+  - Geocoder alternativo (Mapbox, Photon de Komoot) si Nominatim no rinde.
+  - Permitir coordenadas manuales (clickear en el mapa → asignar lat/lng a un socio sin ubicar).
+
+---
+*Última actualización: 23 de mayo de 2026 (cont. 4) — Mapa de Socios v3: colores solo desde Talonera.color (gris si no seteado), panel "No ubicadas" con lista de fallos + botón reintentar selectivo.*

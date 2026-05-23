@@ -1417,6 +1417,61 @@ async def mapa_geocode_retry(request: Request, db: Session = Depends(get_db)):
     return JSONResponse({"ok": True, "borradas": n})
 
 
+@router.post("/{cid}/actualizar-direccion-mapa")
+async def actualizar_direccion_mapa(cid: int, request: Request, db: Session = Depends(get_db)):
+    """Actualiza solo la dirección de un socio (usado desde el panel
+    'No ubicadas' del mapa para edición inline) y borra del GeocodeCache
+    la entrada de la dirección vieja, para que la nueva se geocodifique.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    # Aceptar tanto form como JSON
+    try:
+        payload = await request.json()
+    except Exception:
+        form = await request.form()
+        payload = {"direccion": form.get("direccion") or ""}
+
+    nueva = (payload.get("direccion") or "").strip().upper()
+    if not nueva:
+        return JSONResponse({"ok": False, "error": "Dirección vacía"}, status_code=400)
+
+    c = db.query(models.Comprador).get(cid)
+    if not c:
+        return JSONResponse({"ok": False, "error": "Socio no encontrado"}, status_code=404)
+
+    direccion_vieja_norm = _norm_direccion(c.direccion or "")
+    c.direccion = nueva
+    nueva_norm = _norm_direccion(nueva)
+
+    # Reset del cache para esta edición:
+    #   - Siempre borramos la entrada de la dirección vieja (ya no la usa nadie
+    #     desde este socio; si otro socio la sigue usando se re-geocodificará
+    #     en la próxima carga del mapa).
+    #   - Siempre borramos la entrada de la dirección nueva (aunque estuviera
+    #     ya cacheada con coords). Esto fuerza una regeocodificación fresca
+    #     después de editar.
+    borradas = 0
+    if direccion_vieja_norm:
+        borradas += db.query(models.GeocodeCache).filter(
+            models.GeocodeCache.direccion == direccion_vieja_norm
+        ).delete()
+    if nueva_norm and nueva_norm != direccion_vieja_norm:
+        borradas += db.query(models.GeocodeCache).filter(
+            models.GeocodeCache.direccion == nueva_norm
+        ).delete()
+
+    db.commit()
+    return JSONResponse({
+        "ok": True,
+        "direccion": nueva,
+        "direccion_norm": nueva_norm,
+        "cache_borradas": borradas,
+    })
+
+
 @router.get("/mapa-no-ubicadas")
 async def mapa_no_ubicadas(request: Request, db: Session = Depends(get_db)):
     """Devuelve la lista de socios cuya dirección no se pudo geocodificar
