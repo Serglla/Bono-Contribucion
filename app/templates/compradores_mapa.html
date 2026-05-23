@@ -8,7 +8,7 @@
 
 <style>
   #mapaSocios {
-    height: calc(100vh - 220px);
+    height: calc(100vh - 280px);
     min-height: 480px;
     width: 100%;
     border-radius: 8px;
@@ -25,13 +25,22 @@
     line-height: 1;
     text-align: center;
   }
-  .leyenda-color {
-    display: inline-block;
-    width: 16px; height: 16px;
-    border-radius: 50%;
+  .leyenda-pata {
+    display: inline-flex; align-items: center;
+    padding: 4px 10px;
+    border-radius: 16px;
     border: 2px solid #333;
+    font-size: .8rem; font-weight: 600;
+    cursor: pointer;
+    user-select: none;
     margin-right: 6px;
-    vertical-align: middle;
+    transition: opacity .15s;
+  }
+  .leyenda-pata.off { opacity: .35; text-decoration: line-through; }
+  .leyenda-pata .punto {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 1.5px solid #333;
+    margin-right: 6px; display: inline-block;
   }
   #panelProgreso {
     position: absolute;
@@ -58,16 +67,36 @@
     </h4>
   </div>
   <div class="d-flex gap-2 align-items-center">
-    <button class="btn btn-sm btn-outline-danger" id="btnLimpiarCache" title="Borrar coordenadas cacheadas y recargar">
-      <i class="bi bi-arrow-clockwise me-1"></i>Recargar geocoding
+    {% if user.is_admin %}
+    <button class="btn btn-sm btn-outline-danger" id="btnResetServer" title="Borrar cache compartido y volver a geocodificar (admin)">
+      <i class="bi bi-database-x me-1"></i>Reset cache server
     </button>
+    {% endif %}
   </div>
 </div>
 
+<!-- Filtros -->
 <div class="card border-0 shadow-sm mb-3">
-  <div class="card-body p-2 d-flex flex-wrap gap-3 align-items-center" id="leyenda">
-    <span class="text-muted small me-2"><i class="bi bi-palette me-1"></i>Patas:</span>
-    <!-- inyectado por JS -->
+  <div class="card-body p-2">
+    <div class="row g-2 align-items-center">
+      <div class="col-md-8">
+        <div class="d-flex flex-wrap gap-1 align-items-center" id="leyenda">
+          <span class="text-muted small me-2"><i class="bi bi-palette me-1"></i>Patas <span class="text-muted small">(click para mostrar/ocultar):</span></span>
+          <!-- chips inyectados por JS -->
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="d-flex align-items-center gap-2">
+          <label class="text-muted small mb-0" style="white-space:nowrap;">
+            <i class="bi bi-person-badge me-1"></i>Vendedor:
+          </label>
+          <select id="filtroVendedor" class="form-select form-select-sm">
+            <option value="">— Todos —</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="mt-2 small text-muted" id="contadorVisibles"></div>
   </div>
 </div>
 
@@ -82,25 +111,15 @@
 
 <div class="mt-2 text-muted small">
   <i class="bi bi-info-circle me-1"></i>
-  Las direcciones se geocodifican con OpenStreetMap (Nominatim). La primera carga
-  puede tardar varios minutos ya que se respeta el límite de 1 consulta por segundo.
-  Las coordenadas se cachean en el navegador para acelerar las siguientes visitas.
+  Las coordenadas se cachean compartidamente en el servidor — la primera persona que abre el mapa
+  paga el costo de geocoding (1 consulta/seg por política de Nominatim), todos los demás cargan al instante.
 </div>
 
 <script>
 (function(){
   const CIUDAD = "Concepción del Uruguay, Entre Ríos, Argentina";
   const CENTRO_DEFECTO = [-32.4847, -58.2347];
-  const CACHE_KEY = "bono_mapa_geocache_v1";
 
-  // Cache localStorage: { "direccion normalizada": [lat, lng] | null }
-  function getCache() {
-    try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "{}"); }
-    catch(e) { return {}; }
-  }
-  function saveCache(c) {
-    try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch(e) {}
-  }
   function normDir(s) {
     return (s || "").trim().toUpperCase().replace(/\s+/g, " ");
   }
@@ -112,30 +131,7 @@
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(map);
 
-  // Crea un marcador customizado con el color de la pata y el número adentro
-  function crearMarcador(pt, lat, lng) {
-    const html = `<div class="marker-num" style="background:${pt.color}; color:${textColorOnBg(pt.color)};">${pt.numero}</div>`;
-    const icon = L.divIcon({
-      html: html,
-      className: '',
-      iconSize: [28, 28],
-      iconAnchor: [14, 14],
-      popupAnchor: [0, -14]
-    });
-    const m = L.marker([lat, lng], { icon: icon });
-    m.bindPopup(`
-      <b>${pt.numero}</b> &nbsp;<span style="background:${pt.color};color:${textColorOnBg(pt.color)};padding:1px 6px;border-radius:4px;font-size:.75rem;">${pt.pata_label}</span><br>
-      <b>${pt.apellido_nombre}</b><br>
-      <i class="bi bi-geo-alt"></i> ${pt.direccion}<br>
-      ${pt.zona ? '<i class="bi bi-map"></i> ' + pt.zona + '<br>' : ''}
-      <a href="/compradores/${pt.comprador_id}/editar" class="btn btn-sm btn-outline-primary mt-1">
-        <i class="bi bi-pencil"></i> Editar socio
-      </a>
-    `);
-    return m;
-  }
-
-  // Calcula color de texto (negro o blanco) según luminosidad del fondo
+  // Color de texto auto (negro/blanco) segun luminosidad del fondo
   function textColorOnBg(hex) {
     if (!hex) return '#000';
     const h = hex.replace('#','');
@@ -147,16 +143,24 @@
     return lum > 150 ? '#000' : '#fff';
   }
 
-  // Renderiza la leyenda de patas
-  function renderLeyenda(patas) {
-    const cont = document.getElementById('leyenda');
-    patas.forEach(p => {
-      const span = document.createElement('span');
-      span.className = 'd-inline-flex align-items-center me-3';
-      span.innerHTML = `<span class="leyenda-color" style="background:${p.color};"></span>
-                       <span class="small fw-semibold">${p.label}</span>`;
-      cont.appendChild(span);
+  function crearMarcador(pt, lat, lng) {
+    const html = `<div class="marker-num" style="background:${pt.color}; color:${textColorOnBg(pt.color)};">${pt.numero}</div>`;
+    const icon = L.divIcon({
+      html: html, className: '',
+      iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14]
     });
+    const m = L.marker([lat, lng], { icon: icon });
+    m.bindPopup(`
+      <b>${pt.numero}</b> &nbsp;<span style="background:${pt.color};color:${textColorOnBg(pt.color)};padding:1px 6px;border-radius:4px;font-size:.75rem;">${pt.pata_label}</span><br>
+      <b>${pt.apellido_nombre}</b><br>
+      <i class="bi bi-geo-alt"></i> ${pt.direccion}<br>
+      ${pt.zona ? '<i class="bi bi-map"></i> ' + pt.zona + '<br>' : ''}
+      ${pt.vendedor_nombre ? '<i class="bi bi-person-badge"></i> Vendedor: ' + pt.vendedor_nombre + '<br>' : ''}
+      <a href="/compradores/${pt.comprador_id}/editar" class="btn btn-sm btn-outline-primary mt-1">
+        <i class="bi bi-pencil"></i> Editar socio
+      </a>
+    `);
+    return m;
   }
 
   function setProgreso(msg, show) {
@@ -165,7 +169,76 @@
     panel.style.display = show ? 'block' : 'none';
   }
 
-  // Geocodifica una dirección con Nominatim
+  // Estado global
+  let datos = null;
+  const markers = [];   // {pt, marker, lat, lng}
+  const patasOff = new Set();   // patas ocultas
+  let vendedorFiltro = "";       // "" = todos
+
+  // Render leyenda con chips clickables
+  function renderLeyenda() {
+    const cont = document.getElementById('leyenda');
+    // limpiar previos
+    cont.querySelectorAll('.leyenda-pata').forEach(el => el.remove());
+    (datos.patas || []).forEach(p => {
+      const chip = document.createElement('span');
+      chip.className = 'leyenda-pata';
+      chip.style.borderColor = p.color;
+      chip.dataset.pata = p.nombre;
+      chip.innerHTML = `<span class="punto" style="background:${p.color};"></span>${p.label}`;
+      chip.addEventListener('click', () => {
+        if (patasOff.has(p.nombre)) {
+          patasOff.delete(p.nombre);
+          chip.classList.remove('off');
+        } else {
+          patasOff.add(p.nombre);
+          chip.classList.add('off');
+        }
+        aplicarFiltros();
+      });
+      cont.appendChild(chip);
+    });
+  }
+
+  // Render select de vendedores
+  function renderVendedores() {
+    const sel = document.getElementById('filtroVendedor');
+    (datos.vendedores || []).forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = String(v.id);
+      opt.textContent = v.nombre;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', () => {
+      vendedorFiltro = sel.value;
+      aplicarFiltros();
+    });
+  }
+
+  // Mostrar/ocultar marcadores segun filtros
+  function aplicarFiltros() {
+    let visibles = 0;
+    const visibleBounds = [];
+    for (const m of markers) {
+      const okPata = !patasOff.has(m.pt.pata);
+      const okVend = !vendedorFiltro || String(m.pt.vendedor_id || "") === vendedorFiltro;
+      const show = okPata && okVend;
+      if (show) {
+        if (!map.hasLayer(m.marker)) m.marker.addTo(map);
+        visibleBounds.push([m.lat, m.lng]);
+        visibles++;
+      } else {
+        if (map.hasLayer(m.marker)) map.removeLayer(m.marker);
+      }
+    }
+    document.getElementById('contadorVisibles').textContent =
+      `Mostrando ${visibles} de ${markers.length} ubicación${markers.length === 1 ? '' : 'es'}`;
+    if (visibleBounds.length > 0) {
+      map.fitBounds(visibleBounds, { padding: [30,30], maxZoom: 17 });
+    }
+  }
+
+  // Geocoding via Nominatim (1 req/seg)
   async function geocodificar(direccion) {
     const q = encodeURIComponent(direccion + ", " + CIUDAD);
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`;
@@ -182,14 +255,20 @@
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  // Bbox aprox. Concepción del Uruguay y alrededores (Entre Ríos)
   function dentroDeBbox(lat, lng) {
     return lat >= -33.0 && lat <= -32.0 && lng >= -58.7 && lng <= -57.8;
   }
 
-  let datos = null;
-  const cluster = L.layerGroup().addTo(map);
-  const bounds = [];
+  // POST coords al server para que queden cacheadas para todos
+  async function guardarEnServer(direccion, lat, lng) {
+    try {
+      await fetch('/compradores/mapa-geocode-save', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ direccion: direccion, lat: lat, lng: lng })
+      });
+    } catch(e) { /* swallow */ }
+  }
 
   async function cargar() {
     setProgreso("Consultando socios...", true);
@@ -201,51 +280,49 @@
       return;
     }
     datos = await resp.json();
-    renderLeyenda(datos.patas || []);
+    renderLeyenda();
+    renderVendedores();
 
-    const cache = getCache();
     const puntos = datos.puntos || [];
     if (puntos.length === 0) {
       setProgreso("No hay socios con dirección cargada.", true);
       return;
     }
 
-    // Separa los que ya tenemos cacheados de los que hay que geocodificar
+    // 1) Dibujar los que YA tienen coords desde el server-cache
     const pendientes = [];
-    let dibujados = 0;
     for (const pt of puntos) {
-      const key = normDir(pt.direccion);
-      if (cache[key] && Array.isArray(cache[key])) {
-        const [lat, lng] = cache[key];
-        if (dentroDeBbox(lat, lng)) {
-          crearMarcador(pt, lat, lng).addTo(cluster);
-          bounds.push([lat, lng]);
-          dibujados++;
-          continue;
-        }
+      if (pt.lat !== null && pt.lng !== null && dentroDeBbox(pt.lat, pt.lng)) {
+        const m = crearMarcador(pt, pt.lat, pt.lng);
+        m.addTo(map);
+        markers.push({ pt, marker: m, lat: pt.lat, lng: pt.lng });
+      } else if (!pt.ya_intentado) {
+        // direccion sin coords y nunca intentada → geocodificar
+        pendientes.push(pt);
       }
-      pendientes.push(pt);
+      // si ya_intentado y sin coords → no hacer nada (fallo previo, no reintentar)
     }
-
-    // Ajusta vista a los que ya están
-    if (bounds.length > 0) map.fitBounds(bounds, { padding: [30,30] });
+    aplicarFiltros();
 
     if (pendientes.length === 0) {
-      setProgreso(`Listo. ${dibujados} ubicaciones mostradas.`, true);
+      setProgreso(`Listo. ${markers.length} ubicaciones cargadas desde cache server.`, true);
       setTimeout(() => setProgreso("", false), 2500);
       return;
     }
 
-    // Geocodifica los pendientes a 1/seg
+    // 2) Geocodificar pendientes a 1/seg, ir guardando al server
     const total = pendientes.length;
     let hechos = 0;
     let fallidos = 0;
     for (const pt of pendientes) {
       hechos++;
-      setProgreso(`Geocodificando ${hechos}/${total} (cache local en progreso)... ${fallidos > 0 ? '['+fallidos+' sin ubicar]' : ''}`, true);
-      const key = normDir(pt.direccion);
+      setProgreso(
+        `Geocodificando ${hechos}/${total}... ` +
+        (fallidos > 0 ? `[${fallidos} sin ubicar] ` : '') +
+        '(las coords quedan cacheadas para todos)', true);
+
       let coords = await geocodificar(pt.direccion);
-      // Reintenta sin número si vino vacío y la dirección parece "CALLE 1234"
+      // Reintenta sin numero si fallo y la direccion tiene digitos
       if (!coords) {
         const sinNum = pt.direccion.replace(/\d+/g, '').trim();
         if (sinNum && sinNum.length > 3) {
@@ -253,34 +330,47 @@
           coords = await geocodificar(sinNum);
         }
       }
+      const direccionKey = pt.direccion;
       if (coords && dentroDeBbox(coords[0], coords[1])) {
-        cache[key] = coords;
-        crearMarcador(pt, coords[0], coords[1]).addTo(cluster);
-        bounds.push(coords);
-        dibujados++;
+        const m = crearMarcador(pt, coords[0], coords[1]);
+        m.addTo(map);
+        markers.push({ pt, marker: m, lat: coords[0], lng: coords[1] });
+        guardarEnServer(direccionKey, coords[0], coords[1]);
       } else {
-        cache[key] = null; // no se pudo ubicar — no reintentar la próxima vez
+        // guardamos como fallido para no reintentar la proxima vez
+        guardarEnServer(direccionKey, null, null);
         fallidos++;
       }
-      saveCache(cache);
-      if (bounds.length > 0 && hechos % 5 === 0) {
-        map.fitBounds(bounds, { padding: [30,30] });
+      if (markers.length > 0 && hechos % 5 === 0) {
+        aplicarFiltros();
       }
-      await sleep(1100); // política Nominatim: 1 req/seg
+      await sleep(1100); // politica Nominatim: 1 req/seg
     }
 
-    if (bounds.length > 0) map.fitBounds(bounds, { padding: [30,30] });
-    setProgreso(`Listo. ${dibujados} ubicadas, ${fallidos} sin ubicar.`, true);
+    aplicarFiltros();
+    setProgreso(`Listo. ${markers.length} ubicadas, ${fallidos} sin ubicar.`, true);
     setTimeout(() => setProgreso("", false), 3500);
   }
 
-  // Botón limpiar cache
-  document.getElementById('btnLimpiarCache').addEventListener('click', () => {
-    if (confirm("¿Borrar el cache de geocoding y volver a geocodificar todas las direcciones?\n\nPuede tardar varios minutos (Nominatim limita a 1 consulta por segundo).")) {
-      localStorage.removeItem(CACHE_KEY);
-      location.reload();
-    }
-  });
+  // Reset cache server (solo admin)
+  const btnReset = document.getElementById('btnResetServer');
+  if (btnReset) {
+    btnReset.addEventListener('click', async () => {
+      if (!confirm("¿Borrar TODO el cache compartido de coordenadas en el servidor?\n\nLa próxima persona que abra el mapa va a tener que volver a geocodificar todas las direcciones (tarda varios minutos).")) return;
+      btnReset.disabled = true;
+      try {
+        const r = await fetch('/compradores/mapa-geocode-reset', { method: 'POST' });
+        const j = await r.json();
+        if (j.ok) {
+          alert(`Cache borrado: ${j.borradas} entradas.\nRecargando...`);
+          location.reload();
+        }
+      } catch(e) {
+        alert("Error al borrar el cache.");
+      }
+      btnReset.disabled = false;
+    });
+  }
 
   cargar();
 })();

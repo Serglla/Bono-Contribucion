@@ -1225,6 +1225,11 @@ async def mapa_view(request: Request, db: Session = Depends(get_db)):
     })
 
 
+def _norm_direccion(s: str) -> str:
+    """Normalizacion para usar como clave en geocode_cache."""
+    return " ".join((s or "").strip().upper().split())
+
+
 @router.get("/mapa-data")
 async def mapa_data(request: Request, db: Session = Depends(get_db)):
     """Devuelve JSON con los puntos a graficar en el mapa.
@@ -1233,6 +1238,9 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
     sea COMUN y cuyo comprador tenga direccion cargada. El color del marcador
     proviene de Talonera.color (picker en UI); si la talonera no tiene color
     propio se cae a una paleta por PATA.
+
+    Si la direccion ya fue geocodificada y guardada en GeocodeCache, se incluyen
+    lat/lng pre-cargados para evitar que el cliente vuelva a consultar Nominatim.
     """
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'compradores', 'ver'):
@@ -1253,10 +1261,14 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
     }
 
     rows = (
-        db.query(models.Boleta, models.Comprador, models.Talonera, models.Zona)
+        db.query(
+            models.Boleta, models.Comprador, models.Talonera,
+            models.Zona, models.Vendedor,
+        )
         .join(models.Comprador, models.Boleta.comprador_id == models.Comprador.id)
         .join(models.Talonera, models.Boleta.talonera_id == models.Talonera.id)
         .outerjoin(models.Zona, models.Comprador.zona_id == models.Zona.id)
+        .outerjoin(models.Vendedor, models.Boleta.vendedor_id == models.Vendedor.id)
         .filter(models.Comprador.direccion.isnot(None))
         .filter(models.Comprador.direccion != "")
         .filter(models.Talonera.tipo == "COMUN")
@@ -1264,19 +1276,37 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
         .all()
     )
 
+    # Pre-cargar todas las direcciones cacheadas en un solo SELECT (clave -> (lat,lng,intento))
+    cache_rows = db.query(
+        models.GeocodeCache.direccion,
+        models.GeocodeCache.lat,
+        models.GeocodeCache.lng,
+    ).all()
+    cache_map = {}
+    for d, lat, lng in cache_rows:
+        cache_map[d] = (lat, lng)
+
     puntos = []
     patas_set = {}
-    for b, c, t, z in rows:
+    vendedores_set = {}
+    for b, c, t, z, v in rows:
         color = (t.color or "").strip().lower()
         if not color or color in ("#ffffff", "#fff", "white"):
             color = default_palette.get(t.nombre, "#607d8b")
 
-        # Formato de número con cifras de la talonera (default 4 para COMUN)
+        # Formato de numero con cifras de la talonera (default 4 para COMUN)
         try:
             num_digitos = t.num_digitos or 4
         except Exception:
             num_digitos = 4
         numero_fmt = str(b.numero_principal).zfill(num_digitos)
+
+        direccion_norm = _norm_direccion(c.direccion or "")
+        cached = cache_map.get(direccion_norm)
+        lat_pre = cached[0] if cached else None
+        lng_pre = cached[1] if cached else None
+        # cache_map devuelve (None, None) cuando la direccion ya se intento y fallo
+        ya_intentado = direccion_norm in cache_map
 
         puntos.append({
             "boleta_id": b.id,
@@ -1286,21 +1316,97 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
             "apellido_nombre": c.apellido_nombre,
             "direccion": c.direccion or "",
             "zona": z.nombre if z else None,
+            "vendedor_id": v.id if v else None,
+            "vendedor_nombre": v.nombre if v else None,
             "pata": t.nombre,
             "pata_label": (t.nombre or "").replace("PATA ", "X"),
             "color": color,
+            "lat": lat_pre,
+            "lng": lng_pre,
+            "ya_intentado": ya_intentado,  # true = no reintentar geocoding (fallo previo)
         })
         if t.nombre not in patas_set:
             patas_set[t.nombre] = color
+        if v and v.id not in vendedores_set:
+            vendedores_set[v.id] = v.nombre
 
     patas = [
         {"nombre": k, "label": k.replace("PATA ", "X"), "color": v}
         for k, v in sorted(patas_set.items())
+    ]
+    vendedores = [
+        {"id": vid, "nombre": vnom}
+        for vid, vnom in sorted(vendedores_set.items(), key=lambda x: (x[1] or "").upper())
     ]
 
     return JSONResponse({
         "ok": True,
         "centro": {"lat": -32.4847, "lng": -58.2347, "nombre": "Concepción del Uruguay"},
         "patas": patas,
+        "vendedores": vendedores,
         "puntos": puntos,
+        "total_cacheadas": sum(1 for p in puntos if p["lat"] is not None),
+        "total_pendientes": sum(
+            1 for p in puntos if p["lat"] is None and not p["ya_intentado"]
+        ),
     })
+
+
+@router.post("/mapa-geocode-save")
+async def mapa_geocode_save(request: Request, db: Session = Depends(get_db)):
+    """Guarda en GeocodeCache las coords obtenidas por el cliente desde Nominatim.
+
+    Body JSON: {"direccion": "...", "lat": -32.48, "lng": -58.23}
+    Si lat/lng vienen en null, marca la direccion como "no ubicable" (no reintentar).
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "JSON inválido"}, status_code=400)
+
+    direccion = _norm_direccion(payload.get("direccion") or "")
+    if not direccion:
+        return JSONResponse({"ok": False, "error": "direccion vacía"}, status_code=400)
+
+    lat = payload.get("lat")
+    lng = payload.get("lng")
+    try:
+        lat = float(lat) if lat is not None else None
+        lng = float(lng) if lng is not None else None
+    except (TypeError, ValueError):
+        lat, lng = None, None
+
+    # Bbox sanity check — Concepcion del Uruguay y alrededores
+    if lat is not None and lng is not None:
+        if not (-33.0 <= lat <= -32.0 and -58.7 <= lng <= -57.8):
+            lat, lng = None, None  # fuera del area: tratar como fallo
+
+    from datetime import datetime as _dt
+    entry = db.query(models.GeocodeCache).filter(
+        models.GeocodeCache.direccion == direccion
+    ).first()
+    if entry:
+        entry.lat = lat
+        entry.lng = lng
+        entry.intentos = (entry.intentos or 0) + 1
+        entry.last_try = _dt.now()
+    else:
+        entry = models.GeocodeCache(
+            direccion=direccion, lat=lat, lng=lng, intentos=1, last_try=_dt.now(),
+        )
+        db.add(entry)
+    db.commit()
+    return JSONResponse({"ok": True, "direccion": direccion, "lat": lat, "lng": lng})
+
+
+@router.post("/mapa-geocode-reset")
+async def mapa_geocode_reset(request: Request, db: Session = Depends(get_db)):
+    """Borra todo el cache server-side de geocoding. Requiere admin."""
+    await auth_module.require_admin(request, db)
+    n = db.query(models.GeocodeCache).delete()
+    db.commit()
+    return JSONResponse({"ok": True, "borradas": n})

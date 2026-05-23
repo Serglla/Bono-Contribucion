@@ -729,4 +729,118 @@ Bootstrap collapse se evitó porque en `<tr>` usa `display:block` rompiendo el l
 - Se descuenta la comisión proyectada de cobradores (sobre las cuotas que gestionan).
 
 ---
-*Última actualización: 23 de mayo de 2026 (cont.) — Fix "Al Contado=0" en reportes, fix total liquidados stale en vendedores, refactoring dashboard contabilidad (Total en Brutos + Comisión cobradores proyectada).*
+
+### Sesión 23/05/2026 (cont. 2) — Mapa de Socios (Leaflet + Nominatim)
+
+#### Funcionalidad
+- En `/compradores/` (Socios), botón "Mapa" arriba a la izquierda (al lado del título), apunta a `/compradores/mapa`.
+- Vista de mapa con **Leaflet** + **OpenStreetMap**, centrado en Concepción del Uruguay (-32.4847, -58.2347).
+- Cada boleta vendida (`comprador_id IS NOT NULL`) con dirección cargada y talonera COMUN se dibuja como un **círculo con el número de boleta adentro**, coloreado según `Talonera.color`.
+- Popup con apellido y nombre, dirección, zona y botón "Editar socio" (link a `/compradores/{id}/editar`).
+- Leyenda de patas (X0/X1/X2/...) arriba con el color de cada una.
+
+#### Backend — `app/routers/compradores.py` (al final del archivo)
+- `GET /compradores/mapa` → renderiza `compradores_mapa.html`.
+- `GET /compradores/mapa-data` → JSON `{ok, centro, patas, puntos}`. Cada punto: `{boleta_id, comprador_id, numero (zfill por num_digitos), apellido_nombre, direccion, zona, pata, pata_label (X0..), color}`. Solo taloneras COMUN.
+- Paleta por defecto si la talonera tiene `color` vacío o `#ffffff` (PATA 0 morado, PATA 1 azul, PATA 2 verde, PATA 3 naranja, etc.).
+
+#### Frontend — `app/templates/compradores_mapa.html`
+- Carga Leaflet 1.9.4 desde jsDelivr (CDN).
+- **Geocoding cliente** con Nominatim (gratis, sin API key). Política: 1 req/segundo (sleep 1100ms entre llamadas).
+- Query: `{direccion}, Concepción del Uruguay, Entre Ríos, Argentina`. Si falla, reintenta sin números (caso "CALLE 1234" → "CALLE").
+- Cache en `localStorage` key `bono_mapa_geocache_v1`: `{direccion_normalizada: [lat,lng] | null}`. Las direcciones que no se pudieron ubicar se cachean como `null` para no reintentar.
+- **Bbox de descarte**: lat ∈ [-33.0, -32.0], lng ∈ [-58.7, -57.8]. Resultados de Nominatim fuera de esa caja se descartan (a veces matchea otra ciudad).
+- Marcadores son `L.divIcon` con HTML custom (`<div class="marker-num">`), color de fondo = `Talonera.color`, color de texto auto (negro/blanco según luminosidad).
+- Panel de progreso flotante arriba del mapa: "Geocodificando N/M... [X sin ubicar]".
+- Botón "Recargar geocoding" arriba a la derecha: borra el cache y recarga (útil si cambiaron direcciones).
+- `fitBounds` cada 5 puntos y al final para auto-centrar la vista.
+
+#### Datos del modelo usados
+- `Comprador.direccion` (String). Si está vacío, el socio NO aparece en el mapa.
+- `Talonera.color` (picker UI). `Talonera.tipo == "COMUN"` (las CONTADO son pool, no representan boletas físicas).
+- `Boleta.numero_principal` formateado con `Talonera.num_digitos` (default 4 para COMUN).
+
+#### Nota técnica — mount stale del sandbox bash
+- Volvió a ocurrir tras el Edit del file tool en `compradores.py`. El mount mostraba 1210 líneas (versión vieja, mtime del 18/05) mientras que el archivo en disco vía Read tool tenía 1306 líneas con los endpoints nuevos.
+- Confirmado patrón: file tool es autoritativo, el mount bash puede quedarse colgado en archivos preexistentes. Archivos nuevos (como `compradores_mapa.html`) sí sincronizan.
+- Validación: aislar el bloque nuevo en `/tmp`, hacer `ast.parse` ahí + parsear el template con Jinja2 (`env.get_template()`). Ambas pasaron OK.
+
+#### Pendiente
+- Hacer `git push` desde PowerShell para que Railway tome los cambios.
+- Probar en producción: muchas direcciones de CdelU vienen con formato variable (abreviaturas, calles sin número, etc.). Si Nominatim falla con varias, evaluar agregar geocoding server-side cacheado en DB (tabla `geocode_cache(direccion PK, lat, lng, last_try)`).
+
+---
+
+### Sesión 23/05/2026 (cont. 3) — Mapa de Socios v2: cache server-side + filtros por pata y vendedor
+
+#### Cambios
+
+**1. Cache de geocoding compartido en DB (en vez de localStorage)**
+- Nuevo modelo `GeocodeCache` en `app/models.py`:
+  ```python
+  class GeocodeCache(Base):
+      __tablename__ = "geocode_cache"
+      direccion = Column(String, primary_key=True)   # UPPER + trim + 1 espacio
+      lat       = Column(Float, nullable=True)        # NULL = no ubicable
+      lng       = Column(Float, nullable=True)
+      intentos  = Column(Integer, default=1)
+      last_try  = Column(DateTime, server_default=func.now())
+  ```
+- Se crea sola vía `Base.metadata.create_all(bind=engine)` (línea 11 de main.py). No requiere migración manual.
+- Helper `_norm_direccion(s)` en `compradores.py`: UPPER + trim + colapso de espacios. Misma normalización en server y cliente.
+
+**2. Endpoints nuevos en `app/routers/compradores.py`**
+- `GET /compradores/mapa-data` actualizado:
+  - Hace JOIN con `Vendedor` (`outerjoin`) para incluir `vendedor_id`/`vendedor_nombre` por punto.
+  - Pre-carga TODO `GeocodeCache` en un solo SELECT → `cache_map[direccion] = (lat, lng)`.
+  - Cada punto trae `lat`/`lng` ya cargados si están en cache, sino `None`.
+  - Flag `ya_intentado` = True si la dirección está en cache_map (con `(None, None)` = fallo previo). El cliente NO reintenta esos.
+  - Devuelve `vendedores: [{id, nombre}]` ordenados alfabéticamente para el select del filtro.
+  - Devuelve `total_cacheadas` y `total_pendientes` para debug.
+- `POST /compradores/mapa-geocode-save`:
+  - Body JSON: `{direccion, lat, lng}` (lat/lng pueden ser null = no ubicable).
+  - Normaliza la dirección, valida bbox CdelU, upsert en GeocodeCache.
+  - Cualquier usuario logueado con permiso `ver` puede grabar coords (no admin) — para que cada visita ayude a llenar el cache.
+- `POST /compradores/mapa-geocode-reset` (admin only):
+  - Borra todo `GeocodeCache`. Útil si cambiaron muchas direcciones o el cache quedó sucio.
+
+**3. UI con filtros — `app/templates/compradores_mapa.html`**
+- Tarjeta de filtros arriba del mapa, dos columnas:
+  - **Patas**: chips clickables con borde del color de la pata + `<span>` punto del color + label "X0/X1/X2". Click → toggle off/on (clase `.off` con `opacity:.35` y `text-decoration:line-through`). Estado en `patasOff` (Set).
+  - **Vendedor**: `<select>` con `— Todos —` + vendedores del JOIN. Estado en `vendedorFiltro` (string).
+- Función `aplicarFiltros()`: itera todos los markers, `okPata = !patasOff.has(pt.pata)` && `okVend = !vendedorFiltro || String(pt.vendedor_id) === vendedorFiltro`. Add/remove del map y `fitBounds` a los visibles.
+- Contador "Mostrando X de N ubicaciones" debajo de los filtros.
+- Popup ahora muestra el vendedor: `<i class="bi bi-person-badge"></i> Vendedor: NOMBRE`.
+
+**4. Flujo del cliente**
+- Al cargar `/compradores/mapa`:
+  1. Fetch `/mapa-data` → recibe puntos con lat/lng pre-cargados desde cache server.
+  2. Para cada punto con coords: dibuja marker, agrega a `markers[]`.
+  3. Para cada punto sin coords y `!ya_intentado`: queda en `pendientes`.
+  4. `aplicarFiltros()` para mostrar contadores y bounds.
+  5. Si hay pendientes: geocodifica uno por uno con Nominatim (1.1 seg sleep), POSTea cada resultado a `/mapa-geocode-save` (incluyendo null/null para fallos para no reintentar).
+- Botón "Reset cache server" arriba a la derecha SOLO visible para admin (`{% if user.is_admin %}` en template).
+
+#### Decisiones de UX
+- Cache server >>> localStorage: primera persona "paga" el costo de geocoding, todos los demás ven el mapa al instante en cualquier dispositivo.
+- Cuando una dirección no se ubica, se guarda con `lat=null/lng=null` para NO reintentar (el campo `ya_intentado` evita el ciclo).
+- Bbox sanity check sigue aplicando en el endpoint `save` (rechaza coords fuera de CdelU).
+- Los chips de pata mantienen el color del Talonera.color (consistente con tabs de Socios y dashboard).
+
+#### Archivos modificados
+- `app/models.py`: agregada clase `GeocodeCache` (al final, después de `GastoContabilidad`).
+- `app/routers/compradores.py`: helper `_norm_direccion`, `/mapa-data` ampliado, nuevos `/mapa-geocode-save` y `/mapa-geocode-reset`.
+- `app/templates/compradores_mapa.html`: reescrito con filtros + integración server-cache (≈380 líneas).
+
+#### Pendiente
+- Git push a Railway. `Base.metadata.create_all` crea `geocode_cache` automáticamente al levantar.
+- Probar con el dataset real: ver cuántas direcciones se ubican OK con Nominatim. Si muchas fallan, considerar agregar autocompletado de calles típicas de CdelU.
+
+#### Nota — mount stale del sandbox (TERCERA o CUARTA vez en pocos días)
+- Los archivos modificados con Edit/Write del file tool no se reflejan en el mount bash, pero el archivo en disco está bien (confirmado con Read tool sucesivos).
+- En esta sesión: compradores.py mostraba 1210 líneas en bash y 1413 en Read tool; models.py 16290 bytes vs 358 líneas; template 9923 vs 380 líneas.
+- Workaround: validar bloques nuevos en isolación con `ast.parse` / Jinja `env.get_template` desde /tmp.
+- En producción (Windows + uvicorn) los cambios sí se aplican porque el host file system es la fuente, no el mount bash.
+
+---
+*Última actualización: 23 de mayo de 2026 (cont. 3) — Mapa de Socios v2: cache de geocoding compartido en DB (GeocodeCache), filtros por pata (chips toggle) y por vendedor (select).*

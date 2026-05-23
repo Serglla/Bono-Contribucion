@@ -336,3 +336,22 @@ class GastoContabilidad(Base):
     fecha       = Column(Date, nullable=True)
     monto       = Column(Float, default=0.0)
     created_at  = Column(DateTime, server_default=func.now())
+
+
+class GeocodeCache(Base):
+    """Cache compartido de geocoding de direcciones de socios.
+
+    Se llena a demanda: el frontend del mapa consulta Nominatim respetando
+    1 req/seg y POSTea las coords al endpoint para que queden cacheadas
+    para todos los usuarios (en cualquier dispositivo).
+
+    lat/lng en NULL = la direccion no se pudo ubicar (no reintentar)
+    intentos = cuantas veces se intento geocodificarla (debug)
+    last_try = timestamp del ultimo intento
+    """
+    __tablename__ = "geocode_cache"
+    direccion = Column(String, primary_key=True)  # direccion normalizada (UPPER trim)
+    lat       = Column(Float, nullable=True)
+    lng       = Column(Float, nullable=True)
+    intentos  = Column(Integer, default=1)
+    last_try  = Column(DateTime, server_default=func.now())
