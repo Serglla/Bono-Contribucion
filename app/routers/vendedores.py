@@ -905,25 +905,36 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     # suma porque la cuota 1 y el pago contado los cobró el otro vendedor.
     # Mismo criterio que `total_boletas_liquidadas` (ver Sesión 10/05/2026 cont. 5).
     _liqs_by_id = {liq.id: liq for liq in liquidaciones}
-    # Acumulador por liquidación → permite también desglose por mes más abajo
+    # Acumulador por liquidación → permite también desglose por mes más abajo.
+    # Usamos los valores GUARDADOS en la liquidación (calculados al momento de liquidar):
+    #   - cuota_1_total:      cuota 1 de boletas en cuotas (el vendedor la cobró directamente)
+    #   - comision_contados:  % del monto total de boletas al contado (comisión del vendedor)
+    #   - comision_cuotas_extras / p0: comisiones manuales de cuotas adicionales
+    # No se recalcula por boleta porque numero_especial puede no estar seteado aún
+    # (se setea al cargar el comprador, DESPUÉS de la liquidación) y la zona puede
+    # haber cambiado el vendedor_id de la boleta sin alterar la liquidación original.
     ingreso_por_liq = {
-        liq.id: (float(liq.comision_cuotas_extras or 0)
+        liq.id: (float(liq.cuota_1_total or 0)
+                 + float(liq.comision_contados or 0)
+                 + float(liq.comision_cuotas_extras or 0)
                  + float(getattr(liq, "comision_cuotas_extras_p0", 0) or 0))
         for liq in liquidaciones
     }
-    for b in boletas:
-        if b.liquidacion_vendedor_id is None or not b.talonera:
-            continue
-        if b.liquidacion_vendedor_id not in ingreso_por_liq:
-            continue
-        es_contado = (b.numero_especial is not None) or (b.numero_especial_2 is not None)
-        if es_contado:
-            liq_b = _liqs_by_id.get(b.liquidacion_vendedor_id)
-            pct = float(liq_b.comision_contados_pct or 0) if liq_b else 0.0
-            total_contado = float(b.talonera.valor_cuota or 0) * int(b.talonera.num_cuotas or 12)
-            ingreso_por_liq[b.liquidacion_vendedor_id] += total_contado * pct / 100.0
-        else:
-            ingreso_por_liq[b.liquidacion_vendedor_id] += float(b.talonera.valor_cuota or 0)
+    # Ajuste: restar cuota 1 de boletas de cuotas que fueron reasignadas a otro vendedor
+    # (cambió vendedor_id por zona al cargar comprador; el otro vendedor cobra la cuota 1).
+    # Las boletas contado (numero_especial seteado) NO se restan: la comisión contado
+    # ya quedó fijada en la liquidación y Ariel la cobra independientemente.
+    _liq_ids = {liq.id for liq in liquidaciones}
+    if _liq_ids:
+        _pasadas = db.query(models.Boleta).filter(
+            models.Boleta.liquidacion_vendedor_id.in_(_liq_ids),
+            models.Boleta.vendedor_id != vid,
+            models.Boleta.numero_especial.is_(None),
+            models.Boleta.numero_especial_2.is_(None),
+        ).all()
+        for _b in _pasadas:
+            if _b.liquidacion_vendedor_id in ingreso_por_liq and _b.talonera:
+                ingreso_por_liq[_b.liquidacion_vendedor_id] -= float(_b.talonera.valor_cuota or 0)
 
     ingresos_total = sum(ingreso_por_liq.values())
     # Total vendidas: boletas con comprador cargado, ponderado por multiplicador de PATA (Float)
@@ -1537,10 +1548,11 @@ async def eliminar_liquidacion(liq_id: int, request: Request, db: Session = Depe
     if not liq:
         raise HTTPException(404, "Liquidacion no encontrada")
     vid = liq.vendedor_id
-    # Desvincular boletas (vuelven a CAJA sin liq_id)
-    db.query(models.Boleta).filter_by(
-        liquidacion_vendedor_id=liq_id
-    ).update({"liquidacion_vendedor_id": None}, synchronize_session=False)
+    # Resetear boletas asociadas -> vuelven a CAJA sin liquidacion
+    db.query(models.Boleta).filter_by(liquidacion_vendedor_id=liq_id).update(
+        {"liquidacion_vendedor_id": None, "condicion": CondicionBoleta.CAJA},
+        synchronize_session=False
+    )
     # Borrar items pool CONTADO (cascade tambien deberia hacerlo, lo hacemos explicito)
     db.query(models.LiquidacionContadoItem).filter_by(
         liquidacion_id=liq_id
@@ -1548,4 +1560,3 @@ async def eliminar_liquidacion(liq_id: int, request: Request, db: Session = Depe
     db.delete(liq)
     db.commit()
     return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liq_eliminada", status_code=302)
-
