@@ -35,15 +35,58 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     if not getattr(user, "is_admin", False):
         raise HTTPException(403, "Solo administradores")
 
-    boletas = (
+    # Todas las boletas con socio (incluyendo BAJA) para calcular Total Bruto
+    todas_boletas = (
         db.query(models.Boleta)
-        .filter(
-            models.Boleta.comprador_id.isnot(None),
-            models.Boleta.condicion != models.CondicionBoleta.BAJA,
+        .filter(models.Boleta.comprador_id.isnot(None))
+        .options(
+            joinedload(models.Boleta.talonera),
+            joinedload(models.Boleta.cobrador),
         )
-        .options(joinedload(models.Boleta.talonera))
         .all()
     )
+
+    # Boletas activas (sin BAJA) — para total_esperado, falta_cobrar, avance
+    boletas = [b for b in todas_boletas if b.condicion != models.CondicionBoleta.BAJA]
+    baja_boletas = [b for b in todas_boletas if b.condicion == models.CondicionBoleta.BAJA]
+
+    # Helper: ¿es boleta al contado?
+    def _es_contado(b):
+        if b.numero_especial is not None or b.numero_especial_2 is not None:
+            return True
+        pac = b.cuotas_pactadas or 0
+        ant = b.cuotas_anticipadas or 0
+        return pac > 0 and ant >= pac
+
+    # ── Total en Brutos ──────────────────────────────────────────────────
+    # Cuotas activas (no BAJA, no contado): ingreso proyectado = cuotas_pactadas × valor_cuota
+    gross_cuotas = sum(
+        (b.cuotas_pactadas or 0) * (b.talonera.valor_cuota if b.talonera else 0)
+        for b in boletas if not _es_contado(b)
+    )
+    # Boletas BAJA: solo lo que pagaron antes de darse de baja
+    gross_baja = sum(
+        (b.cuotas_pagadas or 0) * (b.talonera.valor_cuota if b.talonera else 0)
+        for b in baja_boletas
+    )
+    # Contado activo: ingreso = num_cuotas × valor_cuota (precio total del bono)
+    gross_contado = sum(
+        (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0)
+        * (b.talonera.valor_cuota if b.talonera else 0)
+        for b in boletas if _es_contado(b)
+    )
+
+    # Comisión cobradores proyectada: cobrador.comision_pct sobre cuotas proyectadas
+    # (excluye BAJA y boletas sin cobrador asignado)
+    com_cobradores_proyectada = sum(
+        (b.cobrador.comision_pct if b.cobrador else 0) / 100.0
+        * (b.cuotas_pactadas or 0) * (b.talonera.valor_cuota if b.talonera else 0)
+        for b in boletas
+        if not _es_contado(b) and b.cobrador_id is not None
+    )
+
+    # Comisión vendedores sobre contado ya liquidada (lo que se llevan los vendedores)
+    # Se calcula más abajo cuando tengamos liqs_v; ponemos placeholder aquí y calculamos después
 
     total_recaudado = sum(b.total_pagado or 0 for b in boletas)
     total_esperado  = sum(
@@ -71,6 +114,10 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
             base += lv.cuota_1_total
         return base
     total_com_vendedores = sum(_lv_total(lv) for lv in liqs_v)
+    # Comisión de vendedores SOLO sobre contado (lo que ya cobraron, de liquidaciones)
+    com_vendedores_contado = sum(lv.comision_contados or 0 for lv in liqs_v)
+    # Total en Brutos = cuotas proyectadas + BAJA (pagado) + contado - com.cobradores proyect. - com.vendedores contado
+    total_bruto = gross_cuotas + gross_baja + gross_contado - com_cobradores_proyectada - com_vendedores_contado
 
     vendedores_dict = {}
     for lv in liqs_v:
@@ -170,12 +217,21 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         for g in gastos
     ]
 
+    # Egresos reales (comisiones ya liquidadas)
     total_egresos = total_com_vendedores + total_com_cobradores + total_bomberos + total_gastos
     ganancia_neta = total_recaudado - total_egresos
+    # Egresos proyectados (para ganancia proyectada — usa com.cobradores proyectada)
+    total_egresos_proyectado = total_com_vendedores + com_cobradores_proyectada + total_bomberos + total_gastos
 
     return templates.TemplateResponse(request, "contabilidad.html", {
         "user":                  user,
         "total_recaudado":       total_recaudado,
+        "total_bruto":           total_bruto,
+        "gross_cuotas":          gross_cuotas,
+        "gross_baja":            gross_baja,
+        "gross_contado":         gross_contado,
+        "com_cobradores_proyectada": com_cobradores_proyectada,
+        "total_egresos_proyectado":  total_egresos_proyectado,
         "total_esperado":        total_esperado,
         "falta_cobrar":          falta_cobrar,
         "pct_avance":            pct_avance,

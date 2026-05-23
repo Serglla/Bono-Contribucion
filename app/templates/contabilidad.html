@@ -10,8 +10,14 @@
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-success">
       <div class="card-body py-3">
-        <div class="small text-muted mb-1"><i class="bi bi-cash-coin me-1"></i>Total recaudado</div>
-        <div class="h5 fw-bold text-success mb-0">{{ total_recaudado | pesos }}</div>
+        <div class="small text-muted mb-1"><i class="bi bi-cash-coin me-1"></i>Total en Brutos</div>
+        <div class="h5 fw-bold text-success mb-0">{{ total_bruto | pesos }}</div>
+        <div class="small text-muted mt-1" style="font-size:.72rem; line-height:1.4;">
+          Cuotas {{ gross_cuotas | pesos }}
+          {% if gross_baja %} · Bajas {{ gross_baja | pesos }}{% endif %}
+          {% if gross_contado %} · Contado {{ gross_contado | pesos }}{% endif %}
+          · − Com. cob. {{ com_cobradores_proyectada | pesos }}
+        </div>
       </div>
     </div>
   </div>
@@ -49,7 +55,7 @@
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-danger">
       <div class="card-body py-3">
-        <div class="small text-muted mb-1"><i class="bi bi-person-badge me-1"></i>Com. vendedores</div>
+        <div class="small text-muted mb-1"><i class="bi bi-person-badge me-1"></i>Comisión vendedores</div>
         <div class="h5 fw-bold text-danger mb-0">{{ total_com_vendedores | pesos }}</div>
       </div>
     </div>
@@ -57,8 +63,9 @@
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-danger">
       <div class="card-body py-3">
-        <div class="small text-muted mb-1"><i class="bi bi-people me-1"></i>Com. cobradores</div>
-        <div class="h5 fw-bold text-danger mb-0">{{ total_com_cobradores | pesos }}</div>
+        <div class="small text-muted mb-1"><i class="bi bi-people me-1"></i>Comisión cobradores</div>
+        <div class="h5 fw-bold text-danger mb-0">{{ com_cobradores_proyectada | pesos }}</div>
+        <div class="small text-muted" style="font-size:.72rem;">proyectado (excluye bajas)</div>
       </div>
     </div>
   </div>
@@ -104,8 +111,7 @@
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-info">
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-graph-up me-1"></i>Ganancia proyectada</div>
-        {% set ganancia_proy = total_esperado - total_egresos - falta_cobrar + total_recaudado - total_recaudado %}
-        {% set ganancia_proy = total_esperado - (total_com_vendedores + total_com_cobradores + total_bomberos + total_gastos) %}
+        {% set ganancia_proy = total_esperado - total_egresos_proyectado %}
         <div class="h5 fw-bold mb-0 {% if ganancia_proy >= 0 %}text-info{% else %}text-danger{% endif %}">{{ ganancia_proy | pesos }}</div>
         <div class="small text-muted">(si se cobra todo lo esperado)</div>
       </div>
