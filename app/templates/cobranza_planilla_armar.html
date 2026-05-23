@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Armar planilla — {{ cobrador.nombre }}{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-3">
+  <a href="/cobranza/emplanillado?mes={{ mes }}&anio={{ anio }}"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Volver
+  </a>
+  <h5 class="fw-bold mb-0">
+    <i class="bi bi-plus-square text-danger me-2"></i>
+    Armar P{{ siguiente_numero }} — {{ cobrador.nombre }}
+    <span class="text-muted fw-normal fs-6 ms-2">{{ mes_nombre }} {{ anio }}</span>
+  </h5>
+</div>
+
+<div class="alert alert-info py-2 small mb-3">
+  <i class="bi bi-info-circle me-1"></i>
+  La planilla física tiene <strong>120 lugares</strong> (3 columnas × 40 filas).
+  Si tenés más boletas pendientes, desmarcá las que no entran y se quedan para armar
+  <strong>P{{ siguiente_numero + 1 }}</strong> después.
+</div>
+
+<form method="post" action="/cobranza/{{ cobrador.id }}/planilla/armar">
+  <input type="hidden" name="mes" value="{{ mes }}">
+  <input type="hidden" name="anio" value="{{ anio }}">
+
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-3">
+      <div class="row g-3 align-items-end">
+        <div class="col-auto">
+          <label class="form-label fw-semibold small mb-1">Comisión del cobrador</label>
+          <div class="input-group input-group-sm" style="width:140px;">
+            <input type="number" name="comision_pct" class="form-control"
+                   value="{{ cobrador.comision_pct }}" min="0" max="100" step="0.5" required>
+            <span class="input-group-text">%</span>
+          </div>
+        </div>
+        <div class="col-auto">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnSelTodas"
+                  onclick="toggleTodas()">
+            <i class="bi bi-check2-all me-1"></i>Marcar / Desmarcar todas
+          </button>
+        </div>
+        <div class="col-auto ms-auto">
+          <span class="text-muted small">Marcadas: <strong id="contMarcadas">{{ disponibles|length }}</strong> / {{ disponibles|length }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm">
+    <div class="card-header bg-danger text-white fw-semibold py-2">
+      <i class="bi bi-list-check me-1"></i>Boletas pendientes para emplanillar
+      <span class="badge bg-light text-danger ms-2">{{ disponibles|length }}</span>
+    </div>
+    <div class="card-body p-0">
+      {% if disponibles %}
+      <table id="tblArmar" class="table table-sm table-hover mb-0" style="font-size:0.85rem;">
+        <thead class="table-light">
+          <tr>
+            <th style="width:36px;"></th>
+            <th style="width:60px;">PATA</th>
+            <th style="width:90px;">N° Boleta</th>
+            <th>Comprador</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in disponibles %}
+          {% set pi = pata_info.get(b.id, {"pata":"?", "color":"#cccccc"}) %}
+          <tr>
+            <td class="text-center">
+              <input type="checkbox" name="boleta_ids" value="{{ b.id }}"
+                     class="form-check-input chk-armar" checked>
+            </td>
+            <td>
+              <span class="badge"
+                    style="background:{{ pi.color }};color:#000;border:1px solid #888;font-size:.72rem;">
+                X{{ pi.pata }}
+              </span>
+            </td>
+            <td class="fw-bold">{{ '%04d' % b.numero_principal }}</td>
+            <td>{{ b.comprador.nombre_completo if b.comprador else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted text-center py-4 small mb-0">
+        No hay boletas pendientes para emplanillar.
+      </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mt-3">
+    <button type="submit" class="btn btn-danger px-4" {% if not disponibles %}disabled{% endif %}>
+      <i class="bi bi-save me-1"></i>Crear planilla P{{ siguiente_numero }}
+    </button>
+    <a href="/cobranza/emplanillado?mes={{ mes }}&anio={{ anio }}"
+       class="btn btn-outline-secondary">Cancelar</a>
+  </div>
+</form>
+
+<script>
+function actualizarContador() {
+  const all  = document.querySelectorAll('.chk-armar');
+  const sel  = document.querySelectorAll('.chk-armar:checked');
+  const cont = document.getElementById('contMarcadas');
+  if (cont) cont.textContent = sel.length;
+}
+function toggleTodas() {
+  const checks = document.querySelectorAll('.chk-armar');
+  const todasMarcadas = [...checks].every(c => c.checked);
+  checks.forEach(c => c.checked = !todasMarcadas);
+  actualizarContador();
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.chk-armar').forEach(c => {
+    c.addEventListener('change', actualizarContador);
+  });
+  actualizarContador();
+});
+</script>
+{% endblock %}

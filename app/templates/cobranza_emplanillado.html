@@ -94,56 +94,17 @@
 
       <div class="card-footer bg-white">
         {% if r.sin_planilla > 0 %}
-          <button class="btn btn-sm btn-danger w-100"
-                  data-bs-toggle="modal"
-                  data-bs-target="#modalArmar{{ r.cobrador.id }}">
+          <a href="/cobranza/{{ r.cobrador.id }}/planilla/armar?mes={{ mes }}&anio={{ anio }}"
+             class="btn btn-sm btn-danger w-100">
             <i class="bi bi-plus-circle me-1"></i>Armar nueva planilla
             <span class="badge bg-light text-danger ms-1">{{ r.sin_planilla }} boletas</span>
-          </button>
+          </a>
         {% else %}
           <span class="text-success small"><i class="bi bi-check-circle me-1"></i>Sin boletas pendientes</span>
         {% endif %}
       </div>
     </div>
   </div>
-
-  <!-- Modal para armar planilla (siempre disponible si hay boletas sin emplanillar) -->
-  {% if r.sin_planilla > 0 %}
-  <div class="modal fade" id="modalArmar{{ r.cobrador.id }}" tabindex="-1">
-    <div class="modal-dialog modal-sm">
-      <div class="modal-content">
-        <form method="post" action="/cobranza/{{ r.cobrador.id }}/planilla/armar">
-          <input type="hidden" name="mes" value="{{ mes }}">
-          <input type="hidden" name="anio" value="{{ anio }}">
-          <div class="modal-header">
-            <h6 class="modal-title">Armar planilla — {{ r.cobrador.nombre }}</h6>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <p class="text-muted small mb-3">
-              Se van a emplanillar <strong>{{ r.sin_planilla }}</strong> boleta{% if r.sin_planilla != 1 %}s{% endif %}
-              en una nueva planilla para <strong>{{ mes_nombre }} {{ anio }}</strong>.
-              {% if r.planillas %}
-              <br><span class="text-muted">Ya tiene {{ r.planillas|length }} planilla{% if r.planillas|length != 1 %}s{% endif %} este mes.</span>
-              {% endif %}
-            </p>
-            <label class="form-label fw-semibold small">Comisión del cobrador</label>
-            <div class="input-group input-group-sm">
-              <input type="number" name="comision_pct" class="form-control"
-                     value="{{ r.cobrador.comision_pct }}" min="0" max="100" step="0.5" required>
-              <span class="input-group-text">%</span>
-            </div>
-            <div class="form-text text-muted">Estándar del cobrador: {{ r.cobrador.comision_pct }}%</div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-            <button type="submit" class="btn btn-sm btn-danger">Confirmar</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
-  {% endif %}
 
   <!-- Modales para eliminar cada planilla -->
   {% for pl in r.planillas %}

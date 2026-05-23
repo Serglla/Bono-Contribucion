@@ -617,4 +617,27 @@ ganancia_neta = total_recaudado
 - Truncamiento silencioso volvió a ocurrir con el Write tool en contabilidad.py (archivo >200 líneas). Detectado y parchado con `cp` desde /tmp. Patrón confirmado: Write tool también trunca, no solo Edit. Usar siempre Python/bash para archivos grandes.
 
 ---
-*Última actualización: 22 de mayo de 2026 — Módulo Contabilidad: egresos reales (Bomberos + gastos varios), ganancia neta real y proyectada, ABM gastos, config pago mensual.*
+
+### Sesión 22/05/2026 (cont.) — Fix buscador Socios + Múltiples planillas por cobrador
+
+#### Fix buscador Socios — columna Cobrador
+- **Bug:** al buscar "mabel" en columna Cobrador, aparecían TODAS las filas con dropdown.
+- **Causa:** `textoCelda(td, 7)` hacía `data-val + ' ' + innerText`. El `<select>` de cobrador tiene innerText = texto de TODAS las options (todos los nombres de cobradores). Entonces cualquier fila con dropdown matcheaba cualquier nombre de cobrador.
+- **Fix:** para col 7 (Cobrador) usar SOLO `data-val` (ya contiene el nombre del cobrador seleccionado). Cols 1 y 5 no cambiaron.
+- **Archivo:** `app/templates/compradores.html` — función `textoCelda()`.
+
+#### Múltiples planillas por cobrador por mes
+- **Motivación:** un cobrador puede necesitar más de una planilla por mes (ej. MABEL con muchos socios).
+- **Cambios en `app/routers/cobranza.py`:**
+  1. `emplanillado`: pasa `r.planillas` (lista ordenada por numero) en vez de `r.planilla` (una sola).
+  2. `index` (/cobranza/): ídem, pasa `r.planillas` (lista).
+  3. `armar_planilla`: ya NO busca planilla existente para reusar. Siempre crea una nueva. Si no hay boletas sin emplanillar (`pendientes_count == 0`), redirige sin crear. Las boletas `planilla_id IS NULL` se asignan a la nueva planilla.
+  4. Nuevo endpoint `GET /planilla/{planilla_id}/ver`: muestra una planilla específica por ID (no por cobrador+mes como el viejo `/{cobrador_id}/planilla`). Contiene toda la lógica de grid (3 cols × 40 filas).
+- **Cambios en templates:**
+  - `cobranza_emplanillado.html`: lista todas las planillas del cobrador para ese mes (P1, P2...) con Ver/Editar/Eliminar por cada una. Botón "Armar nueva planilla" siempre visible si hay boletas sin emplanillar.
+  - `cobranza.html`: ídem, lista todas las planillas con botón "Ver P1", "Ver P2", etc. Usa `/cobranza/planilla/{id}/ver`.
+- **Flujo para boletas que faltaban:** ir a Emplanillado → botón "Armar nueva planilla" → se crea P2 con las pendientes.
+- **Nota:** truncamientos silenciosos ocurrieron en `cobranza.py` y `compradores.html` durante esta sesión. Detectados con `python3 -c "print(open(f,'rb').read()[-300:])"` y parchados desde `git show HEAD:archivo` + script Python.
+
+---
+*Última actualización: 22 de mayo de 2026 — Fix buscador Socios col 7 (Cobrador). Múltiples planillas por cobrador/mes: armar_planilla siempre crea nueva, nuevo endpoint /planilla/{id}/ver, templates actualizados.*

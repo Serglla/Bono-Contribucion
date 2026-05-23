@@ -97,11 +97,80 @@ async def index(request: Request, db: Session = Depends(get_db),
     })
 
 
+@router.get("/{cobrador_id}/planilla/armar", response_class=HTMLResponse)
+async def armar_planilla_form(request: Request, cobrador_id: int,
+                              mes: int = Query(default=0), anio: int = Query(default=0),
+                              db: Session = Depends(get_db)):
+    """Pantalla de armado de planilla nueva.
+
+    Muestra TODAS las boletas activas sin planilla del cobrador con checkboxes
+    (todas marcadas por defecto). Sergio puede desmarcar las que no van a esta
+    planilla — quedan pendientes para armar una segunda planilla luego.
+
+    Cada fila muestra el badge de PATA (X0, X1, X2, ...) con el color de la
+    talonera para identificar visualmente a qué grupo pertenece cada número.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    cobrador = db.query(models.Cobrador).get(cobrador_id)
+    if not cobrador:
+        return RedirectResponse("/cobranza/emplanillado", status_code=302)
+
+    hoy = date.today()
+    if not mes:  mes  = hoy.month
+    if not anio: anio = hoy.year
+
+    # Mismas reglas de filtrado que el POST: boletas activas sin planilla,
+    # excluyendo al contado y totalmente pagas.
+    disponibles = (db.query(models.Boleta)
+                   .filter(models.Boleta.cobrador_id == cobrador_id,
+                           models.Boleta.planilla_id.is_(None),
+                           models.Boleta.condicion != CondicionBoleta.BAJA,
+                           models.Boleta.numero_especial_2.is_(None),
+                           models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
+                   .join(models.Comprador, isouter=True)
+                   .order_by(models.Boleta.numero_principal)
+                   .all())
+
+    # Info de PATA + color por boleta (para el badge X0/X1/X2 en cada fila)
+    pata_info = {}
+    for b in disponibles:
+        if b.talonera:
+            pata = _extraer_pata(b.talonera.nombre)
+            color = b.talonera.color.strip() if b.talonera.color else "#cccccc"
+            if not color or color == "#ffffff":
+                color = "#cccccc"
+        else:
+            pata, color = "?", "#cccccc"
+        pata_info[b.id] = {"pata": pata, "color": color}
+
+    planillas_existentes = (db.query(func.count(models.Planilla.id))
+                            .filter_by(cobrador_id=cobrador_id)
+                            .scalar() or 0)
+
+    return templates.TemplateResponse(request, "cobranza_planilla_armar.html", {
+        "user": user,
+        "cobrador": cobrador,
+        "mes": mes, "anio": anio,
+        "mes_nombre": MESES[mes - 1],
+        "disponibles": disponibles,
+        "pata_info": pata_info,
+        "siguiente_numero": planillas_existentes + 1,
+    })
+
+
 @router.post("/{cobrador_id}/planilla/armar")
 async def armar_planilla(request: Request, cobrador_id: int,
-                         mes: int = Form(...), anio: int = Form(...),
-                         comision_pct: float = Form(10.0),
                          db: Session = Depends(get_db)):
+    """Crea una nueva planilla y le asigna las boletas seleccionadas.
+
+    Si el form trae `boleta_ids` (lista de IDs), solo asigna esas. Si NO trae
+    (compat con el flujo viejo del modal), asigna TODAS las pendientes del
+    cobrador. Esto permite armar varias planillas: en cada armado se elige el
+    subconjunto y el resto queda pendiente para otra planilla.
+    """
     _perm_user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(_perm_user, 'cobranza', 'editar'):
         raise HTTPException(403, 'No tenés permiso para editar en esta sección')
@@ -110,18 +179,44 @@ async def armar_planilla(request: Request, cobrador_id: int,
     if not cobrador:
         return RedirectResponse("/cobranza/emplanillado", status_code=302)
 
-    # Crear siempre una planilla nueva para este cobrador+mes+anio.
-    # Un cobrador puede tener múltiples planillas por mes.
-    # Solo crear si hay boletas sin emplanillar; si no, redirigir sin crear.
-    pendientes_count = (db.query(func.count(models.Boleta.id))
-                          .filter(models.Boleta.cobrador_id == cobrador_id,
-                                  models.Boleta.planilla_id.is_(None),
-                                  models.Boleta.condicion != CondicionBoleta.BAJA,
-                                  models.Boleta.numero_especial_2.is_(None),
-                                  models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
-                          .scalar() or 0)
+    form_data = await request.form()
+    try:
+        mes = int(form_data.get("mes") or date.today().month)
+        anio = int(form_data.get("anio") or date.today().year)
+    except (TypeError, ValueError):
+        mes, anio = date.today().month, date.today().year
+    try:
+        comision_pct = float(form_data.get("comision_pct") or 10.0)
+    except (TypeError, ValueError):
+        comision_pct = 10.0
+
+    ids_raw = form_data.getlist("boleta_ids")
+    ids_seleccionados = set()
+    for x in ids_raw:
+        try:
+            ids_seleccionados.add(int(x))
+        except (TypeError, ValueError):
+            continue
+
+    base_q = (db.query(models.Boleta)
+              .filter(models.Boleta.cobrador_id == cobrador_id,
+                      models.Boleta.planilla_id.is_(None),
+                      models.Boleta.condicion != CondicionBoleta.BAJA,
+                      models.Boleta.numero_especial_2.is_(None),
+                      models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas))
+
+    pendientes_count = base_q.count()
     if pendientes_count == 0:
         return RedirectResponse(f"/cobranza/emplanillado?mes={mes}&anio={anio}", status_code=302)
+
+    if ids_raw:
+        if not ids_seleccionados:
+            return RedirectResponse(
+                f"/cobranza/{cobrador_id}/planilla/armar?mes={mes}&anio={anio}",
+                status_code=302)
+        boletas_q = base_q.filter(models.Boleta.id.in_(ids_seleccionados))
+    else:
+        boletas_q = base_q
 
     siguiente_numero = (db.query(func.count(models.Planilla.id))
                         .filter_by(cobrador_id=cobrador_id)
@@ -136,18 +231,7 @@ async def armar_planilla(request: Request, cobrador_id: int,
     db.add(planilla)
     db.flush()
 
-    # Asignar boletas sin planilla de este cobrador a la nueva planilla.
-    # Excluye las pagadas al contado (1 pago o 2 pagos): tienen numero_especial_2
-    # asignado y no tienen cuotas para cobrar, no corresponde emplantillarlas.
-    # Excluye también las que ya tienen TODAS las cuotas pagas (anticipadas o no):
-    # nada para cobrar → badge "Al contado" en Socios.
-    (db.query(models.Boleta)
-       .filter(models.Boleta.cobrador_id == cobrador_id,
-               models.Boleta.planilla_id.is_(None),
-               models.Boleta.condicion != CondicionBoleta.BAJA,
-               models.Boleta.numero_especial_2.is_(None),
-               models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
-       .update({"planilla_id": planilla.id}, synchronize_session=False))
+    boletas_q.update({"planilla_id": planilla.id}, synchronize_session=False)
     db.commit()
 
     return RedirectResponse(f"/cobranza/emplanillado?mes={mes}&anio={anio}", status_code=302)
@@ -251,11 +335,24 @@ async def planilla_editar_form(request: Request, planilla_id: int,
                    .order_by(models.Boleta.numero_principal)
                    .all())
 
+    # Info de PATA + color por boleta (para el badge X0/X1/X2 en cada fila)
+    pata_info = {}
+    for b in list(en_planilla) + list(disponibles):
+        if b.talonera:
+            pata = _extraer_pata(b.talonera.nombre)
+            color = b.talonera.color.strip() if b.talonera.color else "#cccccc"
+            if not color or color == "#ffffff":
+                color = "#cccccc"
+        else:
+            pata, color = "?", "#cccccc"
+        pata_info[b.id] = {"pata": pata, "color": color}
+
     return templates.TemplateResponse(request, "cobranza_planilla_editar.html", {
         "user": user,
         "planilla": planilla,
         "en_planilla": en_planilla,
         "disponibles": disponibles,
+        "pata_info": pata_info,
         "mes_nombre": MESES[planilla.mes - 1],
     })
 

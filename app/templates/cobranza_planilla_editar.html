@@ -30,16 +30,24 @@
             <thead class="table-light">
               <tr>
                 <th style="width:36px;"></th>
+                <th style="width:55px;">PATA</th>
                 <th>N° Boleta</th>
                 <th>Comprador</th>
               </tr>
             </thead>
             <tbody>
               {% for b in en_planilla %}
+              {% set pi = pata_info.get(b.id, {"pata":"?", "color":"#cccccc"}) %}
               <tr>
                 <td class="text-center">
                   <input type="checkbox" name="boleta_ids" value="{{ b.id }}"
                          class="form-check-input" checked>
+                </td>
+                <td>
+                  <span class="badge"
+                        style="background:{{ pi.color }};color:#000;border:1px solid #888;font-size:.72rem;">
+                    X{{ pi.pata }}
+                  </span>
                 </td>
                 <td class="fw-bold">{{ '%04d' % b.numero_principal }}</td>
                 <td>{{ b.comprador.nombre_completo if b.comprador else '—' }}</td>
@@ -75,16 +83,24 @@
             <thead class="table-light">
               <tr>
                 <th style="width:36px;"></th>
+                <th style="width:55px;">PATA</th>
                 <th>N° Boleta</th>
                 <th>Comprador</th>
               </tr>
             </thead>
             <tbody>
               {% for b in disponibles %}
+              {% set pi = pata_info.get(b.id, {"pata":"?", "color":"#cccccc"}) %}
               <tr>
                 <td class="text-center">
                   <input type="checkbox" name="boleta_ids" value="{{ b.id }}"
                          class="form-check-input">
+                </td>
+                <td>
+                  <span class="badge"
+                        style="background:{{ pi.color }};color:#000;border:1px solid #888;font-size:.72rem;">
+                    X{{ pi.pata }}
+                  </span>
                 </td>
                 <td class="fw-bold">{{ '%04d' % b.numero_principal }}</td>
                 <td>{{ b.comprador.nombre_completo if b.comprador else '—' }}</td>
