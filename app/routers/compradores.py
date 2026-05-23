@@ -1246,19 +1246,10 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
     if not auth_module.has_permission(user, 'compradores', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
 
-    # Paleta por defecto si la talonera no tiene color seteado (#ffffff / vacío)
-    default_palette = {
-        "PATA 0": "#9c27b0",
-        "PATA 1": "#1e88e5",
-        "PATA 2": "#43a047",
-        "PATA 3": "#fb8c00",
-        "PATA 4": "#e53935",
-        "PATA 5": "#00acc1",
-        "PATA 6": "#8e24aa",
-        "PATA 7": "#5d4037",
-        "PATA 8": "#fdd835",
-        "PATA 9": "#3949ab",
-    }
+    # Color = Talonera.color (picker de la UI de Taloneras). Si está vacío
+    # o quedó en blanco por defecto, usamos un gris neutro como señal de
+    # "esta talonera no tiene color asignado, andá a Taloneras a setearlo".
+    SIN_COLOR_FALLBACK = "#9e9e9e"
 
     rows = (
         db.query(
@@ -1292,7 +1283,7 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
     for b, c, t, z, v in rows:
         color = (t.color or "").strip().lower()
         if not color or color in ("#ffffff", "#fff", "white"):
-            color = default_palette.get(t.nombre, "#607d8b")
+            color = SIN_COLOR_FALLBACK
 
         # Formato de numero con cifras de la talonera (default 4 para COMUN)
         try:
@@ -1410,3 +1401,72 @@ async def mapa_geocode_reset(request: Request, db: Session = Depends(get_db)):
     n = db.query(models.GeocodeCache).delete()
     db.commit()
     return JSONResponse({"ok": True, "borradas": n})
+
+
+@router.post("/mapa-geocode-retry")
+async def mapa_geocode_retry(request: Request, db: Session = Depends(get_db)):
+    """Borra del cache SOLO las direcciones que fallaron (lat IS NULL),
+    para que la próxima carga del mapa las vuelva a intentar con Nominatim.
+    Útil después de corregir direcciones en Socios.
+    """
+    await auth_module.require_user(request, db)
+    n = db.query(models.GeocodeCache).filter(
+        models.GeocodeCache.lat.is_(None)
+    ).delete()
+    db.commit()
+    return JSONResponse({"ok": True, "borradas": n})
+
+
+@router.get("/mapa-no-ubicadas")
+async def mapa_no_ubicadas(request: Request, db: Session = Depends(get_db)):
+    """Devuelve la lista de socios cuya dirección no se pudo geocodificar
+    (GeocodeCache.lat IS NULL). Incluye datos para mostrarlos en el panel
+    "No ubicadas" del mapa con link a editar el socio.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+
+    # Direcciones marcadas como no ubicables en el cache
+    fallidas = db.query(models.GeocodeCache.direccion).filter(
+        models.GeocodeCache.lat.is_(None)
+    ).all()
+    fallidas_set = {d for (d,) in fallidas}
+
+    if not fallidas_set:
+        return JSONResponse({"ok": True, "items": []})
+
+    rows = (
+        db.query(
+            models.Boleta, models.Comprador, models.Talonera, models.Vendedor,
+        )
+        .join(models.Comprador, models.Boleta.comprador_id == models.Comprador.id)
+        .join(models.Talonera, models.Boleta.talonera_id == models.Talonera.id)
+        .outerjoin(models.Vendedor, models.Boleta.vendedor_id == models.Vendedor.id)
+        .filter(models.Comprador.direccion.isnot(None))
+        .filter(models.Comprador.direccion != "")
+        .filter(models.Talonera.tipo == "COMUN")
+        .order_by(models.Comprador.apellido_nombre)
+        .all()
+    )
+
+    items = []
+    for b, c, t, v in rows:
+        norm = _norm_direccion(c.direccion or "")
+        if norm not in fallidas_set:
+            continue
+        try:
+            num_digitos = t.num_digitos or 4
+        except Exception:
+            num_digitos = 4
+        items.append({
+            "comprador_id": c.id,
+            "apellido_nombre": c.apellido_nombre,
+            "direccion": c.direccion,
+            "numero": str(b.numero_principal).zfill(num_digitos),
+            "pata": t.nombre,
+            "pata_label": (t.nombre or "").replace("PATA ", "X"),
+            "vendedor_nombre": v.nombre if v else None,
+        })
+
+    return JSONResponse({"ok": True, "items": items, "total": len(items)})

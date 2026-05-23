@@ -96,7 +96,49 @@
         </div>
       </div>
     </div>
-    <div class="mt-2 small text-muted" id="contadorVisibles"></div>
+    <div class="mt-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span class="small text-muted" id="contadorVisibles"></span>
+      <button id="btnNoUbicadas" class="btn btn-sm btn-outline-warning d-none">
+        <i class="bi bi-exclamation-triangle me-1"></i>No ubicadas (<span id="noUbicadasCount">0</span>)
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Panel desplegable: socios cuya direccion no se pudo geocodificar -->
+<div class="collapse mb-3" id="panelNoUbicadas">
+  <div class="card border-warning shadow-sm">
+    <div class="card-header bg-warning bg-opacity-25 d-flex justify-content-between align-items-center">
+      <span class="fw-semibold">
+        <i class="bi bi-geo-alt-fill text-warning me-1"></i>
+        Direcciones sin ubicar
+      </span>
+      <button id="btnReintentar" class="btn btn-sm btn-outline-secondary" title="Borra estas del cache y vuelve a intentar el geocoding">
+        <i class="bi bi-arrow-clockwise me-1"></i>Reintentar geocoding
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>N°</th>
+              <th>Pata</th>
+              <th>Socio</th>
+              <th>Dirección</th>
+              <th>Vendedor</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tblNoUbicadas"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-footer text-muted small">
+      <i class="bi bi-info-circle me-1"></i>
+      Si corregís la dirección del socio (botón "Editar"), apretá luego
+      <strong>Reintentar geocoding</strong> y recargá el mapa para reubicar.
+    </div>
   </div>
 </div>
 
@@ -304,6 +346,9 @@
     }
     aplicarFiltros();
 
+    // Cargar el panel "No ubicadas" con lo que ya estaba en cache server
+    cargarNoUbicadas();
+
     if (pendientes.length === 0) {
       setProgreso(`Listo. ${markers.length} ubicaciones cargadas desde cache server.`, true);
       setTimeout(() => setProgreso("", false), 2500);
@@ -348,9 +393,67 @@
     }
 
     aplicarFiltros();
+    cargarNoUbicadas();   // refresca el panel con los fallos nuevos
     setProgreso(`Listo. ${markers.length} ubicadas, ${fallidos} sin ubicar.`, true);
     setTimeout(() => setProgreso("", false), 3500);
   }
+
+  // Cargar y renderizar lista de "No ubicadas"
+  async function cargarNoUbicadas() {
+    try {
+      const r = await fetch('/compradores/mapa-no-ubicadas');
+      const j = await r.json();
+      const items = j.items || [];
+      const cont = document.getElementById('tblNoUbicadas');
+      const btn = document.getElementById('btnNoUbicadas');
+      const cnt = document.getElementById('noUbicadasCount');
+      cont.innerHTML = '';
+      cnt.textContent = items.length;
+      if (items.length === 0) {
+        btn.classList.add('d-none');
+        return;
+      }
+      btn.classList.remove('d-none');
+      items.forEach(it => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${it.numero}</strong></td>
+          <td><span class="badge bg-secondary">${it.pata_label}</span></td>
+          <td>${it.apellido_nombre}</td>
+          <td><span class="text-warning-emphasis">${it.direccion}</span></td>
+          <td class="text-muted small">${it.vendedor_nombre || '—'}</td>
+          <td>
+            <a href="/compradores/${it.comprador_id}/editar" class="btn btn-sm btn-outline-primary" title="Editar dirección">
+              <i class="bi bi-pencil"></i>
+            </a>
+          </td>
+        `;
+        cont.appendChild(tr);
+      });
+    } catch(e) { /* swallow */ }
+  }
+
+  // Toggle del panel
+  document.getElementById('btnNoUbicadas').addEventListener('click', () => {
+    const panel = document.getElementById('panelNoUbicadas');
+    const inst = bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false });
+    inst.toggle();
+  });
+
+  // Reintentar geocoding solo de las no ubicadas
+  document.getElementById('btnReintentar').addEventListener('click', async () => {
+    if (!confirm("¿Reintentar el geocoding de las direcciones sin ubicar?\n\nSe borran del cache las que fallaron y se vuelven a consultar a Nominatim (1 por segundo) al recargar el mapa.")) return;
+    try {
+      const r = await fetch('/compradores/mapa-geocode-retry', { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) {
+        alert(`Se borraron ${j.borradas} entradas fallidas del cache.\nRecargando para reintentar...`);
+        location.reload();
+      }
+    } catch(e) {
+      alert("Error al reintentar.");
+    }
+  });
 
   // Reset cache server (solo admin)
   const btnReset = document.getElementById('btnResetServer');
