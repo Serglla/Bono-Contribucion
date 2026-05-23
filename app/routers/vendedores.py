@@ -90,7 +90,7 @@ def _stats_bulk(db):
 
     # Liquidados — desglose cuotas vs contados.
     # Usamos los snapshots cuotas_equiv y contados_equiv de cada LiquidacionVendedor
-    # (la boleta sola no guarda su modalidad; solo la liq distingue ambos).
+    # para el desglose cuotas/contados (la boleta sola no guarda su modalidad).
     liq_split_rows = db.query(
         models.LiquidacionVendedor.vendedor_id,
         func.coalesce(func.sum(models.LiquidacionVendedor.cuotas_equiv), 0),
@@ -116,12 +116,41 @@ def _stats_bulk(db):
             stats[vid] = _empty()
         stats[vid]["liquidados_contados"] += int(total or 0)
 
-    # Total = cuotas + contados (incluido pool).
-    for vid in stats:
-        stats[vid]["liquidados"] = (
-            stats[vid].get("liquidados_cuotas", 0)
-            + stats[vid].get("liquidados_contados", 0)
-        )
+    # Total liquidados — calculado on-the-fly desde boletas (igual que la tarjeta
+    # del detalle de vendedor) para evitar que snapshots stale (cuotas_equiv desactualizado
+    # cuando cambia talonera.multiplicador) den un total distinto al detalle.
+    # Mismo criterio: contado-de-boleta (numero_especial) cuenta como 1.0,
+    # el resto cuenta como talonera.multiplicador actual.
+    liq_total_rows = db.query(
+        models.Boleta.vendedor_id,
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        (models.Boleta.numero_especial.isnot(None)) |
+                        (models.Boleta.numero_especial_2.isnot(None)),
+                        1.0,
+                    ),
+                    else_=func.coalesce(models.Talonera.multiplicador, 1.0),
+                )
+            ),
+            0,
+        ),
+    ).join(
+        models.Talonera, models.Talonera.id == models.Boleta.talonera_id
+    ).filter(
+        models.Boleta.vendedor_id.isnot(None),
+        models.Boleta.liquidacion_vendedor_id.isnot(None),
+    ).group_by(models.Boleta.vendedor_id).all()
+    for vid, total_eq in liq_total_rows:
+        if vid not in stats:
+            stats[vid] = _empty()
+        stats[vid]["liquidados"] = int(round(float(total_eq or 0)))
+
+    # Sumar pool items al total on-the-fly (ya fueron sumados a liquidados_contados arriba).
+    for vid, total in pool_rows:
+        if vid in stats:
+            stats[vid]["liquidados"] += int(total or 0)
 
     return stats
 
