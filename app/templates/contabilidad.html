@@ -339,7 +339,8 @@
           <thead class="table-dark">
             <tr>
               <th>Descripcion</th>
-              <th>Categoria</th>
+              <th>Tipo</th>
+              <th>Pago</th>
               <th>Fecha</th>
               <th class="text-end">Monto</th>
               <th></th>
@@ -350,11 +351,25 @@
             <tr id="gasto-row-{{ g.id }}" data-id="{{ g.id }}">
               <td>{{ g.descripcion }}</td>
               <td><span class="badge bg-secondary">{{ g.categoria }}</span></td>
+              <td>
+                {% if g.periodicidad == 'MENSUAL' %}
+                  <span class="badge bg-info text-dark">Mensual</span>
+                {% else %}
+                  <span class="badge bg-light text-dark border">Único</span>
+                {% endif %}
+              </td>
               <td>{{ g.fecha }}</td>
-              <td class="text-end fw-semibold text-danger">{{ g.monto | pesos }}</td>
-              <td class="text-end">
+              <td class="text-end fw-semibold text-danger">
+                {{ g.monto_real | pesos }}
+                {% if g.periodicidad == 'MENSUAL' %}
+                  <div class="text-muted fw-normal" style="font-size:.75rem;">
+                    {{ g.monto | pesos }}/mes × {{ meses_liquidados }}
+                  </div>
+                {% endif %}
+              </td>
+              <td class="text-end text-nowrap">
                 <button class="btn btn-sm btn-outline-primary py-0 px-1"
-                        onclick="editarGasto({{ g.id }}, '{{ g.descripcion | replace("'", "\\'") }}', '{{ g.categoria }}', '{{ g.fecha_iso }}', {{ g.monto }})">
+                        onclick="editarGasto({{ g.id }}, '{{ g.descripcion | replace("'", "\\'") }}', '{{ g.categoria }}', '{{ g.periodicidad }}', '{{ g.fecha_iso }}', {{ g.monto }})">
                   <i class="bi bi-pencil"></i>
                 </button>
                 <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-1"
@@ -364,13 +379,13 @@
               </td>
             </tr>
             {% else %}
-            <tr id="fila-vacia"><td colspan="5" class="text-center text-muted py-3">Sin gastos registrados aun.</td></tr>
+            <tr id="fila-vacia"><td colspan="6" class="text-center text-muted py-3">Sin gastos registrados aun.</td></tr>
             {% endfor %}
           </tbody>
           {% if gastos_list %}
           <tfoot class="table-secondary fw-bold">
             <tr>
-              <td colspan="3">TOTAL gastos varios</td>
+              <td colspan="4">TOTAL gastos varios</td>
               <td class="text-end text-danger" id="totalGastosFoot">{{ total_gastos | pesos }}</td>
               <td></td>
             </tr>
@@ -394,26 +409,55 @@
       </div>
       <div class="modal-body">
         <input type="hidden" id="gastoId" value="">
+
         <div class="mb-2">
-          <label class="form-label small mb-1">Descripcion</label>
-          <input type="text" id="gastoDesc" class="form-control form-control-sm" placeholder="Ej: Premio 1er lugar">
+          <label class="form-label small mb-1 fw-semibold">Descripcion</label>
+          <input type="text" id="gastoDesc" class="form-control form-control-sm"
+                 placeholder="Ej: Premio 1er lugar, Viáticos viaje, etc.">
         </div>
+
         <div class="mb-2">
-          <label class="form-label small mb-1">Categoria</label>
+          <label class="form-label small mb-1 fw-semibold">Tipo</label>
           <select id="gastoCat" class="form-select form-select-sm">
             {% for cat in categorias %}
             <option value="{{ cat }}">{{ cat }}</option>
             {% endfor %}
           </select>
         </div>
+
+        <div class="mb-3">
+          <label class="form-label small mb-1 fw-semibold">¿Cómo se paga?</label>
+          <div class="d-flex gap-3">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="gastoPerio"
+                     id="gastoPerioUnico" value="UNICO" checked onchange="actualizarLabelMonto()">
+              <label class="form-check-label small" for="gastoPerioUnico">En un solo pago</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="gastoPerio"
+                     id="gastoPerioMensual" value="MENSUAL" onchange="actualizarLabelMonto()">
+              <label class="form-check-label small" for="gastoPerioMensual">Mensual</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label small mb-1 fw-semibold" id="lblMonto">Monto</label>
+          <div class="input-group input-group-sm">
+            <span class="input-group-text">$</span>
+            <input type="number" id="gastoMonto" class="form-control form-control-sm" min="0" step="100">
+          </div>
+          <div id="gastoMontoHint" class="text-muted small mt-1 d-none">
+            Total acumulado: <span id="gastoMontoTotal">$0</span>
+            ({{ meses_liquidados }} mes/es liquidados)
+          </div>
+        </div>
+
         <div class="mb-2">
           <label class="form-label small mb-1">Fecha (opcional)</label>
           <input type="date" id="gastoFecha" class="form-control form-control-sm">
         </div>
-        <div class="mb-2">
-          <label class="form-label small mb-1">Monto</label>
-          <input type="number" id="gastoMonto" class="form-control form-control-sm" min="0" step="100">
-        </div>
+
         <div id="gastoErr" class="text-danger small d-none"></div>
       </div>
       <div class="modal-footer py-2">
@@ -452,6 +496,29 @@
   });
 
   // ── Modal gasto ──────────────────────────────────────────────────────
+  var MESES_LIQ = {{ meses_liquidados }};
+
+  window.actualizarLabelMonto = function() {
+    var esMensual = document.getElementById("gastoPerioMensual").checked;
+    document.getElementById("lblMonto").textContent = esMensual ? "Monto por mes" : "Monto total";
+    var hint = document.getElementById("gastoMontoHint");
+    if (esMensual) {
+      hint.classList.remove("d-none");
+      recalcHint();
+    } else {
+      hint.classList.add("d-none");
+    }
+  };
+
+  function recalcHint() {
+    var m = parseFloat(document.getElementById("gastoMonto").value) || 0;
+    document.getElementById("gastoMontoTotal").textContent =
+      "$" + Math.round(m * MESES_LIQ).toLocaleString("es-AR");
+  }
+  document.getElementById("gastoMonto").addEventListener("input", recalcHint);
+
+
+  // ── Modal gasto ──────────────────────────────────────────────────────
   window.abrirModalGasto = function() {
     document.getElementById("modalGastoTitulo").textContent = "Agregar gasto";
     document.getElementById("gastoId").value   = "";
@@ -460,10 +527,13 @@
     document.getElementById("gastoFecha").value= "";
     document.getElementById("gastoMonto").value= "";
     document.getElementById("gastoErr").classList.add("d-none");
+    // Reset periodicidad a UNICO
+    document.getElementById("gastoPerioUnico").checked = true;
+    actualizarLabelMonto();
     bootstrap.Modal.getOrCreateInstance(document.getElementById("modalGasto")).show();
   };
 
-  window.editarGasto = function(id, desc, cat, fecha, monto) {
+  window.editarGasto = function(id, desc, cat, perio, fecha, monto) {
     document.getElementById("modalGastoTitulo").textContent = "Editar gasto";
     document.getElementById("gastoId").value    = id;
     document.getElementById("gastoDesc").value  = desc;
@@ -471,6 +541,13 @@
     document.getElementById("gastoFecha").value = fecha || "";
     document.getElementById("gastoMonto").value = monto;
     document.getElementById("gastoErr").classList.add("d-none");
+    // Set periodicidad
+    if (perio === "MENSUAL") {
+      document.getElementById("gastoPerioMensual").checked = true;
+    } else {
+      document.getElementById("gastoPerioUnico").checked = true;
+    }
+    actualizarLabelMonto();
     bootstrap.Modal.getOrCreateInstance(document.getElementById("modalGasto")).show();
   };
 
@@ -485,11 +562,13 @@
     }
     var id    = document.getElementById("gastoId").value;
     var url   = id ? "/contabilidad/gastos/" + id + "/editar" : "/contabilidad/gastos";
+    var perio = document.getElementById("gastoPerioMensual").checked ? "MENSUAL" : "UNICO";
     var fd    = new FormData();
-    fd.append("descripcion", desc);
-    fd.append("categoria",   document.getElementById("gastoCat").value);
-    fd.append("fecha",       document.getElementById("gastoFecha").value);
-    fd.append("monto",       monto);
+    fd.append("descripcion",  desc);
+    fd.append("categoria",    document.getElementById("gastoCat").value);
+    fd.append("periodicidad", perio);
+    fd.append("fecha",        document.getElementById("gastoFecha").value);
+    fd.append("monto",        monto);
     fetch(url, { method: "POST", body: fd })
       .then(r => r.json())
       .then(d => {

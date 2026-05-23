@@ -330,12 +330,13 @@ class ConfigBono(Base):
 class GastoContabilidad(Base):
     """Egreso registrado manualmente: premios, viajes, alojamiento, etc."""
     __tablename__ = "gastos_contabilidad"
-    id          = Column(Integer, primary_key=True, index=True)
-    descripcion = Column(String, nullable=False)
-    categoria   = Column(String, default="OTRO")   # PREMIO / VIAJE / ALOJAMIENTO / OTRO
-    fecha       = Column(Date, nullable=True)
-    monto       = Column(Float, default=0.0)
-    created_at  = Column(DateTime, server_default=func.now())
+    id           = Column(Integer, primary_key=True, index=True)
+    descripcion  = Column(String, nullable=False)
+    categoria    = Column(String, default="OTRO")    # PREMIO / VIAJE / ALOJAMIENTO / SUELDO / OTRO
+    periodicidad = Column(String, default="UNICO")   # UNICO | MENSUAL
+    fecha        = Column(Date, nullable=True)
+    monto        = Column(Float, default=0.0)        # si MENSUAL: monto por mes
+    created_at   = Column(DateTime, server_default=func.now())
 
 
 class GeocodeCache(Base):
@@ -355,3 +356,8 @@ class GeocodeCache(Base):
     lng       = Column(Float, nullable=True)
     intentos  = Column(Integer, default=1)
     last_try  = Column(DateTime, server_default=func.now())
+
+    lat       = Column(Float, nullable=True)
+    lng       = Column(Float, nullable=True)
+    intentos  = Column(Integer, default=0)
+    last_try  = Column(DateTime, nullable=True)

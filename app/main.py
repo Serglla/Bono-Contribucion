@@ -691,6 +691,27 @@ def create_default_admin():
             print("Backfill ciclo boletas v3: " + str(e))
 
 
+                # Migrar columna periodicidad en gastos_contabilidad (UNICO | MENSUAL)
+        try:
+            is_pg = engine.dialect.name == "postgresql"
+            if is_pg:
+                db.execute(text(
+                    "ALTER TABLE gastos_contabilidad "
+                    "ADD COLUMN IF NOT EXISTS periodicidad VARCHAR DEFAULT 'UNICO'"
+                ))
+            else:
+                _cols_gc = [r[1] for r in db.execute(text("PRAGMA table_info(gastos_contabilidad)")).fetchall()]
+                if "periodicidad" not in _cols_gc:
+                    db.execute(text(
+                        "ALTER TABLE gastos_contabilidad "
+                        "ADD COLUMN periodicidad VARCHAR DEFAULT 'UNICO'"
+                    ))
+            db.commit()
+            print("Migracion periodicidad gastos_contabilidad: OK")
+        except Exception as e:
+            db.rollback()
+            print("Migracion periodicidad gastos_contabilidad: " + str(e))
+
         if not db.query(models.User).filter_by(username="admin").first():
             import logging
             logging.getLogger(__name__).warning(

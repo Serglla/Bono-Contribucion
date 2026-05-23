@@ -12,7 +12,8 @@ router = APIRouter(prefix="/contabilidad", tags=["contabilidad"])
 MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
          "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
-CATEGORIAS = ["PREMIO", "VIAJE", "ALOJAMIENTO", "OTRO"]
+CATEGORIAS = ["PREMIO", "VIAJE", "ALOJAMIENTO", "SUELDO", "OTRO"]
+PERIODICIDADES = ["UNICO", "MENSUAL"]
 
 
 def _get_config(db, clave, default=0.0):
@@ -203,16 +204,25 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
                   models.GastoContabilidad.id.desc())
         .all()
     )
-    total_gastos = sum(g.monto or 0 for g in gastos)
+    def _monto_real(g):
+        """Para gastos MENSUAL el monto total = monto_por_mes × meses_liquidados."""
+        perio = getattr(g, "periodicidad", "UNICO") or "UNICO"
+        if perio == "MENSUAL":
+            return (g.monto or 0) * meses_liquidados
+        return g.monto or 0
+
+    total_gastos = sum(_monto_real(g) for g in gastos)
 
     gastos_list = [
         {
-            "id":          g.id,
-            "descripcion": g.descripcion,
-            "categoria":   g.categoria,
-            "fecha":       g.fecha.strftime("%d/%m/%Y") if g.fecha else "",
-            "fecha_iso":   g.fecha.isoformat() if g.fecha else "",
-            "monto":       g.monto or 0,
+            "id":           g.id,
+            "descripcion":  g.descripcion,
+            "categoria":    g.categoria,
+            "periodicidad": getattr(g, "periodicidad", "UNICO") or "UNICO",
+            "fecha":        g.fecha.strftime("%d/%m/%Y") if g.fecha else "",
+            "fecha_iso":    g.fecha.isoformat() if g.fecha else "",
+            "monto":        g.monto or 0,
+            "monto_real":   _monto_real(g),
         }
         for g in gastos
     ]
@@ -243,6 +253,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "total_gastos":          total_gastos,
         "gastos_list":           gastos_list,
         "categorias":            CATEGORIAS,
+        "periodicidades":        PERIODICIDADES,
         "total_egresos":         total_egresos,
         "ganancia_neta":         ganancia_neta,
         "vendedores_list":       vendedores_list,
@@ -268,19 +279,23 @@ async def guardar_config_bomberos(
 @router.post("/gastos")
 async def crear_gasto(
     request: Request,
-    descripcion: str = Form(...),
-    categoria:   str = Form("OTRO"),
-    fecha:       Optional[str] = Form(None),
-    monto:       float = Form(...),
+    descripcion:  str = Form(...),
+    categoria:    str = Form("OTRO"),
+    periodicidad: str = Form("UNICO"),
+    fecha:        Optional[str] = Form(None),
+    monto:        float = Form(...),
     db: Session = Depends(get_db),
 ):
     user = await auth_module.require_user(request, db)
     if not getattr(user, "is_admin", False):
         raise HTTPException(403)
+    if periodicidad not in ("UNICO", "MENSUAL"):
+        periodicidad = "UNICO"
     fecha_obj = date.fromisoformat(fecha) if fecha else None
     g = models.GastoContabilidad(
         descripcion=descripcion.strip(),
         categoria=categoria,
+        periodicidad=periodicidad,
         fecha=fecha_obj,
         monto=monto,
     )
@@ -288,13 +303,14 @@ async def crear_gasto(
     db.commit()
     db.refresh(g)
     return JSONResponse({
-        "ok":          True,
-        "id":          g.id,
-        "descripcion": g.descripcion,
-        "categoria":   g.categoria,
-        "fecha":       g.fecha.strftime("%d/%m/%Y") if g.fecha else "",
-        "fecha_iso":   g.fecha.isoformat() if g.fecha else "",
-        "monto":       g.monto,
+        "ok":           True,
+        "id":           g.id,
+        "descripcion":  g.descripcion,
+        "categoria":    g.categoria,
+        "periodicidad": g.periodicidad,
+        "fecha":        g.fecha.strftime("%d/%m/%Y") if g.fecha else "",
+        "fecha_iso":    g.fecha.isoformat() if g.fecha else "",
+        "monto":        g.monto,
     })
 
 
@@ -302,10 +318,11 @@ async def crear_gasto(
 async def editar_gasto(
     request: Request,
     gasto_id: int,
-    descripcion: str = Form(...),
-    categoria:   str = Form("OTRO"),
-    fecha:       Optional[str] = Form(None),
-    monto:       float = Form(...),
+    descripcion:  str = Form(...),
+    categoria:    str = Form("OTRO"),
+    periodicidad: str = Form("UNICO"),
+    fecha:        Optional[str] = Form(None),
+    monto:        float = Form(...),
     db: Session = Depends(get_db),
 ):
     user = await auth_module.require_user(request, db)
@@ -314,19 +331,23 @@ async def editar_gasto(
     g = db.query(models.GastoContabilidad).get(gasto_id)
     if not g:
         raise HTTPException(404)
-    g.descripcion = descripcion.strip()
-    g.categoria   = categoria
-    g.fecha       = date.fromisoformat(fecha) if fecha else None
-    g.monto       = monto
+    if periodicidad not in ("UNICO", "MENSUAL"):
+        periodicidad = "UNICO"
+    g.descripcion  = descripcion.strip()
+    g.categoria    = categoria
+    g.periodicidad = periodicidad
+    g.fecha        = date.fromisoformat(fecha) if fecha else None
+    g.monto        = monto
     db.commit()
     return JSONResponse({
-        "ok":          True,
-        "id":          g.id,
-        "descripcion": g.descripcion,
-        "categoria":   g.categoria,
-        "fecha":       g.fecha.strftime("%d/%m/%Y") if g.fecha else "",
-        "fecha_iso":   g.fecha.isoformat() if g.fecha else "",
-        "monto":       g.monto,
+        "ok":           True,
+        "id":           g.id,
+        "descripcion":  g.descripcion,
+        "categoria":    g.categoria,
+        "periodicidad": g.periodicidad,
+        "fecha":        g.fecha.strftime("%d/%m/%Y") if g.fecha else "",
+        "fecha_iso":    g.fecha.isoformat() if g.fecha else "",
+        "monto":        g.monto,
     })
 
 
