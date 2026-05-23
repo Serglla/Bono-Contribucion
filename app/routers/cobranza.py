@@ -82,10 +82,11 @@ async def index(request: Request, db: Session = Depends(get_db),
                                       models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
                               .all())
         pendientes = sum(_pata_valor(b) for b in boletas_pendientes)
-        planilla = (db.query(models.Planilla)
-                    .filter_by(cobrador_id=co.id, mes=mes, anio=anio)
-                    .first())
-        resumen.append({"cobrador": co, "total": total, "pendientes": pendientes, "planilla": planilla})
+        planillas = (db.query(models.Planilla)
+                     .filter_by(cobrador_id=co.id, mes=mes, anio=anio)
+                     .order_by(models.Planilla.numero)
+                     .all())
+        resumen.append({"cobrador": co, "total": total, "pendientes": pendientes, "planillas": planillas})
 
     return templates.TemplateResponse(request, "cobranza.html", {
         "user": user,
@@ -437,15 +438,24 @@ async def liquidacion_index(request: Request, db: Session = Depends(get_db),
     if not mes:  mes  = hoy.month
     if not anio: anio = hoy.year
 
-    planillas = (db.query(models.Planilla)
-                 .filter_by(mes=mes, anio=anio)
-                 .join(models.Cobrador)
-                 .order_by(models.Cobrador.nombre)
-                 .all())
+    planillas_todas = (db.query(models.Planilla)
+                       .filter_by(mes=mes, anio=anio)
+                       .join(models.Cobrador)
+                       .order_by(models.Cobrador.nombre, models.Planilla.numero)
+                       .all())
+
+    # Agrupar por cobrador
+    resumen_liq = {}
+    for p in planillas_todas:
+        cid = p.cobrador_id
+        if cid not in resumen_liq:
+            resumen_liq[cid] = {"cobrador": p.cobrador, "planillas": []}
+        resumen_liq[cid]["planillas"].append(p)
+    resumen_liq = list(resumen_liq.values())
 
     return templates.TemplateResponse(request, "cobranza_liquidacion.html", {
         "user": user,
-        "planillas": planillas,
+        "resumen": resumen_liq,
         "mes": mes, "anio": anio,
         "mes_nombre": MESES[mes - 1],
         "meses": MESES,

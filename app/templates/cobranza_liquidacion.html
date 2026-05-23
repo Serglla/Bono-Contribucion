@@ -39,42 +39,52 @@
   </div>
 </div>
 
-<!-- Lista de planillas -->
-{% if planillas %}
+<!-- Cards agrupadas por cobrador -->
+{% if resumen %}
 <div class="row g-3">
-  {% for p in planillas %}
+  {% for r in resumen %}
   <div class="col-md-4 col-sm-6">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body">
-        <div class="d-flex align-items-center gap-2 mb-2">
+        <div class="d-flex align-items-center gap-2 mb-3">
           <i class="bi bi-person-circle text-danger fs-4"></i>
-          <div>
-            <h6 class="fw-bold mb-0">{{ p.cobrador.nombre }}</h6>
-            <small class="text-muted">Planilla P{{ p.numero }} · Comisión {{ p.comision_pct }}%</small>
+          <div class="flex-grow-1">
+            <h6 class="fw-bold mb-0">{{ r.cobrador.nombre }}</h6>
+            <small class="text-muted">Comisión {{ r.planillas[0].comision_pct }}%</small>
           </div>
-        </div>
-        <p class="text-muted small mb-1">
-          <span class="badge bg-dark me-1">{{ p.boletas | length }}</span> boletas emplantilladas
-        </p>
-        {% if p.liquidacion %}
-        <p class="text-success small mb-0">
-          <i class="bi bi-check-circle me-1"></i>Liquidada · {{ p.liquidacion.total_cuotas }} cuotas cobradas
-        </p>
-        {% else %}
-        <p class="text-warning small mb-0">
-          <i class="bi bi-clock me-1"></i>Pendiente de liquidar
-        </p>
-        {% endif %}
-      </div>
-      <div class="card-footer bg-white">
-        <a href="/cobranza/liquidacion/{{ p.id }}"
-           class="btn btn-sm {% if p.liquidacion %}btn-outline-success{% else %}btn-danger{% endif %} w-100">
-          {% if p.liquidacion %}
-          <i class="bi bi-eye me-1"></i>Ver liquidación
-          {% else %}
-          <i class="bi bi-pencil-square me-1"></i>Liquidar planilla
+          {% if r.planillas|length > 1 %}
+          <span class="badge bg-success">{{ r.planillas|length }} planillas</span>
           {% endif %}
-        </a>
+        </div>
+
+        <!-- Una fila por planilla -->
+        <div class="d-flex flex-column gap-2">
+          {% for p in r.planillas %}
+          <div class="border rounded p-2" style="background:#fafafa;">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+              <span class="fw-semibold small">Planilla P{{ p.numero }}</span>
+              <span class="badge bg-dark">{{ p.boletas | length }} boletas</span>
+            </div>
+            {% if p.liquidacion %}
+            <p class="text-success small mb-2">
+              <i class="bi bi-check-circle me-1"></i>Liquidada · {{ p.liquidacion.total_cuotas }} cuotas cobradas
+            </p>
+            {% else %}
+            <p class="text-warning small mb-2">
+              <i class="bi bi-clock me-1"></i>Pendiente de liquidar
+            </p>
+            {% endif %}
+            <a href="/cobranza/liquidacion/{{ p.id }}"
+               class="btn btn-sm {% if p.liquidacion %}btn-outline-success{% else %}btn-danger{% endif %} w-100">
+              {% if p.liquidacion %}
+              <i class="bi bi-eye me-1"></i>Ver liquidación
+              {% else %}
+              <i class="bi bi-pencil-square me-1"></i>Liquidar planilla
+              {% endif %}
+            </a>
+          </div>
+          {% endfor %}
+        </div>
       </div>
     </div>
   </div>
