@@ -898,4 +898,45 @@ Bootstrap collapse se evitó porque en `<tr>` usa `display:block` rompiendo el l
   - Permitir coordenadas manuales (clickear en el mapa → asignar lat/lng a un socio sin ubicar).
 
 ---
-*Última actualización: 23 de mayo de 2026 (cont. 4) — Mapa de Socios v3: colores solo desde Talonera.color (gris si no seteado), panel "No ubicadas" con lista de fallos + botón reintentar selectivo.*
+
+### Sesión 23/05/2026 (cont. 5) — Mapa de Socios v4: edición inline de no ubicadas + reset selectivo del cache
+
+#### Edición inline en el panel "No ubicadas"
+- En cada fila del panel hay botón lápiz. Click → la celda Dirección se reemplaza por `<input class="inp-dir">` y los botones de acción cambian a ✅ Guardar / ❌ Cancelar.
+- Atajos de teclado: **Enter** guarda, **Escape** cancela.
+- Tras guardar (POST exitoso):
+  1. El cliente espera 1.1 s y consulta Nominatim con la dirección nueva (respeta el rate limit aunque sea una sola consulta).
+  2. Si no matchea, reintenta sin números (caso típico "CALLE 1234" → "CALLE").
+  3. Si encuentra coords dentro del bbox CdelU: crea el marker, lo agrega al `markers[]`, llama `aplicarFiltros()`, postea las coords al cache server, **anima la fila con `.table-success`** y la elimina del panel tras 700 ms.
+  4. Si sigue sin ubicar: guarda como fallido en el cache (lat/lng null) y muestra badge rojo "sigue sin ubicar" en la fila para que se pruebe otra variante.
+- Función `actualizarContador()`: tras eliminar filas exitosas, refresca el contador del botón "No ubicadas (N)" y, si N=0, oculta el botón y colapsa el panel automáticamente.
+
+#### Endpoint nuevo — `POST /compradores/{cid}/actualizar-direccion-mapa`
+- Acepta body JSON `{direccion}` o form data. Normaliza a UPPER+trim+1-espacio. Requiere permiso `editar`.
+- Actualiza `Comprador.direccion` con la nueva (también en UPPER).
+- **Reset selectivo del `GeocodeCache`:**
+  - Siempre borra la entrada con la dirección vieja normalizada (sea fallida o exitosa).
+  - Siempre borra la entrada con la dirección nueva normalizada (también sea fallida o exitosa), salvo que sea la misma que la vieja.
+  - Esto fuerza una regeocodificación fresca a Nominatim — si Sergio editó es porque algo cambió y no queremos usar coords viejas.
+- Devuelve `{ok, direccion, direccion_norm, cache_borradas}`.
+
+#### Por qué reset selectivo y no global
+- Las entradas exitosas de otras direcciones (otros socios con direcciones distintas) NO se tocan — siguen sirviendo a todos.
+- Si alguien sí necesita reset total, está el botón "Reset cache server" (admin) que llama a `POST /mapa-geocode-reset`.
+- Si solo quiere reintentar los fallos sin tocar exitosas, está el botón "Reintentar geocoding" del panel (cualquier usuario) que llama a `POST /mapa-geocode-retry` y borra solo las entradas con `lat IS NULL`.
+
+#### Archivos modificados
+- `app/routers/compradores.py`:
+  - Nuevo `POST /{cid}/actualizar-direccion-mapa`.
+  - Lógica de reset selectivo: borra vieja siempre + nueva siempre (a menos que coincidan).
+- `app/templates/compradores_mapa.html`:
+  - `cargarNoUbicadas()` ahora arma `tr.dataset.cid`, `tr.dataset.direccion`, y un objeto `pt` por fila enriquecido con `color`/`zona`/`vendedor_id` del `datos.puntos`.
+  - Funciones `entrarEdicion(tr, pt)`, `salirEdicion(tr, pt, original, mostrar)`, `guardarYReubicar(tr, pt)` y `actualizarContador()`.
+
+#### Pendiente
+- Git push a Railway.
+- Si la dirección nueva editada coincide con la dirección vieja exactamente (normalizada), no se borra dos veces — el endpoint chequea `nueva_norm != direccion_vieja_norm` antes del segundo delete.
+- Si una dirección la comparten varios socios, al editarla en uno se borra del cache para todos. La próxima carga del mapa la regeocodifica una sola vez (Nominatim) y la cachea de nuevo. Comportamiento aceptable.
+
+---
+*Última actualización: 23 de mayo de 2026 (cont. 5) — Mapa de Socios v4: edición inline de dirección en el panel "No ubicadas" (Enter/Escape, anima fila al ubicar OK), reset selectivo del GeocodeCache al editar (borra vieja + nueva sin importar estado), endpoint nuevo POST /{cid}/actualizar-direccion-mapa.*

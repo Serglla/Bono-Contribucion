@@ -196,17 +196,17 @@
               {{ cond_label }}
             </span>
             {% if cond_derivada == 'BAJA' %}
-              <button type="submit" name="condicion" value="REACTIVAR"
+              <button type="button"
                       class="btn btn-sm btn-outline-success"
                       style="font-size:.7rem;"
-                      onclick="return confirm('¿Reactivar este socio?');">
+                      onclick="if(confirm('¿Reactivar este socio?')){ var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='condicion'; i.value='REACTIVAR'; f.appendChild(i); f.submit(); }">
                 <i class="bi bi-arrow-counterclockwise me-1"></i>Reactivar
               </button>
             {% else %}
-              <button type="submit" name="condicion" value="BAJA"
+              <button type="button"
                       class="btn btn-sm btn-outline-danger"
                       style="font-size:.7rem;"
-                      onclick="return confirm('¿Dar de baja a este socio?');">
+                      onclick="if(confirm('¿Dar de baja a este socio?')){ var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='condicion'; i.value='BAJA'; f.appendChild(i); f.submit(); }">
                 <i class="bi bi-x-octagon me-1"></i>Dar de baja
               </button>
             {% endif %}
