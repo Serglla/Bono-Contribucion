@@ -539,6 +539,7 @@ async def editar(
     cobrador_id: Optional[int] = Form(None),
     cuotas_anticipadas: Optional[int] = Form(None),
     condicion: Optional[str] = Form(None),
+    from_page: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
     _perm_user = await auth_module.require_user(request, db)
@@ -688,7 +689,8 @@ async def editar(
                     pass
 
     db.commit()
-    return RedirectResponse("/compradores/", status_code=302)
+    redirect_url = "/compradores/mapa" if from_page == "mapa" else "/compradores/"
+    return RedirectResponse(redirect_url, status_code=302)
 
 
 @router.post("/{comprador_id}/boleta/{boleta_id}/cuotas")
@@ -1254,12 +1256,13 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
     rows = (
         db.query(
             models.Boleta, models.Comprador, models.Talonera,
-            models.Zona, models.Vendedor,
+            models.Zona, models.Vendedor, models.Cobrador,
         )
         .join(models.Comprador, models.Boleta.comprador_id == models.Comprador.id)
         .join(models.Talonera, models.Boleta.talonera_id == models.Talonera.id)
         .outerjoin(models.Zona, models.Comprador.zona_id == models.Zona.id)
         .outerjoin(models.Vendedor, models.Boleta.vendedor_id == models.Vendedor.id)
+        .outerjoin(models.Cobrador, models.Boleta.cobrador_id == models.Cobrador.id)
         .filter(models.Comprador.direccion.isnot(None))
         .filter(models.Comprador.direccion != "")
         .filter(models.Talonera.tipo == "COMUN")
@@ -1280,7 +1283,8 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
     puntos = []
     patas_set = {}
     vendedores_set = {}
-    for b, c, t, z, v in rows:
+    cobradores_set = {}
+    for b, c, t, z, v, cob in rows:
         color = (t.color or "").strip().lower()
         if not color or color in ("#ffffff", "#fff", "white"):
             color = SIN_COLOR_FALLBACK
@@ -1309,6 +1313,8 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
             "zona": z.nombre if z else None,
             "vendedor_id": v.id if v else None,
             "vendedor_nombre": v.nombre if v else None,
+            "cobrador_id": cob.id if cob else None,
+            "cobrador_nombre": cob.nombre if cob else None,
             "pata": t.nombre,
             "pata_label": (t.nombre or "").replace("PATA ", "X"),
             "color": color,
@@ -1320,6 +1326,8 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
             patas_set[t.nombre] = color
         if v and v.id not in vendedores_set:
             vendedores_set[v.id] = v.nombre
+        if cob and cob.id not in cobradores_set:
+            cobradores_set[cob.id] = cob.nombre
 
     patas = [
         {"nombre": k, "label": k.replace("PATA ", "X"), "color": v}
@@ -1329,12 +1337,17 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
         {"id": vid, "nombre": vnom}
         for vid, vnom in sorted(vendedores_set.items(), key=lambda x: (x[1] or "").upper())
     ]
+    cobradores = [
+        {"id": cid, "nombre": cnom}
+        for cid, cnom in sorted(cobradores_set.items(), key=lambda x: (x[1] or "").upper())
+    ]
 
     return JSONResponse({
         "ok": True,
         "centro": {"lat": -32.4847, "lng": -58.2347, "nombre": "Concepción del Uruguay"},
         "patas": patas,
         "vendedores": vendedores,
+        "cobradores": cobradores,
         "puntos": puntos,
         "total_cacheadas": sum(1 for p in puntos if p["lat"] is not None),
         "total_pendientes": sum(

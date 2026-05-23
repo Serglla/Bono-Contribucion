@@ -4,7 +4,7 @@
 {% set num_guia = "%04d" % comprador.boletas[0].numero_principal if comprador.boletas else comprador.id %}
 
 <div class="d-flex align-items-center gap-2 mb-2">
-  <a href="/compradores/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Volver</a>
+  <a href="/compradores/" class="btn btn-sm btn-outline-secondary" id="btnVolver"><i class="bi bi-arrow-left me-1"></i>Volver</a>
   <span class="fw-semibold">Editar Socio N° {{ num_guia }} — {{ comprador.apellido_nombre }}</span>
 </div>
 
@@ -12,7 +12,8 @@
   <div class="card-body p-3">
 
     <!-- ══ Formulario principal ══ -->
-    <form method="post" action="/compradores/{{ comprador.id }}/editar">
+    <form method="post" action="/compradores/{{ comprador.id }}/editar" id="formEditar">
+      <input type="hidden" name="from_page" id="fromPageInput" value="">
 
       <!-- ══ Boletas asignadas ══ -->
       {% if comprador.boletas %}
@@ -282,6 +283,20 @@
 
 <script>
 (function () {
+  // ════ Detectar origen: si venimos del mapa, volvemos al mapa ════
+  (function() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('from') === 'mapa') {
+      const btnVolver = document.getElementById('btnVolver');
+      if (btnVolver) {
+        btnVolver.href = '/compradores/mapa';
+        btnVolver.title = 'Volver al mapa';
+      }
+      const fromPageInput = document.getElementById('fromPageInput');
+      if (fromPageInput) fromPageInput.value = 'mapa';
+    }
+  })();
+
   const zonaSelect      = document.getElementById('zonaSelectEdit');
   const zonaNuevaInput  = document.getElementById('zonaNuevaEdit');
   const vendedorSelect  = document.getElementById('vendedorSelectEdit');

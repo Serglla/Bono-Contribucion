@@ -85,12 +85,22 @@
           <!-- chips inyectados por JS -->
         </div>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-2">
         <div class="d-flex align-items-center gap-2">
           <label class="text-muted small mb-0" style="white-space:nowrap;">
             <i class="bi bi-person-badge me-1"></i>Vendedor:
           </label>
           <select id="filtroVendedor" class="form-select form-select-sm">
+            <option value="">— Todos —</option>
+          </select>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="d-flex align-items-center gap-2">
+          <label class="text-muted small mb-0" style="white-space:nowrap;">
+            <i class="bi bi-person-check me-1"></i>Cobrador:
+          </label>
+          <select id="filtroCobrador" class="form-select form-select-sm">
             <option value="">— Todos —</option>
           </select>
         </div>
@@ -185,6 +195,40 @@
     return lum > 150 ? '#000' : '#fff';
   }
 
+  function buildPopupHtml(pt) {
+    // Opciones del select de cobrador
+    const cobOpts = (datos && datos.cobradores || []).map(cb => {
+      const sel = (pt.cobrador_id && cb.id === pt.cobrador_id) ? 'selected' : '';
+      return `<option value="${cb.id}" ${sel}>${cb.nombre}</option>`;
+    }).join('');
+    return `
+      <div style="min-width:210px;">
+        <b>${pt.numero}</b> &nbsp;<span style="background:${pt.color};color:${textColorOnBg(pt.color)};padding:1px 6px;border-radius:4px;font-size:.75rem;">${pt.pata_label}</span><br>
+        <b>${pt.apellido_nombre}</b><br>
+        <i class="bi bi-geo-alt"></i> ${pt.direccion}<br>
+        ${pt.zona ? '<i class="bi bi-map"></i> ' + pt.zona + '<br>' : ''}
+        ${pt.vendedor_nombre ? '<i class="bi bi-person-badge"></i> ' + pt.vendedor_nombre + '<br>' : ''}
+        <div class="mt-1 d-flex align-items-center gap-1 flex-wrap">
+          <span class="text-muted" style="font-size:.78rem;white-space:nowrap;"><i class="bi bi-person-check"></i> Cobrador:</span>
+          <select class="form-select form-select-sm sel-cobrador-popup"
+                  data-cid="${pt.comprador_id}"
+                  style="flex:1;min-width:100px;font-size:.75rem;height:26px;padding:0 4px;">
+            <option value="">— Sin cobrador —</option>
+            ${cobOpts}
+          </select>
+          <button class="btn btn-sm btn-primary btn-cobrador-guardar py-0 px-2"
+                  data-cid="${pt.comprador_id}" style="font-size:.72rem;height:26px;">
+            <i class="bi bi-check-lg"></i>
+          </button>
+        </div>
+        <div class="cobrador-popup-status" style="font-size:.72rem;min-height:14px;"></div>
+        <a href="/compradores/${pt.comprador_id}/editar?from=mapa" class="btn btn-sm btn-outline-primary mt-1">
+          <i class="bi bi-pencil"></i> Editar socio
+        </a>
+      </div>
+    `;
+  }
+
   function crearMarcador(pt, lat, lng) {
     const html = `<div class="marker-num" style="background:${pt.color}; color:${textColorOnBg(pt.color)};">${pt.numero}</div>`;
     const icon = L.divIcon({
@@ -192,16 +236,7 @@
       iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14]
     });
     const m = L.marker([lat, lng], { icon: icon });
-    m.bindPopup(`
-      <b>${pt.numero}</b> &nbsp;<span style="background:${pt.color};color:${textColorOnBg(pt.color)};padding:1px 6px;border-radius:4px;font-size:.75rem;">${pt.pata_label}</span><br>
-      <b>${pt.apellido_nombre}</b><br>
-      <i class="bi bi-geo-alt"></i> ${pt.direccion}<br>
-      ${pt.zona ? '<i class="bi bi-map"></i> ' + pt.zona + '<br>' : ''}
-      ${pt.vendedor_nombre ? '<i class="bi bi-person-badge"></i> Vendedor: ' + pt.vendedor_nombre + '<br>' : ''}
-      <a href="/compradores/${pt.comprador_id}/editar" class="btn btn-sm btn-outline-primary mt-1">
-        <i class="bi bi-pencil"></i> Editar socio
-      </a>
-    `);
+    m.bindPopup(buildPopupHtml(pt), { maxWidth: 300 });
     return m;
   }
 
@@ -216,6 +251,7 @@
   const markers = [];   // {pt, marker, lat, lng}
   const patasOff = new Set();   // patas ocultas
   let vendedorFiltro = "";       // "" = todos
+  let cobradorFiltro = "";       // "" = todos
 
   // Render leyenda con chips clickables
   function renderLeyenda() {
@@ -257,6 +293,21 @@
     });
   }
 
+  // Render select de cobradores
+  function renderCobradores() {
+    const sel = document.getElementById('filtroCobrador');
+    (datos.cobradores || []).forEach(cb => {
+      const opt = document.createElement('option');
+      opt.value = String(cb.id);
+      opt.textContent = cb.nombre;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', () => {
+      cobradorFiltro = sel.value;
+      aplicarFiltros();
+    });
+  }
+
   // Mostrar/ocultar marcadores segun filtros
   function aplicarFiltros() {
     let visibles = 0;
@@ -264,7 +315,8 @@
     for (const m of markers) {
       const okPata = !patasOff.has(m.pt.pata);
       const okVend = !vendedorFiltro || String(m.pt.vendedor_id || "") === vendedorFiltro;
-      const show = okPata && okVend;
+      const okCob  = !cobradorFiltro || String(m.pt.cobrador_id || "") === cobradorFiltro;
+      const show = okPata && okVend && okCob;
       if (show) {
         if (!map.hasLayer(m.marker)) m.marker.addTo(map);
         visibleBounds.push([m.lat, m.lng]);
@@ -324,6 +376,7 @@
     datos = await resp.json();
     renderLeyenda();
     renderVendedores();
+    renderCobradores();
 
     const puntos = datos.puntos || [];
     if (puntos.length === 0) {
@@ -573,6 +626,57 @@
       bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
     }
   }
+
+  // ════ Cambio de cobrador desde el popup del mapa ════
+  map.on('popupopen', function(e) {
+    const el = e.popup.getElement();
+    if (!el) return;
+    const btn = el.querySelector('.btn-cobrador-guardar');
+    const sel = el.querySelector('.sel-cobrador-popup');
+    const status = el.querySelector('.cobrador-popup-status');
+    if (!btn || !sel) return;
+
+    btn.addEventListener('click', async () => {
+      const cid = parseInt(btn.dataset.cid);
+      const cobId = sel.value;
+      btn.disabled = true;
+      status.innerHTML = '<span class="spinner-border spinner-border-sm text-secondary" style="width:12px;height:12px;"></span>';
+
+      try {
+        const fd = new FormData();
+        fd.append('comprador_id', cid);
+        fd.append('cobrador_id', cobId);
+        const resp = await fetch('/compradores/asignar-cobrador', { method: 'POST', body: fd });
+        const data = await resp.json();
+        if (data.ok) {
+          status.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i> Guardado';
+          // Actualizar el pt en memoria
+          const mrkEntry = markers.find(m => m.pt.comprador_id === cid);
+          if (mrkEntry) {
+            mrkEntry.pt.cobrador_id = cobId ? parseInt(cobId) : null;
+            const cobObj = (datos.cobradores || []).find(c => c.id === parseInt(cobId));
+            mrkEntry.pt.cobrador_nombre = cobObj ? cobObj.nombre : null;
+            // Actualizar lista de cobradores para el filtro si es uno nuevo
+            if (cobId && !datos.cobradores.find(c => c.id === parseInt(cobId))) {
+              // En teoría no debería pasar, pero lo dejamos seguro
+            }
+            // Refresh del popup tras breve pausa
+            setTimeout(() => {
+              mrkEntry.marker.setPopupContent(buildPopupHtml(mrkEntry.pt));
+            }, 800);
+          }
+          // Si hay filtro de cobrador activo y cambió, reaplicar
+          if (cobradorFiltro) aplicarFiltros();
+        } else {
+          status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> ' + (data.error || 'Error');
+          btn.disabled = false;
+        }
+      } catch(err) {
+        status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error de red';
+        btn.disabled = false;
+      }
+    });
+  });
 
   // Toggle del panel
   document.getElementById('btnNoUbicadas').addEventListener('click', () => {
