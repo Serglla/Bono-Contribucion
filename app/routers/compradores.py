@@ -1208,3 +1208,99 @@ async def detalle_json(comprador_id: int, request: Request, db: Session = Depend
         "zona": c.zona.nombre if c.zona else None,
         "boletas": boletas,
     })
+
+
+# ── MAPA DE SOCIOS ──────────────────────────────────────────────────────
+# Vista de mapa con la ubicación de los números vendidos en Concepción del
+# Uruguay y alrededores. El color del marcador se toma de Talonera.color
+# (picker de la talonera) para distinguir las PATAs.
+
+@router.get("/mapa", response_class=HTMLResponse)
+async def mapa_view(request: Request, db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    return templates.TemplateResponse(request, "compradores_mapa.html", {
+        "user": user,
+    })
+
+
+@router.get("/mapa-data")
+async def mapa_data(request: Request, db: Session = Depends(get_db)):
+    """Devuelve JSON con los puntos a graficar en el mapa.
+
+    Una entrada por cada boleta vendida (comprador_id IS NOT NULL) cuya talonera
+    sea COMUN y cuyo comprador tenga direccion cargada. El color del marcador
+    proviene de Talonera.color (picker en UI); si la talonera no tiene color
+    propio se cae a una paleta por PATA.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+
+    # Paleta por defecto si la talonera no tiene color seteado (#ffffff / vacío)
+    default_palette = {
+        "PATA 0": "#9c27b0",
+        "PATA 1": "#1e88e5",
+        "PATA 2": "#43a047",
+        "PATA 3": "#fb8c00",
+        "PATA 4": "#e53935",
+        "PATA 5": "#00acc1",
+        "PATA 6": "#8e24aa",
+        "PATA 7": "#5d4037",
+        "PATA 8": "#fdd835",
+        "PATA 9": "#3949ab",
+    }
+
+    rows = (
+        db.query(models.Boleta, models.Comprador, models.Talonera, models.Zona)
+        .join(models.Comprador, models.Boleta.comprador_id == models.Comprador.id)
+        .join(models.Talonera, models.Boleta.talonera_id == models.Talonera.id)
+        .outerjoin(models.Zona, models.Comprador.zona_id == models.Zona.id)
+        .filter(models.Comprador.direccion.isnot(None))
+        .filter(models.Comprador.direccion != "")
+        .filter(models.Talonera.tipo == "COMUN")
+        .order_by(models.Talonera.nombre, models.Boleta.numero_principal)
+        .all()
+    )
+
+    puntos = []
+    patas_set = {}
+    for b, c, t, z in rows:
+        color = (t.color or "").strip().lower()
+        if not color or color in ("#ffffff", "#fff", "white"):
+            color = default_palette.get(t.nombre, "#607d8b")
+
+        # Formato de número con cifras de la talonera (default 4 para COMUN)
+        try:
+            num_digitos = t.num_digitos or 4
+        except Exception:
+            num_digitos = 4
+        numero_fmt = str(b.numero_principal).zfill(num_digitos)
+
+        puntos.append({
+            "boleta_id": b.id,
+            "comprador_id": c.id,
+            "numero": numero_fmt,
+            "numero_int": b.numero_principal,
+            "apellido_nombre": c.apellido_nombre,
+            "direccion": c.direccion or "",
+            "zona": z.nombre if z else None,
+            "pata": t.nombre,
+            "pata_label": (t.nombre or "").replace("PATA ", "X"),
+            "color": color,
+        })
+        if t.nombre not in patas_set:
+            patas_set[t.nombre] = color
+
+    patas = [
+        {"nombre": k, "label": k.replace("PATA ", "X"), "color": v}
+        for k, v in sorted(patas_set.items())
+    ]
+
+    return JSONResponse({
+        "ok": True,
+        "centro": {"lat": -32.4847, "lng": -58.2347, "nombre": "Concepción del Uruguay"},
+        "patas": patas,
+        "puntos": puntos,
+    })

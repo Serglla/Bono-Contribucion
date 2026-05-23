@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block title %}Mapa de Socios{% endblock %}
+{% block content %}
+
+<!-- Leaflet (OpenStreetMap) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+<style>
+  #mapaSocios {
+    height: calc(100vh - 220px);
+    min-height: 480px;
+    width: 100%;
+    border-radius: 8px;
+  }
+  .marker-num {
+    background: #fff;
+    border: 2px solid #333;
+    border-radius: 50%;
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700;
+    color: #000;
+    box-shadow: 0 2px 4px rgba(0,0,0,.3);
+    line-height: 1;
+    text-align: center;
+  }
+  .leyenda-color {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 2px solid #333;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  #panelProgreso {
+    position: absolute;
+    top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 1000;
+    background: rgba(255,255,255,.95);
+    border-radius: 6px;
+    padding: 6px 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    font-size: .85rem;
+    display: none;
+  }
+  .leaflet-popup-content { font-size: .85rem; }
+  .leaflet-popup-content b { font-size: .95rem; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/compradores/" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left me-1"></i>Volver a Socios
+    </a>
+    <h4 class="fw-bold mb-0 ms-2">
+      <i class="bi bi-geo-alt-fill text-danger me-2"></i>Mapa de Socios
+    </h4>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <button class="btn btn-sm btn-outline-danger" id="btnLimpiarCache" title="Borrar coordenadas cacheadas y recargar">
+      <i class="bi bi-arrow-clockwise me-1"></i>Recargar geocoding
+    </button>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-2 d-flex flex-wrap gap-3 align-items-center" id="leyenda">
+    <span class="text-muted small me-2"><i class="bi bi-palette me-1"></i>Patas:</span>
+    <!-- inyectado por JS -->
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-2 position-relative">
+    <div id="panelProgreso">
+      <span id="progresoTexto">Cargando ubicaciones...</span>
+    </div>
+    <div id="mapaSocios"></div>
+  </div>
+</div>
+
+<div class="mt-2 text-muted small">
+  <i class="bi bi-info-circle me-1"></i>
+  Las direcciones se geocodifican con OpenStreetMap (Nominatim). La primera carga
+  puede tardar varios minutos ya que se respeta el límite de 1 consulta por segundo.
+  Las coordenadas se cachean en el navegador para acelerar las siguientes visitas.
+</div>
+
+<script>
+(function(){
+  const CIUDAD = "Concepción del Uruguay, Entre Ríos, Argentina";
+  const CENTRO_DEFECTO = [-32.4847, -58.2347];
+  const CACHE_KEY = "bono_mapa_geocache_v1";
+
+  // Cache localStorage: { "direccion normalizada": [lat, lng] | null }
+  function getCache() {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "{}"); }
+    catch(e) { return {}; }
+  }
+  function saveCache(c) {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch(e) {}
+  }
+  function normDir(s) {
+    return (s || "").trim().toUpperCase().replace(/\s+/g, " ");
+  }
+
+  // Mapa Leaflet
+  const map = L.map('mapaSocios').setView(CENTRO_DEFECTO, 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map);
+
+  // Crea un marcador customizado con el color de la pata y el número adentro
+  function crearMarcador(pt, lat, lng) {
+    const html = `<div class="marker-num" style="background:${pt.color}; color:${textColorOnBg(pt.color)};">${pt.numero}</div>`;
+    const icon = L.divIcon({
+      html: html,
+      className: '',
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+      popupAnchor: [0, -14]
+    });
+    const m = L.marker([lat, lng], { icon: icon });
+    m.bindPopup(`
+      <b>${pt.numero}</b> &nbsp;<span style="background:${pt.color};color:${textColorOnBg(pt.color)};padding:1px 6px;border-radius:4px;font-size:.75rem;">${pt.pata_label}</span><br>
+      <b>${pt.apellido_nombre}</b><br>
+      <i class="bi bi-geo-alt"></i> ${pt.direccion}<br>
+      ${pt.zona ? '<i class="bi bi-map"></i> ' + pt.zona + '<br>' : ''}
+      <a href="/compradores/${pt.comprador_id}/editar" class="btn btn-sm btn-outline-primary mt-1">
+        <i class="bi bi-pencil"></i> Editar socio
+      </a>
+    `);
+    return m;
+  }
+
+  // Calcula color de texto (negro o blanco) según luminosidad del fondo
+  function textColorOnBg(hex) {
+    if (!hex) return '#000';
+    const h = hex.replace('#','');
+    if (h.length !== 6) return '#000';
+    const r = parseInt(h.substr(0,2),16);
+    const g = parseInt(h.substr(2,2),16);
+    const b = parseInt(h.substr(4,2),16);
+    const lum = (0.299*r + 0.587*g + 0.114*b);
+    return lum > 150 ? '#000' : '#fff';
+  }
+
+  // Renderiza la leyenda de patas
+  function renderLeyenda(patas) {
+    const cont = document.getElementById('leyenda');
+    patas.forEach(p => {
+      const span = document.createElement('span');
+      span.className = 'd-inline-flex align-items-center me-3';
+      span.innerHTML = `<span class="leyenda-color" style="background:${p.color};"></span>
+                       <span class="small fw-semibold">${p.label}</span>`;
+      cont.appendChild(span);
+    });
+  }
+
+  function setProgreso(msg, show) {
+    const panel = document.getElementById('panelProgreso');
+    document.getElementById('progresoTexto').textContent = msg;
+    panel.style.display = show ? 'block' : 'none';
+  }
+
+  // Geocodifica una dirección con Nominatim
+  async function geocodificar(direccion) {
+    const q = encodeURIComponent(direccion + ", " + CIUDAD);
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`;
+    try {
+      const r = await fetch(url, { headers: { 'Accept-Language': 'es' } });
+      if (!r.ok) return null;
+      const data = await r.json();
+      if (data && data.length > 0) {
+        return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+      }
+    } catch(e) { /* offline o bloqueo */ }
+    return null;
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  // Bbox aprox. Concepción del Uruguay y alrededores (Entre Ríos)
+  function dentroDeBbox(lat, lng) {
+    return lat >= -33.0 && lat <= -32.0 && lng >= -58.7 && lng <= -57.8;
+  }
+
+  let datos = null;
+  const cluster = L.layerGroup().addTo(map);
+  const bounds = [];
+
+  async function cargar() {
+    setProgreso("Consultando socios...", true);
+    let resp;
+    try {
+      resp = await fetch('/compradores/mapa-data');
+    } catch(e) {
+      setProgreso("Error al cargar datos.", true);
+      return;
+    }
+    datos = await resp.json();
+    renderLeyenda(datos.patas || []);
+
+    const cache = getCache();
+    const puntos = datos.puntos || [];
+    if (puntos.length === 0) {
+      setProgreso("No hay socios con dirección cargada.", true);
+      return;
+    }
+
+    // Separa los que ya tenemos cacheados de los que hay que geocodificar
+    const pendientes = [];
+    let dibujados = 0;
+    for (const pt of puntos) {
+      const key = normDir(pt.direccion);
+      if (cache[key] && Array.isArray(cache[key])) {
+        const [lat, lng] = cache[key];
+        if (dentroDeBbox(lat, lng)) {
+          crearMarcador(pt, lat, lng).addTo(cluster);
+          bounds.push([lat, lng]);
+          dibujados++;
+          continue;
+        }
+      }
+      pendientes.push(pt);
+    }
+
+    // Ajusta vista a los que ya están
+    if (bounds.length > 0) map.fitBounds(bounds, { padding: [30,30] });
+
+    if (pendientes.length === 0) {
+      setProgreso(`Listo. ${dibujados} ubicaciones mostradas.`, true);
+      setTimeout(() => setProgreso("", false), 2500);
+      return;
+    }
+
+    // Geocodifica los pendientes a 1/seg
+    const total = pendientes.length;
+    let hechos = 0;
+    let fallidos = 0;
+    for (const pt of pendientes) {
+      hechos++;
+      setProgreso(`Geocodificando ${hechos}/${total} (cache local en progreso)... ${fallidos > 0 ? '['+fallidos+' sin ubicar]' : ''}`, true);
+      const key = normDir(pt.direccion);
+      let coords = await geocodificar(pt.direccion);
+      // Reintenta sin número si vino vacío y la dirección parece "CALLE 1234"
+      if (!coords) {
+        const sinNum = pt.direccion.replace(/\d+/g, '').trim();
+        if (sinNum && sinNum.length > 3) {
+          await sleep(1100);
+          coords = await geocodificar(sinNum);
+        }
+      }
+      if (coords && dentroDeBbox(coords[0], coords[1])) {
+        cache[key] = coords;
+        crearMarcador(pt, coords[0], coords[1]).addTo(cluster);
+        bounds.push(coords);
+        dibujados++;
+      } else {
+        cache[key] = null; // no se pudo ubicar — no reintentar la próxima vez
+        fallidos++;
+      }
+      saveCache(cache);
+      if (bounds.length > 0 && hechos % 5 === 0) {
+        map.fitBounds(bounds, { padding: [30,30] });
+      }
+      await sleep(1100); // política Nominatim: 1 req/seg
+    }
+
+    if (bounds.length > 0) map.fitBounds(bounds, { padding: [30,30] });
+    setProgreso(`Listo. ${dibujados} ubicadas, ${fallidos} sin ubicar.`, true);
+    setTimeout(() => setProgreso("", false), 3500);
+  }
+
+  // Botón limpiar cache
+  document.getElementById('btnLimpiarCache').addEventListener('click', () => {
+    if (confirm("¿Borrar el cache de geocoding y volver a geocodificar todas las direcciones?\n\nPuede tardar varios minutos (Nominatim limita a 1 consulta por segundo).")) {
+      localStorage.removeItem(CACHE_KEY);
+      location.reload();
+    }
+  });
+
+  cargar();
+})();
+</script>
+
+{% endblock %}

@@ -680,3 +680,53 @@ Bootstrap collapse se evitó porque en `<tr>` usa `display:block` rompiendo el l
 
 ---
 *Última actualización: 23 de mayo de 2026 — Refactoring dashboard: eliminado Total Boletas, agregadas tarjetas Vendidas en Cuotas + Al Contado, filas expandibles en todos los bloques (Por Talonera, Por Zona, Vendedores, Cobradores).*
+
+---
+
+### Sesión 23/05/2026 (cont.) — Fixes dashboard /reportes/ y /vendedores/ + Refactoring /contabilidad/
+
+#### Fix "Al Contado = 0" en /reportes/
+- **Bug:** tarjeta "Al Contado" mostraba $0 aunque había varios socios contado.
+- **Causa:** `totales["contado"]` solo contaba boletas con `numero_especial IS NOT NULL`. Pero boletas "al contado" sin número especial asignado todavía (pendiente de cargar talonario) se detectan por `cuotas_anticipadas >= cuotas_pactadas` (`anticipo_total`).
+- **Fix en `app/routers/reportes.py`:** `_es_contado = (numero_especial IS NOT NULL) | (cuotas_pactadas > 0 AND cuotas_anticipadas >= cuotas_pactadas)`. Igual que la lógica `es_contado or anticipo_total` de `compradores.html`. También se corrigió `totales["cuotas"]` para excluir los contado.
+
+#### Fix "Total liquidados" inconsistente vendedores (lista vs detalle)
+- **Bug:** Hugo mostraba 101 en el detalle del vendedor y 97 en el listado de /vendedores/.
+- **Causa:** `_stats_bulk` usaba `SUM(cuotas_equiv)` (snapshot guardado al liquidar). El snapshot quedó desactualizado porque `talonera.multiplicador` cambió después (PATA 2 pasó de ×1 a ×2), y el backfill solo procesa liquidaciones con `cuotas_equiv == 0`. La columna además se migró como INTEGER, no FLOAT.
+- **Fix en `app/routers/vendedores.py` (`_stats_bulk`):** `liquidados` ahora se calcula on-the-fly con query directa sobre boletas:
+  ```python
+  liq_total_rows = db.query(Boleta.vendedor_id, sum(case(contado→1.0, else_=Talonera.multiplicador)))
+      .join(Talonera).filter(vendedor_id IS NOT NULL, liquidacion_vendedor_id IS NOT NULL)
+      .group_by(Boleta.vendedor_id)
+  ```
+  Mismo criterio que `total_boletas_liquidadas_eq` en el detalle. Pool items CONTADO se suman aparte. `liquidados_cuotas` / `liquidados_contados` siguen usando snapshots (para el desglose, ya que la modalidad solo se guarda en la liquidación).
+
+#### Refactoring /contabilidad/ — dashboard
+
+**Cambios en `app/routers/contabilidad.py`:**
+
+- La query de boletas ahora incluye BAJA (joinedload cobrador), y separa `boletas` (activas) de `baja_boletas`.
+- Helper `_es_contado(b)`: `numero_especial IS NOT NULL OR numero_especial_2 IS NOT NULL OR (cuotas_anticipadas >= cuotas_pactadas > 0)`.
+- Nuevas métricas:
+  - `gross_cuotas`: `SUM(cuotas_pactadas × valor_cuota)` para activas no-contado.
+  - `gross_baja`: `SUM(cuotas_pagadas × valor_cuota)` para BAJA (lo que pagaron antes de darse de baja).
+  - `gross_contado`: `SUM(talonera.num_cuotas × valor_cuota)` para activas contado.
+  - `com_cobradores_proyectada`: `SUM(cobrador.comision_pct/100 × cuotas_pactadas × valor_cuota)` para activas no-contado con cobrador asignado, excluyendo BAJA.
+  - `com_vendedores_contado`: `SUM(lv.comision_contados)` de liquidaciones ya existentes.
+  - `total_bruto = gross_cuotas + gross_baja + gross_contado - com_cobradores_proyectada - com_vendedores_contado`
+  - `total_egresos_proyectado = total_com_vendedores + com_cobradores_proyectada + total_bomberos + total_gastos`
+
+**Cambios en `app/templates/contabilidad.html`:**
+- Card 1 Fila 1: "Total recaudado" → **"Total en Brutos"** (`total_bruto`). Desglose en letra chica: Cuotas / Bajas / Contado / − Com.cob.
+- Fila 2: "Com. vendedores" → **"Comisión vendedores"** (mismo valor).
+- Fila 2: "Com. cobradores" → **"Comisión cobradores"** = `com_cobradores_proyectada` (proyectado, excluye bajas). Nota "proyectado (excluye bajas)".
+- Ganancia proyectada usa `total_egresos_proyectado` (con com.cobradores proyectada en vez de liquidada).
+
+**Lógica de negocio (Total en Brutos):**
+- Cuotas activas: proyecta cobro total (cuotas_pactadas × valor_cuota).
+- BAJA: solo cuenta lo que realmente pagaron (cuotas_pagadas × valor_cuota).
+- Contado: precio total del bono (num_cuotas × valor_cuota) menos comisión del vendedor ya liquidada.
+- Se descuenta la comisión proyectada de cobradores (sobre las cuotas que gestionan).
+
+---
+*Última actualización: 23 de mayo de 2026 (cont.) — Fix "Al Contado=0" en reportes, fix total liquidados stale en vendedores, refactoring dashboard contabilidad (Total en Brutos + Comisión cobradores proyectada).*
