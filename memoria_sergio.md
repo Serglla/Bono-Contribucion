@@ -940,3 +940,62 @@ Bootstrap collapse se evitó porque en `<tr>` usa `display:block` rompiendo el l
 
 ---
 *Última actualización: 23 de mayo de 2026 (cont. 5) — Mapa de Socios v4: edición inline de dirección en el panel "No ubicadas" (Enter/Escape, anima fila al ubicar OK), reset selectivo del GeocodeCache al editar (borra vieja + nueva sin importar estado), endpoint nuevo POST /{cid}/actualizar-direccion-mapa.*
+
+---
+
+### Sesión 23/05/2026 (cont. 6) — Mapa de Socios v5: filtro cobrador + cambio cobrador desde popup + volver al mapa desde edición
+
+#### 1) Botón "Volver" desde comprador_editar.html preserva el origen
+
+- El link "Editar socio" en los popups del mapa ahora incluye `?from=mapa` en la URL (`/compradores/{id}/editar?from=mapa`).
+- `comprador_editar.html` detecta ese param con JS al cargar:
+  - Cambia el href del botón "Volver" a `/compradores/mapa`.
+  - Setea un hidden input `from_page=mapa` en el formulario.
+- El POST `/compradores/{id}/editar` acepta `from_page: Optional[str] = Form(None)`. Si vale `"mapa"`, el redirect post-save va a `/compradores/mapa` en vez de `/compradores/`.
+
+#### 2) Filtro por cobrador en el mapa
+
+- **Backend (`compradores.py` — `mapa_data`):**
+  - Agrega `outerjoin` con `models.Cobrador` (vía `Boleta.cobrador_id`).
+  - Cada punto incluye `cobrador_id` y `cobrador_nombre`.
+  - La respuesta JSON incluye `cobradores: [{id, nombre}]` ordenados alfabéticamente (igual que `vendedores`).
+- **Frontend (`compradores_mapa.html`):**
+  - Nuevo `<select id="filtroCobrador">` junto al de vendedor (ahora la fila de filtros tiene 4 columnas: patas en `col-md-8` → `col-md-8`, vendedor en `col-md-2`, cobrador en `col-md-2`).
+  - Variable `cobradorFiltro = ""` en el estado global.
+  - Función `renderCobradores()` que llena el select y agrega listener de `change`.
+  - `aplicarFiltros()` incluye `okCob = !cobradorFiltro || String(m.pt.cobrador_id) === cobradorFiltro`.
+
+#### 3) Cambio de cobrador desde el popup del mapa
+
+- Función `buildPopupHtml(pt)` separada del `crearMarcador`: construye el HTML del popup (permite reconstruirlo tras un cambio). Contiene:
+  - Número, pata, nombre, dirección, zona, vendedor.
+  - Select `sel-cobrador-popup` con todos los cobradores, con el actual preseleccionado.
+  - Botón `btn-cobrador-guardar` con ícono ✓.
+  - Div `cobrador-popup-status` para feedback (spinner / ✓ / error).
+  - Link "Editar socio" con `?from=mapa`.
+- `crearMarcador` usa `buildPopupHtml(pt)` con `maxWidth: 300`.
+- Handler `map.on('popupopen', ...)`:
+  1. Localiza `.btn-cobrador-guardar` y `.sel-cobrador-popup` dentro del popup abierto.
+  2. Al click: POST a `/compradores/asignar-cobrador` con `comprador_id` y `cobrador_id` (FormData).
+  3. Si OK: actualiza `mrkEntry.pt.cobrador_id` y `cobrador_nombre`, llama `mrkEntry.marker.setPopupContent(buildPopupHtml(pt))` tras 800 ms para refrescar el popup. Si hay filtro de cobrador activo, llama `aplicarFiltros()` para reordenar la visibilidad.
+  4. Si error: muestra mensaje y re-habilita el botón.
+
+#### Archivos modificados
+- `app/routers/compradores.py`:
+  - `mapa_data`: join Cobrador, `cobrador_id`/`cobrador_nombre` en puntos y lista `cobradores` en respuesta.
+  - `editar` POST: nuevo param `from_page: Optional[str] = Form(None)`, redirect condicional.
+- `app/templates/comprador_editar.html`:
+  - Botón Volver con `id="btnVolver"`.
+  - Hidden `<input name="from_page" id="fromPageInput">` en el form.
+  - Bloque JS `(function(){ const params = new URLSearchParams(...); if (from=mapa) { btnVolver.href = '/compradores/mapa'; fromPageInput.value = 'mapa'; } })();` al inicio del script.
+- `app/templates/compradores_mapa.html`:
+  - Filtro cobrador en UI.
+  - `cobradorFiltro` en estado global.
+  - `renderCobradores()`.
+  - `buildPopupHtml(pt)` separado.
+  - `crearMarcador` usa `buildPopupHtml`.
+  - `map.on('popupopen', ...)` para cambio de cobrador.
+  - `renderCobradores()` llamado en `cargar()`.
+
+---
+*Última actualización: 23 de mayo de 2026 (cont. 6) — Mapa v5: volver al mapa tras edición (from=mapa), filtro por cobrador, cambio de cobrador desde popup con AJAX.*

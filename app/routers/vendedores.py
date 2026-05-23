@@ -920,17 +920,29 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                  + float(getattr(liq, "comision_cuotas_extras_p0", 0) or 0))
         for liq in liquidaciones
     }
-    # Ajuste: restar cuota 1 de boletas de cuotas que fueron reasignadas a otro vendedor
+    # Ajuste: restar cuota 1 de boletas de CUOTAS que fueron reasignadas a otro vendedor
     # (cambió vendedor_id por zona al cargar comprador; el otro vendedor cobra la cuota 1).
-    # Las boletas contado (numero_especial seteado) NO se restan: la comisión contado
-    # ya quedó fijada en la liquidación y Ariel la cobra independientemente.
+    # NO se restan boletas contado, aunque no tengan numero_especial aún:
+    #   - numero_especial seteado → contado obvio (excluido)
+    #   - numero_especial NULL pero cuotas_anticipadas >= cuotas_pactadas → contado
+    #     (los especiales se cargan en grupos de 5; hasta entonces solo se detecta
+    #     por cuotas_anticipadas). Su comision_contados ya está en ingreso_por_liq;
+    #     restarle valor_cuota la reduciría incorrectamente.
     _liq_ids = {liq.id for liq in liquidaciones}
     if _liq_ids:
+        from sqlalchemy import or_ as _or_
         _pasadas = db.query(models.Boleta).filter(
             models.Boleta.liquidacion_vendedor_id.in_(_liq_ids),
             models.Boleta.vendedor_id != vid,
             models.Boleta.numero_especial.is_(None),
             models.Boleta.numero_especial_2.is_(None),
+            # Excluir boletas al contado sin numero_especial todavía
+            # (cuotas_anticipadas >= cuotas_pactadas indica pago total de entrada)
+            _or_(
+                models.Boleta.cuotas_anticipadas.is_(None),
+                models.Boleta.cuotas_pactadas.is_(None),
+                models.Boleta.cuotas_anticipadas < models.Boleta.cuotas_pactadas,
+            ),
         ).all()
         for _b in _pasadas:
             if _b.liquidacion_vendedor_id in ingreso_por_liq and _b.talonera:
@@ -1560,3 +1572,49 @@ async def eliminar_liquidacion(liq_id: int, request: Request, db: Session = Depe
     db.delete(liq)
     db.commit()
     return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liq_eliminada", status_code=302)
+
+    if not liq:
+        raise HTTPException(404, "Liquidacion no encontrada")
+    vid = liq.vendedor_id
+    # Resetear boletas asociadas -> vuelven a CAJA sin liquidacion
+    db.query(models.Boleta).filter_by(liquidacion_vendedor_id=liq_id).update(
+        {"liquidacion_vendedor_id": None, "condicion": CondicionBoleta.CAJA},
+        synchronize_session=False
+    )
+    # Borrar items pool CONTADO (cascade tambien deberia hacerlo, lo hacemos explicito)
+    db.query(models.LiquidacionContadoItem).filter_by(
+        liquidacion_id=liq_id
+    ).delete(synchronize_session=False)
+    db.delete(liq)
+    db.commit()
+    return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liq_eliminada", status_code=302)
+
+
+@router.post("/{vid}/toggle")
+async def toggle(vid: int, request: Request, db: Session = Depends(get_db)):
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+    v = db.query(models.Vendedor).get(vid)
+    if v:
+        v.activo = not v.activo
+        db.commit()
+    return RedirectResponse("/vendedores/", status_code=302)
+
+
+@router.post("/{vid}/editar")
+async def editar(
+    vid: int, request: Request,
+    nombre: str = Form(...),
+    telefono: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+    v = db.query(models.Vendedor).get(vid)
+    if v:
+        v.nombre = nombre.strip().upper()
+        v.telefono = telefono.strip() or None
+        db.commit()
+    return RedirectResponse("/vendedores/", status_code=302)
