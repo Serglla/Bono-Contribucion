@@ -4,27 +4,33 @@
 <h4 class="fw-bold mb-4"><i class="bi bi-bar-chart-fill text-danger me-2"></i>Dashboard General</h4>
 
 <!-- Tarjetas resumen -->
-<div class="row g-3 mb-4">
-  <div class="col-sm-3">
-    <div class="card border-0 shadow-sm text-center p-3">
-      <div class="fs-1 fw-bold text-danger">{{ (totales.boletas or 0) | round(0) | int }}</div>
-      <div class="text-muted small">Total Boletas</div>
-    </div>
-  </div>
-  <div class="col-sm-3">
-    <div class="card border-0 shadow-sm text-center p-3">
+<div class="row row-cols-2 row-cols-sm-3 row-cols-lg-5 g-3 mb-4">
+  <div class="col">
+    <div class="card border-0 shadow-sm text-center p-3 h-100">
       <div class="fs-1 fw-bold text-success">{{ (totales.vendidas or 0) | round(0) | int }}</div>
       <div class="text-muted small">Taloneras Vendidas</div>
     </div>
   </div>
-  <div class="col-sm-3">
-    <div class="card border-0 shadow-sm text-center p-3">
+  <div class="col">
+    <div class="card border-0 shadow-sm text-center p-3 h-100">
+      <div class="fs-1 fw-bold text-info">{{ (totales.cuotas or 0) | round(0) | int }}</div>
+      <div class="text-muted small">Vendidas en Cuotas</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card border-0 shadow-sm text-center p-3 h-100">
+      <div class="fs-1 fw-bold text-warning">{{ (totales.contado or 0) | round(0) | int }}</div>
+      <div class="text-muted small">Al Contado</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card border-0 shadow-sm text-center p-3 h-100">
       <div class="fs-1 fw-bold text-danger">{{ (totales.baja or 0) | round(0) | int }}</div>
       <div class="text-muted small">Baja</div>
     </div>
   </div>
-  <div class="col-sm-3">
-    <div class="card border-0 shadow-sm text-center p-3">
+  <div class="col">
+    <div class="card border-0 shadow-sm text-center p-3 h-100">
       <div class="fs-1 fw-bold text-primary">{{ totales.compradores }}</div>
       <div class="text-muted small">Compradores</div>
     </div>
@@ -38,15 +44,17 @@
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
         <tr>
+          <th style="width:28px"></th>
           <th>Talonera</th><th>Total</th><th>Vendidas</th><th>Baja</th><th>En Caja</th>
           <th>En Cobranza</th><th>Sin Vender</th><th></th>
         </tr>
       </thead>
       <tbody>
         {% for s in stats_por_talonera %}
-        <tr style="cursor:pointer;"
-            onclick="window.location='/compradores/?pata={{ s.nombre | urlencode }}'"
-            title="Ver socios de {{ s.nombre }}">
+        <tr style="cursor:pointer;" onclick="toggleRow('tal-{{ loop.index }}')" title="Ver detalle contado">
+          <td class="text-center ps-3">
+            <i class="bi bi-chevron-right" id="icon-tal-{{ loop.index }}" style="transition:transform .2s;font-size:.75rem;color:#999;"></i>
+          </td>
           <td><span class="badge bg-danger">{{ s.nombre | replace('PATA ', 'X') }}</span></td>
           <td>{{ (s.total or 0) | round(0) | int }}</td>
           <td><span class="text-success fw-semibold">{{ (s.vendidas or 0) | round(0) | int }}</span></td>
@@ -55,14 +63,41 @@
           <td><span class="text-warning">{{ (s.en_cobranza or 0) | round(0) | int }}</span></td>
           <td><span class="text-secondary">{{ (s.sin_vender or 0) | round(0) | int }}</span></td>
           <td onclick="event.stopPropagation()">
+            {% if s.tipo != 'CONTADO' %}
             <a href="/compradores/?pata={{ s.nombre | urlencode }}"
                class="btn btn-sm btn-outline-danger" title="Ver socios">
               <i class="bi bi-eye"></i>
             </a>
+            {% endif %}
+          </td>
+        </tr>
+        <tr id="tal-{{ loop.index }}" style="display:none; background:#fafafa;">
+          <td colspan="9" class="py-2 px-4 border-top-0">
+            <div class="d-flex gap-4 align-items-center small text-muted py-1">
+              {% if s.tipo == 'CONTADO' %}
+              <span>
+                <i class="bi bi-cash text-warning me-1"></i>
+                <strong class="text-dark">Contado:</strong> {{ s.vendidas_1 }}
+              </span>
+              <span>
+                <i class="bi bi-cash-stack text-warning me-1"></i>
+                <strong class="text-dark">Contado 2 Veces:</strong> {{ s.vendidas_2 }}
+              </span>
+              {% else %}
+              <span>
+                <i class="bi bi-cash text-warning me-1"></i>
+                <strong class="text-dark">Contado:</strong> {{ s.contado_1 }}
+              </span>
+              <span>
+                <i class="bi bi-cash-stack text-warning me-1"></i>
+                <strong class="text-dark">Contado 2 Veces:</strong> {{ s.contado_2 }}
+              </span>
+              {% endif %}
+            </div>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-3">Sin datos aún</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-3">Sin datos aún</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -76,6 +111,7 @@
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
         <tr>
+          <th style="width:28px"></th>
           <th>Zona</th><th>Vendedor</th><th>Cobrador</th>
           <th>Taloneras</th><th>Compradores</th><th>Vendidas</th><th>Baja</th>
           <th>En Cobranza</th><th>Sin Vender</th>
@@ -83,9 +119,10 @@
       </thead>
       <tbody>
         {% for s in stats_por_zona %}
-        <tr style="cursor:pointer;"
-            onclick="window.location='/compradores/?zona={{ s.zona.id }}'"
-            title="Ver socios de zona {{ s.zona.nombre }}">
+        <tr style="cursor:pointer;" onclick="toggleRow('zona-{{ loop.index }}')" title="Ver detalle por talonera">
+          <td class="text-center ps-3">
+            <i class="bi bi-chevron-right" id="icon-zona-{{ loop.index }}" style="transition:transform .2s;font-size:.75rem;color:#999;"></i>
+          </td>
           <td><span class="badge bg-dark">{{ s.zona.nombre }}</span></td>
           <td class="text-muted small">{{ s.vendedor }}</td>
           <td class="text-muted small">{{ s.cobrador }}</td>
@@ -96,8 +133,28 @@
           <td><span class="text-warning">{{ (s.en_cobranza or 0) | round(0) | int }}</span></td>
           <td><span class="text-secondary">{{ (s.sin_vender or 0) | round(0) | int }}</span></td>
         </tr>
+        <tr id="zona-{{ loop.index }}" style="display:none; background:#fafafa;">
+          <td colspan="10" class="py-2 px-4 border-top-0">
+            <div class="py-1">
+              {% if s.talonera_detalle %}
+              <div class="d-flex flex-wrap gap-2 mb-2">
+                {% for t in s.talonera_detalle %}
+                <span class="badge bg-danger bg-opacity-75 fs-6 fw-normal">
+                  {{ t.nombre }}: <strong>{{ t.vendidas }}</strong>
+                </span>
+                {% endfor %}
+              </div>
+              {% else %}
+              <span class="text-muted small">Sin taloneras con ventas</span>
+              {% endif %}
+              <a href="/compradores/?zona={{ s.zona.id }}" class="btn btn-sm btn-outline-dark">
+                <i class="bi bi-eye me-1"></i>Ver socios
+              </a>
+            </div>
+          </td>
+        </tr>
         {% else %}
-        <tr><td colspan="9" class="text-center text-muted py-3">Sin zonas</td></tr>
+        <tr><td colspan="10" class="text-center text-muted py-3">Sin zonas</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -105,14 +162,33 @@
 </div>
 
 <!-- Top vendedores y cobradores -->
-<div class="row g-3">
+<div class="row g-3 mb-4">
   <div class="col-md-6">
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-white fw-semibold"><i class="bi bi-person-badge me-1 text-danger"></i>Top Vendedores</div>
       <ul class="list-group list-group-flush">
         {% for v in top_vendedores %}
-        <li class="list-group-item d-flex justify-content-between">
-          {{ v.nombre }} <span class="badge bg-secondary">{{ (v.cantidad or 0) | round(0) | int }}</span>
+        <li class="list-group-item p-0">
+          <div class="d-flex justify-content-between align-items-center px-3 py-2"
+               style="cursor:pointer;" onclick="toggleDiv('vend-{{ loop.index }}')">
+            <span>
+              <i class="bi bi-chevron-right me-1" id="icon-vend-{{ loop.index }}"
+                 style="transition:transform .2s;font-size:.75rem;color:#999;"></i>
+              {{ v.nombre }}
+            </span>
+            <span class="badge bg-secondary">{{ (v.cantidad or 0) | round(0) | int }}</span>
+          </div>
+          <div id="vend-{{ loop.index }}" style="display:none; background:#fafafa;" class="px-4 py-2 border-top">
+            {% if v.taloneras %}
+            <div class="d-flex flex-wrap gap-2 small">
+              {% for t in v.taloneras %}
+              <span class="badge bg-danger bg-opacity-75 fw-normal">{{ t.nombre }}: {{ t.cantidad }}</span>
+              {% endfor %}
+            </div>
+            {% else %}
+            <span class="text-muted small">Sin taloneras asignadas</span>
+            {% endif %}
+          </div>
         </li>
         {% else %}
         <li class="list-group-item text-muted">Sin datos</li>
@@ -125,8 +201,27 @@
       <div class="card-header bg-white fw-semibold"><i class="bi bi-cash-coin me-1 text-danger"></i>Top Cobradores</div>
       <ul class="list-group list-group-flush">
         {% for c in top_cobradores %}
-        <li class="list-group-item d-flex justify-content-between">
-          {{ c.nombre }} <span class="badge bg-secondary">{{ (c.cantidad or 0) | round(0) | int }}</span>
+        <li class="list-group-item p-0">
+          <div class="d-flex justify-content-between align-items-center px-3 py-2"
+               style="cursor:pointer;" onclick="toggleDiv('cob-{{ loop.index }}')">
+            <span>
+              <i class="bi bi-chevron-right me-1" id="icon-cob-{{ loop.index }}"
+                 style="transition:transform .2s;font-size:.75rem;color:#999;"></i>
+              {{ c.nombre }}
+            </span>
+            <span class="badge bg-secondary">{{ (c.cantidad or 0) | round(0) | int }}</span>
+          </div>
+          <div id="cob-{{ loop.index }}" style="display:none; background:#fafafa;" class="px-4 py-2 border-top">
+            {% if c.taloneras %}
+            <div class="d-flex flex-wrap gap-2 small">
+              {% for t in c.taloneras %}
+              <span class="badge bg-danger bg-opacity-75 fw-normal">{{ t.nombre }}: {{ t.cantidad }}</span>
+              {% endfor %}
+            </div>
+            {% else %}
+            <span class="text-muted small">Sin taloneras asignadas</span>
+            {% endif %}
+          </div>
         </li>
         {% else %}
         <li class="list-group-item text-muted">Sin datos</li>
@@ -135,4 +230,23 @@
     </div>
   </div>
 </div>
+
+<script>
+function toggleRow(id) {
+  const el = document.getElementById(id);
+  const icon = document.getElementById('icon-' + id);
+  if (!el) return;
+  const isHidden = el.style.display === 'none' || el.style.display === '';
+  el.style.display = isHidden ? 'table-row' : 'none';
+  if (icon) icon.style.transform = isHidden ? 'rotate(90deg)' : '';
+}
+function toggleDiv(id) {
+  const el = document.getElementById(id);
+  const icon = document.getElementById('icon-' + id);
+  if (!el) return;
+  const isHidden = el.style.display === 'none' || el.style.display === '';
+  el.style.display = isHidden ? 'block' : 'none';
+  if (icon) icon.style.transform = isHidden ? 'rotate(90deg)' : '';
+}
+</script>
 {% endblock %}
