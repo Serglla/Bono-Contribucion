@@ -640,4 +640,43 @@ ganancia_neta = total_recaudado
 - **Nota:** truncamientos silenciosos ocurrieron en `cobranza.py` y `compradores.html` durante esta sesión. Detectados con `python3 -c "print(open(f,'rb').read()[-300:])"` y parchados desde `git show HEAD:archivo` + script Python.
 
 ---
-*Última actualización: 22 de mayo de 2026 — Fix buscador Socios col 7 (Cobrador). Múltiples planillas por cobrador/mes: armar_planilla siempre crea nueva, nuevo endpoint /planilla/{id}/ver, templates actualizados.*
+
+### Sesión 23/05/2026 — Refactoring dashboard /reportes/
+
+#### Tarjetas resumen (5 cards, antes 4)
+- **Eliminada:** "Total Boletas"
+- **Mantenidas:** Taloneras Vendidas (verde), Baja (rojo), Compradores (azul)
+- **Nuevas:**
+  - "Vendidas en Cuotas" (celeste): `_sum_mult(comprador_id IS NOT NULL AND numero_especial IS NULL)` — vendidas sin número contado asignado
+  - "Al Contado" (amarillo): `_sum_mult(numero_especial IS NOT NULL)` — con número contado slot 1, ponderado por multiplicador
+- Grid: `row-cols-2 row-cols-sm-3 row-cols-lg-5`
+
+#### Filas expandibles — todos los bloques
+Todos los bloques del dashboard tienen ahora comportamiento de click → expand/collapse con ícono chevron que rota 90°.
+
+**Por Talonera** — al clickear la fila se despliega una sub-fila `<tr>` con:
+- Taloneras COMUN: Contado (contado_1) + Contado 2 Veces (contado_2) — boletas de esa talonera con numero_especial/numero_especial_2 asignado
+- Taloneras CONTADO: muestra vendidas_1 y vendidas_2 (los dos slots del pool)
+- El botón "Ver socios" sigue en la última columna (no se perdió la navegación)
+
+**Por Zona** — al clickear se despliega:
+- Badges con desglose `talonera.nombre: vendidas` (ponderado) por cada talonera COMUN en esa zona
+- Botón "Ver socios" → `/compradores/?zona={id}`
+
+**Vendedores / Cobradores** — al clickear el nombre se despliega un `<div>` con badges de sus taloneras y cantidad
+
+#### Backend — cambios en `app/routers/reportes.py`
+- `totales`: reemplaza `boletas` por `cuotas` y `contado`
+- `stats_por_talonera`: cada entrada COMUN agrega `contado_1`, `contado_2`; cada CONTADO agrega `vendidas_1`, `vendidas_2`
+- `top_vendedores` y `top_cobradores`: cambian de SQLAlchemy Rows → dicts Python `{id, nombre, cantidad, taloneras: [{nombre, cantidad}]}`. Query agrupa por (vendedor/cobrador, talonera.nombre).
+- `stats_por_zona`: agrega `talonera_detalle: [{nombre, vendidas}]` por zona (query con GROUP BY talonera.nombre)
+
+#### JS — dos funciones de toggle (no Bootstrap collapse)
+```javascript
+toggleRow(id)  // para <tr>: display 'table-row' o 'none'
+toggleDiv(id)  // para <div>: display 'block' o 'none'
+```
+Bootstrap collapse se evitó porque en `<tr>` usa `display:block` rompiendo el layout de tabla.
+
+---
+*Última actualización: 23 de mayo de 2026 — Refactoring dashboard: eliminado Total Boletas, agregadas tarjetas Vendidas en Cuotas + Al Contado, filas expandibles en todos los bloques (Por Talonera, Por Zona, Vendedores, Cobradores).*

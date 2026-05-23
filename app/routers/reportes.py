@@ -220,16 +220,26 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             q = q.filter(filtro)
         return q.scalar() or 0
 
+    # "al contado" = tiene numero_especial asignado  O  pagó todas las cuotas por adelantado
+    # (equivalente a la lógica `es_contado or anticipo_total` de compradores.html)
+    _anticipo_total = (
+        (models.Boleta.cuotas_pactadas.isnot(None)) &
+        (models.Boleta.cuotas_pactadas > 0) &
+        (models.Boleta.cuotas_anticipadas.isnot(None)) &
+        (models.Boleta.cuotas_anticipadas >= models.Boleta.cuotas_pactadas)
+    )
+    _es_contado = (models.Boleta.numero_especial.isnot(None)) | _anticipo_total
+
     totales = {
         # Taloneras vendidas — toda boleta con comprador asignado
         "vendidas": _sum_mult(models.Boleta.comprador_id.isnot(None)),
-        # Vendidas en cuotas — tienen comprador pero NO número contado
+        # Vendidas en cuotas — tienen comprador, no son contado ni anticipo total
         "cuotas": _sum_mult(
             (models.Boleta.comprador_id.isnot(None)) &
-            (models.Boleta.numero_especial.is_(None))
+            ~_es_contado
         ),
-        # Al contado — tienen número especial asignado (slot 1)
-        "contado": _sum_mult(models.Boleta.numero_especial.isnot(None)),
+        # Al contado — tienen número especial Y/O pagaron todas las cuotas anticipadas
+        "contado": _sum_mult(_es_contado),
         # Baja — solo boletas con condición BAJA
         "baja": _sum_mult(models.Boleta.condicion == CondicionBoleta.BAJA),
         # Compradores — personas únicas (no se pondera)
