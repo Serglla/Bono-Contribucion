@@ -284,20 +284,41 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
             }
 
     # Tasa de cobro por cobrador:
-    # cuotas efectivamente cobradas / cuotas pactadas (excluye contado y BAJA)
-    # Representa qué % de su cartera realmente está pagando.
+    # De las cuotas que YA VENCIERON (según meses de campaña transcurridos),
+    # cuántas se cobraron efectivamente.
+    # Cuota 1 venció en Junio 2026, cuota 2 en Julio 2026, etc.
+    from datetime import date as _date
+    _hoy = _date.today()
+    _camp_start_anio = 2026
+    _camp_start_mes  = 6   # Junio
+    # Cuántos meses de campaña han transcurrido (0 = aún no empezó)
+    _meses_transcurridos = max(
+        0,
+        (_hoy.year - _camp_start_anio) * 12 + (_hoy.month - _camp_start_mes) + 1
+    )
+
     _cob_tasa = {}
     for cid in _cob_info:
-        tot_pac = tot_pag = 0
+        tot_vencido = tot_pag = 0
         for b in boletas_con_cob:
             if b.cobrador_id != cid:
                 continue
-            if _es_contado(b):   # ya pagado al contado, no cuenta para la tasa
+            if _es_contado(b):
                 continue
-            tot_pac += b.cuotas_pactadas or 0
-            tot_pag += b.cuotas_pagadas  or 0
-        # Si todavía no hay nada cobrado (campaña nueva) la tasa es 1.0 (optimista)
-        _cob_tasa[cid] = round(tot_pag / tot_pac, 4) if tot_pac > 0 else 1.0
+            pac  = b.cuotas_pactadas    or 0
+            pag  = b.cuotas_pagadas     or 0
+            ant  = b.cuotas_anticipadas or 0
+            # Cuotas vencidas de esta boleta = min(meses transcurridos, pactadas) - anticipadas
+            # (las anticipadas ya estaban pagas antes de vencer)
+            vencidas_boleta = max(0, min(_meses_transcurridos, pac) - ant)
+            # Cuotas pagas a través de cobranza = pagadas - anticipadas
+            pagas_cob = max(0, pag - ant)
+            tot_vencido += vencidas_boleta
+            tot_pag     += min(pagas_cob, vencidas_boleta)   # no puede superar lo vencido
+        if tot_vencido > 0:
+            _cob_tasa[cid] = round(tot_pag / tot_vencido, 4)
+        else:
+            _cob_tasa[cid] = 1.0   # campaña no comenzó → proyección al 100%
 
     # Para cada cobrador, armar 12 meses mezclando reales + proyectados
     _cob_proyeccion = {}
