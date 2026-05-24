@@ -236,20 +236,21 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
 
     # ── Proyección mensual por cobrador ─────────────────────────────────
     # Cuota 1 = Junio 2026, cuota 2 = Julio 2026, …, cuota 12 = Mayo 2027
-    _CAMPANA_INICIO = 5    # índice 0-based de Junio (mes_planilla=Mayo → cuota 1=Junio)
+    _CAMPANA_INICIO = 4    # índice 0-based de Mayo (cuota 1 = Mayo 2026, cubre el mes de venta)
     _CAMPANA_ANIO   = 2026
+    _CAMPANA_MES_BASE = 5  # número de mes de inicio (Mayo=5); meses < 5 son del año siguiente
 
     def _cuota_a_mes_anio(n):
         idx  = (_CAMPANA_INICIO + n - 1) % 12
         mes  = idx + 1
-        anio = _CAMPANA_ANIO if mes >= 6 else _CAMPANA_ANIO + 1
+        anio = _CAMPANA_ANIO if mes >= _CAMPANA_MES_BASE else _CAMPANA_ANIO + 1
         return mes, anio
 
-    # Meses de campaña (encabezados fijos)
+    # Meses de campaña (encabezados fijos): Mayo 2026 → Abril 2027
     proyeccion_meses = [
         {
             "mes":      (_CAMPANA_INICIO + i) % 12 + 1,
-            "anio":     _CAMPANA_ANIO if ((_CAMPANA_INICIO + i) % 12 + 1) >= 6 else _CAMPANA_ANIO + 1,
+            "anio":     _CAMPANA_ANIO if ((_CAMPANA_INICIO + i) % 12 + 1) >= _CAMPANA_MES_BASE else _CAMPANA_ANIO + 1,
             "mes_nombre": MESES[(_CAMPANA_INICIO + i) % 12],
         }
         for i in range(12)
@@ -290,7 +291,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     from datetime import date as _date
     _hoy = _date.today()
     _camp_start_anio = 2026
-    _camp_start_mes  = 6   # Junio
+    _camp_start_mes  = 5   # Mayo (cuota 1 = mes de venta)
     # Cuántos meses de campaña han transcurrido (0 = aún no empezó)
     _meses_transcurridos = max(
         0,

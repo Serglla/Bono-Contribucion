@@ -254,86 +254,89 @@
       <p class="text-muted small">Sin boletas asignadas a cobradores.</p>
     {% else %}
     <style>
-      .cel-real  { background-color:#e8f5e9 !important; }
-      .cel-proy  { background-color:#fff8e1 !important; }
-      .cel-vacio { color:#bbb; }
-      .th-cob    { background-color:#1a2a4a; color:#fff; }
-      .tr-mes td { vertical-align:middle; }
+      .cel-real { background-color:#e8f5e9 !important; }
+      .cel-proy { background-color:#fff8e1 !important; }
+      .cel-ant  { background-color:#f3f4f6 !important; color:#999; font-style:italic; }
+      .th-cob   { background-color:#1a2a4a; color:#fff; }
     </style>
     <div class="table-responsive mb-3">
-      <table class="table table-sm table-bordered mb-0" style="font-size:.78rem;">
+      <table class="table table-sm table-bordered mb-0" style="font-size:.76rem;">
         <thead>
-          {# Fila 1: nombre de cada cobrador (colspan 2: Bruto | Neto) #}
+          {# Fila 1: cobrador con colspan 3 (Bruto | Com. | Neto) #}
           <tr class="text-center">
-            <th rowspan="2" class="th-cob align-middle text-start" style="min-width:95px">Mes</th>
+            <th rowspan="2" class="th-cob align-middle text-start" style="min-width:90px">Mes</th>
             {% for c in proyeccion_list %}
-            <th colspan="2" class="th-cob" style="min-width:160px">
-              {{ c.nombre }}<br>
-              <span style="font-size:.68rem; font-weight:normal;">
+            <th colspan="3" class="th-cob" style="min-width:210px">
+              {{ c.nombre }}
+              <span style="font-size:.67rem; font-weight:normal; display:block;">
                 com.{{ c.comision_pct | int }}% ·
-                <span class="{% if c.tasa_cobro >= 80 %}text-success{% elif c.tasa_cobro >= 50 %}text-warning{% else %}text-danger{% endif %} fw-bold">
+                <span class="fw-bold {% if c.tasa_cobro >= 80 %}text-success{% elif c.tasa_cobro >= 50 %}text-warning{% else %}text-danger{% endif %}">
                   cobro {{ c.tasa_cobro }}%
                 </span>
               </span>
             </th>
             {% endfor %}
             <th colspan="2" class="table-warning text-center align-middle" rowspan="2" style="min-width:140px">
-              TOTAL<br><span style="font-size:.68rem;font-weight:normal">Bruto / Neto</span>
+              TOTAL<br><span style="font-size:.67rem;font-weight:normal">Bruto / Neto</span>
             </th>
           </tr>
-          {# Fila 2: sub-encabezados Bruto | Neto por cobrador #}
-          <tr class="text-center" style="font-size:.72rem;">
+          {# Fila 2: sub-encabezados Bruto | Com. | Neto #}
+          <tr class="text-center" style="font-size:.7rem;">
             {% for c in proyeccion_list %}
-            <th class="th-cob" style="min-width:78px">Bruto</th>
-            <th class="th-cob" style="min-width:78px">Neto</th>
+            <th class="th-cob">Bruto</th>
+            <th class="th-cob text-danger" style="font-weight:normal">Com.</th>
+            <th class="th-cob text-info">Neto</th>
             {% endfor %}
           </tr>
         </thead>
         <tbody>
           {% for pm in proyeccion_meses %}
           {% set mes_i = loop.index0 %}
-          {# Calcular si hay algo en este mes #}
-          {% set tiene_datos = namespace(v=false) %}
+          {% set tot_bruto = namespace(v=0) %}
+          {% set tot_neto  = namespace(v=0) %}
           {% for c in proyeccion_list %}
-            {% if c.meses[mes_i].bruto != 0 %}{% set tiene_datos.v = true %}{% endif %}
+            {% set tot_bruto.v = tot_bruto.v + c.meses[mes_i].bruto %}
+            {% set tot_neto.v  = tot_neto.v  + c.meses[mes_i].neto  %}
           {% endfor %}
-          <tr class="tr-mes {% if not tiene_datos.v %}text-muted{% endif %}">
+          <tr>
             <td class="fw-semibold">
               {{ pm.mes_nombre[:3] }}<br>
-              <span class="text-muted fw-normal" style="font-size:.68rem">{{ pm.anio }}</span>
+              <span class="text-muted fw-normal" style="font-size:.67rem">{{ pm.anio }}</span>
             </td>
             {% for c in proyeccion_list %}
             {% set m = c.meses[mes_i] %}
-            {# celda Bruto #}
-            <td class="text-end {% if m.es_real %}cel-real fw-bold{% elif m.bruto == 0 %}cel-vacio{% else %}cel-proy{% endif %}">
-              {% if m.bruto == 0 %}
-                <span class="cel-vacio">—</span>
-              {% else %}
+            {% if m.es_real %}
+              {# Liquidación real ya registrada #}
+              <td class="text-end fw-bold cel-real">
                 {{ m.bruto | int }}
-                {% if m.es_real %}
-                  <small class="d-block text-success fw-normal" style="font-size:.63rem">✓ real</small>
-                {% else %}
-                  <small class="d-block text-warning-emphasis fw-normal" style="font-size:.63rem">proy.</small>
-                {% endif %}
-              {% endif %}
-            </td>
-            {# celda Neto #}
-            <td class="text-end {% if m.es_real %}cel-real{% elif m.neto == 0 %}cel-vacio{% else %}cel-proy{% endif %}">
-              {% if m.neto != 0 %}{{ m.neto | int }}{% else %}<span class="cel-vacio">—</span>{% endif %}
-            </td>
+                <small class="d-block text-success fw-normal" style="font-size:.62rem">✓ real</small>
+              </td>
+              <td class="text-end text-danger cel-real">-{{ m.comision | int }}</td>
+              <td class="text-end text-primary cel-real fw-bold">{{ m.neto | int }}</td>
+            {% elif m.bruto == 0 and m.cant == 0 %}
+              {# Sin boletas pendientes en este mes (pagas, anticipadas, o contado) #}
+              <td class="text-center cel-ant" colspan="3" style="font-size:.68rem">
+                — ya cobrado —
+              </td>
+            {% elif m.bruto == 0 %}
+              {# Proyectado pero sin monto (tasa 0%) #}
+              <td colspan="3" class="text-center text-muted cel-proy" style="font-size:.68rem">— proy. $0 —</td>
+            {% else %}
+              {# Proyección futura ajustada por tasa de cobro #}
+              <td class="text-end fw-semibold cel-proy">
+                {{ m.bruto | int }}
+                <small class="d-block text-warning-emphasis fw-normal" style="font-size:.62rem">proy.</small>
+              </td>
+              <td class="text-end text-danger cel-proy">-{{ m.comision | int }}</td>
+              <td class="text-end text-primary cel-proy">{{ m.neto | int }}</td>
+            {% endif %}
             {% endfor %}
             {# Totales del mes #}
-            {% set tot_bruto_mes = namespace(v=0) %}
-            {% set tot_neto_mes  = namespace(v=0) %}
-            {% for c in proyeccion_list %}
-              {% set tot_bruto_mes.v = tot_bruto_mes.v + c.meses[mes_i].bruto %}
-              {% set tot_neto_mes.v  = tot_neto_mes.v  + c.meses[mes_i].neto  %}
-            {% endfor %}
-            <td class="text-end fw-bold table-warning {% if tot_bruto_mes.v == 0 %}cel-vacio{% else %}text-success{% endif %}">
-              {% if tot_bruto_mes.v != 0 %}{{ tot_bruto_mes.v | int }}{% else %}—{% endif %}
+            <td class="text-end fw-bold table-warning {% if tot_bruto.v == 0 %}text-muted{% else %}text-success{% endif %}">
+              {% if tot_bruto.v != 0 %}{{ tot_bruto.v | int }}{% else %}—{% endif %}
             </td>
-            <td class="text-end fw-bold table-warning {% if tot_neto_mes.v == 0 %}cel-vacio{% else %}text-primary{% endif %}">
-              {% if tot_neto_mes.v != 0 %}{{ tot_neto_mes.v | int }}{% else %}—{% endif %}
+            <td class="text-end fw-bold table-warning {% if tot_neto.v == 0 %}text-muted{% else %}text-primary{% endif %}">
+              {% if tot_neto.v != 0 %}{{ tot_neto.v | int }}{% else %}—{% endif %}
             </td>
           </tr>
           {% endfor %}
@@ -342,8 +345,9 @@
           <tr>
             <td>TOTAL</td>
             {% for c in proyeccion_list %}
-            <td class="text-end text-success">{{ c.total_bruto | pesos }}</td>
-            <td class="text-end text-primary">{{ c.total_neto  | pesos }}</td>
+            <td class="text-end text-success">{{ c.total_bruto    | pesos }}</td>
+            <td class="text-end text-danger" >-{{ c.total_comision | pesos }}</td>
+            <td class="text-end text-primary">{{ c.total_neto     | pesos }}</td>
             {% endfor %}
             <td class="text-end text-success table-warning">{{ proyeccion_list | sum(attribute="total_bruto") | pesos }}</td>
             <td class="text-end text-primary table-warning">{{ proyeccion_list | sum(attribute="total_neto")  | pesos }}</td>
@@ -351,13 +355,14 @@
         </tfoot>
       </table>
     </div>
-    <div class="d-flex gap-3 mb-3" style="font-size:.76rem;">
+    <div class="d-flex gap-3 mb-3" style="font-size:.75rem;">
       <span><span class="badge" style="background:#e8f5e9;color:#1b5e20;border:1px solid #a5d6a7">✓ real</span> Mes ya liquidado</span>
       <span><span class="badge" style="background:#fff8e1;color:#5d4037;border:1px solid #ffe082">proy.</span> Proyectado × % cobro</span>
-      <span class="text-muted">cobro% = de lo vencido, cuánto se cobró efectivamente</span>
+      <span><span class="badge" style="background:#f3f4f6;color:#666;border:1px solid #ddd">— ya cobrado —</span> Sin cuotas pendientes en ese mes</span>
     </div>
     {% endif %}
 
+    <!-- ── Historial de liquidaciones ───────────────────────────── -->
     <!-- ── Historial de liquidaciones ───────────────────────────── -->
     <!-- ── Historial de liquidaciones ───────────────────────────── -->
     <h6 class="fw-bold text-secondary mb-2">
