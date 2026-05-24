@@ -236,7 +236,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
 
     # ── Proyección mensual por cobrador ─────────────────────────────────
     # Cuota 1 = Junio 2026, cuota 2 = Julio 2026, …, cuota 12 = Mayo 2027
-    _CAMPANA_INICIO = 5   # índice 0-based del mes anterior (Mayo → 5 → Junio)
+    _CAMPANA_INICIO = 5    # índice 0-based de Junio (mes_planilla=Mayo → cuota 1=Junio)
     _CAMPANA_ANIO   = 2026
 
     def _cuota_a_mes_anio(n):
@@ -245,13 +245,36 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         anio = _CAMPANA_ANIO if mes >= 6 else _CAMPANA_ANIO + 1
         return mes, anio
 
-    # Boletas activas con cobrador y talonera, sin BAJA
+    # Meses de campaña (encabezados fijos)
+    proyeccion_meses = [
+        {
+            "mes":      (_CAMPANA_INICIO + i) % 12 + 1,
+            "anio":     _CAMPANA_ANIO if ((_CAMPANA_INICIO + i) % 12 + 1) >= 6 else _CAMPANA_ANIO + 1,
+            "mes_nombre": MESES[(_CAMPANA_INICIO + i) % 12],
+        }
+        for i in range(12)
+    ]
+
+    # Liquidaciones reales ya registradas, por cobrador y (mes, anio)
+    _real_por_cob = {}   # cid → {(mes, anio): {bruto, comision, neto}}
+    for lc in liqs_c:
+        p = lc.planilla
+        if not p:
+            continue
+        cid = p.cobrador_id
+        key = (p.mes, p.anio)
+        _real_por_cob.setdefault(cid, {}).setdefault(key, {"bruto": 0.0, "comision": 0.0, "neto": 0.0})
+        _real_por_cob[cid][key]["bruto"]    += lc.monto_total or 0
+        _real_por_cob[cid][key]["comision"] += lc.comision    or 0
+        _real_por_cob[cid][key]["neto"]     += lc.neto        or 0
+
+    # Boletas activas con cobrador y talonera
     boletas_con_cob = [
         b for b in boletas
         if b.cobrador_id is not None and b.talonera is not None
     ]
 
-    # Recolectar info de cobradores únicos
+    # Info de cobradores únicos
     _cob_info = {}
     for b in boletas_con_cob:
         if b.cobrador_id not in _cob_info and b.cobrador:
@@ -260,46 +283,91 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
                 "comision_pct": float(b.cobrador.comision_pct or 0),
             }
 
-    # Para cada cobrador armar lista de 12 meses
+    # Tasa de cobro por cobrador:
+    # cuotas efectivamente cobradas / cuotas pactadas (excluye contado y BAJA)
+    # Representa qué % de su cartera realmente está pagando.
+    _cob_tasa = {}
+    for cid in _cob_info:
+        tot_pac = tot_pag = 0
+        for b in boletas_con_cob:
+            if b.cobrador_id != cid:
+                continue
+            if _es_contado(b):   # ya pagado al contado, no cuenta para la tasa
+                continue
+            tot_pac += b.cuotas_pactadas or 0
+            tot_pag += b.cuotas_pagadas  or 0
+        # Si todavía no hay nada cobrado (campaña nueva) la tasa es 1.0 (optimista)
+        _cob_tasa[cid] = round(tot_pag / tot_pac, 4) if tot_pac > 0 else 1.0
+
+    # Para cada cobrador, armar 12 meses mezclando reales + proyectados
     _cob_proyeccion = {}
     for cid, info in _cob_info.items():
         meses_proj = []
-        pct = info["comision_pct"] / 100.0
+        pct  = info["comision_pct"] / 100.0
+        tasa = _cob_tasa[cid]
+        real_mes = _real_por_cob.get(cid, {})
+
         for n in range(1, 13):
             mes, anio = _cuota_a_mes_anio(n)
-            bruto = 0.0
-            cant  = 0
-            for b in boletas_con_cob:
-                if b.cobrador_id != cid:
-                    continue
-                pactadas    = b.cuotas_pactadas    or 0
-                pagadas     = b.cuotas_pagadas     or 0
-                anticipadas = b.cuotas_anticipadas or 0
-                nc          = b.talonera.num_cuotas or 12
-                vc          = b.talonera.valor_cuota or 0
-                if n > nc:          continue   # talonera no llega a esta cuota
-                if n > pactadas:    continue   # no la tiene pactada
-                if n <= pagadas:    continue   # ya pagó
-                if n <= anticipadas: continue  # anticipada (contado)
-                bruto += vc
-                cant  += 1
-            comision = round(bruto * pct)
-            meses_proj.append({
-                "cuota":      n,
-                "mes":        mes,
-                "anio":       anio,
-                "mes_nombre": MESES[mes - 1],
-                "bruto":      bruto,
-                "comision":   comision,
-                "neto":       bruto - comision,
-                "cant":       cant,
-            })
+            key = (mes, anio)
+
+            if key in real_mes:
+                # ── Mes ya liquidado: usar cifras reales ──────────────
+                r = real_mes[key]
+                meses_proj.append({
+                    "cuota":      n,
+                    "mes":        mes,
+                    "anio":       anio,
+                    "mes_nombre": MESES[mes - 1],
+                    "bruto":      r["bruto"],
+                    "comision":   r["comision"],
+                    "neto":       r["neto"],
+                    "cant":       None,
+                    "es_real":    True,
+                    "tasa":       None,
+                })
+            else:
+                # ── Mes futuro: proyección × tasa de cobro ───────────
+                bruto_teorico = 0.0
+                cant = 0
+                for b in boletas_con_cob:
+                    if b.cobrador_id != cid:
+                        continue
+                    pactadas    = b.cuotas_pactadas    or 0
+                    pagadas     = b.cuotas_pagadas     or 0
+                    anticipadas = b.cuotas_anticipadas or 0
+                    nc          = b.talonera.num_cuotas or 12
+                    vc          = b.talonera.valor_cuota or 0
+                    if n > nc:           continue
+                    if n > pactadas:     continue
+                    if n <= pagadas:     continue
+                    if n <= anticipadas: continue
+                    bruto_teorico += vc
+                    cant          += 1
+
+                bruto_aj = round(bruto_teorico * tasa)
+                comision = round(bruto_aj * pct)
+                meses_proj.append({
+                    "cuota":      n,
+                    "mes":        mes,
+                    "anio":       anio,
+                    "mes_nombre": MESES[mes - 1],
+                    "bruto":      bruto_aj,
+                    "bruto_teorico": bruto_teorico,
+                    "comision":   comision,
+                    "neto":       bruto_aj - comision,
+                    "cant":       cant,
+                    "es_real":    False,
+                    "tasa":       tasa,
+                })
+
         _cob_proyeccion[cid] = meses_proj
 
     proyeccion_list = sorted([
         {
             "nombre":        _cob_info[cid]["nombre"],
             "comision_pct":  _cob_info[cid]["comision_pct"],
+            "tasa_cobro":    round(_cob_tasa[cid] * 100, 1),
             "meses":         _cob_proyeccion[cid],
             "total_bruto":   sum(m["bruto"]    for m in _cob_proyeccion[cid]),
             "total_comision":sum(m["comision"] for m in _cob_proyeccion[cid]),
@@ -307,14 +375,6 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         }
         for cid in _cob_info
     ], key=lambda x: x["nombre"])
-
-    # Meses de campaña para encabezados (siempre 12)
-    proyeccion_meses = [
-        {"mes": (_CAMPANA_INICIO + i) % 12 + 1,
-         "anio": _CAMPANA_ANIO if ((_CAMPANA_INICIO + i) % 12 + 1) >= 6 else _CAMPANA_ANIO + 1,
-         "mes_nombre": MESES[(_CAMPANA_INICIO + i) % 12]}
-        for i in range(12)
-    ]
 
     return templates.TemplateResponse(request, "contabilidad.html", {
         "user":                  user,

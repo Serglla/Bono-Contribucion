@@ -253,52 +253,71 @@
     {% if not proyeccion_list %}
       <p class="text-muted small">Sin boletas asignadas a cobradores.</p>
     {% else %}
-    <div class="table-responsive mb-4">
-      <table class="table table-sm table-bordered align-middle" style="font-size:.78rem; min-width:900px;">
+    <style>
+      .cel-real   { background-color: #e8f5e9 !important; }
+      .cel-proy   { background-color: #fff8e1 !important; }
+      .cel-vacio  { color:#aaa; }
+    </style>
+    <div class="table-responsive mb-3">
+      <table class="table table-sm table-bordered align-middle mb-0" style="font-size:.78rem; min-width:1100px;">
         <thead class="table-dark text-center">
           <tr>
-            <th class="text-start" style="min-width:110px">Cobrador</th>
-            <th>Com.%</th>
+            <th class="text-start" style="min-width:120px">Cobrador</th>
+            <th style="min-width:55px">Com.%<br>Cobro%</th>
             {% for m in proyeccion_meses %}
-            <th>{{ m.mes_nombre[:3] }}<br><span class="fw-normal" style="font-size:.7rem">{{ m.anio }}</span></th>
+            <th style="min-width:85px">{{ m.mes_nombre[:3] }}<br>
+              <span class="fw-normal" style="font-size:.68rem">{{ m.anio }}</span>
+            </th>
             {% endfor %}
-            <th class="table-warning">TOTAL</th>
+            <th class="table-warning" style="min-width:100px">TOTAL</th>
           </tr>
         </thead>
         <tbody>
           {% for c in proyeccion_list %}
-          {# fila bruto #}
+          {# ── fila bruto ─────────────────────────────────────────── #}
           <tr>
             <td rowspan="3" class="fw-bold align-middle">{{ c.nombre }}</td>
-            <td rowspan="3" class="text-center align-middle text-muted">{{ c.comision_pct | int }}%</td>
+            <td rowspan="3" class="text-center align-middle" style="font-size:.72rem; line-height:1.6;">
+              <span class="text-muted">{{ c.comision_pct | int }}%</span><br>
+              <span class="fw-bold {% if c.tasa_cobro >= 80 %}text-success{% elif c.tasa_cobro >= 50 %}text-warning{% else %}text-danger{% endif %}">
+                {{ c.tasa_cobro }}%
+              </span>
+            </td>
             {% for m in c.meses %}
-            <td class="text-end {% if m.bruto == 0 %}text-muted{% else %}text-success fw-semibold{% endif %}">
-              {% if m.bruto == 0 %}—{% else %}{{ (m.bruto / 1000) | round(0) | int }}k{% endif %}
+            <td class="text-end fw-semibold {% if m.es_real %}cel-real{% elif m.bruto == 0 %}cel-vacio{% else %}cel-proy{% endif %}">
+              {% if m.es_real %}
+                {{ m.bruto | int | string | replace(',', '.') }}
+                <small class="d-block text-success fw-normal" style="font-size:.65rem">✓ real</small>
+              {% elif m.bruto == 0 %}
+                —
+              {% else %}
+                {{ m.bruto | int }}
+                <small class="d-block text-warning-emphasis fw-normal" style="font-size:.65rem">proy.</small>
+              {% endif %}
             </td>
             {% endfor %}
             <td class="text-end fw-bold text-success table-warning">{{ c.total_bruto | pesos }}</td>
           </tr>
-          {# fila comisión #}
-          <tr class="table-light" style="font-size:.72rem;">
+          {# ── fila comisión ──────────────────────────────────────── #}
+          <tr style="font-size:.72rem;">
             {% for m in c.meses %}
-            <td class="text-end text-danger">
-              {% if m.comision == 0 %}{% else %}-{{ (m.comision / 1000) | round(0) | int }}k{% endif %}
+            <td class="text-end text-danger {% if m.es_real %}cel-real{% elif m.comision == 0 %}cel-vacio{% else %}cel-proy{% endif %}">
+              {% if m.comision != 0 %}-{{ m.comision | int }}{% endif %}
             </td>
             {% endfor %}
             <td class="text-end text-danger table-warning fw-bold">-{{ c.total_comision | pesos }}</td>
           </tr>
-          {# fila neto #}
-          <tr style="border-bottom:2px solid #dee2e6; font-size:.72rem;">
+          {# ── fila neto ──────────────────────────────────────────── #}
+          <tr style="border-bottom:2px solid #ccc; font-size:.72rem;">
             {% for m in c.meses %}
-            <td class="text-end {% if m.neto == 0 %}text-muted{% else %}text-primary{% endif %}">
-              {% if m.neto == 0 %}{% else %}={{ (m.neto / 1000) | round(0) | int }}k{% endif %}
+            <td class="text-end text-primary {% if m.es_real %}cel-real{% elif m.neto == 0 %}cel-vacio{% else %}cel-proy{% endif %}">
+              {% if m.neto != 0 %}={{ m.neto | int }}{% endif %}
             </td>
             {% endfor %}
             <td class="text-end text-primary table-warning fw-bold">={{ c.total_neto | pesos }}</td>
           </tr>
           {% endfor %}
         </tbody>
-        {# fila totales #}
         <tfoot class="table-secondary fw-bold text-center">
           <tr>
             <td colspan="2" class="text-start">TOTAL BRUTO</td>
@@ -306,13 +325,11 @@
             {% set mes_i = loop.index0 %}
             {% set bruto_mes = namespace(v=0) %}
             {% for c in proyeccion_list %}{% set bruto_mes.v = bruto_mes.v + c.meses[mes_i].bruto %}{% endfor %}
-            <td class="text-end {% if bruto_mes.v == 0 %}text-muted{% else %}text-success{% endif %}">
-              {% if bruto_mes.v == 0 %}—{% else %}{{ (bruto_mes.v / 1000) | round(0) | int }}k{% endif %}
+            <td class="text-end {% if bruto_mes.v == 0 %}cel-vacio{% else %}text-success{% endif %}">
+              {% if bruto_mes.v == 0 %}—{% else %}{{ bruto_mes.v | int }}{% endif %}
             </td>
             {% endfor %}
-            <td class="text-end text-success table-warning">
-              {{ proyeccion_list | sum(attribute="total_bruto") | pesos }}
-            </td>
+            <td class="text-end text-success table-warning">{{ proyeccion_list | sum(attribute="total_bruto") | pesos }}</td>
           </tr>
           <tr>
             <td colspan="2" class="text-start">NETO INSTITUCIÓN</td>
@@ -320,22 +337,20 @@
             {% set mes_i = loop.index0 %}
             {% set neto_mes = namespace(v=0) %}
             {% for c in proyeccion_list %}{% set neto_mes.v = neto_mes.v + c.meses[mes_i].neto %}{% endfor %}
-            <td class="text-end {% if neto_mes.v == 0 %}text-muted{% else %}text-primary{% endif %}">
-              {% if neto_mes.v == 0 %}—{% else %}{{ (neto_mes.v / 1000) | round(0) | int }}k{% endif %}
+            <td class="text-end {% if neto_mes.v == 0 %}cel-vacio{% else %}text-primary{% endif %}">
+              {% if neto_mes.v == 0 %}—{% else %}{{ neto_mes.v | int }}{% endif %}
             </td>
             {% endfor %}
-            <td class="text-end text-primary table-warning">
-              {{ proyeccion_list | sum(attribute="total_neto") | pesos }}
-            </td>
+            <td class="text-end text-primary table-warning">{{ proyeccion_list | sum(attribute="total_neto") | pesos }}</td>
           </tr>
         </tfoot>
       </table>
     </div>
-    <p class="text-muted small mb-3">
-      <i class="bi bi-info-circle me-1"></i>
-      Valores en miles (k). Muestra cuotas pendientes de cobrar por mes de campaña, neto de comisión del cobrador.
-      Excluye boletas pagadas al contado y dadas de baja.
-    </p>
+    <div class="d-flex gap-3 mb-3" style="font-size:.78rem;">
+      <span><span class="badge" style="background:#e8f5e9;color:#1b5e20;border:1px solid #a5d6a7">✓ real</span> Mes ya liquidado</span>
+      <span><span class="badge" style="background:#fff8e1;color:#5d4037;border:1px solid #ffe082">proy.</span> Proyectado × % cobro</span>
+      <span class="text-muted">Com.% = comisión cobrador · Cobro% = tasa real de cobro en su cartera</span>
+    </div>
     {% endif %}
 
     <!-- ── Historial de liquidaciones ───────────────────────────── -->
