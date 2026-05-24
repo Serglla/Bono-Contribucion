@@ -233,6 +233,89 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     # Egresos proyectados (para ganancia proyectada — usa com.cobradores proyectada)
     total_egresos_proyectado = total_com_vendedores + com_cobradores_proyectada + total_bomberos + total_gastos
 
+
+    # ── Proyección mensual por cobrador ─────────────────────────────────
+    # Cuota 1 = Junio 2026, cuota 2 = Julio 2026, …, cuota 12 = Mayo 2027
+    _CAMPANA_INICIO = 5   # índice 0-based del mes anterior (Mayo → 5 → Junio)
+    _CAMPANA_ANIO   = 2026
+
+    def _cuota_a_mes_anio(n):
+        idx  = (_CAMPANA_INICIO + n - 1) % 12
+        mes  = idx + 1
+        anio = _CAMPANA_ANIO if mes >= 6 else _CAMPANA_ANIO + 1
+        return mes, anio
+
+    # Boletas activas con cobrador y talonera, sin BAJA
+    boletas_con_cob = [
+        b for b in boletas
+        if b.cobrador_id is not None and b.talonera is not None
+    ]
+
+    # Recolectar info de cobradores únicos
+    _cob_info = {}
+    for b in boletas_con_cob:
+        if b.cobrador_id not in _cob_info and b.cobrador:
+            _cob_info[b.cobrador_id] = {
+                "nombre":       b.cobrador.nombre,
+                "comision_pct": float(b.cobrador.comision_pct or 0),
+            }
+
+    # Para cada cobrador armar lista de 12 meses
+    _cob_proyeccion = {}
+    for cid, info in _cob_info.items():
+        meses_proj = []
+        pct = info["comision_pct"] / 100.0
+        for n in range(1, 13):
+            mes, anio = _cuota_a_mes_anio(n)
+            bruto = 0.0
+            cant  = 0
+            for b in boletas_con_cob:
+                if b.cobrador_id != cid:
+                    continue
+                pactadas    = b.cuotas_pactadas    or 0
+                pagadas     = b.cuotas_pagadas     or 0
+                anticipadas = b.cuotas_anticipadas or 0
+                nc          = b.talonera.num_cuotas or 12
+                vc          = b.talonera.valor_cuota or 0
+                if n > nc:          continue   # talonera no llega a esta cuota
+                if n > pactadas:    continue   # no la tiene pactada
+                if n <= pagadas:    continue   # ya pagó
+                if n <= anticipadas: continue  # anticipada (contado)
+                bruto += vc
+                cant  += 1
+            comision = round(bruto * pct)
+            meses_proj.append({
+                "cuota":      n,
+                "mes":        mes,
+                "anio":       anio,
+                "mes_nombre": MESES[mes - 1],
+                "bruto":      bruto,
+                "comision":   comision,
+                "neto":       bruto - comision,
+                "cant":       cant,
+            })
+        _cob_proyeccion[cid] = meses_proj
+
+    proyeccion_list = sorted([
+        {
+            "nombre":        _cob_info[cid]["nombre"],
+            "comision_pct":  _cob_info[cid]["comision_pct"],
+            "meses":         _cob_proyeccion[cid],
+            "total_bruto":   sum(m["bruto"]    for m in _cob_proyeccion[cid]),
+            "total_comision":sum(m["comision"] for m in _cob_proyeccion[cid]),
+            "total_neto":    sum(m["neto"]     for m in _cob_proyeccion[cid]),
+        }
+        for cid in _cob_info
+    ], key=lambda x: x["nombre"])
+
+    # Meses de campaña para encabezados (siempre 12)
+    proyeccion_meses = [
+        {"mes": (_CAMPANA_INICIO + i) % 12 + 1,
+         "anio": _CAMPANA_ANIO if ((_CAMPANA_INICIO + i) % 12 + 1) >= 6 else _CAMPANA_ANIO + 1,
+         "mes_nombre": MESES[(_CAMPANA_INICIO + i) % 12]}
+        for i in range(12)
+    ]
+
     return templates.TemplateResponse(request, "contabilidad.html", {
         "user":                  user,
         "total_recaudado":       total_recaudado,
@@ -260,6 +343,8 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "cobradores_list":       cobradores_list,
         "rec_por_mes_list":      rec_por_mes_list,
         "total_socios":          len(boletas),
+        "proyeccion_list":       proyeccion_list,
+        "proyeccion_meses":      proyeccion_meses,
     })
 
 

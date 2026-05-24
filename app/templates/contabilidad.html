@@ -245,6 +245,103 @@
 
   <!-- Tab: Cobradores ─────────────────────────────────────────────── -->
   <div class="tab-pane fade" id="tabCobradores">
+
+    <!-- ── Proyección mes a mes ─────────────────────────────────── -->
+    <h6 class="fw-bold text-secondary mb-2 mt-1">
+      <i class="bi bi-calendar3 me-1"></i>Proyección por cobrar — mes a mes
+    </h6>
+    {% if not proyeccion_list %}
+      <p class="text-muted small">Sin boletas asignadas a cobradores.</p>
+    {% else %}
+    <div class="table-responsive mb-4">
+      <table class="table table-sm table-bordered align-middle" style="font-size:.78rem; min-width:900px;">
+        <thead class="table-dark text-center">
+          <tr>
+            <th class="text-start" style="min-width:110px">Cobrador</th>
+            <th>Com.%</th>
+            {% for m in proyeccion_meses %}
+            <th>{{ m.mes_nombre[:3] }}<br><span class="fw-normal" style="font-size:.7rem">{{ m.anio }}</span></th>
+            {% endfor %}
+            <th class="table-warning">TOTAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in proyeccion_list %}
+          {# fila bruto #}
+          <tr>
+            <td rowspan="3" class="fw-bold align-middle">{{ c.nombre }}</td>
+            <td rowspan="3" class="text-center align-middle text-muted">{{ c.comision_pct | int }}%</td>
+            {% for m in c.meses %}
+            <td class="text-end {% if m.bruto == 0 %}text-muted{% else %}text-success fw-semibold{% endif %}">
+              {% if m.bruto == 0 %}—{% else %}{{ (m.bruto / 1000) | round(0) | int }}k{% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-end fw-bold text-success table-warning">{{ c.total_bruto | pesos }}</td>
+          </tr>
+          {# fila comisión #}
+          <tr class="table-light" style="font-size:.72rem;">
+            {% for m in c.meses %}
+            <td class="text-end text-danger">
+              {% if m.comision == 0 %}{% else %}-{{ (m.comision / 1000) | round(0) | int }}k{% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-end text-danger table-warning fw-bold">-{{ c.total_comision | pesos }}</td>
+          </tr>
+          {# fila neto #}
+          <tr style="border-bottom:2px solid #dee2e6; font-size:.72rem;">
+            {% for m in c.meses %}
+            <td class="text-end {% if m.neto == 0 %}text-muted{% else %}text-primary{% endif %}">
+              {% if m.neto == 0 %}{% else %}={{ (m.neto / 1000) | round(0) | int }}k{% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-end text-primary table-warning fw-bold">={{ c.total_neto | pesos }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        {# fila totales #}
+        <tfoot class="table-secondary fw-bold text-center">
+          <tr>
+            <td colspan="2" class="text-start">TOTAL BRUTO</td>
+            {% for m in proyeccion_meses %}
+            {% set mes_i = loop.index0 %}
+            {% set bruto_mes = namespace(v=0) %}
+            {% for c in proyeccion_list %}{% set bruto_mes.v = bruto_mes.v + c.meses[mes_i].bruto %}{% endfor %}
+            <td class="text-end {% if bruto_mes.v == 0 %}text-muted{% else %}text-success{% endif %}">
+              {% if bruto_mes.v == 0 %}—{% else %}{{ (bruto_mes.v / 1000) | round(0) | int }}k{% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-end text-success table-warning">
+              {{ proyeccion_list | sum(attribute="total_bruto") | pesos }}
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2" class="text-start">NETO INSTITUCIÓN</td>
+            {% for m in proyeccion_meses %}
+            {% set mes_i = loop.index0 %}
+            {% set neto_mes = namespace(v=0) %}
+            {% for c in proyeccion_list %}{% set neto_mes.v = neto_mes.v + c.meses[mes_i].neto %}{% endfor %}
+            <td class="text-end {% if neto_mes.v == 0 %}text-muted{% else %}text-primary{% endif %}">
+              {% if neto_mes.v == 0 %}—{% else %}{{ (neto_mes.v / 1000) | round(0) | int }}k{% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-end text-primary table-warning">
+              {{ proyeccion_list | sum(attribute="total_neto") | pesos }}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="text-muted small mb-3">
+      <i class="bi bi-info-circle me-1"></i>
+      Valores en miles (k). Muestra cuotas pendientes de cobrar por mes de campaña, neto de comisión del cobrador.
+      Excluye boletas pagadas al contado y dadas de baja.
+    </p>
+    {% endif %}
+
+    <!-- ── Historial de liquidaciones ───────────────────────────── -->
+    <h6 class="fw-bold text-secondary mb-2">
+      <i class="bi bi-receipt me-1"></i>Historial de liquidaciones
+    </h6>
     {% if not cobradores_list %}
       <p class="text-muted">Sin liquidaciones de cobradores aun.</p>
     {% else %}
