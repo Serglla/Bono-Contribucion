@@ -655,15 +655,6 @@
     const status = el.querySelector('.cobrador-popup-status');
     if (!btn || !sel) return;
 
-    const btnMover = el.querySelector('.btn-mover-pin');
-    if (btnMover) {
-      btnMover.addEventListener('click', () => {
-        const cid = parseInt(btnMover.dataset.cid);
-        const entry = markers.find(m => m.pt.comprador_id === cid);
-        if (entry) entrarReposicion(entry);
-      });
-    }
-
     btn.addEventListener('click', async () => {
       const cid = parseInt(btn.dataset.cid);
       const cobId = sel.value;
@@ -747,6 +738,15 @@
       btnReset.disabled = false;
     });
   }
+
+  // ════ Mover pin — delegación global (funciona para CONTADO y no-CONTADO) ════
+  document.addEventListener('click', (e) => {
+    const btnM = e.target.closest('.btn-mover-pin');
+    if (!btnM) return;
+    const cid = parseInt(btnM.dataset.cid);
+    const entry = markers.find(m => m.pt.comprador_id === cid);
+    if (entry) entrarReposicion(entry);
+  });
 
   // ════ Reposición manual de marcadores ════
   let reposiMode = null; // { entry, origLat, origLng }
