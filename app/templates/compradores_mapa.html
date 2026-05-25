@@ -203,7 +203,10 @@
     }).join('');
     return `
       <div style="min-width:210px;">
-        <b>${pt.numero}</b> &nbsp;<span style="background:${pt.color};color:${textColorOnBg(pt.color)};padding:1px 6px;border-radius:4px;font-size:.75rem;">${pt.pata_label}</span><br>
+        <b>${pt.numero}</b> &nbsp;<span style="background:${pt.color};color:${textColorOnBg(pt.color)};padding:1px 6px;border-radius:4px;font-size:.75rem;">${pt.pata_label}</span>
+        ${pt.es_contado ? '&nbsp;<span style="background:#198754;color:#fff;padding:1px 6px;border-radius:4px;font-size:.75rem;font-weight:600;">CONTADO</span>' : ''}
+        ${pt.contado_2_veces ? '&nbsp;<span style="background:#0d6efd;color:#fff;padding:1px 6px;border-radius:4px;font-size:.75rem;font-weight:600;">CONTADO 2 VECES</span>' : ''}
+        <br>
         <b>${pt.apellido_nombre}</b><br>
         <i class="bi bi-geo-alt"></i> ${pt.direccion}<br>
         ${pt.zona ? '<i class="bi bi-map"></i> ' + pt.zona + '<br>' : ''}

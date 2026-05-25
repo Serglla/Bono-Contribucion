@@ -1431,6 +1431,8 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
             "lat": lat_pre,
             "lng": lng_pre,
             "ya_intentado": ya_intentado,  # true = no reintentar geocoding (fallo previo)
+            "es_contado": (b.numero_especial is not None) or ((b.cuotas_anticipadas or 0) >= (b.cuotas_pactadas or 1)),
+            "contado_2_veces": b.numero_especial_2 is not None,
         })
         if t.nombre not in patas_set:
             patas_set[t.nombre] = color
