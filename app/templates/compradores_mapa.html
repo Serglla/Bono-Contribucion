@@ -157,6 +157,17 @@
     <div id="panelProgreso">
       <span id="progresoTexto">Cargando ubicaciones...</span>
     </div>
+    <div id="panelReposicion" style="display:none;position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(255,255,255,.97);border-radius:8px;padding:10px 18px;box-shadow:0 2px 14px rgba(0,0,0,.35);font-size:.88rem;text-align:center;min-width:280px;">
+      <div class="mb-2">
+        <i class="bi bi-arrows-move text-primary me-1"></i>
+        Arrastrá el marcador de <strong id="reposiNombre"></strong> a la posición correcta
+      </div>
+      <div class="d-flex gap-2 justify-content-center">
+        <button id="btnGuardarRepo" class="btn btn-sm btn-success"><i class="bi bi-check-lg me-1"></i>Guardar posición</button>
+        <button id="btnCancelarRepo" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x me-1"></i>Cancelar</button>
+      </div>
+      <div id="reposiStatus" style="font-size:.75rem;min-height:16px;margin-top:4px;"></div>
+    </div>
     <div id="mapaSocios"></div>
   </div>
 </div>
@@ -211,6 +222,7 @@
         <i class="bi bi-geo-alt"></i> ${pt.direccion}<br>
         ${pt.zona ? '<i class="bi bi-map"></i> ' + pt.zona + '<br>' : ''}
         ${pt.vendedor_nombre ? '<i class="bi bi-person-badge"></i> ' + pt.vendedor_nombre + '<br>' : ''}
+        ${!pt.es_contado ? `
         <div class="mt-1 d-flex align-items-center gap-1 flex-wrap">
           <span class="text-muted" style="font-size:.78rem;white-space:nowrap;"><i class="bi bi-person-check"></i> Cobrador:</span>
           <select class="form-select form-select-sm sel-cobrador-popup"
@@ -225,9 +237,13 @@
           </button>
         </div>
         <div class="cobrador-popup-status" style="font-size:.72rem;min-height:14px;"></div>
+        ` : ''}
         <a href="/compradores/${pt.comprador_id}/editar?from=mapa" class="btn btn-sm btn-outline-primary mt-1">
           <i class="bi bi-pencil"></i> Editar socio
         </a>
+        <button class="btn btn-sm btn-outline-warning mt-1 btn-mover-pin" data-cid="${pt.comprador_id}">
+          <i class="bi bi-arrows-move"></i> Mover pin
+        </button>
       </div>
     `;
   }
@@ -639,6 +655,15 @@
     const status = el.querySelector('.cobrador-popup-status');
     if (!btn || !sel) return;
 
+    const btnMover = el.querySelector('.btn-mover-pin');
+    if (btnMover) {
+      btnMover.addEventListener('click', () => {
+        const cid = parseInt(btnMover.dataset.cid);
+        const entry = markers.find(m => m.pt.comprador_id === cid);
+        if (entry) entrarReposicion(entry);
+      });
+    }
+
     btn.addEventListener('click', async () => {
       const cid = parseInt(btn.dataset.cid);
       const cobId = sel.value;
@@ -722,6 +747,68 @@
       btnReset.disabled = false;
     });
   }
+
+  // ════ Reposición manual de marcadores ════
+  let reposiMode = null; // { entry, origLat, origLng }
+
+  function entrarReposicion(entry) {
+    if (reposiMode) salirReposicion(false);
+    reposiMode = { entry, origLat: entry.lat, origLng: entry.lng };
+    entry.marker.closePopup();
+    entry.marker.dragging.enable();
+    document.getElementById('reposiNombre').textContent = entry.pt.apellido_nombre;
+    document.getElementById('reposiStatus').innerHTML = '';
+    document.getElementById('panelReposicion').style.display = 'block';
+  }
+
+  function salirReposicion(guardado) {
+    if (!reposiMode) return;
+    const { entry, origLat, origLng } = reposiMode;
+    if (!guardado) {
+      entry.marker.setLatLng([origLat, origLng]);
+      entry.lat = origLat;
+      entry.lng = origLng;
+    }
+    entry.marker.dragging.disable();
+    document.getElementById('panelReposicion').style.display = 'none';
+    reposiMode = null;
+  }
+
+  document.getElementById('btnGuardarRepo').addEventListener('click', async () => {
+    if (!reposiMode) return;
+    const { entry } = reposiMode;
+    const ll = entry.marker.getLatLng();
+    const btnG = document.getElementById('btnGuardarRepo');
+    const btnC = document.getElementById('btnCancelarRepo');
+    const status = document.getElementById('reposiStatus');
+    btnG.disabled = true;
+    btnC.disabled = true;
+    status.innerHTML = '<span class="spinner-border spinner-border-sm text-success" style="width:12px;height:12px;"></span> Guardando...';
+    try {
+      const r = await fetch('/compradores/mapa-geocode-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direccion: entry.pt.direccion, lat: ll.lat, lng: ll.lng })
+      });
+      const j = await r.json();
+      if (j.ok) {
+        entry.lat = ll.lat;
+        entry.lng = ll.lng;
+        status.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i> ¡Posición guardada!';
+        setTimeout(() => salirReposicion(true), 900);
+      } else {
+        status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error al guardar';
+        btnG.disabled = false;
+        btnC.disabled = false;
+      }
+    } catch(err) {
+      status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error de red';
+      btnG.disabled = false;
+      btnC.disabled = false;
+    }
+  });
+
+  document.getElementById('btnCancelarRepo').addEventListener('click', () => salirReposicion(false));
 
   cargar();
 })();
