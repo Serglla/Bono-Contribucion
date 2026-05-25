@@ -20,6 +20,37 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <style>
     body { background: #f4f6f9; }
+    /* Offline pill */
+    #offline-pill {
+      display: none;
+      position: fixed;
+      bottom: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #dc3545;
+      color: #fff;
+      font-size: .82rem;
+      font-weight: 600;
+      padding: .35rem .9rem;
+      border-radius: 999px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.35);
+      z-index: 9999;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    #offline-pill.visible { display: flex; align-items: center; gap: .4rem; }
+    #sync-badge {
+      display: none;
+      background: #ffc107;
+      color: #000;
+      font-size: .7rem;
+      font-weight: 700;
+      padding: .1rem .45rem;
+      border-radius: 999px;
+      margin-left: .35rem;
+      vertical-align: middle;
+      cursor: pointer;
+    }
     /* Topbar */
     .topbar { background: #1a2a4a; }
     .topbar .navbar-brand { color: #fff; font-weight: 700; font-size: 1.05rem; line-height: 1.1; }
@@ -152,16 +183,135 @@
 <div class="main-content p-4">
   {% block content %}{% endblock %}
 </div>
+
+<!-- Offline pill (fijo abajo al centro) -->
+<div id="offline-pill">
+  <span>📡</span>
+  <span id="offline-pill-text">Sin conexión</span>
+  <span id="sync-badge" onclick="swSyncNow()" title="Hay operaciones pendientes. Clic para sincronizar."></span>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-  // Registro del Service Worker (PWA) — habilita "Instalar app" en navegador.
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker
-        .register("/service-worker.js", { scope: "/" })
-        .catch((err) => console.warn("SW registro falló:", err));
-    });
+// ── Service Worker + Offline ──────────────────────────────────────────────────
+
+const offlinePill    = document.getElementById("offline-pill");
+const offlinePillTxt = document.getElementById("offline-pill-text");
+const syncBadge      = document.getElementById("sync-badge");
+let   swRegistration = null;
+let   pendingCount   = 0;
+
+function updateOfflineUI(isOnline) {
+  if (isOnline) {
+    offlinePill.classList.remove("visible");
+  } else {
+    offlinePillTxt.textContent = "Sin conexión" + (pendingCount ? ` · ${pendingCount} pendiente${pendingCount > 1 ? "s" : ""}` : "");
+    offlinePill.classList.add("visible");
   }
+}
+
+function updatePendingBadge(count) {
+  pendingCount = count;
+  if (count > 0) {
+    syncBadge.textContent = count;
+    syncBadge.style.display = "inline-block";
+    syncBadge.title = `${count} operación${count > 1 ? "es" : ""} pendiente${count > 1 ? "s" : ""} — clic para sincronizar`;
+    if (!navigator.onLine) {
+      offlinePillTxt.textContent = `Sin conexión · ${count} pendiente${count > 1 ? "s" : ""}`;
+    }
+  } else {
+    syncBadge.style.display = "none";
+    if (!navigator.onLine) offlinePillTxt.textContent = "Sin conexión";
+  }
+}
+
+function swSyncNow() {
+  if (!swRegistration) return;
+  swRegistration.active?.postMessage({ type: "SYNC_NOW" });
+}
+
+function swPrefetch() {
+  if (!swRegistration?.active) return;
+  swRegistration.active.postMessage({ type: "PREFETCH_PAGES" });
+}
+
+function swGetPendingCount() {
+  if (!swRegistration?.active) return;
+  swRegistration.active.postMessage({ type: "GET_PENDING_COUNT" });
+}
+
+// Mensajes entrantes del SW.
+navigator.serviceWorker?.addEventListener("message", (event) => {
+  const { data } = event;
+  if (!data) return;
+
+  if (data.type === "PENDING_COUNT") {
+    updatePendingBadge(data.count);
+  }
+
+  if (data.type === "SYNC_COMPLETE") {
+    const { replayed, failed, remaining } = data;
+    updatePendingBadge(remaining);
+    if (replayed > 0) {
+      // Recargar la página actual para mostrar los cambios sincronizados.
+      const toast = document.createElement("div");
+      toast.style.cssText =
+        "position:fixed;top:4rem;right:1rem;z-index:9999;" +
+        "background:#198754;color:#fff;padding:.5rem 1rem;" +
+        "border-radius:8px;font-size:.85rem;box-shadow:0 2px 10px rgba(0,0,0,.3)";
+      toast.textContent = `✓ ${replayed} operación${replayed > 1 ? "es" : ""} sincronizada${replayed > 1 ? "s" : ""}.`;
+      document.body.appendChild(toast);
+      setTimeout(() => { toast.remove(); location.reload(); }, 2500);
+    }
+    if (failed > 0) {
+      updatePendingBadge(remaining);
+    }
+  }
+
+  if (data.type === "PREFETCH_DONE") {
+    console.log("[PWA] Pre-carga de páginas clave completada.");
+  }
+
+  // Cola encolada desde SW (respuesta 202 de write offline).
+  if (data.type === "REQUEST_QUEUED") {
+    updatePendingBadge(data.count || pendingCount + 1);
+  }
+});
+
+// Registro del Service Worker.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", async () => {
+    try {
+      swRegistration = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
+      swGetPendingCount();
+    } catch (err) {
+      console.warn("SW registro falló:", err);
+    }
+  });
+}
+
+// Detectar online / offline.
+updateOfflineUI(navigator.onLine);
+
+window.addEventListener("online", () => {
+  updateOfflineUI(true);
+  // Al reconectarse: intentar sync automático y re-pre-cachear.
+  swSyncNow();
+  swPrefetch();
+  swGetPendingCount();
+});
+
+window.addEventListener("offline", () => {
+  updateOfflineUI(false);
+});
+
+// Pre-cachear páginas clave cuando la app carga y hay conexión.
+window.addEventListener("load", () => {
+  if (navigator.onLine) {
+    // Pequeño delay para no competir con la carga inicial de la página.
+    setTimeout(swPrefetch, 3000);
+  }
+});
 </script>
 {% block scripts %}{% endblock %}
 </body>

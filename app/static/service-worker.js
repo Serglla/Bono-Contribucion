@@ -1,19 +1,36 @@
-/* Bonos Bomberos CDELU — Service Worker
+/* Bonos Bomberos CDELU — Service Worker v3
  *
- * Estrategia:
- *   - Recursos /static/* (CSS/JS/íconos)        → cache-first (rápidos y casi nunca cambian)
- *   - CDNs (bootstrap, bootstrap-icons)         → stale-while-revalidate (sirve cache, refresca atrás)
- *   - Navegaciones (HTML, login, dashboards...) → network-first (siempre datos frescos; fallback offline)
- *   - POST / PUT / DELETE                       → NUNCA se cachean (pasan derecho a red)
+ * Estrategia de caché:
+ *   - /static/*  (CSS/JS/íconos propios) → cache-first
+ *   - CDN (bootstrap, bootstrap-icons)   → stale-while-revalidate
+ *   - Navegaciones HTML                  → network-first + fallback offline
+ *   - POST / PUT / DELETE de formularios → interceptados: si hay red, pasan normal;
+ *                                          si no hay red, se encolan en IndexedDB
+ *                                          y se reintentan con Background Sync.
  *
- * Para forzar a los clientes a tomar una versión nueva del SW, subir CACHE_VERSION.
+ * Para forzar actualización en clientes: subir CACHE_VERSION.
  */
 
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 const STATIC_CACHE  = `bonos-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `bonos-runtime-${CACHE_VERSION}`;
+const SYNC_TAG      = "bonos-offline-queue";
 
-// Precarga mínima: solo cosas que sí o sí queremos disponibles offline.
+// Páginas clave pre-cacheadas en background cuando el usuario está online.
+const KEY_PAGES = [
+  "/compradores/",
+  "/reportes/",
+  "/cobranza/",
+  "/vendedores/",
+];
+
+// Endpoints de escritura que admiten cola offline.
+const QUEUEABLE_PREFIXES = [
+  "/cobranza/liquidacion/",
+  "/vendedores/",
+];
+
+// Precarga mínima garantizada (sin auth necesaria).
 const PRECACHE_URLS = [
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",
@@ -21,7 +38,86 @@ const PRECACHE_URLS = [
   "/manifest.webmanifest",
 ];
 
-// Install: precachear los recursos críticos.
+// ─── IndexedDB helpers ────────────────────────────────────────────────────────
+
+const DB_NAME    = "bonos-offline";
+const DB_VERSION = 1;
+const STORE_NAME = "queue";
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        const store = db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
+        store.createIndex("timestamp", "timestamp");
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror   = (e) => reject(e.target.error);
+  });
+}
+
+async function enqueueRequest(request) {
+  const body    = await request.clone().text();
+  const headers = {};
+  request.headers.forEach((v, k) => { headers[k] = v; });
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx    = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    store.add({
+      url: request.url, method: request.method,
+      headers, body, timestamp: Date.now(), retries: 0,
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror    = (e) => reject(e.target.error);
+  });
+}
+
+async function getAllQueued() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx    = db.transaction(STORE_NAME, "readonly");
+    const store = tx.objectStore(STORE_NAME);
+    const req   = store.getAll();
+    req.onsuccess = (e) => resolve(e.target.result || []);
+    req.onerror   = (e) => reject(e.target.error);
+  });
+}
+
+async function deleteQueued(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx    = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    store.delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror    = (e) => reject(e.target.error);
+  });
+}
+
+async function countQueued() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx    = db.transaction(STORE_NAME, "readonly");
+    const store = tx.objectStore(STORE_NAME);
+    const req   = store.count();
+    req.onsuccess = (e) => resolve(e.target.result || 0);
+    req.onerror   = () => resolve(0);
+  });
+}
+
+// ─── Notificar a todos los clientes abiertos ──────────────────────────────────
+
+async function notifyClients(msg) {
+  const clients = await self.clients.matchAll({ includeUncontrolled: true });
+  clients.forEach((c) => c.postMessage(msg));
+}
+
+// ─── Install ──────────────────────────────────────────────────────────────────
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE_URLS))
@@ -29,86 +125,105 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
-// Activate: limpiar caches viejos de versiones anteriores.
+// ─── Activate ─────────────────────────────────────────────────────────────────
+
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE)
-          .map((k) => caches.delete(k))
+    caches.keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((k) => k !== STATIC_CACHE && k !== RUNTIME_CACHE)
+            .map((k) => caches.delete(k))
+        )
       )
-    ).then(() => self.clients.claim())
+      .then(() => self.clients.claim())
   );
 });
 
-// Helpers ─────────────────────────────────────────────────────────────────────
+// ─── Message handler ──────────────────────────────────────────────────────────
 
-function isCdnAsset(url) {
-  return (
-    url.hostname === "cdn.jsdelivr.net" ||
-    url.hostname === "cdnjs.cloudflare.com"
-  );
-}
+self.addEventListener("message", (event) => {
+  const { data } = event;
+  if (!data) return;
 
-function isStaticAsset(url) {
-  // Solo nuestros propios /static/* — NO cachear /auth/, /reportes/, etc.
-  return url.origin === self.location.origin && url.pathname.startsWith("/static/");
-}
+  if (data.type === "PREFETCH_PAGES") {
+    event.waitUntil(prefetchKeyPages());
+  }
 
-function isNavigationRequest(request) {
-  return (
-    request.mode === "navigate" ||
-    (request.method === "GET" &&
-      request.headers.get("accept") &&
-      request.headers.get("accept").includes("text/html"))
-  );
-}
+  if (data.type === "GET_PENDING_COUNT") {
+    event.waitUntil(
+      countQueued().then((count) => {
+        if (event.source) {
+          event.source.postMessage({ type: "PENDING_COUNT", count });
+        }
+      })
+    );
+  }
 
-// Fetch handler ───────────────────────────────────────────────────────────────
+  if (data.type === "SYNC_NOW") {
+    event.waitUntil(replayQueue());
+  }
+});
+
+// ─── Background Sync ──────────────────────────────────────────────────────────
+
+self.addEventListener("sync", (event) => {
+  if (event.tag === SYNC_TAG) {
+    event.waitUntil(replayQueue());
+  }
+});
+
+// ─── Fetch handler ────────────────────────────────────────────────────────────
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // 1) No tocar nada que no sea GET (POST/PUT/DELETE pasan derecho).
-  if (request.method !== "GET") return;
-
-  // 2) No cachear endpoints sensibles ni con query (?) — esos siempre van a red.
-  //    Ejemplos: /auth/login, /backup/*, búsquedas con filtros, etc.
+  // No tocar auth ni backup.
   if (
     url.pathname.startsWith("/auth/") ||
     url.pathname.startsWith("/backup/") ||
     url.pathname === "/service-worker.js"
-  ) {
-    return; // dejamos pasar a la red sin intervenir
+  ) return;
+
+  // POST/PUT/DELETE: solo interceptar endpoints encolables.
+  if (request.method !== "GET") {
+    const isQueueable = QUEUEABLE_PREFIXES.some((p) => url.pathname.startsWith(p));
+    if (isQueueable) {
+      event.respondWith(handleWriteRequest(request));
+    }
+    return;
   }
 
-  // 3) Assets estáticos propios → cache-first.
-  if (isStaticAsset(url)) {
+  // Assets propios /static/* → cache-first.
+  if (url.origin === self.location.origin && url.pathname.startsWith("/static/")) {
     event.respondWith(cacheFirst(request, STATIC_CACHE));
     return;
   }
 
-  // 4) CDN (Bootstrap, iconos) → stale-while-revalidate.
-  if (isCdnAsset(url)) {
+  // CDN → stale-while-revalidate.
+  if (url.hostname === "cdn.jsdelivr.net" || url.hostname === "cdnjs.cloudflare.com") {
     event.respondWith(staleWhileRevalidate(request, RUNTIME_CACHE));
     return;
   }
 
-  // 5) Navegaciones HTML → network-first con fallback al último HTML cacheado.
-  if (isNavigationRequest(request)) {
+  // Navegaciones HTML → network-first con fallback.
+  const isNav =
+    request.mode === "navigate" ||
+    (request.method === "GET" && (request.headers.get("accept") || "").includes("text/html"));
+  if (isNav) {
     event.respondWith(networkFirst(request, RUNTIME_CACHE));
     return;
   }
 
-  // 6) Resto (APIs internas, fetch dinámico): network-first sin cachear agresivo.
+  // Resto → network con fallback a caché.
   event.respondWith(
     fetch(request).catch(() => caches.match(request))
   );
 });
 
-// Strategies ──────────────────────────────────────────────────────────────────
+// ─── Estrategias de caché ─────────────────────────────────────────────────────
 
 async function cacheFirst(request, cacheName) {
   const cached = await caches.match(request);
@@ -126,13 +241,10 @@ async function cacheFirst(request, cacheName) {
 }
 
 async function staleWhileRevalidate(request, cacheName) {
-  const cache = await caches.open(cacheName);
+  const cache  = await caches.open(cacheName);
   const cached = await cache.match(request);
   const network = fetch(request)
-    .then((resp) => {
-      if (resp && resp.ok) cache.put(request, resp.clone());
-      return resp;
-    })
+    .then((resp) => { if (resp && resp.ok) cache.put(request, resp.clone()); return resp; })
     .catch(() => null);
   return cached || (await network) || Response.error();
 }
@@ -141,7 +253,6 @@ async function networkFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
   try {
     const fresh = await fetch(request);
-    // Solo cacheamos respuestas OK de páginas (200) — evitamos guardar redirects de login.
     if (fresh.ok && fresh.type === "basic") {
       cache.put(request, fresh.clone());
     }
@@ -149,20 +260,100 @@ async function networkFirst(request, cacheName) {
   } catch (e) {
     const cached = await cache.match(request);
     if (cached) return cached;
-    // Último recurso: pantalla mínima offline.
     return new Response(
       `<!doctype html><html lang="es"><meta charset="utf-8">
-       <title>Sin conexión</title>
-       <body style="font-family:system-ui;background:#1a2a4a;color:#fff;
+       <title>Sin conexion - Bonos CDELU</title>
+       <meta name="viewport" content="width=device-width,initial-scale=1">
+       <style>
+         body{font-family:system-ui;background:#1a2a4a;color:#fff;
               display:flex;align-items:center;justify-content:center;
-              min-height:100vh;margin:0;text-align:center;padding:2rem;">
+              min-height:100vh;margin:0;text-align:center;padding:2rem;}
+         h1{margin:0 0 .5rem;}p{opacity:.8;line-height:1.6;}a{color:#ffc107;font-weight:600;}
+       </style>
+       <body>
          <div>
-           <h1 style="margin:0 0 .5rem;">Sin conexión</h1>
-           <p style="opacity:.8;">No se pudo contactar al servidor.<br>
-              Revisá tu internet e intentá de nuevo.</p>
+           <div style="font-size:3rem;margin-bottom:1rem;">&#128225;</div>
+           <h1>Sin conexion</h1>
+           <p>No hay conexion con el servidor.<br>Revisa tu internet e intenta de nuevo.</p>
+           <p style="margin-top:1.5rem;"><a href="javascript:location.reload()">Reintentar</a></p>
          </div>
        </body></html>`,
       { headers: { "Content-Type": "text/html; charset=utf-8" }, status: 503 }
     );
   }
+}
+
+// ─── Manejar escrituras (POST a endpoints encolables) ─────────────────────────
+
+async function handleWriteRequest(request) {
+  const cloned = request.clone();
+  try {
+    const resp = await fetch(request);
+    const count = await countQueued();
+    notifyClients({ type: "PENDING_COUNT", count });
+    return resp;
+  } catch (err) {
+    try {
+      await enqueueRequest(cloned);
+      const count = await countQueued();
+      notifyClients({ type: "PENDING_COUNT", count });
+      if (self.registration.sync) {
+        await self.registration.sync.register(SYNC_TAG);
+      }
+    } catch (e) {
+      console.warn("[SW] No se pudo encolar:", e);
+    }
+    return new Response(
+      JSON.stringify({ ok: false, queued: true, message: "Sin conexion - cambios guardados localmente." }),
+      { headers: { "Content-Type": "application/json" }, status: 202 }
+    );
+  }
+}
+
+// ─── Replay de cola offline ───────────────────────────────────────────────────
+
+async function replayQueue() {
+  const items = await getAllQueued();
+  if (!items.length) return;
+
+  let replayed = 0;
+  let failed   = 0;
+
+  for (const item of items) {
+    try {
+      const resp = await fetch(item.url, {
+        method:  item.method,
+        headers: item.headers,
+        body:    item.body || undefined,
+      });
+      if (resp.ok || resp.redirected || (resp.status >= 200 && resp.status < 400)) {
+        await deleteQueued(item.id);
+        replayed++;
+      } else {
+        failed++;
+      }
+    } catch (e) {
+      failed++;
+    }
+  }
+
+  const remaining = await countQueued();
+  notifyClients({ type: "SYNC_COMPLETE", replayed, failed, remaining });
+}
+
+// ─── Pre-carga de páginas clave ───────────────────────────────────────────────
+
+async function prefetchKeyPages() {
+  const cache = await caches.open(RUNTIME_CACHE);
+  for (const page of KEY_PAGES) {
+    try {
+      const resp = await fetch(page, { credentials: "include" });
+      if (resp.ok && resp.type === "basic") {
+        await cache.put(page, resp);
+      }
+    } catch (e) {
+      // Ignorar silenciosamente (sin red o 401).
+    }
+  }
+  notifyClients({ type: "PREFETCH_DONE" });
 }
