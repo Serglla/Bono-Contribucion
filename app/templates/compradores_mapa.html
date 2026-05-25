@@ -774,7 +774,7 @@
     reposiMode = null;
   }
 
-  document.getElementById('btnGuardarRepo').addEventListener('click', async () => {
+  document.getElementById('btnGuardarRepo').onclick = async () => {
     if (!reposiMode) return;
     const { entry } = reposiMode;
     const ll = entry.marker.getLatLng();
@@ -806,9 +806,9 @@
       btnG.disabled = false;
       btnC.disabled = false;
     }
-  });
+  };
 
-  document.getElementById('btnCancelarRepo').addEventListener('click', () => salirReposicion(false));
+  document.getElementById('btnCancelarRepo').onclick = () => salirReposicion(false);
 
   cargar();
 })();
