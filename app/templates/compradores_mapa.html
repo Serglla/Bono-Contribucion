@@ -771,6 +771,9 @@
     }
     entry.marker.dragging.disable();
     document.getElementById('panelReposicion').style.display = 'none';
+    document.getElementById('btnGuardarRepo').disabled = false;
+    document.getElementById('btnCancelarRepo').disabled = false;
+    document.getElementById('reposiStatus').innerHTML = '';
     reposiMode = null;
   }
 
