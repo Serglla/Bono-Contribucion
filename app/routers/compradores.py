@@ -56,13 +56,27 @@ async def listar(request: Request, db: Session = Depends(get_db),
                      models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas,
                  )
                  .distinct())
-    # Filtro: socios cuyo cobrador actual es X
+    # Filtro: socios cuyo cobrador actual es X.
+    # Excluye contados: aunque la boleta conserve cobrador_id (bug viejo de
+    # auto-asignación), un contado no lo cobra el cobrador y no debe aparecer
+    # en su listado. Mismo criterio que el badge CONTADO del template:
+    # numero_especial / numero_especial_2 asignado, o anticipo_total
+    # (cuotas_pactadas>0 y cuotas_anticipadas >= cuotas_pactadas).
     if cob:
         try:
             cob_id = int(cob)
             query = (query
                      .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
-                     .filter(models.Boleta.cobrador_id == cob_id)
+                     .filter(
+                         models.Boleta.cobrador_id == cob_id,
+                         models.Boleta.numero_especial.is_(None),
+                         models.Boleta.numero_especial_2.is_(None),
+                         sql_or(
+                             func_count.coalesce(models.Boleta.cuotas_pactadas, 0) == 0,
+                             func_count.coalesce(models.Boleta.cuotas_anticipadas, 0)
+                                 < func_count.coalesce(models.Boleta.cuotas_pactadas, 0),
+                         ),
+                     )
                      .distinct())
         except (TypeError, ValueError):
             pass
