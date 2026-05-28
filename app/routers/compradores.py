@@ -27,10 +27,13 @@ router = APIRouter(prefix="/compradores", tags=["compradores"])
 @router.get("/", response_class=HTMLResponse)
 async def listar(request: Request, db: Session = Depends(get_db),
                  q: str = "", pata: str = "", zona: str = "",
-                 sin_cob: str = "", cob: str = ""):
+                 sin_cob: str = "", cob: str = "",
+                 vend: str = "", cont: str = ""):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'compradores', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
+
+    from sqlalchemy import or_ as sql_or
 
     # Base query: compradores que tengan al menos una boleta
     query = db.query(models.Comprador).join(models.Zona, isouter=True)
@@ -63,6 +66,32 @@ async def listar(request: Request, db: Session = Depends(get_db),
                      .distinct())
         except (TypeError, ValueError):
             pass
+    # Filtro: socios cuyo vendedor (en alguna boleta) es X
+    if vend:
+        try:
+            vend_id = int(vend)
+            query = (query
+                     .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
+                     .filter(models.Boleta.vendedor_id == vend_id)
+                     .distinct())
+        except (TypeError, ValueError):
+            pass
+    # Filtro: modalidad cuotas vs contado.
+    # contado = boleta con numero_especial(_2) asignado.
+    # cuotas  = boleta en curso (cuotas_pagadas < cuotas_pactadas).
+    if cont == "contado":
+        query = (query
+                 .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
+                 .filter(sql_or(
+                     models.Boleta.numero_especial.isnot(None),
+                     models.Boleta.numero_especial_2.isnot(None),
+                 ))
+                 .distinct())
+    elif cont == "cuotas":
+        query = (query
+                 .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
+                 .filter(models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
+                 .distinct())
     if zona:
         # Filtro por zona — acepta id numérico o nombre exacto
         try:
@@ -85,8 +114,10 @@ async def listar(request: Request, db: Session = Depends(get_db),
     # Conteos por talonera para los tabs. También traemos multiplicador para
     # calcular el total "Todas" ponderado (PATA 1 ×1, PATA 2 ×2, ...). Las
     # pestañas individuales siguen mostrando el conteo literal de socios.
+    # Los tabs reflejan el subset filtrado por cob/vend/zona/cont/q/sin_cob
+    # (excepto pata — porque las pestañas SON el selector de PATA).
     from sqlalchemy import func as sqlfunc
-    taloneras_raw = (
+    tabs_query = (
         db.query(
             models.Talonera.nombre,
             sqlfunc.count(models.Comprador.id.distinct()),
@@ -94,6 +125,43 @@ async def listar(request: Request, db: Session = Depends(get_db),
         )
         .join(models.Boleta, models.Boleta.talonera_id == models.Talonera.id)
         .join(models.Comprador, models.Comprador.id == models.Boleta.comprador_id)
+    )
+    if q:
+        tabs_query = tabs_query.filter(models.Comprador.apellido_nombre.ilike(f"%{q}%"))
+    if sin_cob in ("1", "true", "yes"):
+        tabs_query = tabs_query.filter(
+            models.Boleta.cobrador_id.is_(None),
+            models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas,
+        )
+    if cob:
+        try:
+            tabs_query = tabs_query.filter(models.Boleta.cobrador_id == int(cob))
+        except (TypeError, ValueError):
+            pass
+    if vend:
+        try:
+            tabs_query = tabs_query.filter(models.Boleta.vendedor_id == int(vend))
+        except (TypeError, ValueError):
+            pass
+    if cont == "contado":
+        tabs_query = tabs_query.filter(sql_or(
+            models.Boleta.numero_especial.isnot(None),
+            models.Boleta.numero_especial_2.isnot(None),
+        ))
+    elif cont == "cuotas":
+        tabs_query = tabs_query.filter(
+            models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas,
+        )
+    if zona:
+        try:
+            zid = int(zona)
+            tabs_query = tabs_query.filter(models.Comprador.zona_id == zid)
+        except (TypeError, ValueError):
+            tabs_query = (tabs_query
+                .join(models.Zona, models.Zona.id == models.Comprador.zona_id)
+                .filter(models.Zona.nombre == zona))
+    taloneras_raw = (
+        tabs_query
         .group_by(models.Talonera.nombre, models.Talonera.multiplicador)
         .order_by(models.Talonera.nombre)
         .all()
@@ -163,6 +231,9 @@ async def listar(request: Request, db: Session = Depends(get_db),
         "contado_sin_cargar": contado_sin_cargar,
         "filtro_sin_cob": sin_cob in ("1", "true", "yes"),
         "filtro_cob": cob,
+        "filtro_vend": vend,
+        "filtro_zona": zona,
+        "filtro_cont": cont if cont in ("cuotas", "contado") else "",
     })
 
 

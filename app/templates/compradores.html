@@ -147,15 +147,20 @@ function verContadoSinCargar(btn) {
 </script>
 {% endif %}
 
+<!-- Querystring base con todos los filtros activos (excepto pata) — se usa
+     para que las pestañas X0/X1/X2 preserven los filtros de cob/vend/zona/cont -->
+{% set _qs_base %}{% if q %}&q={{ q }}{% endif %}{% if filtro_cob %}&cob={{ filtro_cob }}{% endif %}{% if filtro_vend %}&vend={{ filtro_vend }}{% endif %}{% if filtro_zona %}&zona={{ filtro_zona }}{% endif %}{% if filtro_cont %}&cont={{ filtro_cont }}{% endif %}{% endset %}
+{% set _any_filtro = filtro_cob or filtro_vend or filtro_zona or filtro_cont %}
+
 <!-- Tabs por talonera + Sin cobrador -->
 <div class="mb-3">
   <div class="d-flex flex-wrap gap-2 align-items-center">
-    <a href="/compradores/?q={{ q }}"
+    <a href="/compradores/?_=1{{ _qs_base }}"
        class="btn btn-sm {{ 'btn-danger' if not pata and not filtro_sin_cob else 'btn-outline-secondary' }}">
       Todas <span class="badge {{ 'bg-white text-danger' if not pata and not filtro_sin_cob else 'bg-secondary' }} ms-1">{{ total_compradores }}</span>
     </a>
     {% for tab in tabs %}
-    <a href="/compradores/?q={{ q }}&pata={{ tab.nombre }}"
+    <a href="/compradores/?pata={{ tab.nombre }}{{ _qs_base }}"
        class="btn btn-sm {{ 'btn-danger' if pata == tab.nombre else 'btn-outline-secondary' }}">
       {{ tab.nombre | replace('PATA ', 'X') }}
       <span class="badge {{ 'bg-white text-danger' if pata == tab.nombre else 'bg-secondary' }} ms-1">{{ tab.total }}</span>
@@ -169,28 +174,58 @@ function verContadoSinCargar(btn) {
   </div>
 </div>
 
-<!-- Filtro rápido por cobrador actual -->
+<!-- Fila de filtros combinados: Cobrador + Vendedor + Zona + Cuotas/Contado -->
 <div class="mb-3 d-flex gap-2 align-items-center flex-wrap">
   <label class="form-label mb-0 small fw-semibold text-muted me-1">
-    <i class="bi bi-person-badge me-1"></i>Filtrar por cobrador actual:
+    <i class="bi bi-funnel-fill me-1"></i>Filtros:
   </label>
-  <select id="filtroCobradorActual" class="form-select form-select-sm" style="max-width:240px;">
-    <option value="">— Todos —</option>
+  <select id="filtroCobradorActual" class="form-select form-select-sm" style="max-width:200px;" data-param="cob" title="Cobrador actual">
+    <option value="">— Cobrador —</option>
     {% for c in cobradores %}
     <option value="{{ c.id }}" {% if filtro_cob == c.id|string %}selected{% endif %}>{{ c.nombre }}</option>
     {% endfor %}
   </select>
-  {% if filtro_cob %}
+  <select id="filtroVendedor" class="form-select form-select-sm" style="max-width:200px;" data-param="vend" title="Vendedor">
+    <option value="">— Vendedor —</option>
+    {% for v in vendedores %}
+    <option value="{{ v.id }}" {% if filtro_vend == v.id|string %}selected{% endif %}>{{ v.nombre }}</option>
+    {% endfor %}
+  </select>
+  <select id="filtroZona" class="form-select form-select-sm" style="max-width:200px;" data-param="zona" title="Zona">
+    <option value="">— Zona —</option>
+    {% for z in zonas %}
+    <option value="{{ z.id }}" {% if filtro_zona == z.id|string %}selected{% endif %}>{{ z.nombre }}</option>
+    {% endfor %}
+  </select>
+  <select id="filtroCont" class="form-select form-select-sm" style="max-width:170px;" data-param="cont" title="Modalidad">
+    <option value="">— Cuotas/Contado —</option>
+    <option value="cuotas" {% if filtro_cont == 'cuotas' %}selected{% endif %}>En cuotas</option>
+    <option value="contado" {% if filtro_cont == 'contado' %}selected{% endif %}>Al contado</option>
+  </select>
+  {% if _any_filtro %}
   <a href="/compradores/" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-x-lg me-1"></i>Quitar filtro
+    <i class="bi bi-x-lg me-1"></i>Quitar filtros
   </a>
   {% endif %}
 </div>
 <script>
-document.getElementById('filtroCobradorActual').addEventListener('change', function() {
-  const v = this.value;
-  window.location.href = v ? `/compradores/?cob=${v}` : '/compradores/';
-});
+(function() {
+  // Cada dropdown actualiza solo su propio param y preserva el resto (incluyendo pata).
+  function bindFiltro(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', function() {
+      var url = new URL(window.location.href);
+      var param = el.dataset.param;
+      if (el.value) url.searchParams.set(param, el.value);
+      else url.searchParams.delete(param);
+      // sin_cob es excluyente con los filtros de cobrador — al elegir uno, lo limpiamos
+      if (param === 'cob' && el.value) url.searchParams.delete('sin_cob');
+      window.location.href = url.toString();
+    });
+  }
+  ['filtroCobradorActual','filtroVendedor','filtroZona','filtroCont'].forEach(bindFiltro);
+})();
 </script>
 
 <!-- Búsqueda — un solo input con selector de columna (cliente) -->
