@@ -327,8 +327,42 @@
     });
   }
 
+  // Separa en abanico los marcadores que caen EXACTAMENTE en el mismo punto.
+  // Sin esto, varias boletas geocodificadas al mismo lugar (p.ej. el centro de
+  // una calle cuando Nominatim no encuentra la altura) se apilan una sobre otra
+  // y solo se ve la de arriba; las de abajo "desaparecen" del mapa.
+  // Recalcula siempre desde m.lat/m.lng (coords reales), por lo que es idempotente.
+  function separarSolapados() {
+    const grupos = new Map();
+    for (const m of markers) {
+      const key = m.lat.toFixed(5) + ',' + m.lng.toFixed(5);
+      if (!grupos.has(key)) grupos.set(key, []);
+      grupos.get(key).push(m);
+    }
+    for (const grupo of grupos.values()) {
+      if (grupo.length === 1) {
+        // único en ese punto → posición real
+        grupo[0].marker.setLatLng([grupo[0].lat, grupo[0].lng]);
+        continue;
+      }
+      // varios en el mismo punto → abanico en anillos de 8
+      const porAnillo = 8;
+      grupo.forEach((m, i) => {
+        const anillo = Math.floor(i / porAnillo) + 1;
+        const inicioAnillo = (anillo - 1) * porAnillo;
+        const enAnillo = Math.min(grupo.length - inicioAnillo, porAnillo);
+        const ang = (2 * Math.PI * (i - inicioAnillo)) / enAnillo;
+        const radio = 0.00011 * anillo; // ~12m por anillo
+        const dlat = radio * Math.cos(ang);
+        const dlng = radio * Math.sin(ang) / Math.cos(m.lat * Math.PI / 180);
+        m.marker.setLatLng([m.lat + dlat, m.lng + dlng]);
+      });
+    }
+  }
+
   // Mostrar/ocultar marcadores segun filtros
   function aplicarFiltros() {
+    separarSolapados();
     let visibles = 0;
     const visibleBounds = [];
     for (const m of markers) {
@@ -753,7 +787,8 @@
 
   function entrarReposicion(entry) {
     if (reposiMode) salirReposicion(false);
-    reposiMode = { entry, origLat: entry.lat, origLng: entry.lng };
+    const _cur = entry.marker.getLatLng();
+    reposiMode = { entry, origLat: _cur.lat, origLng: _cur.lng };
     entry.marker.closePopup();
     entry.marker.dragging.enable();
     document.getElementById('reposiNombre').textContent = entry.pt.apellido_nombre;
