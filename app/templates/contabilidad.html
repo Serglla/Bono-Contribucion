@@ -211,7 +211,9 @@
             <table class="table table-sm mb-0" style="font-size:.8rem;">
               <thead class="table-light">
                 <tr>
-                  <th>Fecha</th><th>Mes</th><th class="text-end">Cuotas eq.</th>
+                  <th>Fecha</th><th>Mes</th>
+                  <th class="text-end" title="Boletas vendidas en cuotas (ponderadas por PATA)">Cuotas</th>
+                  <th class="text-end" title="Boletas vendidas al contado (ponderadas por PATA)">Contados</th>
                   <th class="text-end">Com. cuotas</th><th class="text-end">Com. contados</th>
                   <th class="text-end fw-bold">Total comision</th>
                 </tr>
@@ -222,6 +224,7 @@
                   <td>{{ liq.fecha }}</td>
                   <td>{{ liq.mes_nombre }} {{ liq.anio }}</td>
                   <td class="text-end">{{ liq.cuotas }}</td>
+                  <td class="text-end">{{ liq.contados }}</td>
                   <td class="text-end">{{ liq.com_cuotas | pesos }}</td>
                   <td class="text-end">{{ liq.com_contados | pesos }}</td>
                   <td class="text-end fw-bold text-danger">{{ liq.total | pesos }}</td>
@@ -230,7 +233,10 @@
               </tbody>
               <tfoot class="table-secondary fw-bold">
                 <tr>
-                  <td colspan="5">TOTAL {{ v.nombre }}</td>
+                  <td colspan="2">TOTAL {{ v.nombre }}</td>
+                  <td class="text-end">{{ v.liquidaciones | sum(attribute='cuotas') }}</td>
+                  <td class="text-end">{{ v.liquidaciones | sum(attribute='contados') }}</td>
+                  <td colspan="2"></td>
                   <td class="text-end text-danger">{{ v.total | pesos }}</td>
                 </tr>
               </tfoot>

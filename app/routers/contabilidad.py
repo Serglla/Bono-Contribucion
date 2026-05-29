@@ -134,6 +134,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
             "mes_nombre":   MESES[lv.fecha.month - 1] if lv.fecha else "",
             "anio":         lv.fecha.year if lv.fecha else 0,
             "cuotas":       int(round(lv.cuotas_equiv or lv.cuotas_vendidas or 0)),
+            "contados":     int(round(float(lv.contados_equiv or lv.contados_vendidos or 0))),
             "com_cuotas":   (lv.comision_cuotas or 0) if (lv.comision_cuotas or 0) > 0 else (lv.cuota_1_total or 0),
             "com_contados": lv.comision_contados or 0,
             "total":        com,
