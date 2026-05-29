@@ -737,6 +737,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         t = next((x for x in taloneras if x.nombre == nombre_c), None)
         if t is None:
             continue
+        # Tipo pool: "contado2" si el nombre contiene "2" (CONTADO 2 VECES), sino "contado".
+        _tipo_pool = "contado2" if "2" in (nombre_c or "").upper() else "contado"
         nums_entregados = set()
         for d, h in rangos:
             if h < d:
@@ -794,6 +796,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 "num_cuotas":  t.num_cuotas or 12,
                 "contado":     True,
                 "pool":        True,
+                "tipo_pool":   _tipo_pool,           # "contado" | "contado2"
                 "talonera_id": t.id,
             })
         patas[nombre_c]["boletas"].sort(key=lambda x: x["num"])
@@ -969,19 +972,35 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     mes_actual_key = f"{_hoy.year:04d}-{_hoy.month:02d}"
 
     # Items pool CONTADO por liquidación de este vendedor (números entregados a
-    # institución, sin valor monetario). Cuenta por liq_id.
+    # institución, sin valor monetario). Desglose: c1 = pool CONTADO,
+    # c2 = pool CONTADO 2 VECES (detectado por "2" en el nombre de la talonera).
     pool_by_liq_v: dict = {}
     if liquidaciones:
         try:
             _rows = db.query(
                 models.LiquidacionContadoItem.liquidacion_id,
+                models.LiquidacionContadoItem.talonera_id,
                 func.count(models.LiquidacionContadoItem.id),
             ).filter(
                 models.LiquidacionContadoItem.liquidacion_id.in_(
                     [liq.id for liq in liquidaciones]
                 )
-            ).group_by(models.LiquidacionContadoItem.liquidacion_id).all()
-            pool_by_liq_v = {int(lid): int(cnt or 0) for lid, cnt in _rows}
+            ).group_by(
+                models.LiquidacionContadoItem.liquidacion_id,
+                models.LiquidacionContadoItem.talonera_id,
+            ).all()
+            _tal_es_c2 = {
+                int(t.id): ("2" in (t.nombre or "").upper())
+                for t in taloneras if (t.tipo or "COMUN") == "CONTADO"
+            }
+            for lid, tid, cnt in _rows:
+                lid, tid, cnt = int(lid), int(tid), int(cnt or 0)
+                bucket = pool_by_liq_v.setdefault(lid, {"c1": 0, "c2": 0, "total": 0})
+                if _tal_es_c2.get(tid, False):
+                    bucket["c2"] += cnt
+                else:
+                    bucket["c1"] += cnt
+                bucket["total"] += cnt
         except Exception:
             pool_by_liq_v = {}
 
@@ -1005,6 +1024,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 "total_contados_eq": 0.0,
                 "total_contados_crudo": 0,
                 "total_entregados": 0,
+                "total_entregados_c1": 0,
+                "total_entregados_c2": 0,
                 "total_extras": 0,
             }
         g = grupos_mes_dict[key]
@@ -1015,13 +1036,15 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         g["total_rinde"] += (liq.total_a_rendir or 0)
         _liq_cuotas_eq   = float(liq.cuotas_equiv or liq.cuotas_vendidas or 0)
         _liq_contados_eq = float(liq.contados_equiv or liq.contados_vendidos or 0)
-        _liq_entregados  = int(pool_by_liq_v.get(liq.id, 0))
+        _liq_pool        = pool_by_liq_v.get(liq.id) or {"c1": 0, "c2": 0, "total": 0}
         g["total_boletas"]        += _liq_cuotas_eq + _liq_contados_eq
         g["total_cuotas_eq"]      += _liq_cuotas_eq
         g["total_cuotas_crudo"]   += int(liq.cuotas_vendidas or 0)
         g["total_contados_eq"]    += _liq_contados_eq
         g["total_contados_crudo"] += int(liq.contados_vendidos or 0)
-        g["total_entregados"]     += _liq_entregados
+        g["total_entregados"]     += int(_liq_pool.get("total", 0))
+        g["total_entregados_c1"]  += int(_liq_pool.get("c1", 0))
+        g["total_entregados_c2"]  += int(_liq_pool.get("c2", 0))
         g["total_extras"]         += (int(liq.cuotas_extras_cantidad or 0)
                                       + int(getattr(liq, "cuotas_extras_p0_cantidad", 0) or 0))
 

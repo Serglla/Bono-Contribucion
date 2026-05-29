@@ -574,10 +574,19 @@
                         <span id="vd-total-crudo">0</span> bol.
                       </div>
                     </td>
-                    <td title="Pool CONTADO/CONTADO 2 VECES entregados a institución (sin valor monetario)"
+                    <td title="Pool entregados a institución (sin valor monetario) — desglose CO / CO2"
                         class="table-warning">
-                      <div class="fs-5 fw-bold text-warning-emphasis" id="vd-entregados">0</div>
-                      <div class="text-muted" style="font-size:.68rem;">núm.</div>
+                      <div class="d-flex justify-content-center gap-2">
+                        <div title="Pool CONTADO">
+                          <div class="fs-5 fw-bold text-warning-emphasis" id="vd-entregados-c1">0</div>
+                          <div class="text-muted" style="font-size:.62rem;">CO</div>
+                        </div>
+                        <div class="border-start" style="opacity:.4;"></div>
+                        <div title="Pool CONTADO 2 VECES">
+                          <div class="fs-5 fw-bold text-warning-emphasis" id="vd-entregados-c2">0</div>
+                          <div class="text-muted" style="font-size:.62rem;">CO2</div>
+                        </div>
+                      </div>
                     </td>
                     <td title="Cantidad de cuotas extras cobradas (cuota 2, 3, ...)">
                       <div class="fs-5 fw-bold" id="vd-extras-cant">0</div>
@@ -884,11 +893,13 @@
                           <span class="fw-bold">{{ (_cu_eq + _co_eq) | round(0) | int }}</span>
                           <span class="d-block text-muted" style="font-size:.68rem;">{{ liq.cuotas_vendidas + liq.contados_vendidos }} bol.</span>
                         </td>
-                        {% set _entreg = pool_by_liq_v.get(liq.id, 0) if pool_by_liq_v else 0 %}
-                        <td title="Pool CONTADO/CONTADO 2 VECES entregados a institución (sin valor monetario)"
-                            class="{% if _entreg %}table-warning{% endif %}">
-                          <span class="fw-bold text-warning-emphasis">{{ _entreg }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">núm.</span>
+                        {% set _pool = (pool_by_liq_v.get(liq.id) if pool_by_liq_v else None) or {'c1': 0, 'c2': 0, 'total': 0} %}
+                        <td title="Pool entregados a institución (sin valor monetario) — CO: {{ _pool.c1 }} · CO2: {{ _pool.c2 }}"
+                            class="{% if _pool.total %}table-warning{% endif %}">
+                          <span class="fw-bold text-warning-emphasis">{{ _pool.c1 }}</span>
+                          <span class="text-muted">/</span>
+                          <span class="fw-bold text-warning-emphasis">{{ _pool.c2 }}</span>
+                          <span class="d-block text-muted" style="font-size:.62rem;">CO / CO2</span>
                         </td>
                         <td title="Monto extras: ${{ '%.2f'|format(liq.cuotas_extras_monto or 0) }} ({{ liq.comision_cuotas_pct }}% comisión)">{{ liq.cuotas_extras_cantidad or 0 }}</td>
                         <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_a_rendir or 0) }}</td>
@@ -922,9 +933,12 @@
                           <span>{{ (grupo.total_cuotas_eq + grupo.total_contados_eq) | round(0) | int }}</span>
                           <span class="d-block text-muted" style="font-size:.68rem;">{{ grupo.total_cuotas_crudo + grupo.total_contados_crudo }} bol.</span>
                         </td>
-                        <td class="{% if grupo.total_entregados %}table-warning{% endif %}">
-                          <span class="text-warning-emphasis">{{ grupo.total_entregados or 0 }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">núm.</span>
+                        <td class="{% if grupo.total_entregados %}table-warning{% endif %}"
+                            title="Total CO: {{ grupo.total_entregados_c1 or 0 }} · Total CO2: {{ grupo.total_entregados_c2 or 0 }}">
+                          <span class="text-warning-emphasis fw-bold">{{ grupo.total_entregados_c1 or 0 }}</span>
+                          <span class="text-muted">/</span>
+                          <span class="text-warning-emphasis fw-bold">{{ grupo.total_entregados_c2 or 0 }}</span>
+                          <span class="d-block text-muted" style="font-size:.62rem;">CO / CO2</span>
                         </td>
                         <td>{{ grupo.total_extras }}</td>
                         <td class="text-end text-success">${{ '%.2f'|format(grupo.total_rinde) }}</td>
@@ -1059,13 +1073,15 @@ function renderPatas() {
     data.boletas.forEach(b => {
       if (b.pool === true) {
         // Pool item: checkbox simple, sin selector modalidad, sin monto.
+        // tipo_pool: "contado" (CONTADO) | "contado2" (CONTADO 2 VECES).
+        const tipoPool = b.tipo_pool || (pata.toUpperCase().includes('2') ? 'contado2' : 'contado');
         const title = `Pool ${pata} #${b.num_str} — entregado a institución (sin valor monetario)`;
         html += `
           <div class="d-inline-flex align-items-center gap-1" style="margin:0 4px 4px 0;">
             <label title="${title}" style="margin:0;cursor:pointer;">
               <input type="checkbox" name="boleta_ids" value="${b.id}"
                      data-pata="${pata}" data-bid="${b.id}"
-                     data-pool="1"
+                     data-pool="1" data-tipo-pool="${tipoPool}"
                      class="d-none boleta-chk pool-chk" onchange="onChkChange(this)">
               <span class="badge" style="font-size:.8rem;cursor:pointer;
                     background:#fff8e1;color:#856404;border:1px solid #ffc10780;
@@ -1220,12 +1236,14 @@ function recalcular() {
   let nCuotasEq = 0, nCuotasReal = 0, cuota1 = 0;
   let nContadosEq = 0, nContados = 0, montoContados = 0;
   // Pool items (CONTADO/CONTADO 2 VECES) entregados a institución — sin monto.
-  let nEntregados = 0;
+  // Desglose por tipo: Co1 = CONTADO, Co2 = CONTADO 2 VECES.
+  let nEntregadosCo1 = 0, nEntregadosCo2 = 0;
 
   document.querySelectorAll('.boleta-chk:checked').forEach(chk => {
     // Pool item: solo cuenta como "Entregados" (no afecta monto, no ponderado).
     if (chk.dataset.pool === '1') {
-      nEntregados++;
+      if (chk.dataset.tipoPool === 'contado2') nEntregadosCo2++;
+      else                                     nEntregadosCo1++;
       return;
     }
     // parseFloat (no parseInt) para soportar PATA 0 (mult 0.67). parseInt(0.67) = 0 → rompería todo.
@@ -1256,9 +1274,10 @@ function recalcular() {
   const comExtrasP0   = montoExtrasP0  * pctCuotas   / 100;
   // Total a rendir = (contado - comision) + (extras normales - comision) + (extras PATA 0 - comision)
   // Pool entregados NO suman al monto a rendir (la talonera CONTADO ya se cobró aparte).
-  const totalRinde  = (montoContados - comContados) + (montoExtras - comExtras) + (montoExtrasP0 - comExtrasP0);
-  const nSel        = nCuotasReal + nContados + nEntregados;
-  const habilitar   = (nSel > 0) || (extrasCant > 0 && extrasValor > 0) || (extrasP0Cant > 0 && extrasP0Valor > 0);
+  const totalRinde   = (montoContados - comContados) + (montoExtras - comExtras) + (montoExtrasP0 - comExtrasP0);
+  const nEntregados  = nEntregadosCo1 + nEntregadosCo2;
+  const nSel         = nCuotasReal + nContados + nEntregados;
+  const habilitar    = (nSel > 0) || (extrasCant > 0 && extrasValor > 0) || (extrasP0Cant > 0 && extrasP0Valor > 0);
 
   const el = id => document.getElementById(id);
 
@@ -1267,7 +1286,8 @@ function recalcular() {
   if (el('vd-cuotas-crudo'))   el('vd-cuotas-crudo').textContent  = nCuotasReal;
   if (el('vd-contados-pond'))  el('vd-contados-pond').textContent = fmtPonderado(nContadosEq);
   if (el('vd-contados-crudo')) el('vd-contados-crudo').textContent= nContados;
-  if (el('vd-entregados'))     el('vd-entregados').textContent    = nEntregados;
+  if (el('vd-entregados-c1'))  el('vd-entregados-c1').textContent = nEntregadosCo1;
+  if (el('vd-entregados-c2'))  el('vd-entregados-c2').textContent = nEntregadosCo2;
   if (el('vd-total-pond'))     el('vd-total-pond').textContent    = fmtPonderado(nCuotasEq + nContadosEq);
   if (el('vd-total-crudo'))    el('vd-total-crudo').textContent   = nCuotasReal + nContados;
   if (el('vd-extras-cant'))    el('vd-extras-cant').textContent   = extrasCant + extrasP0Cant;
