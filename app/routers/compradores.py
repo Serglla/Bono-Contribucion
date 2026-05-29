@@ -1289,6 +1289,27 @@ async def contado_disponibles(boleta_id: int, request: Request, db: Session = De
     # Map nombre normalizado -> talonera para hacer match con entregas
     norm_map = {(t.nombre or "").strip().lower(): t for t in taloneras_c}
 
+    # Numeros que el vendedor YA declaro como vendidos en una liquidacion
+    # (LiquidacionContadoItem). Solo estos pueden aparecer para asignar al socio:
+    # los entregados pero no liquidados todavia siguen en su caja y no se cargan.
+    # Mapeo: talonera_id -> set(numeros liquidados por este vendedor).
+    nums_liquidados_por_tal: dict = {}
+    if vid:
+        try:
+            _rows_liq = db.query(
+                models.LiquidacionContadoItem.talonera_id,
+                models.LiquidacionContadoItem.numero,
+            ).join(
+                models.LiquidacionVendedor,
+                models.LiquidacionVendedor.id == models.LiquidacionContadoItem.liquidacion_id,
+            ).filter(
+                models.LiquidacionVendedor.vendedor_id == vid,
+            ).all()
+            for tid, num in _rows_liq:
+                nums_liquidados_por_tal.setdefault(int(tid), set()).add(int(num))
+        except Exception:
+            nums_liquidados_por_tal = {}
+
     # Para cada talonera CONTADO, computar los numeros entregados a este vendedor
     out_taloneras = []
     for t in taloneras_c:
@@ -1335,7 +1356,16 @@ async def contado_disponibles(boleta_id: int, request: Request, db: Session = De
                     asignados_otros.add(int(ne))
                 if tei2 == t.id and ne2 is not None:
                     asignados_otros.add(int(ne2))
-            libres = sorted(nums_entregados - asignados_otros)
+            # Solo numeros LIQUIDADOS por el vendedor pueden aparecer en el dropdown.
+            # Excepcion: el numero actual de la boleta se mantiene aunque no este
+            # liquidado (compatibilidad con datos cargados antes de esta regla).
+            nums_liq_t = nums_liquidados_por_tal.get(t.id, set())
+            libres_base = (nums_entregados & nums_liq_t) - asignados_otros
+            if b.talonera_especial_id == t.id and b.numero_especial:
+                libres_base.add(int(b.numero_especial))
+            if b.talonera_especial_2_id == t.id and b.numero_especial_2:
+                libres_base.add(int(b.numero_especial_2))
+            libres = sorted(libres_base)
 
         out_taloneras.append({
             "id": t.id,
