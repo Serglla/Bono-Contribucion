@@ -854,10 +854,16 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             "num_cuotas":   (b.talonera.num_cuotas   if b.talonera and b.talonera.num_cuotas else 12),
             "multiplicador": float(b.talonera.multiplicador or 1.0) if b.talonera else 1.0,
             "talonera_id":  b.talonera_id            if b.talonera else None,
+            "pool":         False,
         }
         for b in sorted(pendientes, key=lambda x: (x.talonera.nombre if x.talonera else "", x.numero_principal))
     ]
-    pendientes_json = json.dumps(pendientes_items)
+    # Pool items (CONTADO/CONTADO 2 VECES) — liquidables solo para sacarlos de caja
+    # del vendedor (sin valor monetario). Multiplicador=0 para que no afecten la
+    # cuenta de monto; se cuentan aparte en "Entregados".
+    for _pool in pool_pendientes_items:
+        _pool.setdefault("multiplicador", 0.0)
+    pendientes_json = json.dumps(pendientes_items + pool_pendientes_items)
 
     liquidaciones = db.query(models.LiquidacionVendedor).filter_by(
         vendedor_id=vid
@@ -962,6 +968,23 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     _hoy = _dt.utcnow()
     mes_actual_key = f"{_hoy.year:04d}-{_hoy.month:02d}"
 
+    # Items pool CONTADO por liquidación de este vendedor (números entregados a
+    # institución, sin valor monetario). Cuenta por liq_id.
+    pool_by_liq_v: dict = {}
+    if liquidaciones:
+        try:
+            _rows = db.query(
+                models.LiquidacionContadoItem.liquidacion_id,
+                func.count(models.LiquidacionContadoItem.id),
+            ).filter(
+                models.LiquidacionContadoItem.liquidacion_id.in_(
+                    [liq.id for liq in liquidaciones]
+                )
+            ).group_by(models.LiquidacionContadoItem.liquidacion_id).all()
+            pool_by_liq_v = {int(lid): int(cnt or 0) for lid, cnt in _rows}
+        except Exception:
+            pool_by_liq_v = {}
+
     grupos_mes_dict = {}
     for liq in liquidaciones:
         if not liq.fecha:
@@ -981,6 +1004,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 "total_cuotas_crudo": 0,
                 "total_contados_eq": 0.0,
                 "total_contados_crudo": 0,
+                "total_entregados": 0,
                 "total_extras": 0,
             }
         g = grupos_mes_dict[key]
@@ -991,11 +1015,13 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         g["total_rinde"] += (liq.total_a_rendir or 0)
         _liq_cuotas_eq   = float(liq.cuotas_equiv or liq.cuotas_vendidas or 0)
         _liq_contados_eq = float(liq.contados_equiv or liq.contados_vendidos or 0)
+        _liq_entregados  = int(pool_by_liq_v.get(liq.id, 0))
         g["total_boletas"]        += _liq_cuotas_eq + _liq_contados_eq
         g["total_cuotas_eq"]      += _liq_cuotas_eq
         g["total_cuotas_crudo"]   += int(liq.cuotas_vendidas or 0)
         g["total_contados_eq"]    += _liq_contados_eq
         g["total_contados_crudo"] += int(liq.contados_vendidos or 0)
+        g["total_entregados"]     += _liq_entregados
         g["total_extras"]         += (int(liq.cuotas_extras_cantidad or 0)
                                       + int(getattr(liq, "cuotas_extras_p0_cantidad", 0) or 0))
 
@@ -1036,6 +1062,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         # acordeón mensual
         "liquidaciones_por_mes": liquidaciones_por_mes,
         "mes_actual_key": mes_actual_key,
+        # items pool CONTADO por liquidación (números entregados a institución)
+        "pool_by_liq_v": pool_by_liq_v,
     })
 
 
@@ -1074,13 +1102,25 @@ async def liquidar(
     observacion               = (form.get("observacion") or "").strip()
 
     boleta_ids = []
+    # pool_ids: tuplas (talonera_id, numero) declaradas como entregadas a institución
+    # (sin valor monetario). Se persisten como LiquidacionContadoItem.
+    pool_ids: list[tuple[int, int]] = []
     for x in raw_ids:
-        try:
-            boleta_ids.append(int(str(x)))
-        except Exception:
-            continue
+        s = str(x).strip()
+        if s.startswith("pool:"):
+            try:
+                _, tid_s, num_s = s.split(":", 2)
+                pool_ids.append((int(tid_s), int(num_s)))
+            except Exception:
+                continue
+        else:
+            try:
+                boleta_ids.append(int(s))
+            except Exception:
+                continue
 
-    if not boleta_ids and cuotas_extras_cantidad == 0 and cuotas_extras_p0_cantidad == 0:
+    if (not boleta_ids and not pool_ids
+            and cuotas_extras_cantidad == 0 and cuotas_extras_p0_cantidad == 0):
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
     # Verificar que las boletas pertenezcan al vendedor y estén en CAJA sin liquidar
@@ -1093,7 +1133,8 @@ async def liquidar(
             models.Boleta.liquidacion_vendedor_id.is_(None),
         ).all()
 
-    if not boletas_sel and cuotas_extras_cantidad == 0 and cuotas_extras_p0_cantidad == 0:
+    if (not boletas_sel and not pool_ids
+            and cuotas_extras_cantidad == 0 and cuotas_extras_p0_cantidad == 0):
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
     # Modalidad por boleta: 'cuotas' (default) | 'contado' | 'contado2'
@@ -1184,6 +1225,23 @@ async def liquidar(
     for b in boletas_sel:
         b.liquidacion_vendedor_id = liq.id
         b.condicion = CondicionBoleta.VENDIDO
+
+    # Pool CONTADO/CONTADO 2 VECES: números entregados a la institución. Se
+    # persisten como LiquidacionContadoItem para sacarlos de la caja del vendedor.
+    # No tienen valor monetario (la talonera CONTADO ya se cobró aparte).
+    # Dedup: evitar duplicar (talonera_id, numero) si vienen repetidos en el form.
+    seen_pool: set[tuple[int, int]] = set()
+    for tid, num in pool_ids:
+        key = (tid, num)
+        if key in seen_pool:
+            continue
+        seen_pool.add(key)
+        db.add(models.LiquidacionContadoItem(
+            liquidacion_id=liq.id,
+            talonera_id=tid,
+            numero=num,
+        ))
+
     db.commit()
 
     return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liquidado", status_code=302)

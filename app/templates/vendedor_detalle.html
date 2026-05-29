@@ -541,7 +541,7 @@
                      style="font-size:.8rem;">
                 <thead>
                   <tr class="table-success">
-                    <th colspan="4" class="fw-bold" style="letter-spacing:.08em;">VENDIDOS</th>
+                    <th colspan="5" class="fw-bold" style="letter-spacing:.08em;">VENDIDOS</th>
                     <th rowspan="2" class="align-middle bg-white" style="min-width:140px;">
                       TOTAL A RENDIR
                     </th>
@@ -550,6 +550,7 @@
                     <th>CUOTAS</th>
                     <th>CONTADOS</th>
                     <th>TOTAL VENDIDOS</th>
+                    <th title="Pool CONTADO/CONTADO 2 VECES entregados a institución (sin valor)">ENTREGADOS</th>
                     <th>CUOTAS EXTRAS</th>
                   </tr>
                 </thead>
@@ -572,6 +573,11 @@
                       <div class="text-muted" style="font-size:.68rem;">
                         <span id="vd-total-crudo">0</span> bol.
                       </div>
+                    </td>
+                    <td title="Pool CONTADO/CONTADO 2 VECES entregados a institución (sin valor monetario)"
+                        class="table-warning">
+                      <div class="fs-5 fw-bold text-warning-emphasis" id="vd-entregados">0</div>
+                      <div class="text-muted" style="font-size:.68rem;">núm.</div>
                     </td>
                     <td title="Cantidad de cuotas extras cobradas (cuota 2, 3, ...)">
                       <div class="fs-5 fw-bold" id="vd-extras-cant">0</div>
@@ -843,7 +849,7 @@
                     <thead class="table-light">
                       <tr>
                         <th rowspan="2" class="align-middle text-start">Fecha</th>
-                        <th colspan="3" class="table-success fw-bold"
+                        <th colspan="4" class="table-success fw-bold"
                             style="letter-spacing:.06em;">VENDIDOS</th>
                         <th rowspan="2" class="align-middle"
                             title="Cantidad de cuotas extras cobradas (cuota 2, 3, ...)">CUOTAS<br>EXTRAS</th>
@@ -856,6 +862,7 @@
                         <th title="Boletas en cuotas, ponderadas por PATA">CUOTAS</th>
                         <th title="Boletas al contado, ponderadas por PATA">CONTADOS</th>
                         <th title="CUOTAS + CONTADOS (ponderado)">TOTAL VENDIDOS</th>
+                        <th title="Pool CONTADO/CONTADO 2 VECES entregados a institución (sin valor)">ENTREGADOS</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -876,6 +883,12 @@
                         <td title="Total ponderado vendido (cuotas + contados)">
                           <span class="fw-bold">{{ (_cu_eq + _co_eq) | round(0) | int }}</span>
                           <span class="d-block text-muted" style="font-size:.68rem;">{{ liq.cuotas_vendidas + liq.contados_vendidos }} bol.</span>
+                        </td>
+                        {% set _entreg = pool_by_liq_v.get(liq.id, 0) if pool_by_liq_v else 0 %}
+                        <td title="Pool CONTADO/CONTADO 2 VECES entregados a institución (sin valor monetario)"
+                            class="{% if _entreg %}table-warning{% endif %}">
+                          <span class="fw-bold text-warning-emphasis">{{ _entreg }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">núm.</span>
                         </td>
                         <td title="Monto extras: ${{ '%.2f'|format(liq.cuotas_extras_monto or 0) }} ({{ liq.comision_cuotas_pct }}% comisión)">{{ liq.cuotas_extras_cantidad or 0 }}</td>
                         <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_a_rendir or 0) }}</td>
@@ -908,6 +921,10 @@
                         <td>
                           <span>{{ (grupo.total_cuotas_eq + grupo.total_contados_eq) | round(0) | int }}</span>
                           <span class="d-block text-muted" style="font-size:.68rem;">{{ grupo.total_cuotas_crudo + grupo.total_contados_crudo }} bol.</span>
+                        </td>
+                        <td class="{% if grupo.total_entregados %}table-warning{% endif %}">
+                          <span class="text-warning-emphasis">{{ grupo.total_entregados or 0 }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">núm.</span>
                         </td>
                         <td>{{ grupo.total_extras }}</td>
                         <td class="text-end text-success">${{ '%.2f'|format(grupo.total_rinde) }}</td>
@@ -1009,12 +1026,14 @@ function renderPatas() {
   for (const [pata, data] of Object.entries(grupos)) {
     const colorBg  = data.color + '20';
     const colorBdr = data.color;
-    html += `
-    <div class="card border-0 shadow-sm mb-2">
-      <div class="card-header py-1 d-flex align-items-center gap-2"
-           style="background:${colorBg};border-left:4px solid ${colorBdr};">
-        <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">${pata}</span>
-        <span class="text-muted small" id="cnt-${pata}">0 / ${data.boletas.length}</span>
+    // PATA pool puro (CONTADO/CONTADO 2 VECES): sin botones bulk (selección uno a uno).
+    const esPoolPata = data.boletas.every(b => b.pool === true);
+    const headerExtra = esPoolPata
+      ? `<span class="badge bg-warning text-dark ms-2" title="Entregados a institución — sin valor monetario">
+           <i class="bi bi-star-fill me-1"></i>Pool
+         </span>`
+      : '';
+    const bulkBtns = esPoolPata ? '' : `
         <div class="ms-auto d-flex gap-1">
           <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2"
                   style="font-size:.72rem;" onclick="togglePata('${pata}', true)">
@@ -1024,12 +1043,39 @@ function renderPatas() {
                   style="font-size:.72rem;" onclick="togglePata('${pata}', false)">
             <i class="bi bi-x"></i> Ninguno
           </button>
-        </div>
+        </div>`;
+    html += `
+    <div class="card border-0 shadow-sm mb-2">
+      <div class="card-header py-1 d-flex align-items-center gap-2"
+           style="background:${colorBg};border-left:4px solid ${colorBdr};">
+        <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">${pata}</span>
+        <span class="text-muted small" id="cnt-${pata}">0 / ${data.boletas.length}</span>
+        ${headerExtra}
+        ${bulkBtns}
       </div>
       <div class="card-body py-2">
         <div class="d-flex flex-wrap gap-1">`;
 
     data.boletas.forEach(b => {
+      if (b.pool === true) {
+        // Pool item: checkbox simple, sin selector modalidad, sin monto.
+        const title = `Pool ${pata} #${b.num_str} — entregado a institución (sin valor monetario)`;
+        html += `
+          <div class="d-inline-flex align-items-center gap-1" style="margin:0 4px 4px 0;">
+            <label title="${title}" style="margin:0;cursor:pointer;">
+              <input type="checkbox" name="boleta_ids" value="${b.id}"
+                     data-pata="${pata}" data-bid="${b.id}"
+                     data-pool="1"
+                     class="d-none boleta-chk pool-chk" onchange="onChkChange(this)">
+              <span class="badge" style="font-size:.8rem;cursor:pointer;
+                    background:#fff8e1;color:#856404;border:1px solid #ffc10780;
+                    user-select:none;">
+                <i class="bi bi-star-fill" style="font-size:.6rem;color:#ffc107;"></i> ${b.num_str}
+              </span>
+            </label>
+          </div>`;
+        return;
+      }
       const mult = parseFloat(b.multiplicador) || 1;
       const cuota1Unit = mult * PATA1_VC;
       const contadoTotal = mult * PATA1_NC * PATA1_VC;
@@ -1108,6 +1154,23 @@ function resetValorCuotaP0() {
 function onChkChange(chk) {
   const label = chk.closest('label');
   const badge = label ? label.querySelector('.badge') : chk.nextElementSibling;
+  // Pool item (CONTADO/CONTADO 2 VECES): no tiene selector modalidad, color amarillo fijo.
+  if (chk.dataset.pool === '1') {
+    if (badge) {
+      if (chk.checked) {
+        badge.style.background = '#ffe69c';
+        badge.style.color      = '#664d03';
+        badge.style.border     = '1px solid #ffc107';
+      } else {
+        badge.style.background = '#fff8e1';
+        badge.style.color      = '#856404';
+        badge.style.border     = '1px solid #ffc10780';
+      }
+    }
+    actualizarContadorPata(chk.dataset.pata);
+    recalcular();
+    return;
+  }
   const esContado = modalidadBoleta(chk.dataset.bid) !== 'cuotas';
   actualizarEstiloBadge(badge, chk.checked, esContado);
   actualizarSelectorModalidad(chk);
@@ -1156,8 +1219,15 @@ function recalcular() {
   // *Real = conteo literal de boletas físicas.
   let nCuotasEq = 0, nCuotasReal = 0, cuota1 = 0;
   let nContadosEq = 0, nContados = 0, montoContados = 0;
+  // Pool items (CONTADO/CONTADO 2 VECES) entregados a institución — sin monto.
+  let nEntregados = 0;
 
   document.querySelectorAll('.boleta-chk:checked').forEach(chk => {
+    // Pool item: solo cuenta como "Entregados" (no afecta monto, no ponderado).
+    if (chk.dataset.pool === '1') {
+      nEntregados++;
+      return;
+    }
     // parseFloat (no parseInt) para soportar PATA 0 (mult 0.67). parseInt(0.67) = 0 → rompería todo.
     const mult = parseFloat(chk.dataset.mult) || 1;
     const modalidad = modalidadBoleta(chk.dataset.bid);
@@ -1185,8 +1255,9 @@ function recalcular() {
   const comExtras     = montoExtras    * pctCuotas   / 100;
   const comExtrasP0   = montoExtrasP0  * pctCuotas   / 100;
   // Total a rendir = (contado - comision) + (extras normales - comision) + (extras PATA 0 - comision)
+  // Pool entregados NO suman al monto a rendir (la talonera CONTADO ya se cobró aparte).
   const totalRinde  = (montoContados - comContados) + (montoExtras - comExtras) + (montoExtrasP0 - comExtrasP0);
-  const nSel        = nCuotasReal + nContados;
+  const nSel        = nCuotasReal + nContados + nEntregados;
   const habilitar   = (nSel > 0) || (extrasCant > 0 && extrasValor > 0) || (extrasP0Cant > 0 && extrasP0Valor > 0);
 
   const el = id => document.getElementById(id);
@@ -1196,6 +1267,7 @@ function recalcular() {
   if (el('vd-cuotas-crudo'))   el('vd-cuotas-crudo').textContent  = nCuotasReal;
   if (el('vd-contados-pond'))  el('vd-contados-pond').textContent = fmtPonderado(nContadosEq);
   if (el('vd-contados-crudo')) el('vd-contados-crudo').textContent= nContados;
+  if (el('vd-entregados'))     el('vd-entregados').textContent    = nEntregados;
   if (el('vd-total-pond'))     el('vd-total-pond').textContent    = fmtPonderado(nCuotasEq + nContadosEq);
   if (el('vd-total-crudo'))    el('vd-total-crudo').textContent   = nCuotasReal + nContados;
   if (el('vd-extras-cant'))    el('vd-extras-cant').textContent   = extrasCant + extrasP0Cant;
