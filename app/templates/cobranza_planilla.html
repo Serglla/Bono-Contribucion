@@ -70,8 +70,8 @@
       margin-bottom: 1mm;
     }
 
-    table.main-table thead tr { height: 5mm; }
-    table.main-table tbody tr { height: 5.2mm; }
+    table.main-table thead tr { height: 4mm; }
+    table.main-table tbody tr { height: 4.7mm; }
 
     table.main-table thead td,
     table.main-table thead th {
@@ -83,6 +83,7 @@
       font-weight: 700;
       padding: 0;
       overflow: hidden;
+      line-height: 1;
     }
     table.main-table tbody td {
       border: 1px solid #ccc;
@@ -91,6 +92,7 @@
       background: #fff;
       overflow: hidden;
       font-size: 8.5pt;
+      line-height: 1;
     }
 
     .td-num { font-weight: 800; letter-spacing: -0.03em; }
@@ -103,7 +105,7 @@
       color: #fff;
       font-size: 9pt;
       font-weight: 900;
-      line-height: 5.2mm;
+      line-height: 4.7mm;
       padding: 0 !important;
     }
 
@@ -124,12 +126,12 @@
       table-layout: fixed;
       border: 1.5px solid #000;
     }
-    table.res-table thead tr { height: 4mm; }
-    table.res-table tbody tr { height: 3.2mm; }
+    table.res-table thead tr { height: 5mm; }
+    table.res-table tbody tr { height: 5mm; }
 
     table.res-table thead th {
       background: #c00; color: #fff;
-      font-size: 6pt; font-weight: 700;
+      font-size: 7pt; font-weight: 700;
       text-transform: uppercase;
       border: 1px solid #900;
       text-align: center; padding: 0 1mm;
@@ -138,12 +140,12 @@
     }
     table.res-table tbody td {
       border: 1px solid #bbb;
-      font-size: 6pt; padding: 0 1.5mm;
+      font-size: 7pt; padding: 0 1.5mm;
       line-height: 1;
     }
     .td-mes {
       background: #c00; color: #fff;
-      font-weight: 700; font-size: 6pt;
+      font-weight: 700; font-size: 7pt;
       text-transform: uppercase; white-space: nowrap;
       line-height: 1;
     }
@@ -206,7 +208,7 @@
       <col style="width:18%">
       <col style="width:28%">
     </colgroup>
-    <tr style="height:6mm;">
+    <tr style="height:5mm;">
       <td><span class="hd-label">Institución</span><span class="hd-val">Bomberos Voluntarios CDELU</span></td>
       <td><span class="hd-label">Año</span><span class="hd-val">2026-2027</span></td>
       <td><span class="hd-label">Entrega</span><span class="hd-val">{{ mes_nombre }}</span></td>
@@ -215,7 +217,7 @@
         <span class="hd-val">{{ cobrador.nombre }}{% if planilla_label %} <span style="color:#c00;">{{ planilla_label }}</span>{% endif %}</span>
       </td>
     </tr>
-    <tr style="height:5mm;">
+    <tr style="height:4mm;">
       <td><span class="hd-label">Localidad</span></td>
       <td colspan="3" style="border-right:none; border-left:none;">
         <span class="hd-localidad">Concepción del Uruguay — Entre Ríos</span>
