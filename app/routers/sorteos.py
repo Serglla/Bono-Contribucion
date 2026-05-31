@@ -176,7 +176,7 @@ async def extracto_mes(
                 numeros_ganadores = json.loads(s.resultado_json)
             except Exception:
                 continue
-            cifras_list = sorted([int(c) for c in s.cifras.split(",")], reverse=True)
+            cifras_list = sorted([int(c) for c in str(s.cifras).split(",")], reverse=True)
             cifras_set.update(cifras_list)
 
             # Boletas anteriores a este sorteo
@@ -381,24 +381,18 @@ async def eliminar(sid: int, request: Request, db: Session = Depends(get_db)):
     return RedirectResponse("/sorteos/", status_code=302)
 
 
-@router.get("/{sid}/ganadores", response_class=HTMLResponse)
-async def ver_ganadores(sid: int, request: Request, db: Session = Depends(get_db)):
-    user = await auth_module.require_user(request, db)
-    if not auth_module.has_permission(user, 'sorteos', 'ver'):
-        raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    s = db.query(models.Sorteo).get(sid)
+def _calcular_grupos_ganadores(s, db):
+    """Cruza el resultado del sorteo `s` con todas las boletas y arma los grupos
+    de ganadores (uno por premio × cifra). Devuelve (grupos, cifras_list).
 
-    if not s:
-        return RedirectResponse("/sorteos/", status_code=302)
-
-    if not s.resultado_json:
-        return templates.TemplateResponse(request, "ganadores.html", {
-            "user": user, "sorteo": s, "ganadores": [], "cifras_disponibles": []
-        })
-
+    Cada fila marca si es un ganador VÁLIDO: tiene socio (comprador) y la boleta
+    se vendió ANTES del sorteo (`fecha_venta < s.fecha`). Si tiene socio pero se
+    compró el día del sorteo o después (o sin fecha), se marca `posterior` y NO
+    cuenta como ganador.
+    """
     num_premios = s.num_premios or 20
     numeros_ganadores = json.loads(s.resultado_json)[:num_premios]  # respetar el límite del sorteo
-    cifras_list = sorted([int(c) for c in s.cifras.split(",")], reverse=True)  # [4,3,2]
+    cifras_list = sorted([int(c) for c in str(s.cifras).split(",")], reverse=True)  # [4,3,2]
 
     # Cargar todas las boletas con sus relaciones
     boletas = db.query(models.Boleta).options(
@@ -411,12 +405,7 @@ async def ver_ganadores(sid: int, request: Request, db: Session = Depends(get_db
     # Construir índice: suffix_map[n_cifras][sufijo] = [(boleta, numero_entero), ...]
     suffix_map = {n: {} for n in cifras_list}
     for boleta in boletas:
-        todos = [boleta.numero_principal]
-        if boleta.numeros_adicionales:
-            for x in boleta.numeros_adicionales.split(", "):
-                if x.isdigit():
-                    todos.append(int(x))
-        for num in todos:
+        for num in _numeros_boleta(boleta):
             num_str = str(num).zfill(4)
             for n in cifras_list:
                 sufijo = num_str[-n:]
@@ -446,15 +435,17 @@ async def ver_ganadores(sid: int, request: Request, db: Session = Depends(get_db
                     continue
                 vistos_boleta.add(key)
 
-                # Separar: número que matcheó vs. otros números de la misma boleta
-                todos_nums = [boleta.numero_principal]
-                if boleta.numeros_adicionales:
-                    for x in boleta.numeros_adicionales.split(","):
-                        x = x.strip()
-                        if x.isdigit():
-                            todos_nums.append(int(x))
+                otros = [str(x).zfill(4) for x in _numeros_boleta(boleta) if x != num_match]
 
-                otros = [str(x).zfill(4) for x in todos_nums if x != num_match]
+                tiene_socio = boleta.comprador is not None
+                # Ganador válido: tiene socio Y la boleta se vendió ANTES del sorteo.
+                es_valido = (
+                    tiene_socio
+                    and boleta.fecha_venta is not None
+                    and boleta.fecha_venta < s.fecha
+                )
+                # Tiene socio pero comprada el día del sorteo o después (o sin fecha): no cuenta.
+                posterior = tiene_socio and not es_valido
 
                 filas.append({
                     "talonera": boleta.talonera.nombre if boleta.talonera else "—",
@@ -465,6 +456,9 @@ async def ver_ganadores(sid: int, request: Request, db: Session = Depends(get_db
                     "vendedor": boleta.vendedor.nombre if boleta.vendedor else None,
                     "cobrador": boleta.cobrador.nombre if boleta.cobrador else None,
                     "condicion": boleta.condicion.value if boleta.condicion else "SIN_VENDER",
+                    "fecha_venta": boleta.fecha_venta.strftime("%d/%m/%Y") if boleta.fecha_venta else None,
+                    "es_ganador_valido": es_valido,
+                    "posterior": posterior,
                 })
 
             # Marcar estos como adjudicados para que no aparezcan en niveles inferiores
@@ -478,18 +472,67 @@ async def ver_ganadores(sid: int, request: Request, db: Session = Depends(get_db
                 "numero_ganador": num_str,
                 "sufijo": sufijo,
                 "filas": filas,
-                # Ganadores REALES: solo los que tienen socio cargado (comprador)
-                "ganadores_reales": sum(1 for f in filas if f["comprador"]),
+                # Ganadores REALES: socio cargado Y comprado antes del sorteo
+                "ganadores_reales": sum(1 for f in filas if f["es_ganador_valido"]),
+                "posteriores": sum(1 for f in filas if f["posterior"]),
             })
+
+    return grupos, cifras_list
+
+
+@router.get("/{sid}/ganadores", response_class=HTMLResponse)
+async def ver_ganadores(sid: int, request: Request, db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    s = db.query(models.Sorteo).get(sid)
+
+    if not s:
+        return RedirectResponse("/sorteos/", status_code=302)
+
+    if not s.resultado_json:
+        return templates.TemplateResponse(request, "ganadores.html", {
+            "user": user, "sorteo": s, "ganadores": [], "cifras_disponibles": []
+        })
+
+    grupos, cifras_list = _calcular_grupos_ganadores(s, db)
 
     return templates.TemplateResponse(request, "ganadores.html", {
         "user": user,
         "sorteo": s,
         "grupos": grupos,
         "cifras_disponibles": cifras_list,
-        # Solo cuentan como ganadores las filas con comprador (socio) cargado
+        # Solo cuentan como ganadores las filas válidas (socio + comprada antes del sorteo)
         "total_ganadores": sum(g["ganadores_reales"] for g in grupos),
     })
+
+
+@router.get("/{sid}/ganadores-json")
+async def ganadores_json(sid: int, request: Request, db: Session = Depends(get_db)):
+    """Resumen liviano de ganadores VÁLIDOS para el acordeón del listado de sorteos."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    s = db.query(models.Sorteo).get(sid)
+    if not s or not s.resultado_json:
+        return {"ganadores": [], "total": 0}
+
+    grupos, _ = _calcular_grupos_ganadores(s, db)
+    ganadores = []
+    for g in grupos:
+        for f in g["filas"]:
+            if f["es_ganador_valido"]:
+                ganadores.append({
+                    "nombre": f["comprador"],
+                    "numero": f["num_match"],
+                    "cifras": g["cifras"],
+                    "posicion": g["posicion"],
+                    "talonera": f["talonera"],
+                    "condicion": f["condicion"],
+                })
+    # Ordenar por cifras desc, luego posición, luego nombre
+    ganadores.sort(key=lambda x: (-x["cifras"], x["posicion"], x["nombre"] or ""))
+    return {"ganadores": ganadores, "total": len(ganadores)}
 
 
 class ResultadoPayload(BaseModel):

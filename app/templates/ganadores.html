@@ -53,10 +53,18 @@
       </span>
       {% if grupo.ganadores_reales > 0 %}
         <span class="badge bg-warning text-dark ms-1">{{ grupo.ganadores_reales }} ganador{{ "es" if grupo.ganadores_reales != 1 else "" }}</span>
-      {% elif grupo.filas %}
-        <span class="badge bg-light text-muted ms-1 fst-italic">{{ grupo.filas|length }} coincidencia{{ "s" if grupo.filas|length != 1 else "" }} sin socio</span>
-      {% else %}
-        <span class="text-muted small fst-italic ms-1">Sin ganadores</span>
+      {% endif %}
+      {% if grupo.posteriores > 0 %}
+        <span class="badge bg-secondary ms-1" title="Boletas con socio pero compradas el día del sorteo o después: no cuentan como ganadores">
+          <i class="bi bi-clock-history me-1"></i>{{ grupo.posteriores }} comprada{{ "s" if grupo.posteriores != 1 else "" }} tras el sorteo
+        </span>
+      {% endif %}
+      {% if grupo.ganadores_reales == 0 and grupo.posteriores == 0 %}
+        {% if grupo.filas %}
+          <span class="badge bg-light text-muted ms-1 fst-italic">{{ grupo.filas|length }} coincidencia{{ "s" if grupo.filas|length != 1 else "" }} sin socio</span>
+        {% else %}
+          <span class="text-muted small fst-italic ms-1">Sin ganadores</span>
+        {% endif %}
       {% endif %}
     </div>
 
@@ -76,7 +84,7 @@
         </thead>
         <tbody>
           {% for f in grupo.filas %}
-          <tr {% if f.condicion == "SIN_VENDER" %}class="table-warning"{% endif %}>
+          <tr {% if f.posterior %}class="table-secondary"{% elif f.condicion == "SIN_VENDER" %}class="table-warning"{% endif %}>
             <td class="fw-semibold text-muted">{{ f.talonera }}</td>
             <td>
               <span class="badge font-monospace fs-6"
@@ -89,7 +97,14 @@
                 {{ f.otros_numeros | join(" · ") }}
               {% else %}—{% endif %}
             </td>
-            <td>{{ f.comprador or "—" }}</td>
+            <td>
+              {{ f.comprador or "—" }}
+              {% if f.posterior %}
+                <div class="small text-danger" style="font-size:0.72rem;">
+                  <i class="bi bi-exclamation-circle-fill me-1"></i>Comprado tras el sorteo{% if f.fecha_venta %} ({{ f.fecha_venta }}){% endif %} — no cuenta
+                </div>
+              {% endif %}
+            </td>
             <td class="text-muted">{{ f.vendedor or "—" }}</td>
             <td class="text-muted">{{ f.cobrador or "—" }}</td>
             <td>

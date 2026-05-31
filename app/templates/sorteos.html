@@ -457,6 +457,12 @@
   .mes-header:focus { box-shadow: none; }
   .mes-total { font-weight: 500; }
   .btn-extracto { white-space: nowrap; }
+  /* Doble clic en fila → acordeón de ganadores */
+  .fila-sorteo-clickable { cursor: pointer; }
+  .fila-sorteo-abierta > td { background: #fff7e6 !important; }
+  .fila-ganadores > td { background: #fffdf5; border-top: 0; }
+  .ganador-inline-item { padding: 3px 0; border-bottom: 1px dashed #eee; }
+  .ganador-inline-item:last-child { border-bottom: 0; }
   @media (max-width: 575.98px) {
     .mes-header { font-size: 0.85rem; padding: .55rem .75rem; }
     .btn-extracto { padding: .15rem .4rem; font-size: 0.75rem; }
@@ -851,6 +857,72 @@
       e.preventDefault();
       document.getElementById('editCifrasError').style.display = 'block';
     }
+  });
+
+  // --- Doble clic en una fila de sorteo → acordeón con ganadores válidos ---
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g,
+      m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+  function cifraClase(c) { return c === 4 ? 'cifra-4' : (c === 3 ? 'cifra-3' : 'cifra-2'); }
+
+  function renderGanadoresInline(data) {
+    if (!data.total) {
+      return '<span class="text-muted small fst-italic"><i class="bi bi-info-circle me-1"></i>' +
+             'Sin ganadores válidos (con socio y comprado antes del sorteo).</span>';
+    }
+    let html = `<div class="mb-2 fw-semibold small">` +
+               `<i class="bi bi-trophy-fill text-warning me-1"></i>` +
+               `${data.total} ganador${data.total !== 1 ? 'es' : ''}</div>` +
+               '<div class="d-flex flex-column gap-1">';
+    data.ganadores.forEach(g => {
+      html += `<div class="d-flex align-items-center gap-2 flex-wrap ganador-inline-item">
+        <span class="badge resultado-badge ${cifraClase(g.cifras)} font-monospace" title="Número por el que ganó">${escapeHtml(g.numero)}</span>
+        <span class="badge ${cifraClase(g.cifras)}">${g.cifras} cifras</span>
+        <span class="text-muted small">${g.posicion}° premio</span>
+        <span class="fw-semibold">${escapeHtml(g.nombre || '—')}</span>
+        ${g.talonera ? `<span class="text-muted small">· ${escapeHtml(g.talonera)}</span>` : ''}
+      </div>`;
+    });
+    html += '</div>';
+    return html;
+  }
+
+  document.querySelectorAll('.tabla-sorteos tbody tr[data-sid]').forEach(row => {
+    const tieneResultado = !!row.querySelector('.resultado-grilla');
+    if (tieneResultado) {
+      row.classList.add('fila-sorteo-clickable');
+      row.title = 'Doble clic para ver los ganadores';
+    }
+    row.addEventListener('dblclick', async function(e) {
+      // No disparar al doble-clickear botones/enlaces/inputs de acción
+      if (e.target.closest('a, button, form, input')) return;
+      if (!tieneResultado) return;
+      const sid = this.dataset.sid;
+      const sig = this.nextElementSibling;
+      // Toggle: si ya está abierta su fila de ganadores, cerrarla
+      if (sig && sig.classList.contains('fila-ganadores') && sig.dataset.sid === sid) {
+        sig.remove();
+        this.classList.remove('fila-sorteo-abierta');
+        return;
+      }
+      const tr = document.createElement('tr');
+      tr.className = 'fila-ganadores';
+      tr.dataset.sid = sid;
+      tr.innerHTML = `<td colspan="6" class="p-0"><div class="ganadores-inline px-3 py-2">` +
+        `<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Cargando ganadores…</span>` +
+        `</div></td>`;
+      this.after(tr);
+      this.classList.add('fila-sorteo-abierta');
+      try {
+        const resp = await fetch(`/sorteos/${sid}/ganadores-json`);
+        const data = await resp.json();
+        tr.querySelector('.ganadores-inline').innerHTML = renderGanadoresInline(data);
+      } catch (err) {
+        tr.querySelector('.ganadores-inline').innerHTML =
+          '<span class="text-danger small">Error al cargar ganadores.</span>';
+      }
+    });
   });
 </script>
 {% endblock %}

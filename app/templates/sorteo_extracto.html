@@ -215,77 +215,66 @@
   .hoja-a4[data-cols="2"] { --cols: 2; }
   .hoja-a4[data-cols="3"] { --cols: 3; }
 
-  /* ─── Multi-up: 1, 4 o 9 copias por hoja ─────────────────────────── */
+  /* ─── Multi-up: varias copias compactas por hoja ─────────────────── */
+  /* Las copias fluyen y cada bloque ocupa SOLO el alto de su contenido.
+     Así, con pocos ganadores, entran muchas más copias por hoja. */
   .extracto-grid { display: block; }
 
-  /* 4-up: 2×2 */
-  .hoja-a4[data-copies="4"] .extracto-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    grid-template-rows: repeat(2, 1fr);
-    gap: 4mm;
-    height: 281mm;  /* A4 (297) - padding superior+inferior (16) */
-  }
-  .hoja-a4[data-copies="4"] .extracto-bloque {
-    border: 1px dashed #999;
-    padding: 3mm;
-    padding-bottom: 3mm;
-    overflow: hidden;
+  .hoja-a4[data-copies="4"] .extracto-grid,
+  .hoja-a4[data-copies="9"] .extracto-grid {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 4mm;
   }
-  .hoja-a4[data-copies="4"] .ext-titulo { font-size: 10pt; }
-  .hoja-a4[data-copies="4"] .ext-subtitulo { font-size: 9pt; }
+  .hoja-a4[data-copies="4"] .extracto-bloque,
+  .hoja-a4[data-copies="9"] .extracto-bloque {
+    border: 1px dashed #999;
+    padding: 3mm 3mm 2mm;
+    box-sizing: border-box;
+    align-self: flex-start;       /* alto = contenido, no se estira */
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* 4 copias → 2 columnas */
+  .hoja-a4[data-copies="4"] .extracto-bloque { width: calc(50% - 2mm); }
+  /* 9 copias → 3 columnas */
+  .hoja-a4[data-copies="9"] .extracto-bloque { width: calc(33.333% - 2.7mm); }
+
+  /* Tamaños legibles (más grandes que antes) — 2 columnas */
+  .hoja-a4[data-copies="4"] .ext-titulo { font-size: 11pt; }
+  .hoja-a4[data-copies="4"] .ext-subtitulo { font-size: 9.5pt; }
   .hoja-a4[data-copies="4"] .ext-tipo,
-  .hoja-a4[data-copies="4"] .ext-cifras { font-size: 8pt; }
-  .hoja-a4[data-copies="4"] .ext-premios { font-size: 7.5pt !important; line-height: 1.25; margin-top: 2mm; margin-bottom: 1mm; }
-  .hoja-a4[data-copies="4"] .premio-item { margin: 0 4px; }
-  .hoja-a4[data-copies="4"] .ext-titulo-seccion { font-size: 8pt; margin: 1mm 0 0.5mm; }
-  .hoja-a4[data-copies="4"] .ext-pie { font-size: 8pt; margin-top: 2mm; padding-top: 1mm; }
+  .hoja-a4[data-copies="4"] .ext-cifras { font-size: 8.5pt; }
+  .hoja-a4[data-copies="4"] .ext-premios { font-size: 8.5pt !important; line-height: 1.3; margin-top: 2mm; margin-bottom: 1mm; }
+  .hoja-a4[data-copies="4"] .premio-item { margin: 0 5px; }
+  .hoja-a4[data-copies="4"] .ext-titulo-seccion { font-size: 9pt; margin: 1.5mm 0 1mm; }
+  .hoja-a4[data-copies="4"] .ext-pie { font-size: 9pt; margin-top: 2.5mm; padding-top: 1.5mm; }
   .hoja-a4[data-copies="4"] .ext-ganadores {
     column-count: 1 !important;
     column-rule: none;
-    font-size: 7pt !important;
-    line-height: 1.15 !important;
-    flex: 1;
-    overflow: hidden;
+    font-size: 9pt !important;
+    line-height: 1.25 !important;
   }
-  .hoja-a4[data-copies="4"] .ext-vacio { font-size: 7pt !important; }
+  .hoja-a4[data-copies="4"] .ext-vacio { font-size: 8.5pt !important; }
 
-  /* 9-up: 3×3 */
-  .hoja-a4[data-copies="9"] .extracto-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(3, 1fr);
-    gap: 2mm;
-    height: 281mm;
-  }
-  .hoja-a4[data-copies="9"] .extracto-bloque {
-    border: 1px dashed #999;
-    padding: 2mm 1.5mm;
-    padding-bottom: 1mm;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-  .hoja-a4[data-copies="9"] .ext-titulo { font-size: 7pt; line-height: 1.05; letter-spacing: 0; }
-  .hoja-a4[data-copies="9"] .ext-subtitulo { font-size: 6.5pt; margin-top: 1px; }
+  /* Tamaños — 3 columnas (más chico pero aún legible) */
+  .hoja-a4[data-copies="9"] .ext-titulo { font-size: 8pt; line-height: 1.05; letter-spacing: 0; }
+  .hoja-a4[data-copies="9"] .ext-subtitulo { font-size: 7pt; margin-top: 1px; }
   .hoja-a4[data-copies="9"] .ext-tipo,
-  .hoja-a4[data-copies="9"] .ext-cifras { font-size: 5.5pt; margin-top: 1px; }
-  .hoja-a4[data-copies="9"] .ext-premios { font-size: 5pt !important; line-height: 1.15; margin-top: 1mm; margin-bottom: 0.5mm; }
-  .hoja-a4[data-copies="9"] .premio-item { margin: 0 2px; display: block; }
-  .hoja-a4[data-copies="9"] .ext-titulo-seccion { font-size: 5.5pt; margin: 0.5mm 0; }
-  .hoja-a4[data-copies="9"] .ext-pie { font-size: 5.5pt; margin-top: 1mm; padding-top: 0.5mm; }
+  .hoja-a4[data-copies="9"] .ext-cifras { font-size: 6.5pt; margin-top: 1px; }
+  .hoja-a4[data-copies="9"] .ext-premios { font-size: 6.5pt !important; line-height: 1.2; margin-top: 1mm; margin-bottom: 0.5mm; }
+  .hoja-a4[data-copies="9"] .premio-item { margin: 0 3px; }
+  .hoja-a4[data-copies="9"] .ext-titulo-seccion { font-size: 7pt; margin: 1mm 0 0.5mm; }
+  .hoja-a4[data-copies="9"] .ext-pie { font-size: 7pt; margin-top: 1.5mm; padding-top: 1mm; }
   .hoja-a4[data-copies="9"] .ext-ganadores {
     column-count: 1 !important;
     column-rule: none;
-    font-size: 5pt !important;
-    line-height: 1.05 !important;
-    flex: 1;
-    overflow: hidden;
+    font-size: 7pt !important;
+    line-height: 1.2 !important;
   }
   .hoja-a4[data-copies="9"] .ganador-linea { padding: 0; }
-  .hoja-a4[data-copies="9"] .ext-vacio { font-size: 5pt !important; padding: 1mm 0; }
+  .hoja-a4[data-copies="9"] .ext-vacio { font-size: 7pt !important; padding: 1mm 0; }
 
   /* Cuando hay copias múltiples, ocultar la línea de stats (queda raro replicada) */
   .hoja-a4[data-copies="4"] .stat-line,
@@ -315,17 +304,12 @@
       margin-top: 0;
       padding-top: 0;
     }
-    /* En print con 4-up o 9-up, el grid debe llenar exactamente la página */
-    .hoja-a4[data-copies="4"] .extracto-grid,
-    .hoja-a4[data-copies="9"] .extracto-grid {
-      height: 100vh;
-      page-break-after: always;
-      break-after: page;
-    }
-    .hoja-a4[data-copies="4"] .extracto-grid:last-child,
-    .hoja-a4[data-copies="9"] .extracto-grid:last-child {
-      page-break-after: auto;
-      break-after: auto;
+    /* Con copias múltiples, los bloques compactos fluyen y se cortan solos
+       entre páginas; no forzamos una hoja por grilla. */
+    .hoja-a4[data-copies="4"] .extracto-bloque,
+    .hoja-a4[data-copies="9"] .extracto-bloque {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     /* Evitar que se rompan elementos críticos */
     .ext-cabecera, .ext-premios, .ext-titulo-seccion, .ext-pie {
