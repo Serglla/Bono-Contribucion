@@ -28,8 +28,8 @@
     <span class="text-muted small ms-2">Copias/hoja:</span>
     <div class="btn-group btn-group-sm" role="group" aria-label="Copias">
       <button type="button" class="btn btn-outline-secondary btn-copies active" data-copies="1">1</button>
-      <button type="button" class="btn btn-outline-secondary btn-copies" data-copies="4">4</button>
-      <button type="button" class="btn btn-outline-secondary btn-copies" data-copies="9">9</button>
+      <button type="button" class="btn btn-outline-secondary btn-copies" data-copies="10">10</button>
+      <button type="button" class="btn btn-outline-secondary btn-copies" data-copies="15">15</button>
     </div>
     <button class="btn btn-sm btn-primary" onclick="window.print()">
       <i class="bi bi-printer me-1"></i>Imprimir
@@ -88,7 +88,7 @@
       {% if bloque.ganadores %}
         <div class="ext-ganadores">
           {% for g in bloque.ganadores %}
-            <div class="ganador-linea">{{ g.nombre }}{% if g.direccion %}-{{ g.direccion }}{% endif %}</div>
+            <div class="ganador-linea">{{ g.nombre }}{% if g.direccion %} - {{ g.direccion }}{% endif %}</div>
           {% endfor %}
         </div>
       {% else %}
@@ -220,15 +220,15 @@
      Así, con pocos ganadores, entran muchas más copias por hoja. */
   .extracto-grid { display: block; }
 
-  .hoja-a4[data-copies="4"] .extracto-grid,
-  .hoja-a4[data-copies="9"] .extracto-grid {
+  .hoja-a4[data-copies="10"] .extracto-grid,
+  .hoja-a4[data-copies="15"] .extracto-grid {
     display: flex;
     flex-wrap: wrap;
     align-content: flex-start;
     gap: 4mm;
   }
-  .hoja-a4[data-copies="4"] .extracto-bloque,
-  .hoja-a4[data-copies="9"] .extracto-bloque {
+  .hoja-a4[data-copies="10"] .extracto-bloque,
+  .hoja-a4[data-copies="15"] .extracto-bloque {
     border: 1px dashed #999;
     padding: 3mm 3mm 2mm;
     box-sizing: border-box;
@@ -237,48 +237,48 @@
     page-break-inside: avoid;
   }
   /* 4 copias → 2 columnas */
-  .hoja-a4[data-copies="4"] .extracto-bloque { width: calc(50% - 2mm); }
+  .hoja-a4[data-copies="10"] .extracto-bloque { width: calc(50% - 2mm); }
   /* 9 copias → 3 columnas */
-  .hoja-a4[data-copies="9"] .extracto-bloque { width: calc(33.333% - 2.7mm); }
+  .hoja-a4[data-copies="15"] .extracto-bloque { width: calc(33.333% - 2.7mm); }
 
   /* Tamaños legibles (más grandes que antes) — 2 columnas */
-  .hoja-a4[data-copies="4"] .ext-titulo { font-size: 11pt; }
-  .hoja-a4[data-copies="4"] .ext-subtitulo { font-size: 9.5pt; }
-  .hoja-a4[data-copies="4"] .ext-tipo,
-  .hoja-a4[data-copies="4"] .ext-cifras { font-size: 8.5pt; }
-  .hoja-a4[data-copies="4"] .ext-premios { font-size: 8.5pt !important; line-height: 1.3; margin-top: 2mm; margin-bottom: 1mm; }
-  .hoja-a4[data-copies="4"] .premio-item { margin: 0 5px; }
-  .hoja-a4[data-copies="4"] .ext-titulo-seccion { font-size: 9pt; margin: 1.5mm 0 1mm; }
-  .hoja-a4[data-copies="4"] .ext-pie { font-size: 9pt; margin-top: 2.5mm; padding-top: 1.5mm; }
-  .hoja-a4[data-copies="4"] .ext-ganadores {
+  .hoja-a4[data-copies="10"] .ext-titulo { font-size: 11pt; }
+  .hoja-a4[data-copies="10"] .ext-subtitulo { font-size: 9.5pt; }
+  .hoja-a4[data-copies="10"] .ext-tipo,
+  .hoja-a4[data-copies="10"] .ext-cifras { font-size: 8.5pt; }
+  .hoja-a4[data-copies="10"] .ext-premios { font-size: 8.5pt !important; line-height: 1.3; margin-top: 2mm; margin-bottom: 1mm; }
+  .hoja-a4[data-copies="10"] .premio-item { margin: 0 5px; }
+  .hoja-a4[data-copies="10"] .ext-titulo-seccion { font-size: 9pt; margin: 1.5mm 0 1mm; }
+  .hoja-a4[data-copies="10"] .ext-pie { font-size: 9pt; margin-top: 2.5mm; padding-top: 1.5mm; }
+  .hoja-a4[data-copies="10"] .ext-ganadores {
     column-count: 1 !important;
     column-rule: none;
     font-size: 9pt !important;
     line-height: 1.25 !important;
   }
-  .hoja-a4[data-copies="4"] .ext-vacio { font-size: 8.5pt !important; }
+  .hoja-a4[data-copies="10"] .ext-vacio { font-size: 8.5pt !important; }
 
   /* Tamaños — 3 columnas (más chico pero aún legible) */
-  .hoja-a4[data-copies="9"] .ext-titulo { font-size: 8pt; line-height: 1.05; letter-spacing: 0; }
-  .hoja-a4[data-copies="9"] .ext-subtitulo { font-size: 7pt; margin-top: 1px; }
-  .hoja-a4[data-copies="9"] .ext-tipo,
-  .hoja-a4[data-copies="9"] .ext-cifras { font-size: 6.5pt; margin-top: 1px; }
-  .hoja-a4[data-copies="9"] .ext-premios { font-size: 6.5pt !important; line-height: 1.2; margin-top: 1mm; margin-bottom: 0.5mm; }
-  .hoja-a4[data-copies="9"] .premio-item { margin: 0 3px; }
-  .hoja-a4[data-copies="9"] .ext-titulo-seccion { font-size: 7pt; margin: 1mm 0 0.5mm; }
-  .hoja-a4[data-copies="9"] .ext-pie { font-size: 7pt; margin-top: 1.5mm; padding-top: 1mm; }
-  .hoja-a4[data-copies="9"] .ext-ganadores {
+  .hoja-a4[data-copies="15"] .ext-titulo { font-size: 8pt; line-height: 1.05; letter-spacing: 0; }
+  .hoja-a4[data-copies="15"] .ext-subtitulo { font-size: 7pt; margin-top: 1px; }
+  .hoja-a4[data-copies="15"] .ext-tipo,
+  .hoja-a4[data-copies="15"] .ext-cifras { font-size: 6.5pt; margin-top: 1px; }
+  .hoja-a4[data-copies="15"] .ext-premios { font-size: 6.5pt !important; line-height: 1.2; margin-top: 1mm; margin-bottom: 0.5mm; }
+  .hoja-a4[data-copies="15"] .premio-item { margin: 0 3px; }
+  .hoja-a4[data-copies="15"] .ext-titulo-seccion { font-size: 7pt; margin: 1mm 0 0.5mm; }
+  .hoja-a4[data-copies="15"] .ext-pie { font-size: 7pt; margin-top: 1.5mm; padding-top: 1mm; }
+  .hoja-a4[data-copies="15"] .ext-ganadores {
     column-count: 1 !important;
     column-rule: none;
     font-size: 7pt !important;
     line-height: 1.2 !important;
   }
-  .hoja-a4[data-copies="9"] .ganador-linea { padding: 0; }
-  .hoja-a4[data-copies="9"] .ext-vacio { font-size: 7pt !important; padding: 1mm 0; }
+  .hoja-a4[data-copies="15"] .ganador-linea { padding: 0; }
+  .hoja-a4[data-copies="15"] .ext-vacio { font-size: 7pt !important; padding: 1mm 0; }
 
   /* Cuando hay copias múltiples, ocultar la línea de stats (queda raro replicada) */
-  .hoja-a4[data-copies="4"] .stat-line,
-  .hoja-a4[data-copies="9"] .stat-line { display: none; }
+  .hoja-a4[data-copies="10"] .stat-line,
+  .hoja-a4[data-copies="15"] .stat-line { display: none; }
 
   /* ─── Print A4 ─────────────────────────────────────────────────── */
   @page {
@@ -306,8 +306,8 @@
     }
     /* Con copias múltiples, los bloques compactos fluyen y se cortan solos
        entre páginas; no forzamos una hoja por grilla. */
-    .hoja-a4[data-copies="4"] .extracto-bloque,
-    .hoja-a4[data-copies="9"] .extracto-bloque {
+    .hoja-a4[data-copies="10"] .extracto-bloque,
+    .hoja-a4[data-copies="15"] .extracto-bloque {
       break-inside: avoid;
       page-break-inside: avoid;
     }
