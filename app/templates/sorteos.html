@@ -34,7 +34,7 @@
               type="button" data-bs-toggle="collapse"
               data-bs-target="#mes-{{ grupo.key }}"
               aria-expanded="{% if grupo.key == mes_actual_key %}true{% else %}false{% endif %}">
-        <div class="d-flex align-items-center gap-2 w-100 flex-wrap" style="padding-right: 110px;">
+        <div class="d-flex align-items-center gap-2 w-100 flex-wrap" style="padding-right: 220px;">
           <i class="bi bi-calendar3 text-danger"></i>
           <span class="fw-bold">{{ grupo.label }}</span>
           <span class="badge bg-secondary mes-total">{{ grupo.total }} sorteo{% if grupo.total != 1 %}s{% endif %}</span>
@@ -46,12 +46,18 @@
         </div>
       </button>
       {% if grupo.con_resultado > 0 %}
-      <a href="/sorteos/extracto/{{ grupo.year }}/{{ grupo.month }}"
-         class="btn btn-sm btn-outline-warning btn-extracto"
-         title="Generar extracto del mes"
-         style="position:absolute; right:48px; top:50%; transform:translateY(-50%); z-index:5;">
-        <i class="bi bi-file-earmark-text me-1"></i>Extracto
-      </a>
+      <div class="d-flex gap-1" style="position:absolute; right:48px; top:50%; transform:translateY(-50%); z-index:5;">
+        <a href="/sorteos/extracto/{{ grupo.year }}/{{ grupo.month }}"
+           class="btn btn-sm btn-outline-warning btn-extracto"
+           title="Generar extracto del mes">
+          <i class="bi bi-file-earmark-text me-1"></i>Extracto
+        </a>
+        <a href="/sorteos/informe/{{ grupo.year }}/{{ grupo.month }}"
+           class="btn btn-sm btn-outline-info btn-extracto"
+           title="Ver informe detallado del mes">
+          <i class="bi bi-clipboard-data me-1"></i>Informe
+        </a>
+      </div>
       {% endif %}
     </h2>
     <div id="mes-{{ grupo.key }}" class="accordion-collapse collapse {% if grupo.key == mes_actual_key %}show{% endif %}">

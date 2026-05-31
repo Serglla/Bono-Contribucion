@@ -252,6 +252,85 @@ async def extracto_mes(
     })
 
 
+@router.get("/informe/{year}/{month}", response_class=HTMLResponse)
+async def informe_mes(
+    year: int,
+    month: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Informe detallado del mes: todos los sorteos con resultado, sus datos
+    (nombre, tipo, cifras, fecha, premios y el detalle cargado al crearlos) y
+    los ganadores válidos (socio + boleta vendida antes del sorteo) con el
+    número y a cuántas cifras ganaron."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    if month < 1 or month > 12:
+        raise HTTPException(400, 'Mes inválido')
+
+    inicio = date_type(year, month, 1)
+    fin = _ultimo_dia_mes(year, month)
+    mes_label = _MESES_ES[month - 1].upper()
+
+    sorteos = db.query(models.Sorteo).filter(
+        models.Sorteo.fecha >= inicio,
+        models.Sorteo.fecha <= fin,
+        models.Sorteo.resultado_json.isnot(None),
+    ).order_by(models.Sorteo.fecha.asc()).all()
+
+    bloques = []
+    total_ganadores_mes = 0
+    for s in sorteos:
+        grupos, cifras_list = _calcular_grupos_ganadores(s, db)
+        ganadores = []
+        for g in grupos:
+            for f in g["filas"]:
+                if not f["es_ganador_valido"]:
+                    continue
+                ganadores.append({
+                    "nombre": f["comprador"],
+                    "numero": f["num_match"],
+                    "cifras": g["cifras"],
+                    "posicion": g["posicion"],
+                    "talonera": f["talonera"],
+                    "vendedor": f["vendedor"],
+                    "cobrador": f["cobrador"],
+                    "fecha_venta": f["fecha_venta"],
+                })
+        # Orden: cifras desc, posición del premio, nombre
+        ganadores.sort(key=lambda x: (-x["cifras"], x["posicion"], x["nombre"] or ""))
+
+        try:
+            numeros = json.loads(s.resultado_json)[: (s.num_premios or 20)]
+        except Exception:
+            numeros = []
+
+        bloques.append({
+            "sorteo": s,
+            "tipo_label": _TIPO_LABEL_PLURAL.get(s.tipo.value, s.tipo.value).title(),
+            "cifras_label": " y ".join(
+                str(c) for c in sorted(
+                    [int(c) for c in str(s.cifras).split(",")], reverse=True
+                )
+            ),
+            "numeros_ganadores": [str(n).zfill(4) for n in numeros],
+            "ganadores": ganadores,
+            "total_ganadores": len(ganadores),
+        })
+        total_ganadores_mes += len(ganadores)
+
+    return templates.TemplateResponse(request, "sorteo_informe.html", {
+        "user": user,
+        "year": year,
+        "month": month,
+        "mes_label": mes_label,
+        "bloques": bloques,
+        "total_ganadores_mes": total_ganadores_mes,
+        "vacio": len(sorteos) == 0,
+    })
+
+
 def _numeros_boleta(b) -> List[int]:
     """Todos los números jugables de una boleta: el principal + los adicionales."""
     nums = [b.numero_principal]

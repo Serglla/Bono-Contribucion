@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Informe {{ mes_label|title }} {{ year }}{% endblock %}
+{% block content %}
+
+<!-- Toolbar (no se imprime) -->
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap d-print-none">
+  <a href="/sorteos/" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-clipboard-data text-info me-2"></i>
+    Informe · {{ mes_label|title }} {{ year }}
+  </h4>
+  <div class="ms-auto d-flex align-items-center gap-2">
+    <a href="/sorteos/extracto/{{ year }}/{{ month }}" class="btn btn-sm btn-outline-warning">
+      <i class="bi bi-file-earmark-text me-1"></i>Ver extracto
+    </a>
+    <button class="btn btn-sm btn-primary" onclick="window.print()">
+      <i class="bi bi-printer me-1"></i>Imprimir
+    </button>
+  </div>
+</div>
+
+{% if vacio %}
+  <div class="alert alert-warning d-print-none">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    No hay sorteos con resultado cargado en {{ mes_label|title }} {{ year }}.
+    <a href="/sorteos/" class="alert-link">Volver a sorteos</a>
+  </div>
+{% else %}
+
+<div id="hojaInforme" class="hoja-informe">
+
+  <!-- Cabecera del informe -->
+  <div class="inf-cabecera text-center mb-3">
+    <div class="inf-titulo">BOMBEROS VOLUNTARIOS CONCEPCION DEL URUGUAY</div>
+    <div class="inf-sub">Tómbola Nocturna de E. Ríos · Informe de sorteos</div>
+    <div class="inf-mes">{{ mes_label|title }} {{ year }}</div>
+  </div>
+
+  <!-- Resumen -->
+  <div class="inf-resumen d-flex flex-wrap gap-3 justify-content-center mb-4">
+    <div class="inf-kpi">
+      <div class="inf-kpi-num">{{ bloques|length }}</div>
+      <div class="inf-kpi-lbl">Sorteo{% if bloques|length != 1 %}s{% endif %}</div>
+    </div>
+    <div class="inf-kpi">
+      <div class="inf-kpi-num">{{ total_ganadores_mes }}</div>
+      <div class="inf-kpi-lbl">Ganador{% if total_ganadores_mes != 1 %}es{% endif %}</div>
+    </div>
+  </div>
+
+  {% for b in bloques %}
+  <div class="inf-sorteo">
+
+    <!-- Encabezado del sorteo -->
+    <div class="inf-sorteo-head">
+      <div class="d-flex align-items-center flex-wrap gap-2">
+        <span class="badge inf-badge-tipo tipo-{{ b.sorteo.tipo.value|replace(' ', '_') }}">{{ b.tipo_label }}</span>
+        <span class="inf-fecha">{{ b.sorteo.fecha.strftime("%d/%m/%Y") }}</span>
+        {% if b.sorteo.nombre %}<span class="inf-nombre">· {{ b.sorteo.nombre }}</span>{% endif %}
+        <span class="text-muted small ms-auto">A {{ b.cifras_label }} cifras · {{ b.sorteo.num_premios or 20 }} premio{% if (b.sorteo.num_premios or 20) != 1 %}s{% endif %}</span>
+      </div>
+      {% if b.sorteo.descripcion %}
+        <div class="inf-detalle mt-1">
+          <i class="bi bi-gift me-1"></i><strong>Premio / detalle:</strong> {{ b.sorteo.descripcion }}
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Números ganadores del sorteo -->
+    {% if b.numeros_ganadores %}
+    <div class="inf-numeros">
+      <span class="inf-numeros-lbl">Números sorteados:</span>
+      {% for n in b.numeros_ganadores %}
+        <span class="inf-num-chip" title="{{ loop.index }}° premio"><span class="inf-num-pos">{{ loop.index }}°</span>{{ n }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Ganadores -->
+    {% if b.ganadores %}
+    <div class="table-responsive">
+      <table class="table table-sm inf-tabla align-middle mb-0">
+        <thead>
+          <tr>
+            <th style="width:2.5rem;">#</th>
+            <th>Ganador</th>
+            <th>N° ganador</th>
+            <th>Cifras</th>
+            <th>Premio</th>
+            <th>Talonera</th>
+            <th>Vendedor</th>
+            <th>Cobrador</th>
+            <th>Fecha venta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in b.ganadores %}
+          <tr>
+            <td class="text-muted">{{ loop.index }}</td>
+            <td class="fw-semibold">{{ g.nombre or "—" }}</td>
+            <td><span class="badge bg-dark">{{ g.numero }}</span></td>
+            <td><span class="badge bg-secondary">{{ g.cifras }} cifras</span></td>
+            <td>{{ g.posicion }}° premio</td>
+            <td>{{ g.talonera or "—" }}</td>
+            <td>{{ g.vendedor or "—" }}</td>
+            <td>{{ g.cobrador or "—" }}</td>
+            <td>{{ g.fecha_venta or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="inf-total">{{ b.total_ganadores }} ganador{% if b.total_ganadores != 1 %}es{% endif %} en este sorteo</div>
+    {% else %}
+    <div class="inf-vacio">— Sin ganadores válidos en este sorteo —</div>
+    {% endif %}
+
+  </div>
+  {% endfor %}
+
+</div>
+
+{% endif %}
+
+<style>
+  .hoja-informe { max-width: 1000px; margin: 0 auto; color: #1a2a4a; }
+
+  .inf-titulo { font-weight: 800; font-size: 1.15rem; letter-spacing: .3px; }
+  .inf-sub    { color: #6c757d; font-size: .9rem; }
+  .inf-mes    { font-weight: 700; font-size: 1.05rem; margin-top: 2px; }
+
+  .inf-kpi {
+    background: #fff; border: 1px solid #e9ecef; border-radius: 10px;
+    padding: .5rem 1.4rem; text-align: center; min-width: 120px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  }
+  .inf-kpi-num { font-size: 1.6rem; font-weight: 800; line-height: 1; }
+  .inf-kpi-lbl { font-size: .8rem; color: #6c757d; text-transform: uppercase; letter-spacing: .5px; }
+
+  .inf-sorteo {
+    background: #fff; border: 1px solid #e9ecef; border-radius: 10px;
+    padding: 1rem 1.1rem; margin-bottom: 1.1rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .inf-sorteo-head { border-bottom: 1px solid #f1f3f5; padding-bottom: .5rem; margin-bottom: .6rem; }
+  .inf-fecha  { font-weight: 700; }
+  .inf-nombre { color: #495057; }
+  .inf-detalle { font-size: .9rem; color: #343a40; background: #fff9db; border-radius: 6px; padding: .35rem .55rem; }
+
+  .inf-badge-tipo { font-size: .8rem; }
+  .tipo-SEMANAL { background:#0d6efd; }
+  .tipo-MENSUAL { background:#198754; }
+  .tipo-CONTADO { background:#fd7e14; }
+  .tipo-FINAL   { background:#dc3545; }
+
+  .inf-numeros { margin-bottom: .7rem; font-size: .85rem; }
+  .inf-numeros-lbl { color: #6c757d; margin-right: .35rem; }
+  .inf-num-chip {
+    display: inline-block; background: #f1f3f5; border-radius: 6px;
+    padding: .1rem .4rem; margin: .1rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .inf-num-pos { color: #adb5bd; font-size: .72rem; margin-right: .2rem; }
+
+  .inf-tabla th { font-size: .78rem; color: #6c757d; text-transform: uppercase; letter-spacing: .3px; }
+  .inf-tabla td { font-size: .85rem; }
+
+  .inf-total { text-align: right; color: #6c757d; font-size: .8rem; margin-top: .4rem; }
+  .inf-vacio { text-align: center; font-style: italic; color: #adb5bd; padding: .6rem 0; }
+
+  /* ─── Print ─────────────────────────────────────────────── */
+  @page { size: A4 portrait; margin: 12mm; }
+  @media print {
+    .d-print-none { display: none !important; }
+    .topbar, nav.topbar, .navbar.topbar { display: none !important; }
+    body { background: #fff !important; padding: 0 !important; margin: 0 !important; }
+    .main-content { padding: 0 !important; margin: 0 !important; min-height: 0 !important; }
+    .hoja-informe { max-width: none; }
+    .inf-sorteo, .inf-kpi { box-shadow: none; border-color: #ccc; }
+  }
+</style>
+
+{% endblock %}
