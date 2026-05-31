@@ -89,8 +89,8 @@
             </td>
             <td class="text-end" style="white-space:nowrap;">
               <a href="/sorteos/entregas/{{ e.id }}/recibo" target="_blank"
-                 class="btn btn-sm btn-outline-primary me-1" title="Recibo de entrega">
-                <i class="bi bi-printer"></i>
+                 class="btn btn-sm btn-outline-primary me-1" title="Ver / imprimir recibo">
+                <i class="bi bi-file-earmark-text me-1"></i>Recibo
               </a>
               {% if e.entregado %}
                 <form method="post" action="/sorteos/entregas/{{ e.id }}/desmarcar" class="d-inline">
