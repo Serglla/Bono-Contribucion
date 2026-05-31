@@ -29,24 +29,16 @@
   </div>
 {% else %}
 
+<div id="infoPage">
 <div id="hojaInforme" class="hoja-informe">
 
   <!-- Cabecera del informe -->
-  <div class="inf-cabecera text-center mb-3">
+  <div class="inf-cabecera d-flex align-items-baseline flex-wrap gap-2 mb-2">
     <div class="inf-titulo">BOMBEROS VOLUNTARIOS CONCEPCION DEL URUGUAY</div>
-    <div class="inf-sub">Tómbola Nocturna de E. Ríos · Informe de sorteos</div>
-    <div class="inf-mes">{{ mes_label|title }} {{ year }}</div>
-  </div>
-
-  <!-- Resumen -->
-  <div class="inf-resumen d-flex flex-wrap gap-3 justify-content-center mb-4">
-    <div class="inf-kpi">
-      <div class="inf-kpi-num">{{ bloques|length }}</div>
-      <div class="inf-kpi-lbl">Sorteo{% if bloques|length != 1 %}s{% endif %}</div>
-    </div>
-    <div class="inf-kpi">
-      <div class="inf-kpi-num">{{ total_ganadores_mes }}</div>
-      <div class="inf-kpi-lbl">Ganador{% if total_ganadores_mes != 1 %}es{% endif %}</div>
+    <div class="inf-mes">· {{ mes_label|title }} {{ year }}</div>
+    <div class="ms-auto inf-resumen">
+      <span class="inf-pill"><strong>{{ bloques|length }}</strong> sorteo{% if bloques|length != 1 %}s{% endif %}</span>
+      <span class="inf-pill"><strong>{{ total_ganadores_mes }}</strong> ganador{% if total_ganadores_mes != 1 %}es{% endif %}</span>
     </div>
   </div>
 
@@ -121,65 +113,97 @@
   {% endfor %}
 
 </div>
+</div>
 
 {% endif %}
 
 <style>
   .hoja-informe { max-width: 1000px; margin: 0 auto; color: #1a2a4a; }
 
-  .inf-titulo { font-weight: 800; font-size: 1.15rem; letter-spacing: .3px; }
-  .inf-sub    { color: #6c757d; font-size: .9rem; }
-  .inf-mes    { font-weight: 700; font-size: 1.05rem; margin-top: 2px; }
-
-  .inf-kpi {
-    background: #fff; border: 1px solid #e9ecef; border-radius: 10px;
-    padding: .5rem 1.4rem; text-align: center; min-width: 120px;
-    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  .inf-titulo { font-weight: 800; font-size: 1rem; letter-spacing: .2px; }
+  .inf-mes    { font-weight: 700; font-size: .95rem; }
+  .inf-resumen .inf-pill {
+    display: inline-block; background: #f1f3f5; border-radius: 20px;
+    padding: .05rem .6rem; font-size: .8rem; margin-left: .3rem;
   }
-  .inf-kpi-num { font-size: 1.6rem; font-weight: 800; line-height: 1; }
-  .inf-kpi-lbl { font-size: .8rem; color: #6c757d; text-transform: uppercase; letter-spacing: .5px; }
 
   .inf-sorteo {
-    background: #fff; border: 1px solid #e9ecef; border-radius: 10px;
-    padding: 1rem 1.1rem; margin-bottom: 1.1rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    background: #fff; border: 1px solid #e9ecef; border-radius: 8px;
+    padding: .45rem .6rem; margin-bottom: .5rem;
     break-inside: avoid; page-break-inside: avoid;
   }
-  .inf-sorteo-head { border-bottom: 1px solid #f1f3f5; padding-bottom: .5rem; margin-bottom: .6rem; }
-  .inf-fecha  { font-weight: 700; }
-  .inf-nombre { color: #495057; }
-  .inf-detalle { font-size: .9rem; color: #343a40; background: #fff9db; border-radius: 6px; padding: .35rem .55rem; }
+  .inf-sorteo-head { border-bottom: 1px solid #f1f3f5; padding-bottom: .25rem; margin-bottom: .3rem; }
+  .inf-fecha  { font-weight: 700; font-size: .9rem; }
+  .inf-nombre { color: #495057; font-size: .9rem; }
+  .inf-detalle { font-size: .82rem; color: #343a40; background: #fff9db; border-radius: 5px; padding: .2rem .45rem; }
 
-  .inf-badge-tipo { font-size: .8rem; }
+  .inf-badge-tipo { font-size: .72rem; }
   .tipo-SEMANAL { background:#0d6efd; }
   .tipo-MENSUAL { background:#198754; }
   .tipo-CONTADO { background:#fd7e14; }
   .tipo-FINAL   { background:#dc3545; }
 
-  .inf-numeros { margin-bottom: .7rem; font-size: .85rem; }
-  .inf-numeros-lbl { color: #6c757d; margin-right: .35rem; }
+  .inf-numeros { margin: .15rem 0 .35rem; font-size: .8rem; }
+  .inf-numeros-lbl { color: #6c757d; margin-right: .25rem; }
   .inf-num-chip {
-    display: inline-block; background: #f1f3f5; border-radius: 6px;
-    padding: .1rem .4rem; margin: .1rem; font-weight: 700; font-variant-numeric: tabular-nums;
+    display: inline-block; background: #f1f3f5; border-radius: 5px;
+    padding: .02rem .3rem; margin: .05rem; font-weight: 700; font-variant-numeric: tabular-nums;
   }
-  .inf-num-pos { color: #adb5bd; font-size: .72rem; margin-right: .2rem; }
+  .inf-num-pos { color: #adb5bd; font-size: .68rem; margin-right: .15rem; }
 
-  .inf-tabla th { font-size: .78rem; color: #6c757d; text-transform: uppercase; letter-spacing: .3px; }
-  .inf-tabla td { font-size: .85rem; }
+  .inf-tabla th { font-size: .68rem; color: #6c757d; text-transform: uppercase; letter-spacing: .2px; padding: .1rem .35rem; }
+  .inf-tabla td { font-size: .78rem; padding: .12rem .35rem; }
 
-  .inf-total { text-align: right; color: #6c757d; font-size: .8rem; margin-top: .4rem; }
-  .inf-vacio { text-align: center; font-style: italic; color: #adb5bd; padding: .6rem 0; }
+  .inf-total { text-align: right; color: #6c757d; font-size: .72rem; margin-top: .15rem; }
+  .inf-vacio { text-align: center; font-style: italic; color: #adb5bd; font-size: .8rem; padding: .2rem 0; }
 
-  /* ─── Print ─────────────────────────────────────────────── */
-  @page { size: A4 portrait; margin: 12mm; }
+  /* ─── Print: todo en una hoja A4 ────────────────────────── */
+  @page { size: A4 portrait; margin: 8mm; }
   @media print {
     .d-print-none { display: none !important; }
     .topbar, nav.topbar, .navbar.topbar { display: none !important; }
     body { background: #fff !important; padding: 0 !important; margin: 0 !important; }
     .main-content { padding: 0 !important; margin: 0 !important; min-height: 0 !important; }
-    .hoja-informe { max-width: none; }
-    .inf-sorteo, .inf-kpi { box-shadow: none; border-color: #ccc; }
+    .hoja-informe { max-width: none; font-size: 92%; }
+    #infoPage { overflow: hidden; }
+    .inf-sorteo { box-shadow: none; border-color: #ccc; margin-bottom: .35rem; padding: .35rem .5rem; }
+    .inf-num-chip { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 </style>
+
+<script>
+  // Auto-ajuste al imprimir: escala todo el informe para que entre en UNA sola hoja A4.
+  (function () {
+    const page = document.getElementById('infoPage');
+    const hoja = document.getElementById('hojaInforme');
+    if (!page || !hoja) return;
+
+    const MM = 96 / 25.4;                 // px por mm a 96dpi (base de impresión)
+    const availW = (210 - 16) * MM;       // ancho útil A4 (margen 8mm)
+    const availH = (297 - 16) * MM;       // alto útil A4
+
+    function fit() {
+      // Forzar el ancho de hoja A4 para medir igual que en impresión
+      hoja.style.transform = 'none';
+      hoja.style.width = availW + 'px';
+      const h = hoja.scrollHeight;
+      const scale = Math.min(1, availH / h);
+      hoja.style.transformOrigin = 'top left';
+      hoja.style.transform = 'scale(' + scale + ')';
+      page.style.width = availW + 'px';
+      page.style.height = (h * scale) + 'px';
+    }
+    function reset() {
+      hoja.style.transform = 'none';
+      hoja.style.width = '';
+      page.style.width = '';
+      page.style.height = '';
+    }
+
+    // Solo afecta a la impresión; en pantalla se ve normal.
+    window.addEventListener('beforeprint', fit);
+    window.addEventListener('afterprint', reset);
+  })();
+</script>
 
 {% endblock %}
