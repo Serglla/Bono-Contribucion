@@ -70,12 +70,13 @@
       <header class="ext-cabecera">
         <div class="ext-titulo">
           BOMBEROS&nbsp;&nbsp;VOLUNTARIOS<br>
-          DE&nbsp;&nbsp;CONCEPCION&nbsp;&nbsp;DEL&nbsp;&nbsp;URUGUAY
+          CONCEPCION&nbsp;&nbsp;DEL&nbsp;&nbsp;URUGUAY
         </div>
         <div class="ext-subtitulo">TOMBOLA NOCTURNA DE E. RIOS</div>
         <div class="ext-tipo">
-          EXTRACTO SORTEOS {{ bloque.tipo_label }} DEL MES DE {{ mes_label }} {{ year }}
+          EXTRACTO {{ bloque.tipo_label }}
         </div>
+        <div class="ext-mes">{{ mes_label }} {{ year }}</div>
         <div class="ext-cifras">A {{ bloque.cifras_label }} CIFRAS.</div>
       </header>
 
@@ -161,10 +162,12 @@
   .ext-titulo    { font-weight: 700; font-size: var(--fs-titulo); letter-spacing: .3px; }
   .ext-subtitulo { font-weight: 700; font-size: var(--fs-sub); margin-top: 2px; }
   .ext-tipo      { font-weight: 700; font-size: var(--fs-tipo); margin-top: 2px; }
+  .ext-mes       { font-weight: 700; font-size: var(--fs-tipo); }
   .ext-cifras    { font-weight: 700; font-size: var(--fs-tipo); }
 
   .ext-premios {
     text-align: center;
+    font-family: Arial, Helvetica, sans-serif;
     font-size: var(--fs-premio);
     line-height: 1.3;
     margin-top: 3mm;
@@ -185,6 +188,7 @@
   }
   .ext-ganadores {
     text-align: center;
+    font-family: Arial, Helvetica, sans-serif;
     font-size: var(--fs-ganador);
     line-height: 1.25;
   }
