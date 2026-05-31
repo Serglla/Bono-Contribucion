@@ -17,23 +17,24 @@
 
 <style>
   .recibo-hoja {
-    max-width: 190mm; margin: 0 auto; background: #fff; color: #000;
-    border: 1px solid #ccc; padding: 18mm 16mm; font-family: "Times New Roman", serif;
+    max-width: 180mm; margin: 0 auto; background: #fff; color: #000;
+    border: 1px solid #ccc; padding: 8mm 14mm; font-family: "Times New Roman", serif;
     box-shadow: 0 2px 10px rgba(0,0,0,.1);
   }
-  .recibo-hoja h1 { font-size: 15pt; text-align: center; margin: 0 0 2mm; letter-spacing: .5px; }
-  .recibo-hoja .inst { text-align: center; font-size: 11pt; font-weight: bold; margin-bottom: 1mm; }
-  .recibo-hoja .sub  { text-align: center; font-size: 10pt; color: #444; margin-bottom: 8mm; }
-  .recibo-hoja .cuerpo { font-size: 12pt; line-height: 1.9; text-align: justify; }
+  .recibo-hoja h1 { font-size: 13pt; text-align: center; margin: 0 0 3mm; letter-spacing: .5px; }
+  .recibo-hoja .inst { text-align: center; font-size: 10.5pt; font-weight: bold; margin-bottom: .5mm; }
+  .recibo-hoja .sub  { text-align: center; font-size: 9pt; color: #444; margin-bottom: 4mm; }
+  .recibo-hoja .cuerpo { font-size: 11pt; line-height: 1.4; text-align: justify; }
+  .recibo-hoja .cuerpo p { margin: 0 0 2mm; }
   .recibo-hoja .premio-box {
-    border: 1.5px solid #333; border-radius: 4px; padding: 4mm 6mm; margin: 6mm 0;
-    font-size: 12.5pt;
+    border: 1.2px solid #333; border-radius: 4px; padding: 2.5mm 5mm; margin: 3mm 0;
+    font-size: 11pt; line-height: 1.5;
   }
   .recibo-hoja .dato { font-weight: bold; }
-  .recibo-hoja .firmas { display: flex; justify-content: space-between; margin-top: 22mm; gap: 12mm; }
-  .recibo-hoja .firma { flex: 1; text-align: center; }
+  .recibo-hoja .firmas { display: flex; justify-content: center; margin-top: 16mm; }
+  .recibo-hoja .firma { width: 75mm; text-align: center; }
   .recibo-hoja .firma .linea { border-top: 1px solid #000; margin-bottom: 2mm; }
-  .recibo-hoja .firma small { font-size: 9.5pt; color: #333; }
+  .recibo-hoja .firma small { font-size: 9pt; color: #333; }
   @media print {
     .recibo-hoja { border: none; box-shadow: none; margin: 0; max-width: 100%; }
     @page { size: A4; margin: 12mm; }
@@ -49,8 +50,7 @@
     <p>
       En la ciudad de Concepción del Uruguay, a los {{ fecha_entrega or "____________" }},
       el/la Sr./Sra. <span class="dato">{{ socio.apellido_nombre if socio else "____________________" }}</span>
-      {% if socio and socio.direccion %}, con domicilio en <span class="dato">{{ socio.direccion }}</span>{% endif %}
-      {% if socio and socio.telefono %} (Tel.: {{ socio.telefono }}){% endif %},
+      {% if socio and socio.direccion %}, con domicilio en <span class="dato">{{ socio.direccion }}</span>{% endif %},
       declara haber recibido de conformidad de la {{ institucion }} el premio que se detalla a continuación,
       correspondiente al sorteo del Bono Contribución.
     </p>
@@ -73,10 +73,6 @@
       <div class="linea">&nbsp;</div>
       <small>Firma del ganador</small><br>
       <small>Aclaración / DNI</small>
-    </div>
-    <div class="firma">
-      <div class="linea">&nbsp;</div>
-      <small>Por la institución</small>
     </div>
   </div>
 </div>
