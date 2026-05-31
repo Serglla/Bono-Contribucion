@@ -216,9 +216,14 @@ async def extracto_mes(
                             # Excluir boletas de talonera CONTADO (pool, no son boletas reales)
                             if b.talonera and (b.talonera.tipo or "COMUN") == "CONTADO":
                                 continue
-                            bol4 = f"{b.numero_principal:04d}"
-                            if bol4[-c:] == sufijo:
-                                ganadores_dict[b.id] = _build_ganador(b, bol4, c, s.fecha)
+                            # Cruzar contra TODOS los números de la boleta (principal +
+                            # adicionales). El número ganador puede ser cualquiera de la
+                            # pata, no solo el principal.
+                            for n in _numeros_boleta(b):
+                                bol4 = f"{n:04d}"
+                                if bol4[-c:] == sufijo:
+                                    ganadores_dict[b.id] = _build_ganador(b, bol4, c, s.fecha)
+                                    break
 
         # Ordenar premios por fecha y posición
         premios.sort(key=lambda p: (p["fecha"], p["posicion"]))
@@ -245,6 +250,17 @@ async def extracto_mes(
         "bloques": bloques,
         "vacio": False,
     })
+
+
+def _numeros_boleta(b) -> List[int]:
+    """Todos los números jugables de una boleta: el principal + los adicionales."""
+    nums = [b.numero_principal]
+    if b.numeros_adicionales:
+        for x in b.numeros_adicionales.split(","):
+            x = x.strip()
+            if x.isdigit():
+                nums.append(int(x))
+    return nums
 
 
 def _build_ganador(b, numero_match: str, cifras_match: int, fecha_sorteo: date_type) -> dict:
