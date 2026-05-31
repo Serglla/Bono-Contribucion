@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Entregas de premios{% endblock %}
+{% block content %}
+
+{% set tipo_badge = {"SEMANAL":"#0d6efd","MENSUAL":"#198754","CONTADO":"#fd7e14","FINAL":"#dc3545"} %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-receipt text-danger me-2"></i>Entregas de premios
+  </h4>
+  <div>
+    <a href="/sorteos/{{ sorteo.id }}/premios" class="btn btn-sm btn-outline-danger">
+      <i class="bi bi-gift me-1"></i>Premios
+    </a>
+    <a href="/sorteos/" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Volver
+    </a>
+  </div>
+</div>
+
+<!-- Cabecera del sorteo -->
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
+    <span class="badge" style="background:{{ tipo_badge.get(sorteo.tipo.value, '#6c757d') }};">{{ tipo_label }}</span>
+    <span class="fw-semibold">{{ sorteo.nombre or "Sorteo" }}</span>
+    <span class="text-muted">· {{ sorteo.fecha.strftime("%d/%m/%Y") }}</span>
+    {% if con_resultado %}
+      <span class="badge bg-success-subtle text-success border border-success ms-auto">
+        {{ total_candidatos }} ganador(es) válido(s)
+      </span>
+    {% else %}
+      <span class="badge bg-warning-subtle text-warning border border-warning ms-auto">Sin resultado cargado</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if not con_resultado %}
+  <div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    Este sorteo todavía no tiene el resultado cargado. Cargá los números ganadores desde
+    <a href="/sorteos/">Sorteos</a> para poder asignar premios.
+  </div>
+{% elif not sorteo.premios %}
+  <div class="alert alert-info">
+    <i class="bi bi-info-circle me-1"></i>
+    Este sorteo no tiene premios definidos.
+    <a href="/sorteos/{{ sorteo.id }}/premios">Cargá los premios primero</a>.
+  </div>
+{% else %}
+
+  {% for pv in premios_view %}
+  {% set p = pv.premio %}
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2 d-flex flex-wrap align-items-center gap-2 bg-light">
+      <span class="badge bg-dark">{{ p.orden }}°</span>
+      <span class="fw-semibold">{{ p.descripcion }}</span>
+      {% if p.clase == "ORDEN" %}
+        <span class="badge bg-success-subtle text-success border border-success">Orden ${{ p.monto|round(0)|int }}</span>
+      {% else %}
+        <span class="badge bg-secondary-subtle text-secondary border">Físico</span>
+      {% endif %}
+      <span class="badge bg-light text-dark border">
+        {{ "A cada uno" if p.modalidad == "CADA_UNO" else "Por posición" }}
+      </span>
+    </div>
+    <div class="card-body">
+
+      <!-- Entregas asignadas -->
+      {% if pv.entregas %}
+      <table class="table table-sm align-middle mb-3" style="font-size:0.85rem;">
+        <thead class="table-light">
+          <tr>
+            <th>Socio</th><th>Talonera</th><th>N° ganador</th><th>Estado</th><th class="text-end"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in pv.entregas %}
+          <tr>
+            <td class="fw-semibold">{{ e.socio }}</td>
+            <td>{{ e.talonera | replace('PATA ', 'X') }}</td>
+            <td><span class="badge bg-dark">{{ e.numero }}</span></td>
+            <td>
+              {% if e.entregado %}
+                <span class="badge bg-success">Entregado</span>
+                {% if e.fecha_entrega %}<span class="text-muted small">{{ e.fecha_entrega }}</span>{% endif %}
+              {% else %}
+                <span class="badge bg-warning text-dark">Pendiente</span>
+              {% endif %}
+            </td>
+            <td class="text-end" style="white-space:nowrap;">
+              <a href="/sorteos/entregas/{{ e.id }}/recibo" target="_blank"
+                 class="btn btn-sm btn-outline-primary me-1" title="Recibo de entrega">
+                <i class="bi bi-printer"></i>
+              </a>
+              {% if e.entregado %}
+                <form method="post" action="/sorteos/entregas/{{ e.id }}/desmarcar" class="d-inline">
+                  <button class="btn btn-sm btn-outline-secondary me-1" title="Marcar como pendiente">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                  </button>
+                </form>
+              {% else %}
+                <form method="post" action="/sorteos/entregas/{{ e.id }}/entregar" class="d-inline">
+                  <input type="hidden" name="fecha_entrega" value="{{ hoy }}">
+                  <button class="btn btn-sm btn-success me-1" title="Marcar entregado (hoy)">
+                    <i class="bi bi-check-lg"></i> Entregar
+                  </button>
+                </form>
+              {% endif %}
+              <form method="post" action="/sorteos/entregas/{{ e.id }}/eliminar" class="d-inline"
+                    onsubmit="return confirm('¿Quitar esta asignación?')">
+                <button class="btn btn-sm btn-outline-danger" title="Quitar asignación">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      <!-- Asignar ganador -->
+      {% if pv.candidatos %}
+      <form method="post" action="/sorteos/premios/{{ p.id }}/asignar" class="row g-2 align-items-end">
+        <div class="col-12 col-md-8">
+          <label class="form-label small mb-1">Asignar ganador</label>
+          <select name="seleccion" class="form-select form-select-sm" required>
+            {% for c in pv.candidatos %}
+            <option value="{{ c.boleta_id }}|{{ c.numero }}">
+              {{ c.socio }} · N° {{ c.numero }} ({{ c.cifras }}c, {{ c.posicion }}°) · {{ c.talonera | replace('PATA ', 'X') }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <button class="btn btn-sm btn-danger w-100"><i class="bi bi-plus-lg me-1"></i>Asignar</button>
+        </div>
+        {% if p.modalidad == "CADA_UNO" %}
+        <div class="col-6 col-md-2">
+          <button formaction="/sorteos/premios/{{ p.id }}/asignar-todos"
+                  class="btn btn-sm btn-outline-danger w-100" title="Asignar todos los ganadores válidos">
+            <i class="bi bi-people me-1"></i>Todos
+          </button>
+        </div>
+        {% endif %}
+      </form>
+      {% else %}
+        <div class="text-muted small fst-italic">
+          {% if pv.entregas %}Todos los ganadores válidos ya están asignados a este premio.
+          {% else %}No hay ganadores válidos sin asignar.{% endif %}
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
+  {% endfor %}
+
+{% endif %}
+
+{% endblock %}

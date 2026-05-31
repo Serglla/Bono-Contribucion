@@ -629,6 +629,7 @@ def _calcular_grupos_ganadores(s, db):
                 posterior = tiene_socio and not es_valido
 
                 filas.append({
+                    "boleta_id": boleta.id,
                     "talonera": boleta.talonera.nombre if boleta.talonera else "—",
                     "talonera_id": boleta.talonera_id or 0,
                     "num_match": str(num_match).zfill(4),
@@ -770,3 +771,200 @@ async def guardar_resultado(sid: int, payload: ResultadoPayload, request: Reques
         )
 
     return JSONResponse({"ok": True, "numeros": nums_norm})
+
+
+# ── Entregas de premios + recibos ────────────────────────────────────────────
+
+# Datos fijos de la institución para el recibo.
+INSTITUCION_NOMBRE = "Asociación de Bomberos Voluntarios de Concepción del Uruguay"
+
+
+def _candidatos_ganadores(s, db):
+    """Lista plana de ganadores VÁLIDOS del sorteo, lista para asignar a premios.
+
+    Cada candidato: {boleta_id, numero, socio, talonera, cifras, posicion}.
+    """
+    if not s.resultado_json:
+        return []
+    grupos, _ = _calcular_grupos_ganadores(s, db)
+    cand, vistos = [], set()
+    for g in grupos:
+        for f in g["filas"]:
+            if not f["es_ganador_valido"]:
+                continue
+            key = (f["boleta_id"], f["num_match"])
+            if key in vistos:
+                continue
+            vistos.add(key)
+            cand.append({
+                "boleta_id": f["boleta_id"],
+                "numero": f["num_match"],
+                "socio": f["comprador"],
+                "talonera": f["talonera"],
+                "cifras": g["cifras"],
+                "posicion": g["posicion"],
+            })
+    cand.sort(key=lambda c: (-c["cifras"], c["posicion"], c["socio"] or ""))
+    return cand
+
+
+@router.get("/{sid}/entregas", response_class=HTMLResponse)
+async def entregas_form(sid: int, request: Request, db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    s = db.query(models.Sorteo).get(sid)
+    if not s:
+        return RedirectResponse("/sorteos/", status_code=302)
+
+    candidatos = _candidatos_ganadores(s, db)
+
+    premios_view = []
+    for p in s.premios:
+        ya = set()
+        entregas = []
+        for e in p.entregas:
+            b = e.boleta
+            c = b.comprador if b else None
+            entregas.append({
+                "id": e.id,
+                "socio": c.apellido_nombre if c else "—",
+                "talonera": b.talonera.nombre if (b and b.talonera) else "—",
+                "numero": e.numero_ganador or "",
+                "entregado": e.entregado,
+                "fecha_entrega": e.fecha_entrega.strftime("%d/%m/%Y") if e.fecha_entrega else "",
+            })
+            ya.add((e.boleta_id, e.numero_ganador))
+        disponibles = [c for c in candidatos if (c["boleta_id"], c["numero"]) not in ya]
+        premios_view.append({"premio": p, "entregas": entregas, "candidatos": disponibles})
+
+    return templates.TemplateResponse(request, "sorteo_entregas.html", {
+        "user": user,
+        "sorteo": s,
+        "premios_view": premios_view,
+        "tipo_label": _TIPO_LABEL_PLURAL.get(s.tipo.value, s.tipo.value),
+        "total_candidatos": len(candidatos),
+        "con_resultado": bool(s.resultado_json),
+        "hoy": date_type.today().isoformat(),
+    })
+
+
+@router.post("/premios/{pid}/asignar")
+async def premio_asignar(pid: int, request: Request,
+                         seleccion: str = Form(...), db: Session = Depends(get_db)):
+    _perm = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    p = db.query(models.PremioSorteo).get(pid)
+    if not p:
+        return RedirectResponse("/sorteos/", status_code=302)
+    # seleccion = "boleta_id|numero"
+    try:
+        bid_str, numero = seleccion.split("|", 1)
+        bid = int(bid_str)
+    except (ValueError, AttributeError):
+        return RedirectResponse(f"/sorteos/{p.sorteo_id}/entregas", status_code=302)
+    ya = db.query(models.EntregaPremio).filter_by(
+        premio_id=pid, boleta_id=bid, numero_ganador=numero).first()
+    if not ya:
+        db.add(models.EntregaPremio(premio_id=pid, boleta_id=bid, numero_ganador=numero))
+        db.commit()
+    return RedirectResponse(f"/sorteos/{p.sorteo_id}/entregas", status_code=302)
+
+
+@router.post("/premios/{pid}/asignar-todos")
+async def premio_asignar_todos(pid: int, request: Request, db: Session = Depends(get_db)):
+    """Asigna a este premio TODOS los ganadores válidos no asignados aún
+    (útil para premios 'a cada uno')."""
+    _perm = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    p = db.query(models.PremioSorteo).get(pid)
+    if not p:
+        return RedirectResponse("/sorteos/", status_code=302)
+    candidatos = _candidatos_ganadores(p.sorteo, db)
+    ya = {(e.boleta_id, e.numero_ganador) for e in p.entregas}
+    nuevos = 0
+    for c in candidatos:
+        if (c["boleta_id"], c["numero"]) in ya:
+            continue
+        db.add(models.EntregaPremio(
+            premio_id=pid, boleta_id=c["boleta_id"], numero_ganador=c["numero"]))
+        nuevos += 1
+    if nuevos:
+        db.commit()
+    return RedirectResponse(f"/sorteos/{p.sorteo_id}/entregas", status_code=302)
+
+
+@router.post("/entregas/{eid}/entregar")
+async def entrega_marcar(eid: int, request: Request,
+                         fecha_entrega: str = Form(""), db: Session = Depends(get_db)):
+    _perm = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    e = db.query(models.EntregaPremio).get(eid)
+    if not e:
+        return RedirectResponse("/sorteos/", status_code=302)
+    e.entregado = True
+    try:
+        e.fecha_entrega = date_type.fromisoformat(fecha_entrega) if fecha_entrega else date_type.today()
+    except ValueError:
+        e.fecha_entrega = date_type.today()
+    sid = e.premio.sorteo_id
+    db.commit()
+    return RedirectResponse(f"/sorteos/{sid}/entregas", status_code=302)
+
+
+@router.post("/entregas/{eid}/desmarcar")
+async def entrega_desmarcar(eid: int, request: Request, db: Session = Depends(get_db)):
+    _perm = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    e = db.query(models.EntregaPremio).get(eid)
+    if not e:
+        return RedirectResponse("/sorteos/", status_code=302)
+    e.entregado = False
+    e.fecha_entrega = None
+    sid = e.premio.sorteo_id
+    db.commit()
+    return RedirectResponse(f"/sorteos/{sid}/entregas", status_code=302)
+
+
+@router.post("/entregas/{eid}/eliminar")
+async def entrega_eliminar(eid: int, request: Request, db: Session = Depends(get_db)):
+    _perm = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    e = db.query(models.EntregaPremio).get(eid)
+    if e:
+        sid = e.premio.sorteo_id
+        db.delete(e)
+        db.commit()
+        return RedirectResponse(f"/sorteos/{sid}/entregas", status_code=302)
+    return RedirectResponse("/sorteos/", status_code=302)
+
+
+@router.get("/entregas/{eid}/recibo", response_class=HTMLResponse)
+async def entrega_recibo(eid: int, request: Request, db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    e = db.query(models.EntregaPremio).get(eid)
+    if not e:
+        return RedirectResponse("/sorteos/", status_code=302)
+    p = e.premio
+    s = p.sorteo
+    b = e.boleta
+    c = b.comprador if b else None
+    return templates.TemplateResponse(request, "sorteo_recibo.html", {
+        "user": user,
+        "institucion": INSTITUCION_NOMBRE,
+        "entrega": e,
+        "premio": p,
+        "sorteo": s,
+        "tipo_label": _TIPO_LABEL_PLURAL.get(s.tipo.value, s.tipo.value),
+        "socio": c,
+        "boleta": b,
+        "numero": e.numero_ganador or "",
+        "fecha_entrega": e.fecha_entrega.strftime("%d/%m/%Y") if e.fecha_entrega else "",
+    })

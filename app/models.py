@@ -352,6 +352,31 @@ class PremioSorteo(Base):
     created_at  = Column(DateTime, server_default=func.now())
 
     sorteo = relationship("Sorteo", back_populates="premios")
+    entregas = relationship(
+        "EntregaPremio",
+        back_populates="premio",
+        cascade="all, delete-orphan",
+    )
+
+
+class EntregaPremio(Base):
+    """Asignacion de un premio de sorteo a una boleta ganadora + entrega.
+
+    Persiste el ganador (que de otro modo se calcula al vuelo) para poder
+    emitir el recibo de entrega y rastrear si ya fue entregado.
+    """
+    __tablename__ = "entregas_premio"
+    id             = Column(Integer, primary_key=True, index=True)
+    premio_id      = Column(Integer, ForeignKey("premios_sorteo.id"), nullable=False, index=True)
+    boleta_id      = Column(Integer, ForeignKey("boletas.id"), nullable=False, index=True)
+    numero_ganador = Column(String, nullable=True)   # numero que salio favorecido (4 digitos)
+    entregado      = Column(Boolean, default=False)
+    fecha_entrega  = Column(Date, nullable=True)
+    observacion    = Column(String, nullable=True)
+    created_at     = Column(DateTime, server_default=func.now())
+
+    premio = relationship("PremioSorteo", back_populates="entregas")
+    boleta = relationship("Boleta")
 
 
 class ConfigBono(Base):
