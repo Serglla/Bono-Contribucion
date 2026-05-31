@@ -228,11 +228,47 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         for g in gastos
     ]
 
-    # Egresos reales (comisiones ya liquidadas)
-    total_egresos = total_com_vendedores + total_com_cobradores + total_bomberos + total_gastos
+    # ── Premios de sorteo (orden de compra) con ganador asignado ──────────
+    # Solo cuentan los premios clase ORDEN ($) que ya tienen ganador asignado
+    # (EntregaPremio). Cada entrega suma el monto del premio: un premio "a cada
+    # uno" con N ganadores suma monto × N. Los premios físicos (moto, TV…) NO
+    # entran acá — se cargan aparte como gasto manual al comprarlos.
+    premios_orden = (
+        db.query(models.PremioSorteo)
+        .options(joinedload(models.PremioSorteo.entregas),
+                 joinedload(models.PremioSorteo.sorteo))
+        .filter(models.PremioSorteo.clase == "ORDEN")
+        .all()
+    )
+    _TIPO_LBL = {"SEMANAL": "Semanal", "MENSUAL": "Mensual",
+                 "CONTADO": "Al contado", "FINAL": "Final"}
+    premios_list = []
+    total_premios = 0.0
+    for p in premios_orden:
+        n = len(p.entregas)
+        if n == 0:
+            continue
+        subtotal = (p.monto or 0) * n
+        total_premios += subtotal
+        so = p.sorteo
+        tipo_lbl = _TIPO_LBL.get(so.tipo.value, so.tipo.value) if so else ""
+        premios_list.append({
+            "descripcion": p.descripcion,
+            "sorteo":      (so.nombre + " · " if so and so.nombre else "") + tipo_lbl if so else "",
+            "fecha":       so.fecha.strftime("%d/%m/%Y") if so and so.fecha else "",
+            "monto":       p.monto or 0,
+            "ganadores":   n,
+            "subtotal":    subtotal,
+        })
+    premios_list.sort(key=lambda x: (x["fecha"], x["descripcion"]))
+
+    # Egresos reales (comisiones ya liquidadas + premios con ganador)
+    total_egresos = (total_com_vendedores + total_com_cobradores
+                     + total_bomberos + total_gastos + total_premios)
     ganancia_neta = total_recaudado - total_egresos
     # Egresos proyectados (para ganancia proyectada — usa com.cobradores proyectada)
-    total_egresos_proyectado = total_com_vendedores + com_cobradores_proyectada + total_bomberos + total_gastos
+    total_egresos_proyectado = (total_com_vendedores + com_cobradores_proyectada
+                                + total_bomberos + total_gastos + total_premios)
 
 
     # ── Proyección mensual por cobrador ─────────────────────────────────
@@ -417,6 +453,8 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "meses_liquidados":      meses_liquidados,
         "total_bomberos":        total_bomberos,
         "total_gastos":          total_gastos,
+        "total_premios":         total_premios,
+        "premios_list":          premios_list,
         "gastos_list":           gastos_list,
         "categorias":            CATEGORIAS,
         "periodicidades":        PERIODICIDADES,
