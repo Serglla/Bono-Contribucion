@@ -319,6 +319,40 @@ class Sorteo(Base):
     resultado_json = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
+    premios = relationship(
+        "PremioSorteo",
+        back_populates="sorteo",
+        cascade="all, delete-orphan",
+        order_by="PremioSorteo.orden",
+    )
+
+
+class PremioSorteo(Base):
+    """Premio asociado a un sorteo.
+
+    clase:
+      - "ORDEN"  → orden de compra / dinero. `monto` es el valor en $ y SUMA
+                   al balance de costos del bono apenas hay un ganador valido.
+      - "FISICO" → bien (moto, TV, bici). `monto` es solo costo de referencia
+                   (NO entra al balance automatico; se carga aparte como gasto
+                   al comprarlo).
+    modalidad:
+      - "POSICION" → un unico ganador para esa posicion (FINAL 1°/2°/3°).
+      - "CADA_UNO" → todos los ganadores del sorteo reciben este premio
+                     (ej: semanal "$30.000 a cada uno").
+    """
+    __tablename__ = "premios_sorteo"
+    id          = Column(Integer, primary_key=True, index=True)
+    sorteo_id   = Column(Integer, ForeignKey("sorteos.id"), nullable=False, index=True)
+    orden       = Column(Integer, default=1)          # posicion / orden de listado
+    descripcion = Column(String, nullable=False)
+    clase       = Column(String, default="ORDEN")     # ORDEN | FISICO
+    monto       = Column(Float, default=0.0)
+    modalidad   = Column(String, default="POSICION")  # POSICION | CADA_UNO
+    created_at  = Column(DateTime, server_default=func.now())
+
+    sorteo = relationship("Sorteo", back_populates="premios")
+
 
 class ConfigBono(Base):
     """Par clave/valor para configuracion global del bono (ej: pago_mensual_bomberos)."""

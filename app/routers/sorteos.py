@@ -460,6 +460,108 @@ async def eliminar(sid: int, request: Request, db: Session = Depends(get_db)):
     return RedirectResponse("/sorteos/", status_code=302)
 
 
+# ── Premios del sorteo ───────────────────────────────────────────────────────
+
+_CLASES_PREMIO = {"ORDEN", "FISICO"}
+_MODALIDADES_PREMIO = {"POSICION", "CADA_UNO"}
+
+
+@router.get("/{sid}/premios", response_class=HTMLResponse)
+async def premios_form(sid: int, request: Request, db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    s = db.query(models.Sorteo).get(sid)
+    if not s:
+        return RedirectResponse("/sorteos/", status_code=302)
+    return templates.TemplateResponse(request, "sorteo_premios.html", {
+        "user": user,
+        "sorteo": s,
+        "premios": s.premios,
+        "tipo_label": _TIPO_LABEL_PLURAL.get(s.tipo.value, s.tipo.value),
+    })
+
+
+@router.post("/{sid}/premios")
+async def premio_crear(
+    sid: int,
+    request: Request,
+    descripcion: str = Form(...),
+    clase: str = Form("ORDEN"),
+    monto: float = Form(0.0),
+    modalidad: str = Form("POSICION"),
+    orden: int = Form(0),
+    db: Session = Depends(get_db),
+):
+    _perm = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    s = db.query(models.Sorteo).get(sid)
+    if not s:
+        return RedirectResponse("/sorteos/", status_code=302)
+    desc = descripcion.strip()
+    if not desc:
+        return RedirectResponse(f"/sorteos/{sid}/premios", status_code=302)
+    clase = clase if clase in _CLASES_PREMIO else "ORDEN"
+    modalidad = modalidad if modalidad in _MODALIDADES_PREMIO else "POSICION"
+    # orden por defecto = siguiente disponible
+    if not orden or orden < 1:
+        orden = (max([p.orden for p in s.premios], default=0) + 1)
+    p = models.PremioSorteo(
+        sorteo_id=sid,
+        orden=orden,
+        descripcion=desc,
+        clase=clase,
+        monto=max(0.0, monto),
+        modalidad=modalidad,
+    )
+    db.add(p)
+    db.commit()
+    return RedirectResponse(f"/sorteos/{sid}/premios", status_code=302)
+
+
+@router.post("/premios/{pid}/editar")
+async def premio_editar(
+    pid: int,
+    request: Request,
+    descripcion: str = Form(...),
+    clase: str = Form("ORDEN"),
+    monto: float = Form(0.0),
+    modalidad: str = Form("POSICION"),
+    orden: int = Form(1),
+    db: Session = Depends(get_db),
+):
+    _perm = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    p = db.query(models.PremioSorteo).get(pid)
+    if not p:
+        return RedirectResponse("/sorteos/", status_code=302)
+    desc = descripcion.strip()
+    if desc:
+        p.descripcion = desc
+    p.clase = clase if clase in _CLASES_PREMIO else "ORDEN"
+    p.modalidad = modalidad if modalidad in _MODALIDADES_PREMIO else "POSICION"
+    p.monto = max(0.0, monto)
+    p.orden = max(1, orden)
+    db.commit()
+    return RedirectResponse(f"/sorteos/{p.sorteo_id}/premios", status_code=302)
+
+
+@router.post("/premios/{pid}/eliminar")
+async def premio_eliminar(pid: int, request: Request, db: Session = Depends(get_db)):
+    _perm = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    p = db.query(models.PremioSorteo).get(pid)
+    if p:
+        sid = p.sorteo_id
+        db.delete(p)
+        db.commit()
+        return RedirectResponse(f"/sorteos/{sid}/premios", status_code=302)
+    return RedirectResponse("/sorteos/", status_code=302)
+
+
 def _calcular_grupos_ganadores(s, db):
     """Cruza el resultado del sorteo `s` con todas las boletas y arma los grupos
     de ganadores (uno por premio × cifra). Devuelve (grupos, cifras_list).

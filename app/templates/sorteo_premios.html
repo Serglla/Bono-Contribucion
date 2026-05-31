@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Premios del sorteo{% endblock %}
+{% block content %}
+
+{% set tipo_badge = {"SEMANAL":"#0d6efd","MENSUAL":"#198754","CONTADO":"#fd7e14","FINAL":"#dc3545"} %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-gift-fill text-danger me-2"></i>Premios del sorteo
+  </h4>
+  <a href="/sorteos/" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Volver a Sorteos
+  </a>
+</div>
+
+<!-- Cabecera del sorteo -->
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
+    <span class="badge" style="background:{{ tipo_badge.get(sorteo.tipo.value, '#6c757d') }};">
+      {{ tipo_label }}
+    </span>
+    <span class="fw-semibold">{{ sorteo.nombre or "Sorteo" }}</span>
+    <span class="text-muted">· {{ sorteo.fecha.strftime("%d/%m/%Y") }}</span>
+    {% for c in (sorteo.cifras|string).split(",") %}
+      <span class="badge bg-secondary">{{ c }} cifras</span>
+    {% endfor %}
+    {% if sorteo.descripcion %}
+      <span class="text-muted small w-100">{{ sorteo.descripcion }}</span>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Tabla de premios -->
+<div class="card shadow-sm mb-3">
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0" style="font-size:0.85rem;">
+      <thead class="table-light">
+        <tr>
+          <th style="width:60px;">Orden</th>
+          <th>Descripción</th>
+          <th style="width:120px;">Tipo</th>
+          <th style="width:140px;" class="text-end">Monto ($)</th>
+          <th style="width:150px;">Modalidad</th>
+          <th style="width:160px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in premios %}
+        {% set fid = "ed" ~ p.id %}
+        <tr>
+          <td>
+            <form id="{{ fid }}" method="post" action="/sorteos/premios/{{ p.id }}/editar"></form>
+            <input type="number" form="{{ fid }}" name="orden" value="{{ p.orden }}" min="1"
+                   class="form-control form-control-sm" style="width:55px;">
+          </td>
+          <td>
+            <input type="text" form="{{ fid }}" name="descripcion" value="{{ p.descripcion }}"
+                   class="form-control form-control-sm" required>
+          </td>
+          <td>
+            <select form="{{ fid }}" name="clase" class="form-select form-select-sm">
+              <option value="ORDEN"  {% if p.clase == "ORDEN" %}selected{% endif %}>Orden $</option>
+              <option value="FISICO" {% if p.clase == "FISICO" %}selected{% endif %}>Físico</option>
+            </select>
+          </td>
+          <td>
+            <input type="number" form="{{ fid }}" name="monto" value="{{ p.monto | round(2) }}" min="0" step="any"
+                   class="form-control form-control-sm text-end">
+          </td>
+          <td>
+            <select form="{{ fid }}" name="modalidad" class="form-select form-select-sm">
+              <option value="POSICION" {% if p.modalidad == "POSICION" %}selected{% endif %}>Por posición</option>
+              <option value="CADA_UNO" {% if p.modalidad == "CADA_UNO" %}selected{% endif %}>A cada uno</option>
+            </select>
+          </td>
+          <td class="text-end" style="white-space:nowrap;">
+            <button form="{{ fid }}" class="btn btn-sm btn-outline-primary me-1" title="Guardar cambios">
+              <i class="bi bi-check-lg"></i>
+            </button>
+            <form method="post" action="/sorteos/premios/{{ p.id }}/eliminar" class="d-inline"
+                  onsubmit="return confirm('¿Eliminar este premio?')">
+              <button class="btn btn-sm btn-outline-danger" title="Eliminar">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="text-center text-muted fst-italic py-3">
+            Este sorteo todavía no tiene premios cargados.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Agregar premio -->
+<div class="card shadow-sm">
+  <div class="card-header py-2 fw-semibold bg-light">
+    <i class="bi bi-plus-circle me-1"></i>Agregar premio
+  </div>
+  <div class="card-body">
+    <form method="post" action="/sorteos/{{ sorteo.id }}/premios" class="row g-2 align-items-end">
+      <div class="col-6 col-md-1">
+        <label class="form-label small mb-1">Orden</label>
+        <input type="number" name="orden" min="1" placeholder="auto"
+               class="form-control form-control-sm">
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label small mb-1">Descripción</label>
+        <input type="text" name="descripcion" required
+               placeholder="Ej: Orden de compra $400.000 / Moto 110cc 0km"
+               class="form-control form-control-sm">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-1">Tipo</label>
+        <select name="clase" class="form-select form-select-sm">
+          <option value="ORDEN">Orden $ (suma al balance)</option>
+          <option value="FISICO">Físico (moto, TV…)</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-1">Monto ($)</label>
+        <input type="number" name="monto" min="0" step="any" value="0"
+               class="form-control form-control-sm text-end">
+      </div>
+      <div class="col-8 col-md-2">
+        <label class="form-label small mb-1">Modalidad</label>
+        <select name="modalidad" class="form-select form-select-sm">
+          <option value="POSICION">Por posición</option>
+          <option value="CADA_UNO">A cada uno</option>
+        </select>
+      </div>
+      <div class="col-4 col-md-1">
+        <button class="btn btn-sm btn-danger w-100">
+          <i class="bi bi-plus-lg"></i>
+        </button>
+      </div>
+    </form>
+    <div class="text-muted small mt-2">
+      <i class="bi bi-info-circle me-1"></i>
+      <strong>Orden $</strong>: el monto suma al balance de costos apenas hay un ganador válido.
+      <strong>Físico</strong>: el monto es solo referencia (cargás el gasto real al comprarlo).
+      <strong>A cada uno</strong>: todos los ganadores del sorteo reciben este premio.
+    </div>
+  </div>
+</div>
+
+{% endblock %}

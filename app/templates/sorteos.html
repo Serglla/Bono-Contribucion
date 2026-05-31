@@ -94,6 +94,16 @@
                   {% if s.descripcion %}
                     <div class="text-muted small" style="font-size:0.75rem;">{{ s.descripcion }}</div>
                   {% endif %}
+                  {% if s.premios %}
+                    <div class="mt-1">
+                      {% for p in s.premios %}
+                        <span class="badge bg-light text-dark border" style="font-size:0.68rem;"
+                              title="{{ p.modalidad|replace('_',' ')|title }}{% if p.clase == 'ORDEN' and p.monto %} · ${{ p.monto|round(0)|int }}{% endif %}">
+                          {{ p.orden }}° {{ p.descripcion }}
+                        </span>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
                 </td>
                 <td>
                   {% for c in cifras_list %}
@@ -135,6 +145,15 @@
                       <i class="bi bi-trophy-fill"></i>
                     </a>
                   {% endif %}
+                  <a href="/sorteos/{{ s.id }}/premios"
+                     class="btn btn-sm btn-outline-danger me-1 position-relative"
+                     title="Premios del sorteo">
+                    <i class="bi bi-gift"></i>
+                    {% if s.premios %}
+                      <span class="badge rounded-pill bg-danger position-absolute top-0 start-100 translate-middle"
+                            style="font-size:0.55rem;">{{ s.premios|length }}</span>
+                    {% endif %}
+                  </a>
                   <button class="btn btn-sm btn-outline-secondary me-1 btn-editar-sorteo"
                           data-sid="{{ s.id }}"
                           data-nombre="{{ s.nombre or '' }}"
