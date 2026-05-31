@@ -1,87 +1,99 @@
-{% extends "base.html" %}
-{% block title %}Recibo de entrega{% endblock %}
-{% block content %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Evita que los navegadores móviles auto-coloreen fechas/teléfonos/direcciones como enlaces -->
+  <meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+  <title>Recibo de entrega</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body { background: #f4f6f9; margin: 0; padding: 0; }
+    .toolbar {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .6rem 1rem; background: #fff; border-bottom: 1px solid #dee2e6;
+    }
+    .recibo-hoja {
+      max-width: 180mm; margin: 6mm auto; background: #fff; color: #000;
+      border: 1px solid #ccc; padding: 8mm 14mm; font-family: "Times New Roman", serif;
+      box-shadow: 0 2px 10px rgba(0,0,0,.1);
+    }
+    /* Todo el recibo en negro (sin azul de enlaces/acento ni auto-enlaces móviles) */
+    .recibo-hoja, .recibo-hoja * {
+      color: #000 !important;
+      -webkit-text-fill-color: #000 !important;
+    }
+    .recibo-hoja a { text-decoration: none !important; pointer-events: none; }
+    .recibo-hoja h1 { font-size: 13pt; text-align: center; margin: 0 0 3mm; letter-spacing: .5px; }
+    .recibo-hoja .inst { text-align: center; font-size: 10.5pt; font-weight: bold; margin-bottom: .5mm; }
+    .recibo-hoja .sub  { text-align: center; font-size: 9pt; margin-bottom: 4mm; }
+    .recibo-hoja .cuerpo { font-size: 11pt; line-height: 1.4; text-align: justify; }
+    .recibo-hoja .cuerpo p { margin: 0 0 2mm; }
+    .recibo-hoja .premio-box {
+      border: 1.2px solid #333; border-radius: 4px; padding: 2.5mm 5mm; margin: 3mm 0;
+      font-size: 11pt; line-height: 1.5;
+    }
+    .recibo-hoja .dato { font-weight: bold; }
+    .recibo-hoja .firmas { display: flex; justify-content: center; margin-top: 16mm; }
+    .recibo-hoja .firma { width: 75mm; text-align: center; }
+    .recibo-hoja .firma .linea { border-top: 1px solid #000; margin-bottom: 2mm; }
+    .recibo-hoja .firma small { font-size: 9pt; }
+    @media print {
+      .toolbar { display: none !important; }
+      body { background: #fff; }
+      .recibo-hoja { border: none; box-shadow: none; margin: 0; max-width: 100%; }
+      @page { size: A4; margin: 12mm; }
+    }
+  </style>
+</head>
+<body>
 
-<!-- Toolbar (no se imprime) -->
-<div class="d-flex align-items-center gap-2 mb-3 flex-wrap d-print-none">
-  <a href="/sorteos/{{ sorteo.id }}/entregas" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-left"></i>
-  </a>
-  <h4 class="fw-bold mb-0">
-    <i class="bi bi-receipt text-danger me-2"></i>Recibo de entrega de premio
-  </h4>
-  <button onclick="window.print()" class="btn btn-sm btn-danger ms-auto">
-    <i class="bi bi-printer me-1"></i>Imprimir
-  </button>
-</div>
-
-<style>
-  .recibo-hoja {
-    max-width: 180mm; margin: 0 auto; background: #fff; color: #000;
-    border: 1px solid #ccc; padding: 8mm 14mm; font-family: "Times New Roman", serif;
-    box-shadow: 0 2px 10px rgba(0,0,0,.1);
-  }
-  /* Todo el recibo en negro (sin azul de enlaces/acento del tema ni
-     auto-enlaces de fechas/teléfonos que agregan los navegadores móviles) */
-  .recibo-hoja, .recibo-hoja * {
-    color: #000 !important;
-    -webkit-text-fill-color: #000 !important;
-  }
-  .recibo-hoja a { text-decoration: none !important; pointer-events: none; }
-  .recibo-hoja h1 { font-size: 13pt; text-align: center; margin: 0 0 3mm; letter-spacing: .5px; }
-  .recibo-hoja .inst { text-align: center; font-size: 10.5pt; font-weight: bold; margin-bottom: .5mm; }
-  .recibo-hoja .sub  { text-align: center; font-size: 9pt; color: #444; margin-bottom: 4mm; }
-  .recibo-hoja .cuerpo { font-size: 11pt; line-height: 1.4; text-align: justify; }
-  .recibo-hoja .cuerpo p { margin: 0 0 2mm; }
-  .recibo-hoja .premio-box {
-    border: 1.2px solid #333; border-radius: 4px; padding: 2.5mm 5mm; margin: 3mm 0;
-    font-size: 11pt; line-height: 1.5;
-  }
-  .recibo-hoja .dato { font-weight: bold; }
-  .recibo-hoja .firmas { display: flex; justify-content: center; margin-top: 16mm; }
-  .recibo-hoja .firma { width: 75mm; text-align: center; }
-  .recibo-hoja .firma .linea { border-top: 1px solid #000; margin-bottom: 2mm; }
-  .recibo-hoja .firma small { font-size: 9pt; color: #333; }
-  @media print {
-    .recibo-hoja { border: none; box-shadow: none; margin: 0; max-width: 100%; }
-    @page { size: A4; margin: 12mm; }
-  }
-</style>
-
-<div class="recibo-hoja">
-  <div class="inst">{{ institucion }}</div>
-  <div class="sub">Bono Contribución 2026 – 2027</div>
-  <h1>RECIBO DE ENTREGA DE PREMIO</h1>
-
-  <div class="cuerpo">
-    <p>
-      En la ciudad de Concepción del Uruguay, a los {{ fecha_entrega or "____________" }},
-      el/la Sr./Sra. <span class="dato">{{ socio.apellido_nombre if socio else "____________________" }}</span>
-      {% if socio and socio.direccion %}, con domicilio en <span class="dato">{{ socio.direccion }}</span>{% endif %},
-      declara haber recibido de conformidad de la {{ institucion }} el premio que se detalla a continuación,
-      correspondiente al sorteo del Bono Contribución.
-    </p>
-
-    <div class="premio-box">
-      <div><span class="dato">Premio:</span> {{ premio.descripcion }}{% if premio.clase == "ORDEN" and premio.monto %} (valor ${{ premio.monto|round(0)|int }}){% endif %}</div>
-      <div><span class="dato">Sorteo:</span> {{ tipo_label }} del {{ sorteo.fecha.strftime("%d/%m/%Y") }}</div>
-      <div><span class="dato">Número favorecido:</span> {{ numero }}</div>
-      {% if boleta %}<div><span class="dato">Talonera / Boleta:</span> {{ (boleta.talonera.nombre if boleta.talonera else "—") | replace('PATA ', 'X') }} · {{ "%04d"|format(boleta.numero_principal) }}</div>{% endif %}
-    </div>
-
-    <p>
-      Recibiendo el premio detallado en perfectas condiciones, no teniendo nada más que reclamar
-      por ningún concepto a la institución.
-    </p>
+  <div class="toolbar d-print-none">
+    <a href="/sorteos/{{ sorteo.id }}/entregas" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Volver
+    </a>
+    <span class="fw-semibold text-secondary">Recibo de entrega de premio</span>
+    <button onclick="window.print()" class="btn btn-sm btn-danger ms-auto">
+      <i class="bi bi-printer me-1"></i>Imprimir
+    </button>
   </div>
 
-  <div class="firmas">
-    <div class="firma">
-      <div class="linea">&nbsp;</div>
-      <small>Firma del ganador</small><br>
-      <small>Aclaración / DNI</small>
+  <div class="recibo-hoja">
+    <div class="inst">{{ institucion }}</div>
+    <div class="sub">Bono Contribución 2026 – 2027</div>
+    <h1>RECIBO DE ENTREGA DE PREMIO</h1>
+
+    <div class="cuerpo">
+      <p>
+        En la ciudad de Concepción del Uruguay, a los {{ fecha_entrega or "____________" }},
+        el/la Sr./Sra. <span class="dato">{{ socio.apellido_nombre if socio else "____________________" }}</span>
+        {% if socio and socio.direccion %}, con domicilio en <span class="dato">{{ socio.direccion }}</span>{% endif %},
+        declara haber recibido de conformidad de la {{ institucion }} el premio que se detalla a continuación,
+        correspondiente al sorteo del Bono Contribución.
+      </p>
+
+      <div class="premio-box">
+        <div><span class="dato">Premio:</span> {{ premio.descripcion }}{% if premio.clase == "ORDEN" and premio.monto %} (valor ${{ premio.monto|round(0)|int }}){% endif %}</div>
+        <div><span class="dato">Sorteo:</span> {{ tipo_label }} del {{ sorteo.fecha.strftime("%d/%m/%Y") }}</div>
+        <div><span class="dato">Número favorecido:</span> {{ numero }}</div>
+        {% if boleta %}<div><span class="dato">Talonera / Boleta:</span> {{ (boleta.talonera.nombre if boleta.talonera else "—") | replace('PATA ', 'X') }} · {{ "%04d"|format(boleta.numero_principal) }}</div>{% endif %}
+      </div>
+
+      <p>
+        Recibiendo el premio detallado en perfectas condiciones, no teniendo nada más que reclamar
+        por ningún concepto a la institución.
+      </p>
+    </div>
+
+    <div class="firmas">
+      <div class="firma">
+        <div class="linea">&nbsp;</div>
+        <small>Firma del ganador</small><br>
+        <small>Aclaración / DNI</small>
+      </div>
     </div>
   </div>
-</div>
 
-{% endblock %}
+</body>
+</html>
