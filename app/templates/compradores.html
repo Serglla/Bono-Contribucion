@@ -543,11 +543,30 @@ function verContadoSinCargar(btn) {
     if (contador) contador.textContent = visible;
   }
 
-  inputBusqueda.addEventListener('input', aplicarBusqueda);
-  selectCol.addEventListener('change', aplicarBusqueda);
+  // ── Persistencia del filtro (sobrevive entrar a un socio y volver atrás) ──
+  const BUSQUEDA_KEY = 'compradores_busqueda';
+  function guardarBusqueda() {
+    try {
+      sessionStorage.setItem(BUSQUEDA_KEY, JSON.stringify({
+        q: inputBusqueda.value, col: selectCol.value,
+      }));
+    } catch (e) {}
+  }
+  function restaurarBusqueda() {
+    try {
+      const s = JSON.parse(sessionStorage.getItem(BUSQUEDA_KEY) || 'null');
+      if (!s) return;
+      if (typeof s.q === 'string') inputBusqueda.value = s.q;
+      if (typeof s.col === 'string') selectCol.value = s.col;
+    } catch (e) {}
+  }
+
+  inputBusqueda.addEventListener('input', () => { guardarBusqueda(); aplicarBusqueda(); });
+  selectCol.addEventListener('change', () => { guardarBusqueda(); aplicarBusqueda(); });
   btnLimpiar.addEventListener('click', () => {
     inputBusqueda.value = '';
     selectCol.value = '-1';
+    try { sessionStorage.removeItem(BUSQUEDA_KEY); } catch (e) {}
     aplicarBusqueda();
     inputBusqueda.focus();
   });
@@ -556,7 +575,11 @@ function verContadoSinCargar(btn) {
     if (e.key === 'Enter') e.preventDefault();
   });
 
+  // Restaurar el filtro previo (al volver de la ficha de un socio) y aplicarlo.
+  restaurarBusqueda();
   aplicarBusqueda();
+  // Si el navegador restaura desde bfcache, re-aplicar el filtro guardado.
+  window.addEventListener('pageshow', () => { restaurarBusqueda(); aplicarBusqueda(); });
 })();
 
 // Mayúsculas en tiempo real
