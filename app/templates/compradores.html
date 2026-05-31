@@ -500,6 +500,24 @@ function verContadoSinCargar(btn) {
     return td.innerText.toLowerCase();
   }
 
+  // Números (principal + adicionales) contenidos en la celda de N° Boleta.
+  function numerosDeCelda(td) {
+    const raw = td.dataset.val !== undefined ? td.dataset.val : td.innerText;
+    return raw.match(/\d+/g) || [];
+  }
+
+  // Coincidencia de un término de búsqueda contra una celda.
+  // N° Boleta (col 1): por TERMINACIÓN del número (sufijo), igual que el
+  // criterio de sorteo. Buscar "785" trae 0785/1785… pero NO 7854 (termina en
+  // 854). El resto de columnas: substring normal.
+  function coincide(td, col, q) {
+    if (!td) return false;
+    if (col === 1) {
+      return numerosDeCelda(td).some(n => n.padStart(4, '0').endsWith(q));
+    }
+    return textoCelda(td, col).includes(q);
+  }
+
   function aplicarBusqueda() {
     const q = inputBusqueda.value.trim().toLowerCase();
     const col = parseInt(selectCol.value);
@@ -513,10 +531,10 @@ function verContadoSinCargar(btn) {
           // Buscar en columnas de datos (1..9), saltea checkbox (0)
           show = false;
           for (let c = 1; c <= 9; c++) {
-            if (textoCelda(tds[c], c).includes(q)) { show = true; break; }
+            if (coincide(tds[c], c, q)) { show = true; break; }
           }
         } else {
-          show = textoCelda(tds[col], col).includes(q);
+          show = coincide(tds[col], col, q);
         }
       }
       row.style.display = show ? '' : 'none';
