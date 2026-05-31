@@ -50,14 +50,26 @@
 <body>
 
   <div class="toolbar d-print-none">
-    <a href="/sorteos/{{ sorteo.id }}/entregas" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-arrow-left me-1"></i>Volver
-    </a>
+    <button type="button" onclick="cerrarRecibo()" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-x-lg me-1"></i>Cerrar
+    </button>
     <span class="fw-semibold text-secondary">Recibo de entrega de premio</span>
-    <button onclick="window.print()" class="btn btn-sm btn-danger ms-auto">
+    <button type="button" onclick="window.print()" class="btn btn-sm btn-danger ms-auto">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
   </div>
+
+  <script>
+    // El recibo se abre en pestaña nueva: "Cerrar" cierra esta pestaña y vuelve
+    // a la de Entregas. Si el navegador no permite cerrarla (se abrió por URL
+    // directa), avisa para que se cierre a mano — NO navega por el sistema.
+    function cerrarRecibo() {
+      window.close();
+      setTimeout(function () {
+        alert('Cerrá esta pestaña para volver a Entregas.');
+      }, 150);
+    }
+  </script>
 
   <div class="recibo-hoja">
     <div class="inst">{{ institucion }}</div>
