@@ -55,6 +55,118 @@ def _pata_valor(boleta) -> int:
     return 1
 
 
+def _get_pata_boleta(b) -> str:
+    """Dígito de PATA de una boleta ('0', '1', '2'...) o '?' si no tiene talonera."""
+    if b and b.talonera:
+        return _extraer_pata(b.talonera.nombre)
+    return "?"
+
+
+def _get_color_boleta(b) -> str:
+    """Color de la PATA de una boleta; '#cccccc' por defecto / si es blanco."""
+    if b and b.talonera and b.talonera.color:
+        c = b.talonera.color.strip()
+        return c if c and c != "#ffffff" else "#cccccc"
+    return "#cccccc"
+
+
+def _armar_grid_patas(boletas, rows_per_col: int = 40):
+    """Distribuye las boletas en un grid de 3 columnas × `rows_per_col` filas,
+    agrupándolas por PATA e insertando filas-etiqueta (separadores X0/X1/X2…)
+    entre grupos. Las boletas deben venir ordenadas por numero_principal.
+
+    Cada celda es una boleta, un dict {"type":"label",...} (separador) o None.
+
+    Devuelve un dict con:
+      - "cols":   tupla (c1, c2, c3) — las 3 columnas físicas (listas).
+      - "rows":   lista de tuplas (c1[i], c2[i], c3[i]) para iterar el tbody.
+      - "labels": tupla (X1, X2, X3) — PATA inicial de cada columna (header).
+      - "colors": tupla de colores de header por columna.
+
+    Las etiquetas se cuelgan en la última fila vacía del bloque previo; si el
+    bloque quedó lleno justo en el límite de 10, la etiqueta ocupa la primera
+    fila del bloque nuevo y empuja las boletas (evita perder el separador)."""
+    ROWS_PER_COL = rows_per_col
+    TOTAL = ROWS_PER_COL * 3
+    grid = [None] * TOTAL
+
+    # Agrupar boletas consecutivas por PATA
+    pata_grupos, cur_pata, cur_grupo = [], None, []
+    for b in boletas:
+        p = _get_pata_boleta(b)
+        if p != cur_pata:
+            if cur_grupo:
+                pata_grupos.append(cur_grupo)
+            cur_pata, cur_grupo = p, [b]
+        else:
+            cur_grupo.append(b)
+    if cur_grupo:
+        pata_grupos.append(cur_grupo)
+
+    # Llenar el grid: cada grupo arranca en un bloque de 10 con fila-etiqueta
+    pos = 0
+    for i, grupo in enumerate(pata_grupos):
+        if i > 0:
+            new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
+            # Si el nuevo bloque arranca al inicio de una columna, la etiqueta
+            # va ARRIBA de esa columna (el header ya queda pintado), no huérfana
+            # al final de la columna previa.
+            is_new_column = new_block > 0 and new_block % ROWS_PER_COL == 0
+            label = {"type": "label",
+                     "pata": f"X{_get_pata_boleta(grupo[0])}",
+                     "color": _get_color_boleta(grupo[0])}
+            if is_new_column and new_block < TOTAL:
+                pos = new_block
+            elif pos % 10 == 0:
+                # El bloque anterior se llenó justo en el límite de 10 filas:
+                # no quedó celda vacía donde colgar la etiqueta, así que ocupa
+                # la primera fila del bloque nuevo (empuja las boletas).
+                if pos < TOTAL:
+                    grid[pos] = label
+                    pos += 1
+            else:
+                label_pos = new_block - 1
+                if 0 <= label_pos < TOTAL and grid[label_pos] is None:
+                    grid[label_pos] = label
+                pos = new_block
+        for b in grupo:
+            if pos < TOTAL:
+                grid[pos] = b
+                pos += 1
+
+    c1 = grid[0:ROWS_PER_COL]
+    c2 = grid[ROWS_PER_COL:ROWS_PER_COL * 2]
+    c3 = grid[ROWS_PER_COL * 2:ROWS_PER_COL * 3]
+    rows = [(c1[i], c2[i], c3[i]) for i in range(ROWS_PER_COL)]
+
+    def _col_header(col):
+        for cell in col:
+            if isinstance(cell, dict):
+                return cell["pata"]
+            elif cell:
+                p = _get_pata_boleta(cell)
+                if p != "?":
+                    return f"X{p}"
+        return ""
+
+    def _col_color(col):
+        for cell in col:
+            if isinstance(cell, dict):
+                return cell["color"]
+            elif cell:
+                c = _get_color_boleta(cell)
+                if c:
+                    return c
+        return ""
+
+    return {
+        "cols": (c1, c2, c3),
+        "rows": rows,
+        "labels": (_col_header(c1), _col_header(c2), _col_header(c3)),
+        "colors": (_col_color(c1), _col_color(c2), _col_color(c3)),
+    }
+
+
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request, db: Session = Depends(get_db),
                 mes: int = Query(default=0), anio: int = Query(default=0)):
@@ -490,77 +602,11 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         cuotas_mes_actual[b.id] = [int(k) for k, v in h.items() if v == planilla.mes]
 
     # ── Mismo grid 3 columnas que la planilla ──────────────────────────────
-    def _get_pata(b):
-        if b and b.talonera:
-            return _extraer_pata(b.talonera.nombre)
-        return "?"
-
-    def _get_color(b):
-        if b and b.talonera and b.talonera.color:
-            c = b.talonera.color.strip()
-            return c if c and c != "#ffffff" else "#cccccc"
-        return "#cccccc"
-
-    ROWS_PER_COL = 40
-    TOTAL = ROWS_PER_COL * 3
-    grid = [None] * TOTAL
-
-    pata_grupos, cur_pata, cur_grupo = [], None, []
-    for b in boletas:
-        p = _get_pata(b)
-        if p != cur_pata:
-            if cur_grupo: pata_grupos.append(cur_grupo)
-            cur_pata, cur_grupo = p, [b]
-        else:
-            cur_grupo.append(b)
-    if cur_grupo: pata_grupos.append(cur_grupo)
-
-    pos = 0
-    for i, grupo in enumerate(pata_grupos):
-        if i > 0:
-            new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
-            # Si el nuevo bloque arranca justo al inicio de una columna,
-            # poner la etiqueta ARRIBA de esa columna (no huérfana al final de
-            # la anterior). En cualquier otro caso, comportamiento original:
-            # etiqueta en la última fila del bloque previo.
-            is_new_column = new_block > 0 and new_block % ROWS_PER_COL == 0
-            label = {"type":"label","pata":f"X{_get_pata(grupo[0])}","color":_get_color(grupo[0])}
-            if is_new_column and new_block < TOTAL:
-                # El header de la columna ya queda pintado con el color de esta
-                # PATA — NO insertamos fila label en el tbody (sería duplicado).
-                pos = new_block
-            else:
-                label_pos = new_block - 1
-                if 0 <= label_pos < TOTAL and grid[label_pos] is None:
-                    grid[label_pos] = label
-                pos = new_block
-        for b in grupo:
-            if pos < TOTAL:
-                grid[pos] = b; pos += 1
-
-    c1 = grid[0:ROWS_PER_COL]
-    c2 = grid[ROWS_PER_COL:ROWS_PER_COL*2]
-    c3 = grid[ROWS_PER_COL*2:ROWS_PER_COL*3]
-    rows = [(c1[i], c2[i], c3[i]) for i in range(ROWS_PER_COL)]
-
-    def _col_header(col):
-        for cell in col:
-            if isinstance(cell, dict): return cell["pata"]
-            elif cell:
-                p = _get_pata(cell)
-                if p != "?": return f"X{p}"
-        return ""
-
-    def _col_color(col):
-        """Color de la PATA de inicio de la columna (para pintar el header)."""
-        for cell in col:
-            if isinstance(cell, dict):
-                return cell["color"]
-            elif cell:
-                c = _get_color(cell)
-                if c:
-                    return c
-        return ""
+    _grid = _armar_grid_patas(boletas)
+    c1, c2, c3 = _grid["cols"]
+    rows = _grid["rows"]
+    col1_label, col2_label, col3_label = _grid["labels"]
+    col1_color, col2_color, col3_color = _grid["colors"]
 
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
     num_cuotas = max(num_cuotas, 10)
@@ -585,7 +631,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     # una cuota de PATA 3 cuenta como 3 unidades, una de PATA 2 como 2, etc.
     multiplicador_de_boleta = {}
     for b in boletas:
-        p = _get_pata(b)
+        p = _get_pata_boleta(b)
         try:
             multiplicador_de_boleta[b.id] = max(1, int(p))
         except (ValueError, TypeError):
@@ -638,12 +684,12 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "planilla": planilla,
         "boletas": boletas,
         "rows": rows,
-        "col1_label": _col_header(c1),
-        "col2_label": _col_header(c2),
-        "col3_label": _col_header(c3),
-        "col1_color": _col_color(c1),
-        "col2_color": _col_color(c2),
-        "col3_color": _col_color(c3),
+        "col1_label": col1_label,
+        "col2_label": col2_label,
+        "col3_label": col3_label,
+        "col1_color": col1_color,
+        "col2_color": col2_color,
+        "col3_color": col3_color,
         "historial_map": historial_map,
         "cuotas_mes_actual": cuotas_mes_actual,
         "liquidacion": liq,
@@ -765,80 +811,10 @@ async def planilla_ver(request: Request, planilla_id: int,
                .order_by(models.Boleta.numero_principal)
                .all())
 
-    def _get_pata(b):
-        if b and b.talonera:
-            return _extraer_pata(b.talonera.nombre)
-        return "?"
-
-    def _get_color(b):
-        if b and b.talonera and b.talonera.color:
-            c = b.talonera.color.strip()
-            return c if c and c != "#ffffff" else "#cccccc"
-        return "#cccccc"
-
-    def _col_header(col):
-        for cell in col:
-            if isinstance(cell, dict):
-                return cell["pata"]
-            elif cell:
-                p = _get_pata(cell)
-                if p != "?":
-                    return f"X{p}"
-        return ""
-
-    def _col_color(col):
-        for cell in col:
-            if isinstance(cell, dict):
-                return cell["color"]
-            elif cell:
-                c = _get_color(cell)
-                if c:
-                    return c
-        return ""
-
-    ROWS_PER_COL = 40
-    TOTAL = ROWS_PER_COL * 3
-    grid = [None] * TOTAL
-
-    pata_grupos = []
-    cur_pata, cur_grupo = None, []
-    for b in boletas:
-        p = _get_pata(b)
-        if p != cur_pata:
-            if cur_grupo:
-                pata_grupos.append(cur_grupo)
-            cur_pata, cur_grupo = p, [b]
-        else:
-            cur_grupo.append(b)
-    if cur_grupo:
-        pata_grupos.append(cur_grupo)
-
-    pos = 0
-    for i, grupo in enumerate(pata_grupos):
-        if i > 0:
-            new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
-            is_new_column = new_block > 0 and new_block % ROWS_PER_COL == 0
-            label = {
-                "type": "label",
-                "pata": f"X{_get_pata(grupo[0])}",
-                "color": _get_color(grupo[0]),
-            }
-            if is_new_column and new_block < TOTAL:
-                pos = new_block
-            else:
-                label_pos = new_block - 1
-                if 0 <= label_pos < TOTAL and grid[label_pos] is None:
-                    grid[label_pos] = label
-                pos = new_block
-        for b in grupo:
-            if pos < TOTAL:
-                grid[pos] = b
-                pos += 1
-
-    c1 = grid[0:ROWS_PER_COL]
-    c2 = grid[ROWS_PER_COL:ROWS_PER_COL * 2]
-    c3 = grid[ROWS_PER_COL * 2:ROWS_PER_COL * 3]
-    rows = [(c1[i], c2[i], c3[i]) for i in range(ROWS_PER_COL)]
+    _grid = _armar_grid_patas(boletas)
+    rows = _grid["rows"]
+    col1_label, col2_label, col3_label = _grid["labels"]
+    col1_color, col2_color, col3_color = _grid["colors"]
 
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
     num_cuotas = max(num_cuotas, 10)
@@ -852,12 +828,12 @@ async def planilla_ver(request: Request, planilla_id: int,
         "planilla_label": f"P{planilla_obj.numero}",
         "boletas": boletas,
         "rows": rows,
-        "col1_label": _col_header(c1),
-        "col2_label": _col_header(c2),
-        "col3_label": _col_header(c3),
-        "col1_color": _col_color(c1),
-        "col2_color": _col_color(c2),
-        "col3_color": _col_color(c3),
+        "col1_label": col1_label,
+        "col2_label": col2_label,
+        "col3_label": col3_label,
+        "col1_color": col1_color,
+        "col2_color": col2_color,
+        "col3_color": col3_color,
         "num_cuotas": num_cuotas,
         "cuota_nums": cuota_nums,
         "meses_campana": meses_campana,
@@ -901,99 +877,11 @@ async def planilla(request: Request, cobrador_id: int,
                    .order_by(models.Boleta.numero_principal)
                    .all())
 
-    # ── Helpers PATA ──
-    def _get_pata(b):
-        if b and b.talonera:
-            return _extraer_pata(b.talonera.nombre)
-        return "?"
-
-    def _get_color(b):
-        if b and b.talonera and b.talonera.color:
-            c = b.talonera.color.strip()
-            return c if c and c != "#ffffff" else "#cccccc"
-        return "#cccccc"
-
-    def _col_header(col):
-        """Primer PATA de la columna (X1/X2/X3) o cadena vacía si está vacía."""
-        for cell in col:
-            if isinstance(cell, dict):
-                return cell["pata"]
-            elif cell:
-                p = _get_pata(cell)
-                if p != "?":
-                    return f"X{p}"
-        return ""
-
-    def _col_color(col):
-        """Color de la PATA de inicio de la columna (para pintar el header)."""
-        for cell in col:
-            if isinstance(cell, dict):
-                return cell["color"]
-            elif cell:
-                c = _get_color(cell)
-                if c:
-                    return c
-        return ""
-
-    # ── Agrupar boletas consecutivas por PATA ──
-    ROWS_PER_COL = 40
-    TOTAL = ROWS_PER_COL * 3
-    grid = [None] * TOTAL
-
-    pata_grupos = []
-    cur_pata, cur_grupo = None, []
-    for b in boletas:
-        p = _get_pata(b)
-        if p != cur_pata:
-            if cur_grupo:
-                pata_grupos.append(cur_grupo)
-            cur_pata, cur_grupo = p, [b]
-        else:
-            cur_grupo.append(b)
-    if cur_grupo:
-        pata_grupos.append(cur_grupo)
-
-    # ── Llenar grid: cada grupo arranca en un bloque de 10 con fila de etiqueta ──
-    pos = 0
-    for i, grupo in enumerate(pata_grupos):
-        if i > 0:
-            # Saltar al inicio del próximo bloque de 10
-            new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
-            # Si el bloque arranca al inicio de una columna nueva, la etiqueta va
-            # ARRIBA de esa columna (no huérfana al final de la columna previa).
-            # Si arranca a mitad de columna, etiqueta en la última fila del bloque previo.
-            is_new_column = new_block > 0 and new_block % ROWS_PER_COL == 0
-            label = {
-                "type": "label",
-                "pata": f"X{_get_pata(grupo[0])}",
-                "color": _get_color(grupo[0]),
-            }
-            if is_new_column and new_block < TOTAL:
-                # El header de la columna ya queda pintado con el color de esta
-                # PATA — NO insertamos fila label en el tbody (sería duplicado).
-                pos = new_block
-            else:
-                label_pos = new_block - 1
-                if 0 <= label_pos < TOTAL and grid[label_pos] is None:
-                    grid[label_pos] = label
-                pos = new_block
-        # Boletas del grupo
-        for b in grupo:
-            if pos < TOTAL:
-                grid[pos] = b
-                pos += 1
-
-    c1 = grid[0:ROWS_PER_COL]
-    c2 = grid[ROWS_PER_COL:ROWS_PER_COL * 2]
-    c3 = grid[ROWS_PER_COL * 2:ROWS_PER_COL * 3]
-    rows = [(c1[i], c2[i], c3[i]) for i in range(ROWS_PER_COL)]
-
-    col1_label = _col_header(c1)
-    col2_label = _col_header(c2)
-    col3_label = _col_header(c3)
-    col1_color = _col_color(c1)
-    col2_color = _col_color(c2)
-    col3_color = _col_color(c3)
+    # ── Grid 3 columnas agrupado por PATA (helper compartido) ──
+    _grid = _armar_grid_patas(boletas)
+    rows = _grid["rows"]
+    col1_label, col2_label, col3_label = _grid["labels"]
+    col1_color, col2_color, col3_color = _grid["colors"]
 
     # Cantidad de cuotas (máximo entre todas las boletas, mínimo 10)
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
