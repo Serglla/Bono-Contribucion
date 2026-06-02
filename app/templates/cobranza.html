@@ -86,4 +86,60 @@
 {% else %}
 <div class="text-center text-muted py-5">No hay cobradores con boletas activas.</div>
 {% endif %}
+
+<!-- Todas las planillas, agrupadas por mes/año -->
+<hr class="my-4">
+<div class="d-flex align-items-center gap-2 mb-3">
+  <h5 class="fw-bold mb-0"><i class="bi bi-collection text-danger me-2"></i>Todas las planillas</h5>
+  <span class="text-muted small">por mes y año</span>
+</div>
+
+{% if periodos_todos %}
+<div class="accordion" id="accPeriodos">
+  {% for p in periodos_todos %}
+  {% set abierto = (p.mes == mes and p.anio == anio) %}
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button {% if not abierto %}collapsed{% endif %}" type="button"
+              data-bs-toggle="collapse" data-bs-target="#per{{ p.anio }}_{{ p.mes }}"
+              aria-expanded="{{ 'true' if abierto else 'false' }}">
+        <span class="fw-semibold">{{ p.mes_nombre }} {{ p.anio }}</span>
+        <span class="badge bg-success ms-2">{{ p.total_planillas }} planilla{% if p.total_planillas != 1 %}s{% endif %}</span>
+      </button>
+    </h2>
+    <div id="per{{ p.anio }}_{{ p.mes }}" class="accordion-collapse collapse {% if abierto %}show{% endif %}"
+         data-bs-parent="#accPeriodos">
+      <div class="accordion-body">
+        <div class="row g-3">
+          {% for c in p.cobradores %}
+          <div class="col-md-4 col-sm-6">
+            <div class="card border-0 shadow-sm h-100">
+              <div class="card-body py-2">
+                <div class="d-flex align-items-center gap-2">
+                  <i class="bi bi-person-circle text-danger"></i>
+                  <span class="fw-bold">{{ c.cobrador_nombre }}</span>
+                  <span class="badge bg-secondary ms-auto">{{ c.planillas|length }}</span>
+                </div>
+              </div>
+              <div class="card-footer bg-white">
+                <div class="d-flex flex-column gap-1">
+                  {% for pl in c.planillas %}
+                  <a href="/cobranza/planilla/{{ pl.id }}/ver" class="btn btn-sm btn-danger w-100">
+                    <i class="bi bi-printer me-1"></i>Ver P{{ pl.numero }}
+                  </a>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center text-muted py-4 small">Todavía no se armó ninguna planilla.</div>
+{% endif %}
 {% endblock %}

@@ -200,6 +200,36 @@ async def index(request: Request, db: Session = Depends(get_db),
                      .all())
         resumen.append({"cobrador": co, "total": total, "pendientes": pendientes, "planillas": planillas})
 
+    # ── TODAS las planillas, agrupadas por período (mes/año) ──────────────────
+    # Independiente del selector de período: el objetivo es ver el histórico
+    # completo de planillas distinguiendo a qué mes y año pertenece cada una.
+    cob_map = {c.id: c.nombre for c in cobradores}
+    todas_planillas = (db.query(models.Planilla)
+                       .order_by(models.Planilla.anio.desc(),
+                                 models.Planilla.mes.desc(),
+                                 models.Planilla.cobrador_id,
+                                 models.Planilla.numero)
+                       .all())
+    periodos_dict = {}
+    for pl in todas_planillas:
+        grupo = periodos_dict.setdefault((pl.anio, pl.mes), {})
+        grupo.setdefault(pl.cobrador_id, []).append(pl)
+
+    periodos_todos = []
+    for (a, m) in sorted(periodos_dict.keys(), reverse=True):
+        cobradores_periodo = [
+            {"cobrador_nombre": cob_map.get(cid, "—"), "planillas": pls}
+            for cid, pls in periodos_dict[(a, m)].items()
+        ]
+        cobradores_periodo.sort(key=lambda x: x["cobrador_nombre"])
+        periodos_todos.append({
+            "anio": a,
+            "mes": m,
+            "mes_nombre": MESES[m - 1] if 1 <= m <= 12 else str(m),
+            "total_planillas": sum(len(c["planillas"]) for c in cobradores_periodo),
+            "cobradores": cobradores_periodo,
+        })
+
     return templates.TemplateResponse(request, "cobranza.html", {
         "user": user,
         "resumen": resumen,
@@ -207,6 +237,7 @@ async def index(request: Request, db: Session = Depends(get_db),
         "mes_nombre": MESES[mes - 1],
         "meses": MESES,
         "anios": list(range(hoy.year - 1, hoy.year + 2)),
+        "periodos_todos": periodos_todos,
     })
 
 
