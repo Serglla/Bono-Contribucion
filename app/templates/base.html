@@ -170,6 +170,10 @@
         {% else %}
         <span class="user-info"><i class="bi bi-person-circle me-1"></i><span class="username">{{ user.username }}</span></span>
         {% endif %}
+        <button type="button" class="btn btn-sm btn-outline-light" title="Compartir la app con un nuevo cliente"
+                data-bs-toggle="modal" data-bs-target="#modalCompartir">
+          <i class="bi bi-share-fill me-1"></i>Compartir
+        </button>
         <a href="/auth/logout" class="btn btn-sm btn-outline-light">
           <i class="bi bi-box-arrow-left me-1"></i>Salir
         </a>
@@ -190,6 +194,45 @@
   <span id="offline-pill-text">Sin conexión</span>
   <span id="sync-badge" onclick="swSyncNow()" title="Hay operaciones pendientes. Clic para sincronizar."></span>
 </div>
+
+{% if user %}
+<!-- Modal: Compartir la app con nuevos clientes -->
+<div class="modal fade" id="modalCompartir" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-share-fill text-primary me-2"></i>Compartir la app</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">
+          Enviale el sistema a un nuevo cliente. Podés editar el mensaje antes de compartir.
+        </p>
+        <label class="form-label small fw-semibold mb-1">Mensaje</label>
+        <textarea id="shareMsg" class="form-control form-control-sm mb-3" rows="5"></textarea>
+        <label class="form-label small fw-semibold mb-1">Link de la app</label>
+        <div class="input-group input-group-sm mb-1">
+          <input type="text" id="shareUrl" class="form-control" readonly>
+          <button type="button" class="btn btn-outline-secondary" onclick="copiarLinkApp()" title="Copiar link">
+            <i class="bi bi-clipboard"></i>
+          </button>
+        </div>
+        <div id="shareCopied" class="text-success small mb-0" style="display:none;">
+          <i class="bi bi-check-circle-fill me-1"></i>¡Link copiado!
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-success" onclick="compartirWhatsapp()">
+          <i class="bi bi-whatsapp me-1"></i>WhatsApp
+        </button>
+        <button type="button" class="btn btn-primary" id="btnShareNative" onclick="compartirNativo()">
+          <i class="bi bi-share-fill me-1"></i>Compartir…
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
@@ -312,6 +355,54 @@ window.addEventListener("load", () => {
     setTimeout(swPrefetch, 3000);
   }
 });
+
+// ── Compartir la app con nuevos clientes ──────────────────────────────────────
+(function() {
+  const urlInp = document.getElementById("shareUrl");
+  const msgInp = document.getElementById("shareMsg");
+  if (!urlInp || !msgInp) return;  // modal sólo existe si hay usuario logueado
+  const urlApp = window.location.origin;
+  urlInp.value = urlApp;
+  msgInp.value =
+    "📋 *Sistema de Gestión de Bonos Contribución*\n\n" +
+    "Administrá socios, vendedores, cobranzas, sorteos y liquidaciones desde el celular o la computadora.\n\n" +
+    "Probalo acá 👉 " + urlApp;
+  // Ocultar el botón "Compartir…" nativo si el navegador no soporta Web Share.
+  const btnNative = document.getElementById("btnShareNative");
+  if (btnNative && !navigator.share) btnNative.style.display = "none";
+})();
+
+function _shareMessage() {
+  const msgInp = document.getElementById("shareMsg");
+  return msgInp ? msgInp.value : window.location.origin;
+}
+
+function copiarLinkApp() {
+  const urlInp = document.getElementById("shareUrl");
+  const ok     = document.getElementById("shareCopied");
+  if (!urlInp) return;
+  const done = () => { if (ok) { ok.style.display = "block"; setTimeout(() => ok.style.display = "none", 2000); } };
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(urlInp.value).then(done).catch(() => { urlInp.select(); document.execCommand("copy"); done(); });
+  } else {
+    urlInp.select(); document.execCommand("copy"); done();
+  }
+}
+
+function compartirWhatsapp() {
+  window.open("https://wa.me/?text=" + encodeURIComponent(_shareMessage()), "_blank");
+}
+
+async function compartirNativo() {
+  if (!navigator.share) { compartirWhatsapp(); return; }
+  try {
+    await navigator.share({
+      title: "Sistema de Gestión de Bonos",
+      text:  _shareMessage(),
+      url:   window.location.origin,
+    });
+  } catch (e) { /* el usuario canceló el diálogo de compartir */ }
+}
 </script>
 {% block scripts %}{% endblock %}
 </body>
