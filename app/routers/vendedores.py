@@ -340,8 +340,29 @@ async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depen
         else:
             _cuotas_equiv = float(liq.cuotas_vendidas or 0)
 
+    # Números que el vendedor todavía tiene en CAJA sin liquidar: candidatos para
+    # agregar a esta liquidación si se olvidó alguno (mismo criterio que la sección
+    # "En caja (sin liquidar)" del detalle del vendedor).
+    disponibles = []
+    for b in db.query(models.Boleta).filter(
+        models.Boleta.vendedor_id == liq_vid,
+        models.Boleta.condicion == CondicionBoleta.CAJA,
+        models.Boleta.liquidacion_vendedor_id.is_(None),
+    ).all():
+        nd = (b.talonera.num_digitos or 4) if b.talonera else 4
+        fmt = "{:0" + str(nd) + "d}"
+        disponibles.append({
+            "id": b.id,
+            "num": b.numero_principal,
+            "num_str": fmt.format(b.numero_principal),
+            "pata": b.talonera.nombre if b.talonera else "?",
+        })
+    disponibles.sort(key=lambda x: (x["pata"], x["num"]))
+
     return JSONResponse({
         "id": liq.id,
+        "vendedor_id": liq_vid,
+        "disponibles": disponibles,
         "fecha": liq.fecha.strftime("%d/%m/%Y %H:%M") if liq.fecha else "",
         "cuotas_vendidas":         int(liq.cuotas_vendidas or 0),
         "cuotas_equiv":            _cuotas_equiv,
@@ -1164,6 +1185,9 @@ async def liquidar(
     cuotas, contados_b = [], []
     for b in boletas_sel:
         modalidad = (form.get(f"modalidad_{b.id}") or "cuotas").strip().lower()
+        if modalidad not in ("cuotas", "contado", "contado2"):
+            modalidad = "cuotas"
+        b.modalidad_liquidacion = modalidad
         if modalidad in ("contado", "contado2"):
             contados_b.append(b)
         else:
@@ -1654,21 +1678,130 @@ async def eliminar_liquidacion(liq_id: int, request: Request, db: Session = Depe
     db.commit()
     return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liq_eliminada", status_code=302)
 
+
+def _recalc_liq_totales(liq):
+    """Recalcula total_a_rendir y total_comision (legacy) desde los campos componentes.
+    Se usa al editar una liquidación (agregar/sacar números) para mantener todo coherente."""
+    liq.total_a_rendir = round(
+        (float(liq.monto_contados or 0)         - float(liq.comision_contados or 0))
+        + (float(liq.cuotas_extras_monto or 0)    - float(liq.comision_cuotas_extras or 0))
+        + (float(liq.cuotas_extras_p0_monto or 0) - float(liq.comision_cuotas_extras_p0 or 0)),
+        2,
+    )
+    liq.total_comision = round(
+        float(liq.comision_cuotas or 0) + float(liq.comision_contados or 0)
+        + float(liq.comision_cuotas_extras or 0) + float(liq.comision_cuotas_extras_p0 or 0),
+        2,
+    )
+
+
+@router.post("/liquidaciones/{liq_id}/agregar-boleta", response_class=JSONResponse)
+async def liquidacion_agregar_boleta(liq_id: int, request: Request, db: Session = Depends(get_db)):
+    """Agrega un número olvidado a una liquidación existente.
+    El número debe ser una boleta del MISMO vendedor, en CAJA y sin liquidar.
+    modalidad: 'cuotas' (default) | 'contado' | 'contado2'.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+    liq = db.query(models.LiquidacionVendedor).get(liq_id)
     if not liq:
         raise HTTPException(404, "Liquidacion no encontrada")
-    vid = liq.vendedor_id
-    # Resetear boletas asociadas -> vuelven a CAJA sin liquidacion
-    db.query(models.Boleta).filter_by(liquidacion_vendedor_id=liq_id).update(
-        {"liquidacion_vendedor_id": None, "condicion": CondicionBoleta.CAJA},
-        synchronize_session=False
-    )
-    # Borrar items pool CONTADO (cascade tambien deberia hacerlo, lo hacemos explicito)
-    db.query(models.LiquidacionContadoItem).filter_by(
-        liquidacion_id=liq_id
-    ).delete(synchronize_session=False)
-    db.delete(liq)
+
+    form = await request.form()
+    try:
+        boleta_id = int(form.get("boleta_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Boleta inválida."}, status_code=400)
+    modalidad = (form.get("modalidad") or "cuotas").strip().lower()
+    if modalidad not in ("cuotas", "contado", "contado2"):
+        modalidad = "cuotas"
+
+    b = db.query(models.Boleta).get(boleta_id)
+    if not b:
+        return JSONResponse({"ok": False, "error": "Boleta no encontrada."}, status_code=404)
+    if b.vendedor_id != liq.vendedor_id:
+        return JSONResponse({"ok": False, "error": "El número no es de este vendedor."}, status_code=400)
+    if b.condicion != CondicionBoleta.CAJA or b.liquidacion_vendedor_id is not None:
+        return JSONResponse({"ok": False, "error": "El número no está en caja sin liquidar."}, status_code=400)
+
+    mult        = float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
+    valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
+    if modalidad in ("contado", "contado2"):
+        num_cuotas = int((b.talonera.num_cuotas or 12) if b.talonera else 12)
+        pct        = float(liq.comision_contados_pct or 0) or 30.0
+        monto      = num_cuotas * valor_cuota
+        com        = round(monto * pct / 100, 2)
+        liq.contados_vendidos = int(liq.contados_vendidos or 0) + 1
+        liq.contados_equiv    = float(liq.contados_equiv or 0) + mult
+        liq.monto_contados    = round(float(liq.monto_contados or 0) + monto, 2)
+        liq.comision_contados = round(float(liq.comision_contados or 0) + com, 2)
+        if not liq.comision_contados_pct:
+            liq.comision_contados_pct = pct
+    else:
+        liq.cuotas_vendidas = int(liq.cuotas_vendidas or 0) + 1
+        liq.cuotas_equiv    = float(liq.cuotas_equiv or 0) + mult
+        liq.cuota_1_total   = round(float(liq.cuota_1_total or 0) + valor_cuota, 2)
+        liq.monto_cuotas    = round(float(liq.monto_cuotas or 0) + valor_cuota, 2)
+        liq.comision_cuotas = round(float(liq.comision_cuotas or 0) + valor_cuota, 2)
+
+    b.liquidacion_vendedor_id = liq.id
+    b.condicion = CondicionBoleta.VENDIDO
+    b.modalidad_liquidacion = modalidad
+    _recalc_liq_totales(liq)
     db.commit()
-    return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liq_eliminada", status_code=302)
+    return JSONResponse({"ok": True})
+
+
+@router.post("/liquidaciones/{liq_id}/quitar-boleta", response_class=JSONResponse)
+async def liquidacion_quitar_boleta(liq_id: int, request: Request, db: Session = Depends(get_db)):
+    """Saca un número de una liquidación existente (vuelve a CAJA sin liquidar).
+    Solo si la boleta todavía NO fue cargada con un socio (comprador_id is None).
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+    liq = db.query(models.LiquidacionVendedor).get(liq_id)
+    if not liq:
+        raise HTTPException(404, "Liquidacion no encontrada")
+
+    form = await request.form()
+    try:
+        boleta_id = int(form.get("boleta_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Boleta inválida."}, status_code=400)
+
+    b = db.query(models.Boleta).get(boleta_id)
+    if not b or b.liquidacion_vendedor_id != liq_id:
+        return JSONResponse({"ok": False, "error": "El número no pertenece a esta liquidación."}, status_code=400)
+    if b.comprador_id is not None:
+        return JSONResponse({"ok": False, "error": "Ya tiene un socio cargado: no se puede sacar."}, status_code=400)
+
+    modalidad   = (b.modalidad_liquidacion or "cuotas").strip().lower()
+    mult        = float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
+    valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
+    if modalidad in ("contado", "contado2"):
+        num_cuotas = int((b.talonera.num_cuotas or 12) if b.talonera else 12)
+        pct        = float(liq.comision_contados_pct or 0) or 30.0
+        monto      = num_cuotas * valor_cuota
+        com        = round(monto * pct / 100, 2)
+        liq.contados_vendidos = max(0, int(liq.contados_vendidos or 0) - 1)
+        liq.contados_equiv    = max(0.0, float(liq.contados_equiv or 0) - mult)
+        liq.monto_contados    = max(0.0, round(float(liq.monto_contados or 0) - monto, 2))
+        liq.comision_contados = max(0.0, round(float(liq.comision_contados or 0) - com, 2))
+    else:
+        liq.cuotas_vendidas = max(0, int(liq.cuotas_vendidas or 0) - 1)
+        liq.cuotas_equiv    = max(0.0, float(liq.cuotas_equiv or 0) - mult)
+        liq.cuota_1_total   = max(0.0, round(float(liq.cuota_1_total or 0) - valor_cuota, 2))
+        liq.monto_cuotas    = max(0.0, round(float(liq.monto_cuotas or 0) - valor_cuota, 2))
+        liq.comision_cuotas = max(0.0, round(float(liq.comision_cuotas or 0) - valor_cuota, 2))
+
+    b.liquidacion_vendedor_id = None
+    b.condicion = CondicionBoleta.CAJA
+    b.modalidad_liquidacion = None
+    _recalc_liq_totales(liq)
+    db.commit()
+    return JSONResponse({"ok": True})
 
 
 @router.post("/{vid}/toggle")

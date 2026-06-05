@@ -397,6 +397,17 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion liquidacion_vendedor_id boletas: {e}")
 
+        # Migrar modalidad_liquidacion en boletas (para editar liquidaciones desde el historial)
+        try:
+            cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
+            if "modalidad_liquidacion" not in cols_boletas:
+                db.execute(text("ALTER TABLE boletas ADD COLUMN modalidad_liquidacion VARCHAR"))
+                db.commit()
+                print("Migracion modalidad_liquidacion boletas: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion modalidad_liquidacion boletas: {e}")
+
         # Migrar num_cuotas en taloneras
         try:
             _dialect = engine.dialect.name

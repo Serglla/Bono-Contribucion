@@ -279,6 +279,11 @@ class Boleta(Base):
     numero_especial_2 = deferred(Column(Integer, nullable=True, index=True))
     talonera_especial_2_id = deferred(Column(Integer, ForeignKey("taloneras.id"), nullable=True))
     liquidacion_vendedor_id = Column(Integer, ForeignKey("liquidaciones_vendedor.id"), nullable=True)
+    # Modalidad con la que esta boleta entró a su liquidación: 'cuotas' | 'contado' | 'contado2'.
+    # Se setea al liquidar y al agregar números a una liquidación existente. Permite
+    # recalcular correctamente el rinde al editar una liquidación desde el historial.
+    # Null en boletas previas a esta migración (se asume 'cuotas' al editarlas).
+    modalidad_liquidacion = deferred(Column(String, nullable=True))
     created_at = Column(DateTime, server_default=func.now())
 
     talonera = relationship("Talonera", back_populates="boletas",

@@ -411,6 +411,11 @@
           </button>
         </form>
         {% endif %}
+        {% if can_edit %}
+        <button type="button" class="btn btn-sm btn-outline-primary" id="dl-edit-btn" onclick="toggleEditLiq()">
+          <i class="bi bi-pencil me-1"></i>Editar números
+        </button>
+        {% endif %}
         <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
       </div>
     </div>
@@ -1588,6 +1593,30 @@ function escapeHtml(s) {
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+// ── Estado del modal Detalle de liquidación (para editar números) ──
+let dlCurrentLiqId = null;
+let dlDetalleData  = null;
+let dlEditMode     = false;
+let dlDirty        = false;   // hubo cambios → recargar al cerrar para refrescar totales
+let dlPendingMsg   = null;    // {t, m} a mostrar tras el próximo render
+let dlHideHooked   = false;
+
+function setEditLiqBtn() {
+  const btn = document.getElementById('dl-edit-btn');
+  if (!btn) return;
+  btn.classList.toggle('btn-outline-primary', !dlEditMode);
+  btn.classList.toggle('btn-primary', dlEditMode);
+  btn.innerHTML = dlEditMode
+    ? '<i class="bi bi-check2 me-1"></i>Listo'
+    : '<i class="bi bi-pencil me-1"></i>Editar números';
+}
+
+function toggleEditLiq() {
+  dlEditMode = !dlEditMode;
+  setEditLiqBtn();
+  if (dlDetalleData) renderDetalleLiq(dlDetalleData);
+}
+
 async function verDetalleLiq(liqId) {
   const modalEl = document.getElementById('modalDetalleLiq');
   if (!modalEl) return;
@@ -1595,6 +1624,18 @@ async function verDetalleLiq(liqId) {
   if (modalEl.parentElement !== document.body) {
     document.body.appendChild(modalEl);
   }
+  // Al cerrar, si hubo ediciones, recargar para refrescar totales del historial/página.
+  if (!dlHideHooked) {
+    dlHideHooked = true;
+    modalEl.addEventListener('hidden.bs.modal', () => {
+      if (dlDirty) window.location.reload();
+    });
+  }
+  dlCurrentLiqId = liqId;
+  dlDetalleData  = null;
+  dlEditMode     = false;
+  dlPendingMsg   = null;
+  setEditLiqBtn();
   const body = document.getElementById('dl-body');
   const fechaLbl = document.getElementById('dl-fecha');
   body.innerHTML = `<div class="text-center text-muted py-4">
@@ -1613,186 +1654,317 @@ async function verDetalleLiq(liqId) {
         <i class="bi bi-x-circle me-1"></i>Error al cargar el detalle (HTTP ${r.status})</div>`;
       return;
     }
-    const d = await r.json();
-    fechaLbl.textContent = d.fecha || '';
-
-    // Agrupar boletas por PATA
-    const grupos = {};
-    (d.boletas || []).forEach(b => {
-      if (!grupos[b.pata]) grupos[b.pata] = { color: b.color, boletas: [] };
-      grupos[b.pata].boletas.push(b);
-    });
-    // Agrupar items pool CONTADO por talonera
-    const grupos_pool = {};
-    (d.pool_items || []).forEach(it => {
-      if (!grupos_pool[it.talonera_nombre]) grupos_pool[it.talonera_nombre] = { color: it.color, items: [] };
-      grupos_pool[it.talonera_nombre].items.push(it);
-    });
-
-    let html = '';
-
-    // ── Resumen ──
-    html += `
-      <div class="card border-0 bg-light mb-3">
-        <div class="card-body py-2">
-          <table class="table table-sm table-borderless mb-0" style="font-size:.82rem;">
-            <tbody>
-              <tr class="text-muted fst-italic">
-                <td>Cuota 1 (${fmtPonderado(d.cuotas_equiv ?? d.cuotas_vendidas)} boleta/s) — ya en mano del vendedor</td>
-                <td class="text-end">${fmtMoney(d.cuota_1_total)}</td>
-              </tr>
-              <tr>
-                <td>Contados cobrados (${d.contados_vendidos} boleta/s)</td>
-                <td class="text-end">${fmtMoney(d.monto_contados)}</td>
-              </tr>
-              <tr class="text-danger">
-                <td>− Comisión contado (${d.comision_contados_pct}%)</td>
-                <td class="text-end">${fmtMoney(d.comision_contados)}</td>
-              </tr>
-              <tr>
-                <td>Cuotas extras cobradas (${d.cuotas_extras_cantidad} cuotas × ${fmtMoney(d.cuotas_extras_valor)})</td>
-                <td class="text-end">${fmtMoney(d.cuotas_extras_monto)}</td>
-              </tr>
-              <tr class="text-danger">
-                <td>− Comisión cuotas extras (${d.comision_cuotas_pct}%)</td>
-                <td class="text-end">${fmtMoney(d.comision_cuotas_extras)}</td>
-              </tr>
-              <tr class="border-top fw-bold text-success">
-                <td>Total que rinde el vendedor</td>
-                <td class="text-end fs-6">${fmtMoney(d.total_a_rendir)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>`;
-
-    // ── Boletas por PATA ──
-    const tieneBoletas = Object.keys(grupos).length > 0;
-    const tienePool    = Object.keys(grupos_pool).length > 0;
-
-    if (tieneBoletas) {
-      // Total ponderado = suma de multiplicadores (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, etc.)
-      const totalPonderado = (d.boletas || []).reduce((acc, b) => acc + (parseFloat(b.multiplicador) || 1), 0);
-      const totalCrudo     = (d.boletas || []).length;
-      // Boletas reasignadas a otro vendedor (tipico jefe de equipo → vendedor)
-      const reasignadas = (d.boletas || []).filter(b => b.reasignado_a_nombre);
-      html += `<div class="small fw-semibold text-muted mb-2">
-        <i class="bi bi-collection me-1"></i>Taloneras liquidadas
-        <span class="badge bg-secondary ms-1"
-              title="${totalCrudo} boleta/s reales, ponderado por multiplicador de PATA (exacto: ${totalPonderado.toFixed(2)})">
-          ${fmtPonderado(totalPonderado)}
-        </span>
-      </div>`;
-      if (reasignadas.length > 0) {
-        // Agrupamos por nombre del vendedor destino
-        const por_destino = {};
-        reasignadas.forEach(b => {
-          const nm = b.reasignado_a_nombre;
-          if (!por_destino[nm]) por_destino[nm] = 0;
-          por_destino[nm]++;
-        });
-        const resumen = Object.keys(por_destino).sort()
-          .map(nm => `<strong>${escapeHtml(nm)}</strong> (${por_destino[nm]})`)
-          .join(', ');
-        html += `<div class="alert alert-info py-2 px-3 small mb-2"
-                      style="border-left:3px solid #0d6efd;">
-          <i class="bi bi-arrow-right-circle me-1"></i>
-          <strong>${reasignadas.length}</strong> boleta/s pasaron a otro vendedor después de liquidar:
-          ${resumen}
-        </div>`;
-      }
-      Object.keys(grupos).sort().forEach(pata => {
-        const g = grupos[pata];
-        const colorBg  = (g.color || '#cccccc') + '20';
-        const colorBdr = g.color || '#cccccc';
-        const mult     = parseFloat(g.boletas[0] && g.boletas[0].multiplicador) || 1;
-        const ponderado = g.boletas.reduce((acc, b) => acc + (parseFloat(b.multiplicador) || 1), 0);
-        let badges = '';
-        g.boletas.forEach(b => {
-          const opaco = (b.condicion === 'VENDIDO') ? 'opacity:.55;' : '';
-          const tipBase = `${escapeHtml(b.condicion || '')}${b.comprador ? ' · ' + escapeHtml(b.comprador) : ''}`;
-          if (b.reasignado_a_nombre) {
-            // Badge compuesto: número + flecha + nombre del vendedor destino
-            const tipReas = `${tipBase} · Ahora en: ${escapeHtml(b.reasignado_a_nombre)}`;
-            badges += `<span class="d-inline-flex align-items-center me-1 mb-1"
-                            style="font-size:.78rem;border:1px solid #0d6efd55;border-radius:.25rem;overflow:hidden;${opaco}"
-                            title="${tipReas}">
-              <span class="badge bg-primary rounded-0" style="font-size:.78rem;">${escapeHtml(b.num_str)}</span>
-              <span class="px-2 py-1 text-primary fw-semibold" style="background:#0d6efd15;">
-                <i class="bi bi-arrow-right" style="font-size:.7rem;"></i>
-                ${escapeHtml(b.reasignado_a_nombre)}
-              </span>
-            </span>`;
-          } else {
-            badges += `<span class="badge bg-primary me-1 mb-1" style="font-size:.78rem;${opaco}"
-                            title="${tipBase}">${escapeHtml(b.num_str)}</span>`;
-          }
-        });
-        html += `
-          <div class="card border-0 shadow-sm mb-2">
-            <div class="card-header py-1 d-flex align-items-center gap-2"
-                 style="background:${colorBg};border-left:4px solid ${colorBdr};">
-              <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">
-                ${escapeHtml(pata)}
-              </span>
-              <span class="text-muted small"
-                    title="Ponderado exacto: ${ponderado.toFixed(2)}">
-                ${g.boletas.length} boleta/s × ${fmtMult(mult)} = <strong>${fmtPonderado(ponderado)}</strong>
-              </span>
-            </div>
-            <div class="card-body py-2">
-              <div class="d-flex flex-wrap gap-1">${badges}</div>
-            </div>
-          </div>`;
-      });
-    }
-
-    if (tienePool) {
-      html += `<div class="small fw-semibold text-muted mb-2 mt-3">
-        <i class="bi bi-star-fill text-warning me-1"></i>Números del pool CONTADO declarados
-        <span class="badge bg-warning text-dark ms-1">${(d.pool_items || []).length}</span>
-      </div>`;
-      Object.keys(grupos_pool).sort().forEach(nombre => {
-        const g = grupos_pool[nombre];
-        const colorBg  = (g.color || '#fff8e1') + '60';
-        const colorBdr = g.color || '#ffc107';
-        let badges = '';
-        g.items.forEach(it => {
-          badges += `<span class="badge bg-warning text-dark me-1 mb-1" style="font-size:.78rem;">
-            <i class="bi bi-star-fill me-1" style="font-size:.6rem;"></i>${escapeHtml(it.num_str)}</span>`;
-        });
-        html += `
-          <div class="card border-0 shadow-sm mb-2">
-            <div class="card-header py-1 d-flex align-items-center gap-2"
-                 style="background:${colorBg};border-left:4px solid ${colorBdr};">
-              <span class="badge fw-bold bg-warning text-dark">★ ${escapeHtml(nombre)}</span>
-              <span class="text-muted small">${g.items.length} número/s</span>
-            </div>
-            <div class="card-body py-2">
-              <div class="d-flex flex-wrap gap-1">${badges}</div>
-            </div>
-          </div>`;
-      });
-    }
-
-    if (!tieneBoletas && !tienePool) {
-      html += `<div class="alert alert-warning small mb-0">
-        <i class="bi bi-info-circle me-1"></i>
-        Esta liquidación no tiene boletas asociadas (puede ser sólo de cuotas extras).
-      </div>`;
-    }
-
-    if (d.observacion) {
-      html += `<div class="mt-3 small text-muted">
-        <strong>Observación:</strong> <em>${escapeHtml(d.observacion)}</em>
-      </div>`;
-    }
-
-    body.innerHTML = html;
+    dlDetalleData = await r.json();
+    renderDetalleLiq(dlDetalleData);
   } catch (e) {
     body.innerHTML = `<div class="alert alert-danger small mb-0">
       <i class="bi bi-x-circle me-1"></i>Error de red al cargar el detalle</div>`;
   }
+}
+
+// Re-fetch del detalle tras agregar/sacar un número (modal sigue abierto).
+async function refetchDetalleLiq(msg) {
+  if (msg) dlPendingMsg = msg;
+  try {
+    const r = await fetch(`/vendedores/liquidaciones/${dlCurrentLiqId}/detalle`, { credentials:'include' });
+    if (r.ok) dlDetalleData = await r.json();
+  } catch (e) {}
+  renderDetalleLiq(dlDetalleData);
+}
+
+async function quitarBoletaLiq(boletaId) {
+  const fd = new FormData();
+  fd.append('boleta_id', boletaId);
+  try {
+    const r = await fetch(`/vendedores/liquidaciones/${dlCurrentLiqId}/quitar-boleta`,
+                          { method:'POST', body:fd, credentials:'include' });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) {
+      dlDirty = true;
+      refetchDetalleLiq({ t:'success', m:'Número sacado de la liquidación (volvió a caja sin liquidar).' });
+    } else {
+      refetchDetalleLiq({ t:'danger', m: data.error || 'No se pudo sacar el número.' });
+    }
+  } catch (e) {
+    refetchDetalleLiq({ t:'danger', m:'Error de red.' });
+  }
+}
+
+async function agregarBoletaLiq() {
+  const sel = document.getElementById('dl-add-sel');
+  const mod = document.getElementById('dl-add-mod');
+  if (!sel || !sel.value) return;
+  const fd = new FormData();
+  fd.append('boleta_id', sel.value);
+  fd.append('modalidad', mod ? mod.value : 'cuotas');
+  try {
+    const r = await fetch(`/vendedores/liquidaciones/${dlCurrentLiqId}/agregar-boleta`,
+                          { method:'POST', body:fd, credentials:'include' });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) {
+      dlDirty = true;
+      refetchDetalleLiq({ t:'success', m:'Número agregado a la liquidación.' });
+    } else {
+      refetchDetalleLiq({ t:'danger', m: data.error || 'No se pudo agregar el número.' });
+    }
+  } catch (e) {
+    refetchDetalleLiq({ t:'danger', m:'Error de red.' });
+  }
+}
+
+function renderDetalleLiq(d) {
+  const body = document.getElementById('dl-body');
+  const fechaLbl = document.getElementById('dl-fecha');
+  if (!d) {
+    body.innerHTML = `<div class="alert alert-danger small mb-0">
+      <i class="bi bi-x-circle me-1"></i>No se pudo cargar el detalle</div>`;
+    return;
+  }
+  fechaLbl.textContent = d.fecha || '';
+
+  // Agrupar boletas por PATA
+  const grupos = {};
+  (d.boletas || []).forEach(b => {
+    if (!grupos[b.pata]) grupos[b.pata] = { color: b.color, boletas: [] };
+    grupos[b.pata].boletas.push(b);
+  });
+  // Agrupar items pool CONTADO por talonera
+  const grupos_pool = {};
+  (d.pool_items || []).forEach(it => {
+    if (!grupos_pool[it.talonera_nombre]) grupos_pool[it.talonera_nombre] = { color: it.color, items: [] };
+    grupos_pool[it.talonera_nombre].items.push(it);
+  });
+
+  let html = '';
+
+  // Mensaje transitorio tras una edición
+  if (dlPendingMsg) {
+    const ic = dlPendingMsg.t === 'success' ? 'check-circle' : 'exclamation-triangle';
+    html += `<div class="alert alert-${dlPendingMsg.t} py-2 small">
+      <i class="bi bi-${ic} me-1"></i>${escapeHtml(dlPendingMsg.m)}</div>`;
+    dlPendingMsg = null;
+  }
+  // Banner de modo edición
+  if (dlEditMode) {
+    html += `<div class="alert alert-primary py-2 small mb-3" style="border-left:3px solid #0d6efd;">
+      <i class="bi bi-pencil-square me-1"></i><strong>Modo edición.</strong>
+      Sacá un número con la <i class="bi bi-x-circle-fill text-danger"></i> (solo los que todavía no tienen socio)
+      o agregá abajo un número olvidado. Tocá «Listo» al terminar.</div>`;
+  }
+
+  // ── Resumen ──
+  html += `
+    <div class="card border-0 bg-light mb-3">
+      <div class="card-body py-2">
+        <table class="table table-sm table-borderless mb-0" style="font-size:.82rem;">
+          <tbody>
+            <tr class="text-muted fst-italic">
+              <td>Cuota 1 (${fmtPonderado(d.cuotas_equiv ?? d.cuotas_vendidas)} boleta/s) — ya en mano del vendedor</td>
+              <td class="text-end">${fmtMoney(d.cuota_1_total)}</td>
+            </tr>
+            <tr>
+              <td>Contados cobrados (${d.contados_vendidos} boleta/s)</td>
+              <td class="text-end">${fmtMoney(d.monto_contados)}</td>
+            </tr>
+            <tr class="text-danger">
+              <td>− Comisión contado (${d.comision_contados_pct}%)</td>
+              <td class="text-end">${fmtMoney(d.comision_contados)}</td>
+            </tr>
+            <tr>
+              <td>Cuotas extras cobradas (${d.cuotas_extras_cantidad} cuotas × ${fmtMoney(d.cuotas_extras_valor)})</td>
+              <td class="text-end">${fmtMoney(d.cuotas_extras_monto)}</td>
+            </tr>
+            <tr class="text-danger">
+              <td>− Comisión cuotas extras (${d.comision_cuotas_pct}%)</td>
+              <td class="text-end">${fmtMoney(d.comision_cuotas_extras)}</td>
+            </tr>
+            <tr class="border-top fw-bold text-success">
+              <td>Total que rinde el vendedor</td>
+              <td class="text-end fs-6">${fmtMoney(d.total_a_rendir)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  // ── Boletas por PATA ──
+  const tieneBoletas = Object.keys(grupos).length > 0;
+  const tienePool    = Object.keys(grupos_pool).length > 0;
+
+  if (tieneBoletas) {
+    // Total ponderado = suma de multiplicadores (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, etc.)
+    const totalPonderado = (d.boletas || []).reduce((acc, b) => acc + (parseFloat(b.multiplicador) || 1), 0);
+    const totalCrudo     = (d.boletas || []).length;
+    // Boletas reasignadas a otro vendedor (tipico jefe de equipo → vendedor)
+    const reasignadas = (d.boletas || []).filter(b => b.reasignado_a_nombre);
+    html += `<div class="small fw-semibold text-muted mb-2">
+      <i class="bi bi-collection me-1"></i>Taloneras liquidadas
+      <span class="badge bg-secondary ms-1"
+            title="${totalCrudo} boleta/s reales, ponderado por multiplicador de PATA (exacto: ${totalPonderado.toFixed(2)})">
+        ${fmtPonderado(totalPonderado)}
+      </span>
+    </div>`;
+    if (reasignadas.length > 0) {
+      // Agrupamos por nombre del vendedor destino
+      const por_destino = {};
+      reasignadas.forEach(b => {
+        const nm = b.reasignado_a_nombre;
+        if (!por_destino[nm]) por_destino[nm] = 0;
+        por_destino[nm]++;
+      });
+      const resumen = Object.keys(por_destino).sort()
+        .map(nm => `<strong>${escapeHtml(nm)}</strong> (${por_destino[nm]})`)
+        .join(', ');
+      html += `<div class="alert alert-info py-2 px-3 small mb-2"
+                    style="border-left:3px solid #0d6efd;">
+        <i class="bi bi-arrow-right-circle me-1"></i>
+        <strong>${reasignadas.length}</strong> boleta/s pasaron a otro vendedor después de liquidar:
+        ${resumen}
+      </div>`;
+    }
+    Object.keys(grupos).sort().forEach(pata => {
+      const g = grupos[pata];
+      const colorBg  = (g.color || '#cccccc') + '20';
+      const colorBdr = g.color || '#cccccc';
+      const mult     = parseFloat(g.boletas[0] && g.boletas[0].multiplicador) || 1;
+      const ponderado = g.boletas.reduce((acc, b) => acc + (parseFloat(b.multiplicador) || 1), 0);
+      let badges = '';
+      g.boletas.forEach(b => {
+        const opaco = (b.condicion === 'VENDIDO') ? 'opacity:.55;' : '';
+        const tipBase = `${escapeHtml(b.condicion || '')}${b.comprador ? ' · ' + escapeHtml(b.comprador) : ''}`;
+        // Control de edición: × para sacar (si no tiene socio) o candado (si ya tiene socio).
+        let ctrl = '';
+        if (dlEditMode) {
+          if (b.comprador) {
+            ctrl = `<span class="px-1 text-muted" title="Ya cargado con socio (${escapeHtml(b.comprador)}): no se puede sacar">
+                      <i class="bi bi-lock-fill" style="font-size:.65rem;"></i></span>`;
+          } else {
+            ctrl = `<button type="button" class="btn btn-sm btn-link text-danger p-0 px-1"
+                            title="Sacar de la liquidación" onclick="quitarBoletaLiq(${b.id})">
+                      <i class="bi bi-x-circle-fill" style="font-size:.72rem;"></i></button>`;
+          }
+        }
+        if (b.reasignado_a_nombre) {
+          // Badge compuesto: número + flecha + nombre del vendedor destino
+          const tipReas = `${tipBase} · Ahora en: ${escapeHtml(b.reasignado_a_nombre)}`;
+          badges += `<span class="d-inline-flex align-items-center me-1 mb-1"
+                          style="font-size:.78rem;border:1px solid #0d6efd55;border-radius:.25rem;overflow:hidden;${opaco}"
+                          title="${tipReas}">
+            <span class="badge bg-primary rounded-0" style="font-size:.78rem;">${escapeHtml(b.num_str)}</span>
+            <span class="px-2 py-1 text-primary fw-semibold" style="background:#0d6efd15;">
+              <i class="bi bi-arrow-right" style="font-size:.7rem;"></i>
+              ${escapeHtml(b.reasignado_a_nombre)}
+            </span>${ctrl}
+          </span>`;
+        } else if (dlEditMode) {
+          badges += `<span class="d-inline-flex align-items-center me-1 mb-1"
+                          style="font-size:.78rem;border:1px solid #0d6efd44;border-radius:.25rem;${opaco}"
+                          title="${tipBase}">
+            <span class="badge bg-primary" style="font-size:.78rem;border-radius:.25rem 0 0 .25rem;">${escapeHtml(b.num_str)}</span>${ctrl}
+          </span>`;
+        } else {
+          badges += `<span class="badge bg-primary me-1 mb-1" style="font-size:.78rem;${opaco}"
+                          title="${tipBase}">${escapeHtml(b.num_str)}</span>`;
+        }
+      });
+      html += `
+        <div class="card border-0 shadow-sm mb-2">
+          <div class="card-header py-1 d-flex align-items-center gap-2"
+               style="background:${colorBg};border-left:4px solid ${colorBdr};">
+            <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">
+              ${escapeHtml(pata)}
+            </span>
+            <span class="text-muted small"
+                  title="Ponderado exacto: ${ponderado.toFixed(2)}">
+              ${g.boletas.length} boleta/s × ${fmtMult(mult)} = <strong>${fmtPonderado(ponderado)}</strong>
+            </span>
+          </div>
+          <div class="card-body py-2">
+            <div class="d-flex flex-wrap gap-1">${badges}</div>
+          </div>
+        </div>`;
+    });
+  }
+
+  if (tienePool) {
+    html += `<div class="small fw-semibold text-muted mb-2 mt-3">
+      <i class="bi bi-star-fill text-warning me-1"></i>Números del pool CONTADO declarados
+      <span class="badge bg-warning text-dark ms-1">${(d.pool_items || []).length}</span>
+    </div>`;
+    Object.keys(grupos_pool).sort().forEach(nombre => {
+      const g = grupos_pool[nombre];
+      const colorBg  = (g.color || '#fff8e1') + '60';
+      const colorBdr = g.color || '#ffc107';
+      let badges = '';
+      g.items.forEach(it => {
+        badges += `<span class="badge bg-warning text-dark me-1 mb-1" style="font-size:.78rem;">
+          <i class="bi bi-star-fill me-1" style="font-size:.6rem;"></i>${escapeHtml(it.num_str)}</span>`;
+      });
+      html += `
+        <div class="card border-0 shadow-sm mb-2">
+          <div class="card-header py-1 d-flex align-items-center gap-2"
+               style="background:${colorBg};border-left:4px solid ${colorBdr};">
+            <span class="badge fw-bold bg-warning text-dark">★ ${escapeHtml(nombre)}</span>
+            <span class="text-muted small">${g.items.length} número/s</span>
+          </div>
+          <div class="card-body py-2">
+            <div class="d-flex flex-wrap gap-1">${badges}</div>
+          </div>
+        </div>`;
+    });
+  }
+
+  if (!tieneBoletas && !tienePool) {
+    html += `<div class="alert alert-warning small mb-0">
+      <i class="bi bi-info-circle me-1"></i>
+      Esta liquidación no tiene boletas asociadas (puede ser sólo de cuotas extras).
+    </div>`;
+  }
+
+  // ── Agregar número olvidado (solo en modo edición) ──
+  if (dlEditMode) {
+    const disp = d.disponibles || [];
+    html += `<div class="card border-primary-subtle border mt-3">
+      <div class="card-body py-2">
+        <div class="small fw-semibold text-primary mb-2">
+          <i class="bi bi-plus-circle me-1"></i>Agregar número olvidado a esta liquidación
+        </div>`;
+    if (!disp.length) {
+      html += `<div class="text-muted small mb-0">
+        Este vendedor no tiene números en caja sin liquidar para agregar.</div>`;
+    } else {
+      const opts = disp.map(x =>
+        `<option value="${x.id}">${escapeHtml(x.pata)} · ${escapeHtml(x.num_str)}</option>`).join('');
+      html += `
+        <div class="row g-2 align-items-end">
+          <div class="col-12 col-md-5">
+            <label class="form-label small mb-0">Número (en caja, sin liquidar)</label>
+            <select id="dl-add-sel" class="form-select form-select-sm">${opts}</select>
+          </div>
+          <div class="col-7 col-md-4">
+            <label class="form-label small mb-0">Modalidad</label>
+            <select id="dl-add-mod" class="form-select form-select-sm">
+              <option value="cuotas">Por cuotas (cuota 1)</option>
+              <option value="contado">Al contado (pago total)</option>
+            </select>
+          </div>
+          <div class="col-5 col-md-3">
+            <button type="button" class="btn btn-sm btn-primary w-100" onclick="agregarBoletaLiq()">
+              <i class="bi bi-plus-lg me-1"></i>Agregar
+            </button>
+          </div>
+        </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  if (d.observacion) {
+    html += `<div class="mt-3 small text-muted">
+      <strong>Observación:</strong> <em>${escapeHtml(d.observacion)}</em>
+    </div>`;
+  }
+
+  body.innerHTML = html;
 }
 
 // ══════════════════════════════════════════════════════════════════
