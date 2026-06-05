@@ -356,6 +356,8 @@ async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depen
             "num": b.numero_principal,
             "num_str": fmt.format(b.numero_principal),
             "pata": b.talonera.nombre if b.talonera else "?",
+            "color": (b.talonera.color if (b.talonera and b.talonera.color) else "#0d6efd"),
+            "multiplicador": float(b.talonera.multiplicador or 1.0) if b.talonera else 1.0,
         })
     disponibles.sort(key=lambda x: (x["pata"], x["num"]))
 

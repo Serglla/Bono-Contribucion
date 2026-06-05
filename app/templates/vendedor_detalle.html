@@ -1690,25 +1690,95 @@ async function quitarBoletaLiq(boletaId) {
   }
 }
 
-async function agregarBoletaLiq() {
-  const sel = document.getElementById('dl-add-sel');
-  const mod = document.getElementById('dl-add-mod');
-  if (!sel || !sel.value) return;
-  const fd = new FormData();
-  fd.append('boleta_id', sel.value);
-  fd.append('modalidad', mod ? mod.value : 'cuotas');
-  try {
-    const r = await fetch(`/vendedores/liquidaciones/${dlCurrentLiqId}/agregar-boleta`,
-                          { method:'POST', body:fd, credentials:'include' });
-    const data = await r.json().catch(() => ({}));
-    if (r.ok && data.ok) {
-      dlDirty = true;
-      refetchDetalleLiq({ t:'success', m:'Número agregado a la liquidación.' });
+// ── Sección "Agregar números olvidados" (badges-checkbox por PATA) ──
+function _addBadgeStyle(badge, checked, esContado) {
+  if (!badge) return;
+  if (checked) {
+    if (esContado) {
+      badge.style.background = '#fff3cd'; badge.style.color = '#856404';
+      badge.style.border = '1px solid #ffc10780';
     } else {
-      refetchDetalleLiq({ t:'danger', m: data.error || 'No se pudo agregar el número.' });
+      badge.style.background = '#d1e7dd'; badge.style.color = '#146c43';
+      badge.style.border = '1px solid #20c99740';
     }
-  } catch (e) {
-    refetchDetalleLiq({ t:'danger', m:'Error de red.' });
+  } else {
+    badge.style.background = '#e7f1ff'; badge.style.color = '#0d6efd';
+    badge.style.border = '1px solid #0d6efd40';
+  }
+}
+
+function onAddChkChange(chk) {
+  const label  = chk.closest('label');
+  const badge  = label ? label.querySelector('.badge') : null;
+  const wrap   = chk.closest('.d-inline-flex');
+  const modSel = wrap ? wrap.querySelector('.dl-add-mod-sel') : null;
+  if (modSel) {
+    if (chk.checked) modSel.classList.remove('d-none');
+    else { modSel.classList.add('d-none'); modSel.value = 'cuotas'; }
+  }
+  const esContado = modSel ? (modSel.value !== 'cuotas') : false;
+  _addBadgeStyle(badge, chk.checked, esContado);
+  actualizarAddCount(chk.dataset.pata);
+}
+
+function onAddModChange(sel) {
+  const wrap  = sel.closest('.d-inline-flex');
+  const chk   = wrap ? wrap.querySelector('.dl-add-chk') : null;
+  const badge = wrap ? wrap.querySelector('.badge') : null;
+  if (chk && chk.checked) _addBadgeStyle(badge, true, sel.value !== 'cuotas');
+}
+
+function actualizarAddCount(pata) {
+  if (pata != null) {
+    const chks = document.querySelectorAll(`.dl-add-chk[data-pata="${pata}"]`);
+    const sel  = [...chks].filter(c => c.checked).length;
+    const lbl  = document.getElementById(`dladd-cnt-${pata}`);
+    if (lbl) lbl.textContent = `${sel} / ${chks.length}`;
+  }
+  const total = document.querySelectorAll('.dl-add-chk:checked').length;
+  const tl  = document.getElementById('dl-add-count');
+  const btn = document.getElementById('dl-add-btn');
+  if (tl)  tl.textContent = total;
+  if (btn) btn.disabled = (total === 0);
+}
+
+function toggleAddPata(pata, estado) {
+  document.querySelectorAll(`.dl-add-chk[data-pata="${pata}"]`).forEach(chk => {
+    chk.checked = estado;
+    onAddChkChange(chk);
+  });
+}
+
+async function agregarBoletaLiq() {
+  const chks = [...document.querySelectorAll('.dl-add-chk:checked')];
+  if (!chks.length) return;
+  const btn = document.getElementById('dl-add-btn');
+  if (btn) btn.disabled = true;
+  let okCount = 0, errMsg = null;
+  for (const chk of chks) {
+    const wrap   = chk.closest('.d-inline-flex');
+    const modSel = wrap ? wrap.querySelector('.dl-add-mod-sel') : null;
+    const fd = new FormData();
+    fd.append('boleta_id', chk.value);
+    fd.append('modalidad', modSel ? modSel.value : 'cuotas');
+    try {
+      const r = await fetch(`/vendedores/liquidaciones/${dlCurrentLiqId}/agregar-boleta`,
+                            { method:'POST', body:fd, credentials:'include' });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.ok) okCount++;
+      else errMsg = data.error || 'No se pudo agregar algún número.';
+    } catch (e) {
+      errMsg = 'Error de red.';
+    }
+  }
+  if (okCount > 0) dlDirty = true;
+  if (okCount === 0) {
+    refetchDetalleLiq({ t:'danger', m: errMsg || 'No se pudo agregar ningún número.' });
+  } else if (errMsg) {
+    refetchDetalleLiq({ t:'warning',
+      m:`Se agregaron ${okCount} número(s), pero hubo un problema con otros: ${errMsg}` });
+  } else {
+    refetchDetalleLiq({ t:'success', m:`${okCount} número(s) agregado(s) a la liquidación.` });
   }
 }
 
@@ -1921,38 +1991,82 @@ function renderDetalleLiq(d) {
     </div>`;
   }
 
-  // ── Agregar número olvidado (solo en modo edición) ──
+  // ── Agregar números olvidados (solo en modo edición) ──
+  // Se muestran los números en caja sin liquidar agrupados por PATA, igual que el
+  // modal de Liquidar: badges-checkbox + selector de modalidad por número.
   if (dlEditMode) {
     const disp = d.disponibles || [];
     html += `<div class="card border-primary-subtle border mt-3">
       <div class="card-body py-2">
         <div class="small fw-semibold text-primary mb-2">
-          <i class="bi bi-plus-circle me-1"></i>Agregar número olvidado a esta liquidación
+          <i class="bi bi-plus-circle me-1"></i>Agregar números olvidados a esta liquidación
         </div>`;
     if (!disp.length) {
       html += `<div class="text-muted small mb-0">
         Este vendedor no tiene números en caja sin liquidar para agregar.</div>`;
     } else {
-      const opts = disp.map(x =>
-        `<option value="${x.id}">${escapeHtml(x.pata)} · ${escapeHtml(x.num_str)}</option>`).join('');
+      html += `<div class="small text-muted mb-2">
+        Tildá los números que quieras incluir y elegí la modalidad de cada uno.
+        Tocá «Agregar seleccionados» al terminar.</div>`;
+      // Agrupar disponibles por PATA
+      const gAdd = {};
+      disp.forEach(x => {
+        if (!gAdd[x.pata]) gAdd[x.pata] = { color: x.color, items: [] };
+        gAdd[x.pata].items.push(x);
+      });
+      Object.keys(gAdd).sort().forEach(pata => {
+        const g = gAdd[pata];
+        const colorBg  = (g.color || '#0d6efd') + '20';
+        const colorBdr = g.color || '#0d6efd';
+        let badges = '';
+        g.items.forEach(x => {
+          const mult = parseFloat(x.multiplicador) || 1;
+          badges += `
+            <div class="d-inline-flex align-items-center gap-1" style="margin:0 4px 4px 0;">
+              <label style="margin:0;cursor:pointer;" title="×${fmtMult(mult)}">
+                <input type="checkbox" class="d-none dl-add-chk" value="${x.id}"
+                       data-pata="${pata}" onchange="onAddChkChange(this)">
+                <span class="badge" style="font-size:.8rem;cursor:pointer;
+                      background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;
+                      user-select:none;">${escapeHtml(x.num_str)}</span>
+              </label>
+              <select class="form-select form-select-sm dl-add-mod-sel d-none"
+                      style="width:auto;font-size:.68rem;padding:.05rem 1rem .05rem .3rem;height:auto;min-width:0;background-position:right .15rem center;background-size:10px 8px;"
+                      onchange="onAddModChange(this)">
+                <option value="cuotas" selected>Cuo</option>
+                <option value="contado">Co</option>
+                <option value="contado2">Co2</option>
+              </select>
+            </div>`;
+        });
+        html += `
+          <div class="card border-0 shadow-sm mb-2">
+            <div class="card-header py-1 d-flex align-items-center gap-2"
+                 style="background:${colorBg};border-left:4px solid ${colorBdr};">
+              <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">${escapeHtml(pata)}</span>
+              <span class="text-muted small" id="dladd-cnt-${pata}">0 / ${g.items.length}</span>
+              <div class="ms-auto d-flex gap-1">
+                <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2"
+                        style="font-size:.72rem;" onclick="toggleAddPata('${pata}', true)">
+                  <i class="bi bi-check-all"></i> Todo
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                        style="font-size:.72rem;" onclick="toggleAddPata('${pata}', false)">
+                  <i class="bi bi-x"></i> Ninguno
+                </button>
+              </div>
+            </div>
+            <div class="card-body py-2">
+              <div class="d-flex flex-wrap gap-1">${badges}</div>
+            </div>
+          </div>`;
+      });
       html += `
-        <div class="row g-2 align-items-end">
-          <div class="col-12 col-md-5">
-            <label class="form-label small mb-0">Número (en caja, sin liquidar)</label>
-            <select id="dl-add-sel" class="form-select form-select-sm">${opts}</select>
-          </div>
-          <div class="col-7 col-md-4">
-            <label class="form-label small mb-0">Modalidad</label>
-            <select id="dl-add-mod" class="form-select form-select-sm">
-              <option value="cuotas">Por cuotas (cuota 1)</option>
-              <option value="contado">Al contado (pago total)</option>
-            </select>
-          </div>
-          <div class="col-5 col-md-3">
-            <button type="button" class="btn btn-sm btn-primary w-100" onclick="agregarBoletaLiq()">
-              <i class="bi bi-plus-lg me-1"></i>Agregar
-            </button>
-          </div>
+        <div class="d-flex justify-content-end mt-2">
+          <button type="button" class="btn btn-sm btn-primary" id="dl-add-btn" disabled
+                  onclick="agregarBoletaLiq()">
+            <i class="bi bi-plus-lg me-1"></i>Agregar seleccionados (<span id="dl-add-count">0</span>)
+          </button>
         </div>`;
     }
     html += `</div></div>`;
