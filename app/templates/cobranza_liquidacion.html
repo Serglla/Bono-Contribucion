@@ -18,73 +18,71 @@
   </li>
 </ul>
 
-<!-- Selector mes/año -->
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-body py-3">
-    <form method="get" action="/cobranza/liquidacion" class="d-flex align-items-center gap-3 flex-wrap">
-      <label class="fw-semibold text-muted small mb-0">Período:</label>
-      <select name="mes" class="form-select form-select-sm" style="width:140px;">
-        {% for m in meses %}
-        <option value="{{ loop.index }}" {% if loop.index == mes %}selected{% endif %}>{{ m }}</option>
-        {% endfor %}
-      </select>
-      <select name="anio" class="form-select form-select-sm" style="width:100px;">
-        {% for a in anios %}
-        <option value="{{ a }}" {% if a == anio %}selected{% endif %}>{{ a }}</option>
-        {% endfor %}
-      </select>
-      <button type="submit" class="btn btn-sm btn-danger">Ver</button>
-      <span class="text-muted small ms-2">Liquidaciones de <strong>{{ mes_nombre }} {{ anio }}</strong></span>
-    </form>
-  </div>
+<div class="d-flex align-items-center gap-2 mb-3">
+  <h5 class="fw-bold mb-0"><i class="bi bi-people text-danger me-2"></i>Cobradores a liquidar</h5>
+  <span class="text-muted small">una fila por cobrador · abrí para ver todas sus planillas</span>
 </div>
 
-<!-- Cards agrupadas por cobrador -->
+<!-- Acordeón: un cobrador por fila, con todas sus planillas adentro -->
 {% if resumen %}
-<div class="row g-3">
+<div class="accordion" id="accLiquidacion">
   {% for r in resumen %}
-  <div class="col-md-4 col-sm-6">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-body">
-        <div class="d-flex align-items-center gap-2 mb-3">
-          <i class="bi bi-person-circle text-danger fs-4"></i>
-          <div class="flex-grow-1">
-            <h6 class="fw-bold mb-0">{{ r.cobrador.nombre }}</h6>
-            <small class="text-muted">Comisión {{ r.planillas[0].comision_pct }}%</small>
-          </div>
-          {% if r.planillas|length > 1 %}
-          <span class="badge bg-success">{{ r.planillas|length }} planillas</span>
-          {% endif %}
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#cob{{ r.cobrador.id }}"
+              aria-expanded="false">
+        <i class="bi bi-person-circle text-danger fs-5 me-2"></i>
+        <span class="fw-bold">{{ r.cobrador.nombre }}</span>
+        {% if r.pendientes > 0 %}
+        <span class="badge bg-danger ms-2">{{ r.pendientes }} pendiente{% if r.pendientes != 1 %}s{% endif %}</span>
+        {% else %}
+        <span class="badge bg-success ms-2"><i class="bi bi-check-circle me-1"></i>Todo liquidado</span>
+        {% endif %}
+        <span class="badge bg-secondary ms-2">{{ r.total_planillas }} planilla{% if r.total_planillas != 1 %}s{% endif %}</span>
+        <small class="text-muted ms-2">Comisión {{ r.comision_pct }}%</small>
+      </button>
+    </h2>
+    <div id="cob{{ r.cobrador.id }}" class="accordion-collapse collapse"
+         data-bs-parent="#accLiquidacion">
+      <div class="accordion-body">
+        {% for per in r.periodos %}
+        <!-- Distinción por mes -->
+        <div class="d-flex align-items-center gap-2 mb-2 {% if not loop.first %}mt-3{% endif %}">
+          <i class="bi bi-calendar3 text-muted"></i>
+          <span class="fw-semibold text-uppercase small text-muted">{{ per.mes_nombre }} {{ per.anio }}</span>
+          <span class="badge bg-light text-dark border">{{ per.planillas|length }}</span>
         </div>
-
-        <!-- Una fila por planilla -->
-        <div class="d-flex flex-column gap-2">
-          {% for p in r.planillas %}
-          <div class="border rounded p-2" style="background:#fafafa;">
-            <div class="d-flex align-items-center justify-content-between mb-1">
-              <span class="fw-semibold small">Planilla P{{ p.numero }}</span>
-              <span class="badge bg-dark">{{ p.boletas | length }} boletas</span>
-            </div>
-            {% if p.liquidacion %}
-            <p class="text-success small mb-2">
-              <i class="bi bi-check-circle me-1"></i>Liquidada · {{ p.liquidacion.total_cuotas }} cuotas cobradas
-            </p>
-            {% else %}
-            <p class="text-warning small mb-2">
-              <i class="bi bi-clock me-1"></i>Pendiente de liquidar
-            </p>
-            {% endif %}
-            <a href="/cobranza/liquidacion/{{ p.id }}"
-               class="btn btn-sm {% if p.liquidacion %}btn-outline-success{% else %}btn-danger{% endif %} w-100">
+        <div class="row g-2">
+          {% for p in per.planillas %}
+          <div class="col-md-6 col-lg-4">
+            <div class="border rounded p-2 h-100" style="background:#fafafa;">
+              <div class="d-flex align-items-center justify-content-between mb-1">
+                <span class="fw-semibold small">Planilla P{{ p.numero }}</span>
+                <span class="badge bg-dark">{{ p.boletas | length }} boletas</span>
+              </div>
               {% if p.liquidacion %}
-              <i class="bi bi-eye me-1"></i>Ver liquidación
+              <p class="text-success small mb-2">
+                <i class="bi bi-check-circle me-1"></i>Liquidada · {{ p.liquidacion.total_cuotas }} cuotas cobradas
+              </p>
               {% else %}
-              <i class="bi bi-pencil-square me-1"></i>Liquidar planilla
+              <p class="text-warning small mb-2">
+                <i class="bi bi-clock me-1"></i>Pendiente de liquidar
+              </p>
               {% endif %}
-            </a>
+              <a href="/cobranza/liquidacion/{{ p.id }}"
+                 class="btn btn-sm {% if p.liquidacion %}btn-outline-success{% else %}btn-danger{% endif %} w-100">
+                {% if p.liquidacion %}
+                <i class="bi bi-eye me-1"></i>Ver liquidación
+                {% else %}
+                <i class="bi bi-pencil-square me-1"></i>Liquidar planilla
+                {% endif %}
+              </a>
+            </div>
           </div>
           {% endfor %}
         </div>
+        {% endfor %}
       </div>
     </div>
   </div>
@@ -93,8 +91,8 @@
 {% else %}
 <div class="text-center text-muted py-5">
   <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-  No hay planillas armadas para {{ mes_nombre }} {{ anio }}.<br>
-  <a href="/cobranza/emplanillado?mes={{ mes }}&anio={{ anio }}" class="btn btn-sm btn-outline-danger mt-3">
+  No hay planillas armadas todavía.<br>
+  <a href="/cobranza/emplanillado" class="btn btn-sm btn-outline-danger mt-3">
     Ir a Emplanillado
   </a>
 </div>

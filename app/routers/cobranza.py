@@ -572,37 +572,59 @@ async def planilla_eliminar(request: Request, planilla_id: int,
 # ── LIQUIDACIÓN ────────────────────────────────────────────────────────────────
 
 @router.get("/liquidacion", response_class=HTMLResponse)
-async def liquidacion_index(request: Request, db: Session = Depends(get_db),
-                             mes: int = Query(default=0), anio: int = Query(default=0)):
+async def liquidacion_index(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    hoy = date.today()
-    if not mes:  mes  = hoy.month
-    if not anio: anio = hoy.year
 
+    # Liquidación = TODAS las planillas en posesión de cada cobrador, sin filtrar
+    # por mes. Cada cobrador se muestra como un acordeón; al abrirlo aparecen todas
+    # sus planillas, distinguidas por mes/año. La liquidación se hace sobre el
+    # conjunto de boletas que el cobrador tiene cargadas.
     planillas_todas = (db.query(models.Planilla)
-                       .filter_by(mes=mes, anio=anio)
                        .join(models.Cobrador)
-                       .order_by(models.Cobrador.nombre, models.Planilla.numero)
+                       .order_by(models.Cobrador.nombre,
+                                 models.Planilla.anio.desc(),
+                                 models.Planilla.mes.desc(),
+                                 models.Planilla.numero)
                        .all())
 
-    # Agrupar por cobrador
+    # Agrupar por cobrador y, dentro de cada cobrador, por período (mes/año)
     resumen_liq = {}
     for p in planillas_todas:
         cid = p.cobrador_id
-        if cid not in resumen_liq:
-            resumen_liq[cid] = {"cobrador": p.cobrador, "planillas": []}
-        resumen_liq[cid]["planillas"].append(p)
-    resumen_liq = list(resumen_liq.values())
+        grupo = resumen_liq.setdefault(cid, {
+            "cobrador": p.cobrador,
+            "comision_pct": p.comision_pct,
+            "planillas": [],
+            "periodos_map": {},
+            "total_planillas": 0,
+            "pendientes": 0,
+        })
+        grupo["planillas"].append(p)
+        grupo["total_planillas"] += 1
+        if not p.liquidacion:
+            grupo["pendientes"] += 1
+        clave = (p.anio, p.mes)
+        periodo = grupo["periodos_map"].setdefault(clave, {
+            "mes": p.mes, "anio": p.anio,
+            "mes_nombre": MESES[p.mes - 1],
+            "planillas": [],
+        })
+        periodo["planillas"].append(p)
+
+    # Aplanar: lista de cobradores ordenada por nombre; períodos más recientes primero
+    resumen = []
+    for grupo in resumen_liq.values():
+        grupo["periodos"] = [grupo["periodos_map"][k]
+                             for k in sorted(grupo["periodos_map"], reverse=True)]
+        del grupo["periodos_map"]
+        resumen.append(grupo)
+    resumen.sort(key=lambda g: g["cobrador"].nombre.lower())
 
     return templates.TemplateResponse(request, "cobranza_liquidacion.html", {
         "user": user,
-        "resumen": resumen_liq,
-        "mes": mes, "anio": anio,
-        "mes_nombre": MESES[mes - 1],
-        "meses": MESES,
-        "anios": list(range(hoy.year - 1, hoy.year + 2)),
+        "resumen": resumen,
     })
 
 
