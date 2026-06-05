@@ -2,6 +2,23 @@
 {% block title %}{{ v.nombre }} — Detalle{% endblock %}
 {% block content %}
 
+<style>
+  /* Listado de números en COLUMNAS (lectura vertical): se baja por la primera
+     columna y el número que sigue arranca en la cabeza de la columna siguiente.
+     Reemplaza el flujo horizontal (fila por fila) del flex-wrap. */
+  .num-cols {
+    column-width: 3.5rem;   /* ancho aprox. de un número de 4 dígitos */
+    column-gap: .3rem;
+  }
+  .num-cols > * {
+    display: block;
+    width: -moz-fit-content;
+    width: fit-content;
+    break-inside: avoid;     /* un número nunca se parte entre dos columnas */
+    margin: 0 0 .25rem 0;
+  }
+</style>
+
 {# ══════════ HEADER ══════════ #}
 <div class="d-flex align-items-center gap-3 mb-4">
   <a href="/vendedores/" class="btn btn-outline-secondary btn-sm">
@@ -208,7 +225,7 @@
       </span>
     </div>
     <div class="card-body py-3">
-      <div class="d-flex flex-wrap gap-1">
+      <div class="num-cols">
         {% for b in pata_data.boletas %}
           {% if b.cond == 'CAJA' and not b.liq %}
             {# En caja — sin liquidar → azul claro. Si tiene id (no es pool) es seleccionable en modo Pasar. #}
@@ -1950,7 +1967,7 @@ function renderDetalleLiq(d) {
             </span>
           </div>
           <div class="card-body py-2">
-            <div class="d-flex flex-wrap gap-1">${badges}</div>
+            <div class="num-cols">${badges}</div>
           </div>
         </div>`;
     });
@@ -1978,7 +1995,7 @@ function renderDetalleLiq(d) {
             <span class="text-muted small">${g.items.length} número/s</span>
           </div>
           <div class="card-body py-2">
-            <div class="d-flex flex-wrap gap-1">${badges}</div>
+            <div class="num-cols">${badges}</div>
           </div>
         </div>`;
     });
@@ -2057,7 +2074,7 @@ function renderDetalleLiq(d) {
               </div>
             </div>
             <div class="card-body py-2">
-              <div class="d-flex flex-wrap gap-1">${badges}</div>
+              <div class="num-cols">${badges}</div>
             </div>
           </div>`;
       });
