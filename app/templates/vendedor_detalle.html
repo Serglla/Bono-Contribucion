@@ -701,13 +701,14 @@
               {% endif %}
             </select>
           </div>
-          <div class="col-6">
-            <label class="form-label small fw-semibold mb-1">Desde</label>
-            <input type="number" id="ec2-desde" class="form-control form-control-sm text-center" min="1">
-          </div>
-          <div class="col-6">
-            <label class="form-label small fw-semibold mb-1">Hasta</label>
-            <input type="number" id="ec2-hasta" class="form-control form-control-sm text-center" min="1">
+          <div class="col-12">
+            <div class="d-flex justify-content-between align-items-end mb-1">
+              <label class="form-label small fw-semibold mb-0">Desde / Hasta</label>
+              <span class="text-muted fst-italic" style="font-size:.7rem;">
+                Cargá el <strong>Desde</strong> y aparece otro casillero. Sin <strong>Hasta</strong> = número suelto.
+              </span>
+            </div>
+            <div id="ec2-rangos"></div>
           </div>
         </div>
         <div id="ec2-resultado" class="mt-3"></div>
@@ -1356,54 +1357,79 @@ function alertaBox(t, m) {
 
 async function entregarCajaVendedor() {
   const pata  = document.getElementById('ec2-pata').value;
-  const desde = parseInt(document.getElementById('ec2-desde').value);
-  const hasta = parseInt(document.getElementById('ec2-hasta').value);
   const btn   = document.getElementById('ec2-btn');
   const res   = document.getElementById('ec2-resultado');
-  if (!desde || !hasta) { res.innerHTML = alertaBox('warning','Ingresa el rango'); return; }
-  if (hasta < desde)    { res.innerHTML = alertaBox('warning','Hasta debe ser >= Desde'); return; }
+
+  // Recolectar todos los casilleros cargados. "Desde" sin "Hasta" = número
+  // suelto (no correlativo) → se entrega solo ese número (hasta = desde).
+  const rangos = [];
+  document.querySelectorAll('#ec2-rangos .ec2-rango').forEach(row => {
+    const d = parseInt(row.querySelector('.ec2-desde').value);
+    let   h = parseInt(row.querySelector('.ec2-hasta').value);
+    if (!d) return;
+    if (!h) h = d;
+    rangos.push({ desde: d, hasta: h });
+  });
+
+  if (!rangos.length) { res.innerHTML = alertaBox('warning','Ingresa el rango'); return; }
+  for (const rg of rangos) {
+    if (rg.hasta < rg.desde) {
+      res.innerHTML = alertaBox('warning', `Hasta debe ser >= Desde (en ${pN(rg.desde,pata)})`);
+      return;
+    }
+  }
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Procesando…';
   try {
-    const fd = new FormData();
-    fd.append('talonera_nombre', pata);
-    fd.append('desde', desde);
-    fd.append('hasta', hasta);
-    fd.append('vendedor_id', VENDEDOR_ID);
-    const r = await fetch('/vendedores/entrega-caja', { method:'POST', body:fd, credentials:'include' });
-    const data = await r.json();
-    if (data.ok) {
+    let totAll = 0, nuevasAll = 0, reasAll = 0, esCont = false;
+    const errores = [];
+    const detalles = [];
+    for (const rg of rangos) {
+      const fd = new FormData();
+      fd.append('talonera_nombre', pata);
+      fd.append('desde', rg.desde);
+      fd.append('hasta', rg.hasta);
+      fd.append('vendedor_id', VENDEDOR_ID);
+      const r = await fetch('/vendedores/entrega-caja', { method:'POST', body:fd, credentials:'include' });
+      const data = await r.json();
+      if (!data.ok) { errores.push(data.error || 'Error'); continue; }
       const total = (typeof data.total === 'number') ? data.total : data.actualizadas;
-      const nuevas = data.nuevas ?? 0;
-      const reasignadas = data.reasignadas ?? 0;
-      const esCont = !!data.es_contado;
-      const rango = `<span class="text-muted">(${pata} · ${pN(desde,pata)}–${pN(hasta,pata)})</span>`;
-      if (total === 0) {
-        res.innerHTML = alertaBox('warning', `Sin cambios — ninguna boleta para mover ${rango}`);
-      } else if (esCont) {
-        res.innerHTML = alertaBox('success',
-          `<i class="bi bi-star-fill text-warning me-1"></i><strong>${total}</strong> número(s) especial(es) entregados ${rango}`);
-        agregarFilaEntrega(pata, desde, hasta, total, data.entrega_id, true);
-      } else {
-        const partes = [];
-        if (nuevas > 0) partes.push(`<strong>${nuevas}</strong> nueva(s) SIN_VENDER → CAJA`);
-        if (reasignadas > 0) partes.push(`<strong>${reasignadas}</strong> reasignada(s)`);
-        const lbl = partes.join(' · ') + ` <span class="badge bg-primary">${total} total</span>`;
-        res.innerHTML = alertaBox('success', `${lbl} ${rango}`);
-        agregarFilaEntrega(pata, desde, hasta, total, data.entrega_id, false);
-      }
-      document.getElementById('ec2-desde').value = '';
-      document.getElementById('ec2-hasta').value = '';
-      document.getElementById('ec2-desde').focus();
-      // Si hubo cambios, refrescar la página para actualizar contadores,
-      // paneles por PATA y badge de "Liquidar vendedor".
-      // Pequeño delay para que el usuario alcance a ver el alert de éxito.
-      if (total > 0) {
-        setTimeout(() => { window.location.reload(); }, 900);
-      }
+      totAll    += total;
+      nuevasAll += data.nuevas ?? 0;
+      reasAll   += data.reasignadas ?? 0;
+      if (data.es_contado) esCont = true;
+      if (total > 0) agregarFilaEntrega(pata, rg.desde, rg.hasta, total, data.entrega_id, !!data.es_contado);
+      detalles.push(rg);
+    }
+
+    const rangoTxt = detalles.map(rg =>
+      `${pN(rg.desde,pata)}${rg.hasta !== rg.desde ? '–' + pN(rg.hasta,pata) : ''}`
+    ).join(', ');
+    const rangoSpan = `<span class="text-muted">(${pata} · ${rangoTxt})</span>`;
+
+    if (totAll === 0 && errores.length) {
+      res.innerHTML = alertaBox('danger', errores.join(' · '));
+    } else if (totAll === 0) {
+      res.innerHTML = alertaBox('warning', `Sin cambios — ninguna boleta para mover ${rangoSpan}`);
+    } else if (esCont) {
+      res.innerHTML = alertaBox('success',
+        `<i class="bi bi-star-fill text-warning me-1"></i><strong>${totAll}</strong> número(s) especial(es) entregados ${rangoSpan}`);
     } else {
-      res.innerHTML = alertaBox('danger', data.error || 'Error');
+      const partes = [];
+      if (nuevasAll > 0) partes.push(`<strong>${nuevasAll}</strong> nueva(s) SIN_VENDER → CAJA`);
+      if (reasAll > 0)   partes.push(`<strong>${reasAll}</strong> reasignada(s)`);
+      const lbl = partes.join(' · ') + ` <span class="badge bg-primary">${totAll} total</span>`;
+      res.innerHTML = alertaBox('success', `${lbl} ${rangoSpan}`);
+    }
+
+    // Reset a un solo casillero vacío.
+    ec2ResetRangos();
+    // Si hubo cambios, refrescar la página para actualizar contadores,
+    // paneles por PATA y badge de "Liquidar vendedor".
+    // Pequeño delay para que el usuario alcance a ver el alert de éxito.
+    if (totAll > 0) {
+      setTimeout(() => { window.location.reload(); }, 900);
     }
   } catch(e) {
     res.innerHTML = alertaBox('danger', 'Error de red');
@@ -1439,20 +1465,93 @@ function agregarFilaEntrega(pata, desde, hasta, cant, id, esContado) {
   tb.prepend(tr);
 }
 
-// Prefill rango si la PATA es CONTADO (especial)
+// ════════ Casilleros dinámicos Desde/Hasta (números no correlativos) ════════
+// Cargar un "Desde" agrega automáticamente otro casillero igual, para poder
+// entregar varios números sueltos o rangos en una sola operación.
+const ec2RangosBox = document.getElementById('ec2-rangos');
+
+function ec2NuevoRango(desde='', hasta='') {
+  const div = document.createElement('div');
+  div.className = 'row g-2 mb-2 ec2-rango';
+  div.innerHTML = `
+    <div class="col-6">
+      <input type="number" class="form-control form-control-sm text-center ec2-desde" min="1" placeholder="Desde" value="${desde}">
+    </div>
+    <div class="col-5">
+      <input type="number" class="form-control form-control-sm text-center ec2-hasta" min="1" placeholder="Hasta" value="${hasta}">
+    </div>
+    <div class="col-1 d-flex align-items-center justify-content-center px-0">
+      <button type="button" class="btn btn-sm btn-link text-danger p-0 ec2-rm" tabindex="-1" title="Quitar casillero">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>`;
+  return div;
+}
+
+// Garantiza que siempre haya un casillero vacío al final: en cuanto se carga
+// el "Desde" del último, aparece otro idéntico debajo.
+function ec2EnsureTrailing() {
+  if (!ec2RangosBox) return;
+  const rows = ec2RangosBox.querySelectorAll('.ec2-rango');
+  const last = rows[rows.length - 1];
+  if (!last) { ec2RangosBox.appendChild(ec2NuevoRango()); return; }
+  if (last.querySelector('.ec2-desde').value.trim() !== '') {
+    ec2RangosBox.appendChild(ec2NuevoRango());
+  }
+}
+
+function ec2ResetRangos() {
+  if (!ec2RangosBox) return;
+  ec2RangosBox.innerHTML = '';
+  ec2RangosBox.appendChild(ec2NuevoRango());
+  ec2RangosBox.querySelector('.ec2-desde')?.focus();
+}
+
+if (ec2RangosBox) {
+  ec2ResetRangos();
+
+  // Al escribir en cualquier "Desde", asegurar el casillero vacío de cola.
+  ec2RangosBox.addEventListener('input', e => {
+    if (e.target.classList.contains('ec2-desde')) ec2EnsureTrailing();
+  });
+
+  // Quitar un casillero (si es el único, lo limpia en vez de borrarlo).
+  ec2RangosBox.addEventListener('click', e => {
+    const rm = e.target.closest('.ec2-rm');
+    if (!rm) return;
+    const row  = rm.closest('.ec2-rango');
+    const rows = ec2RangosBox.querySelectorAll('.ec2-rango');
+    if (rows.length <= 1) {
+      row.querySelector('.ec2-desde').value = '';
+      row.querySelector('.ec2-hasta').value = '';
+    } else {
+      row.remove();
+      ec2EnsureTrailing();
+    }
+  });
+
+  // Enter: Desde → Hasta; Hasta → entregar.
+  ec2RangosBox.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const row = e.target.closest('.ec2-rango');
+    if (e.target.classList.contains('ec2-desde')) {
+      row.querySelector('.ec2-hasta').focus();
+    } else if (e.target.classList.contains('ec2-hasta')) {
+      entregarCajaVendedor();
+    }
+  });
+}
+
+// Prefill rango si la PATA es CONTADO (especial): un solo casillero con el rango.
 document.getElementById('ec2-pata')?.addEventListener('change', function() {
   const opt = this.options[this.selectedIndex];
-  if (!opt) return;
+  if (!opt || !ec2RangosBox) return;
   if (opt.dataset.contado === '1') {
-    if (opt.dataset.inicio) document.getElementById('ec2-desde').value = opt.dataset.inicio;
-    if (opt.dataset.fin)    document.getElementById('ec2-hasta').value = opt.dataset.fin;
+    ec2RangosBox.innerHTML = '';
+    ec2RangosBox.appendChild(ec2NuevoRango(opt.dataset.inicio || '', opt.dataset.fin || ''));
+    ec2EnsureTrailing();
   }
-});
-document.getElementById('ec2-desde')?.addEventListener('keydown', e => {
-  if (e.key==='Enter'){ e.preventDefault(); document.getElementById('ec2-hasta').focus(); }
-});
-document.getElementById('ec2-hasta')?.addEventListener('keydown', e => {
-  if (e.key==='Enter'){ e.preventDefault(); entregarCajaVendedor(); }
 });
 
 // ════════════════ DETALLE DE LIQUIDACIÓN (doble-click) ════════════════
