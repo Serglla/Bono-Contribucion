@@ -455,8 +455,14 @@ function verContadoSinCargar(btn) {
   function getCellText(row, col) {
     const td = row.querySelectorAll('td')[col];
     if (!td) return '';
-    // Columna N° boleta (col 1) y Fecha (col 5): usar data-val numérico/ISO
-    if ((col === 1 || col === 5 || col === 7) && td.dataset.val !== undefined) return td.dataset.val;
+    // Columna N° boleta (col 1) y Cobrador (col 7): usar data-val
+    if ((col === 1 || col === 7) && td.dataset.val !== undefined) return td.dataset.val;
+    // Columna Fecha (col 5): ISO (YYYY-MM-DD) → número YYYYMMDD para ordenar
+    // cronológicamente. Sin esto, parseFloat("2026-05-18") = 2026 y todas las
+    // fechas del mismo año quedan "empatadas" (no se ordenan).
+    if (col === 5 && td.dataset.val !== undefined) {
+      return td.dataset.val ? td.dataset.val.replace(/-/g, '') : '';
+    }
     // Columna Cuotas (col 9): ordenar por proporción pagadas/pactadas
     if (col === 9 && td.dataset.val) {
       const m = td.dataset.val.match(/^(\d+)\s*\/\s*(\d+)/);
