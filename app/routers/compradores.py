@@ -720,6 +720,36 @@ async def editar_form(comprador_id: int, request: Request, db: Session = Depends
     })
 
 
+@router.get("/{comprador_id}/editar-fragmento", response_class=HTMLResponse)
+async def editar_fragmento(comprador_id: int, request: Request, db: Session = Depends(get_db)):
+    """Solo el formulario de edición (sin base.html), para inyectar en el modal
+    nativo de la lista de socios."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    c = db.query(models.Comprador).get(comprador_id)
+    if not c:
+        raise HTTPException(404)
+    zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
+    vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
+    cobradores = db.query(models.Cobrador).filter(models.Cobrador.activo == True).order_by(models.Cobrador.nombre).all()
+    taloneras_comunes = (
+        db.query(models.Talonera)
+        .filter(models.Talonera.tipo == "COMUN")
+        .order_by(models.Talonera.multiplicador, models.Talonera.nombre)
+        .all()
+    )
+    cond_derivada = _derivar_condicion(c.boletas[0]) if c.boletas else "SIN_VENDER"
+    return templates.TemplateResponse(request, "_comprador_editar_form.html", {
+        "comprador": c,
+        "zonas": zonas,
+        "vendedores": vendedores,
+        "cobradores": cobradores,
+        "taloneras_comunes": taloneras_comunes,
+        "cond_derivada": cond_derivada,
+    })
+
+
 @router.post("/{comprador_id}/editar")
 async def editar(
     comprador_id: int, request: Request,
@@ -735,6 +765,7 @@ async def editar(
     cuotas_anticipadas: Optional[int] = Form(None),
     condicion: Optional[str] = Form(None),
     from_page: Optional[str] = Form(None),
+    next: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
     _perm_user = await auth_module.require_user(request, db)
@@ -884,7 +915,12 @@ async def editar(
                     pass
 
     db.commit()
-    redirect_url = "/compradores/mapa" if from_page == "mapa" else "/compradores/"
+    if next and next.startswith("/compradores"):
+        redirect_url = next
+    elif from_page == "mapa":
+        redirect_url = "/compradores/mapa"
+    else:
+        redirect_url = "/compradores/"
     return RedirectResponse(redirect_url, status_code=302)
 
 
