@@ -463,15 +463,15 @@ async def planilla_editar_form(request: Request, planilla_id: int,
                    .order_by(models.Boleta.numero_principal)
                    .all())
 
-    # Boletas activas del mismo cobrador que NO están en esta planilla
-    # (incluye las sin planilla y las de otras planillas del mismo cobrador).
-    # Excluye las pagadas al contado: no tienen cuotas para cobrar, no se
-    # emplantillan. Excluye también las totalmente pagas en cuotas
-    # (cuotas_pagadas >= cuotas_pactadas → badge "Al contado" en Socios).
+    # Boletas activas del mismo cobrador disponibles para agregar.
+    # SOLO las que NO tienen planilla (planilla_id IS NULL → "liberadas"). Una
+    # boleta que ya está en otra planilla (de otro mes u otra del mismo mes) NO
+    # debe aparecer acá: primero hay que liberarla desde esa otra planilla.
+    # Excluye las pagadas al contado (sin cuotas para cobrar) y las totalmente
+    # pagas en cuotas (cuotas_pagadas >= cuotas_pactadas → badge "Al contado").
     disponibles = (db.query(models.Boleta)
                    .filter(models.Boleta.cobrador_id == planilla.cobrador_id,
-                           or_(models.Boleta.planilla_id.is_(None),
-                               models.Boleta.planilla_id != planilla_id),
+                           models.Boleta.planilla_id.is_(None),
                            models.Boleta.condicion != CondicionBoleta.BAJA,
                            models.Boleta.numero_especial_2.is_(None),
                            models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
@@ -520,13 +520,17 @@ async def planilla_editar_guardar(request: Request, planilla_id: int,
                models.Boleta.id.notin_(ids_seleccionados))
        .update({"planilla_id": None}, synchronize_session=False))
 
-    # Agregar a la planilla las nuevas seleccionadas. Filtra defensivamente
-    # las pagadas al contado y las totalmente pagas: aunque la UI no las
-    # muestra, nunca asignar una boleta sin cuotas a una planilla de cobranza.
+    # Agregar a la planilla las nuevas seleccionadas. Solo toma boletas
+    # LIBERADAS (planilla_id IS NULL) para nunca robarle una boleta a otra
+    # planilla (las que ya estaban en ESTA planilla y siguen seleccionadas no
+    # se tocan en el paso anterior, así que permanecen). Filtra además
+    # defensivamente las pagadas al contado y las totalmente pagas: nunca
+    # asignar una boleta sin cuotas a una planilla de cobranza.
     if ids_seleccionados:
         (db.query(models.Boleta)
            .filter(models.Boleta.id.in_(ids_seleccionados),
                    models.Boleta.cobrador_id == planilla.cobrador_id,
+                   models.Boleta.planilla_id.is_(None),
                    models.Boleta.numero_especial_2.is_(None),
                    models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
            .update({"planilla_id": planilla_id}, synchronize_session=False))
