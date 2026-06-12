@@ -68,7 +68,7 @@
             <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
                     data-bs-target="#modalEditar{{ b.id }}"><i class="bi bi-pencil"></i></button>
             <form method="post" action="/taloneras/boletas/{{ b.id }}/eliminar" class="d-inline"
-                  onsubmit="return confirm('¿Eliminar boleta?')">
+                  onsubmit="return appConfirmSubmit(event, '¿Eliminar boleta?')">
               <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
             </form>
           </td>
@@ -191,7 +191,7 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
           <button type="submit" class="btn btn-danger"
-                  onclick="return confirm('¿Generar todas las boletas del rango? Las existentes no se tocan.')">
+                  onclick="return appConfirmSubmit(event, '¿Generar todas las boletas del rango? Las existentes no se tocan.')">
             <i class="bi bi-lightning-fill me-1"></i>Generar
           </button>
         </div>
@@ -235,12 +235,10 @@ function cambiarCondicion(sel) {
     credentials: 'include'
   }).then(r => {
     if (!r.ok) {
-      alert('Error al actualizar la condición');
-      location.reload();
+      appAlert('Error al actualizar la condición', 'error').then(() => location.reload());
     }
   }).catch(() => {
-    alert('Error de red');
-    location.reload();
+    appAlert('Error de red', 'error').then(() => location.reload());
   });
 }
 </script>

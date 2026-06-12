@@ -198,14 +198,14 @@
           <button type="button"
                   class="btn btn-sm btn-outline-success"
                   style="font-size:.7rem;"
-                  onclick="if(confirm('¿Reactivar este socio?')){ var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='condicion'; i.value='REACTIVAR'; f.appendChild(i); f.requestSubmit(); }">
+                  onclick="appConfirm('¿Reactivar este socio?').then(ok=>{ if(!ok) return; var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='condicion'; i.value='REACTIVAR'; f.appendChild(i); f.requestSubmit(); })">
             <i class="bi bi-arrow-counterclockwise me-1"></i>Reactivar
           </button>
         {% else %}
           <button type="button"
                   class="btn btn-sm btn-outline-danger"
                   style="font-size:.7rem;"
-                  onclick="if(confirm('¿Dar de baja a este socio?')){ var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='condicion'; i.value='BAJA'; f.appendChild(i); f.requestSubmit(); }">
+                  onclick="appConfirm('¿Dar de baja a este socio?').then(ok=>{ if(!ok) return; var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='condicion'; i.value='BAJA'; f.appendChild(i); f.requestSubmit(); })">
             <i class="bi bi-x-octagon me-1"></i>Dar de baja
           </button>
         {% endif %}

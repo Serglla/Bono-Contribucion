@@ -815,7 +815,7 @@
                     <i class="bi bi-pencil"></i>
                   </button>
                   <form method="post" action="/vendedores/entrega-caja/{{ e.id }}/eliminar"
-                        class="d-inline" onsubmit="return confirm('Eliminar entrega?')">
+                        class="d-inline" onsubmit="return appConfirmSubmit(event, '¿Eliminar entrega?')">
                     <button class="btn btn-sm btn-outline-danger" style="padding:1px 6px;">
                       <i class="bi bi-trash"></i>
                     </button>
@@ -1667,12 +1667,14 @@ function fmtPonderado(p) {
 // Confirma antes de eliminar una liquidación (solo admin). Usado por el botón
 // del modal Detalle y por los botones de cada fila del historial.
 function confirmEliminarLiq(form) {
-  return confirm(
+  appConfirm(
     '¿Eliminar esta liquidación?\n\n' +
     'Las boletas asociadas volverán a CAJA sin liquidar (quedan pendientes de liquidar de nuevo).\n' +
     'Los números del pool CONTADO declarados acá volverán al pool libre.\n\n' +
-    'Esta acción no se puede deshacer.'
-  );
+    'Esta acción no se puede deshacer.',
+    { okText: 'Sí, eliminar' }
+  ).then(ok => { if (ok) form.submit(); });
+  return false;
 }
 function escapeHtml(s) {
   return String(s == null ? '' : s)
@@ -2237,7 +2239,7 @@ function renderDetalleLiq(d) {
   btnConfirm.addEventListener('click', async () => {
     if (seleccionados.size === 0 || !selectDest.value) return;
     const destinoNombre = selectDest.options[selectDest.selectedIndex].text.trim();
-    if (!confirm(`¿Pasar ${seleccionados.size} boleta(s) a la caja de ${destinoNombre}?`)) return;
+    if (!(await appConfirm(`¿Pasar ${seleccionados.size} boleta(s) a la caja de ${destinoNombre}?`))) return;
 
     btnConfirm.disabled = true;
     btnConfirm.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Pasando…';
@@ -2254,7 +2256,7 @@ function renderDetalleLiq(d) {
       });
       const data = await r.json();
       if (!data.ok) {
-        alert('Error: ' + (data.error || 'no se pudo pasar'));
+        appAlert('Error: ' + (data.error || 'no se pudo pasar'), 'error');
         btnConfirm.disabled = false;
         btnConfirm.innerHTML = '<i class="bi bi-check-lg me-1"></i>Confirmar pase';
         return;
@@ -2262,7 +2264,7 @@ function renderDetalleLiq(d) {
       // Éxito → recargar para reflejar los cambios
       setTimeout(() => window.location.reload(), 400);
     } catch (e) {
-            alert('Error de red al pasar las boletas');
+            appAlert('Error de red al pasar las boletas', 'error');
       btnConfirm.disabled = false;
       btnConfirm.innerHTML = '<i class="bi bi-check-lg me-1"></i>Confirmar pase';
     }

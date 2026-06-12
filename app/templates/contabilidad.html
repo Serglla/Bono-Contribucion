@@ -774,11 +774,13 @@
   };
 
   window.eliminarGasto = function(id) {
-    if (!confirm("Eliminar este gasto?")) return;
-    var fd = new FormData();
-    fetch("/contabilidad/gastos/" + id + "/eliminar", { method: "POST", body: fd })
-      .then(r => r.json())
-      .then(d => { if (d.ok) location.reload(); });
+    appConfirm("¿Eliminar este gasto?").then(ok => {
+      if (!ok) return;
+      var fd = new FormData();
+      fetch("/contabilidad/gastos/" + id + "/eliminar", { method: "POST", body: fd })
+        .then(r => r.json())
+        .then(d => { if (d.ok) location.reload(); });
+    });
   };
 
 })();

@@ -68,7 +68,7 @@
               <i class="bi bi-pencil"></i>
             </button>
             <form method="post" action="/zonas/{{ z.id }}/eliminar" class="d-inline"
-                  onsubmit="return confirm('¿Eliminar zona?')">
+                  onsubmit="return appConfirmSubmit(event, '¿Eliminar zona?')">
               <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
             </form>
           </td>

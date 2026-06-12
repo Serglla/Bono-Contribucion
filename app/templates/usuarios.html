@@ -42,7 +42,7 @@
               {% endif %}
               {% if u.id != user.id %}
               <form method="post" action="/auth/usuarios/{{ u.id }}/eliminar" class="d-inline"
-                    onsubmit="return confirm('¿Eliminar usuario {{ u.username }}?')">
+                    onsubmit="return appConfirmSubmit(event, '¿Eliminar usuario {{ u.username }}?')">
                 <button class="btn btn-sm btn-outline-danger" title="Eliminar">
                   <i class="bi bi-trash"></i>
                 </button>

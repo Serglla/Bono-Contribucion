@@ -107,7 +107,7 @@
                 </form>
               {% endif %}
               <form method="post" action="/sorteos/entregas/{{ e.id }}/eliminar" class="d-inline"
-                    onsubmit="return confirm('¿Quitar esta asignación?')">
+                    onsubmit="return appConfirmSubmit(event, '¿Quitar esta asignación?')">
                 <button class="btn btn-sm btn-outline-danger" title="Quitar asignación">
                   <i class="bi bi-trash"></i>
                 </button>

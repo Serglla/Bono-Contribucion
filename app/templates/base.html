@@ -70,6 +70,9 @@
     .badge-baja { background: #dc3545; }
     .badge-en_cobranza { background: #ffc107; color: #000; }
     .badge-sin_vender { background: #6c757d; }
+    /* Diálogo propio del sistema (appConfirm / appAlert) */
+    #appDialog { z-index: 2090; }
+    #appDialog .modal-content { border: none; border-radius: 12px; overflow: hidden; }
     /* Mobile tweaks */
     @media (max-width: 991.98px) {
       .topbar .nav-link { padding: .55rem .8rem; margin: 1px 0; }
@@ -234,6 +237,25 @@
 </div>
 {% endif %}
 
+<!-- Modal: diálogos propios del sistema (reemplazan confirm/alert nativos) -->
+<div class="modal fade" id="appDialog" tabindex="-1" data-bs-backdrop="static" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+    <div class="modal-content">
+      <div class="modal-header py-2" style="background:#1a2a4a;">
+        <h6 class="modal-title text-white d-flex align-items-center mb-0">
+          <i class="bi bi-question-circle-fill me-2" id="appDialogIcono"></i>
+          <span id="appDialogTitulo">Confirmar</span>
+        </h6>
+      </div>
+      <div class="modal-body py-3" id="appDialogBody" style="white-space:pre-line;"></div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary px-3" id="appDialogCancel">Cancelar</button>
+        <button type="button" class="btn btn-sm text-white px-3" style="background:#e63946;" id="appDialogOk">Aceptar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 // ── Service Worker + Offline ──────────────────────────────────────────────────
@@ -392,6 +414,66 @@ function copiarLinkApp() {
 function compartirWhatsapp() {
   window.open("https://wa.me/?text=" + encodeURIComponent(_shareMessage()), "_blank");
 }
+
+// ── Diálogos propios: appConfirm / appAlert / appConfirmSubmit ────────────────
+(function () {
+  const TIPOS = {
+    confirm: { titulo: "Confirmar", icono: "bi-question-circle-fill",     color: "#ffd166" },
+    info:    { titulo: "Aviso",     icono: "bi-info-circle-fill",         color: "#9ec5fe" },
+    exito:   { titulo: "Listo",     icono: "bi-check-circle-fill",        color: "#7ee2a8" },
+    error:   { titulo: "Error",     icono: "bi-exclamation-triangle-fill", color: "#ff99a3" },
+  };
+  const el        = document.getElementById("appDialog");
+  const elTitulo  = document.getElementById("appDialogTitulo");
+  const elIcono   = document.getElementById("appDialogIcono");
+  const elBody    = document.getElementById("appDialogBody");
+  const btnOk     = document.getElementById("appDialogOk");
+  const btnCancel = document.getElementById("appDialogCancel");
+  let resolver  = null;
+  let resultado = false;
+
+  el.addEventListener("shown.bs.modal", () => {
+    // Si se abre sobre otro modal, el backdrop nuevo debe quedar por encima.
+    const backs = document.querySelectorAll(".modal-backdrop");
+    if (backs.length > 1) backs[backs.length - 1].style.zIndex = 2080;
+    btnOk.focus();
+  });
+  el.addEventListener("hidden.bs.modal", () => {
+    // Si quedó otro modal abierto debajo, Bootstrap saca modal-open del body: lo reponemos.
+    if (document.querySelector(".modal.show")) document.body.classList.add("modal-open");
+    if (resolver) { const r = resolver; resolver = null; r(resultado); }
+  });
+  btnOk.addEventListener("click", () => { resultado = true;  bootstrap.Modal.getInstance(el).hide(); });
+  btnCancel.addEventListener("click", () => { resultado = false; bootstrap.Modal.getInstance(el).hide(); });
+
+  function abrir(msg, tipo, conCancel, opts) {
+    opts = opts || {};
+    const t = TIPOS[tipo] || TIPOS.info;
+    elTitulo.textContent = opts.titulo || t.titulo;
+    elIcono.className    = "bi me-2 " + t.icono;
+    elIcono.style.color  = t.color;
+    elBody.textContent   = msg;
+    btnCancel.style.display = conCancel ? "" : "none";
+    btnOk.textContent    = opts.okText || "Aceptar";
+    resultado = false;
+    return new Promise((res) => {
+      resolver = res;
+      bootstrap.Modal.getOrCreateInstance(el).show();
+    });
+  }
+
+  // appConfirm("¿Seguro?") → Promise<boolean>
+  window.appConfirm = (msg, opts) => abrir(msg, "confirm", true, opts);
+  // appAlert("Mensaje", "info"|"exito"|"error") → Promise<void>
+  window.appAlert = (msg, tipo, opts) => abrir(msg, tipo || "info", false, opts);
+  // Para formularios: onsubmit="return appConfirmSubmit(event, '¿Seguro?')"
+  window.appConfirmSubmit = function (ev, msg) {
+    ev.preventDefault();
+    const form = ev.target.closest ? ev.target.closest("form") : null;
+    if (form) appConfirm(msg).then((ok) => { if (ok) form.submit(); });
+    return false;
+  };
+})();
 
 async function compartirNativo() {
   if (!navigator.share) { compartirWhatsapp(); return; }

@@ -179,7 +179,7 @@
                     <i class="bi bi-pencil-square"></i>
                   </button>
                   <form method="post" action="/sorteos/{{ s.id }}/eliminar" class="d-inline"
-                        onsubmit="return confirm('¿Eliminar este sorteo?')">
+                        onsubmit="return appConfirmSubmit(event, '¿Eliminar este sorteo?')">
                     <button class="btn btn-sm btn-outline-danger" title="Eliminar">
                       <i class="bi bi-trash"></i>
                     </button>

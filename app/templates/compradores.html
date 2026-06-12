@@ -1033,9 +1033,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
         resetComprador();
         irA('nuevoBoleta_num');
       } else {
-        alert('Error al guardar. Intente de nuevo.');
+        appAlert('Error al guardar. Intente de nuevo.', 'error');
       }
-    } catch { alert('Error de conexión.'); }
+    } catch { appAlert('Error de conexión.', 'error'); }
   }
 
   document.getElementById('btnGuardar').addEventListener('click', guardarComprador);
@@ -1264,11 +1264,11 @@ document.querySelectorAll('.input-upper').forEach(el => {
           if (resp.type === 'opaqueredirect' || resp.ok || resp.status === 0) {
             location.reload();   // misma URL → filtros intactos
           } else {
-            alert('No se pudo guardar (HTTP ' + resp.status + ').');
+            appAlert('No se pudo guardar (HTTP ' + resp.status + ').', 'error');
             if (btn) { btn.disabled = false; btn.textContent = 'Guardar Cambios'; }
           }
         } catch (e) {
-          alert('Error de conexión: ' + e);
+          appAlert('Error de conexión: ' + e, 'error');
           if (btn) { btn.disabled = false; btn.textContent = 'Guardar Cambios'; }
         }
       });
@@ -1408,12 +1408,12 @@ document.querySelectorAll('.input-upper').forEach(el => {
       } else {
         sel.value = prev;
         flashCelda(sel.closest('td'), false);
-        alert(data.error || 'Error al asignar');
+        appAlert(data.error || 'Error al asignar', 'error');
       }
     } catch (err) {
       sel.value = prev;
       flashCelda(sel.closest('td'), false);
-      alert('Error de conexión');
+      appAlert('Error de conexión', 'error');
     } finally {
       sel.disabled = false;
     }
@@ -1468,7 +1468,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     } catch (err) {
       btn.disabled = false;
       btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Asignar';
-      alert('Error de conexión');
+      appAlert('Error de conexión', 'error');
     }
   });
 })();

@@ -368,8 +368,8 @@
       const pactadas = info.pactadas || NUM_CUOTAS;
       for (let i = cuota + 1; i <= pactadas; i++) {
         if (sel[bid].has(i)) {
-          alert('No podés desmarcar la cuota ' + cuota + ' mientras la ' + i +
-                ' siga marcada. Desmarcá primero las posteriores.');
+          appAlert('No podés desmarcar la cuota ' + cuota + ' mientras la ' + i +
+                ' siga marcada. Desmarcá primero las posteriores.', 'info');
           return;
         }
       }
@@ -383,8 +383,8 @@
       // Marcar: bloquear si alguna cuota anterior NO está paga
       for (let i = 1; i < cuota; i++) {
         if (!cuotaPaga(bid, i)) {
-          alert('No se puede marcar la cuota ' + cuota +
-                ' sin haber marcado antes la cuota ' + i + '.');
+          appAlert('No se puede marcar la cuota ' + cuota +
+                ' sin haber marcado antes la cuota ' + i + '.', 'info');
           return;
         }
       }

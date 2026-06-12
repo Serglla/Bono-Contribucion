@@ -605,7 +605,7 @@
   async function guardarYReubicar(tr, pt) {
     const inp = tr.querySelector('.inp-dir');
     const nueva = (inp.value || '').trim().toUpperCase();
-    if (!nueva) { alert("La dirección no puede estar vacía."); return; }
+    if (!nueva) { appAlert("La dirección no puede estar vacía.", "info"); return; }
     const tdAcc = tr.querySelector('.td-acciones');
     tdAcc.innerHTML = `<span class="spinner-border spinner-border-sm text-secondary"></span>`;
 
@@ -618,13 +618,13 @@
         body: JSON.stringify({ direccion: nueva })
       });
     } catch(e) {
-      alert("Error al guardar la dirección.");
+      appAlert("Error al guardar la dirección.", "error");
       salirEdicion(tr, pt, '', tr.dataset.direccion || '');
       return;
     }
     const j = await r.json();
     if (!j.ok) {
-      alert("Error: " + (j.error || "desconocido"));
+      appAlert("Error: " + (j.error || "desconocido"), "error");
       salirEdicion(tr, pt, '', tr.dataset.direccion || '');
       return;
     }
@@ -740,16 +740,16 @@
 
   // Reintentar geocoding solo de las no ubicadas
   document.getElementById('btnReintentar').addEventListener('click', async () => {
-    if (!confirm("¿Reintentar el geocoding de las direcciones sin ubicar?\n\nSe borran del cache las que fallaron y se vuelven a consultar a Nominatim (1 por segundo) al recargar el mapa.")) return;
+    if (!(await appConfirm("¿Reintentar el geocoding de las direcciones sin ubicar?\n\nSe borran del cache las que fallaron y se vuelven a consultar a Nominatim (1 por segundo) al recargar el mapa."))) return;
     try {
       const r = await fetch('/compradores/mapa-geocode-retry', { method: 'POST' });
       const j = await r.json();
       if (j.ok) {
-        alert(`Se borraron ${j.borradas} entradas fallidas del cache.\nRecargando para reintentar...`);
+        await appAlert(`Se borraron ${j.borradas} entradas fallidas del cache.\nRecargando para reintentar...`, "exito");
         location.reload();
       }
     } catch(e) {
-      alert("Error al reintentar.");
+      appAlert("Error al reintentar.", "error");
     }
   });
 
@@ -757,17 +757,17 @@
   const btnReset = document.getElementById('btnResetServer');
   if (btnReset) {
     btnReset.addEventListener('click', async () => {
-      if (!confirm("¿Borrar TODO el cache compartido de coordenadas en el servidor?\n\nLa próxima persona que abra el mapa va a tener que volver a geocodificar todas las direcciones (tarda varios minutos).")) return;
+      if (!(await appConfirm("¿Borrar TODO el cache compartido de coordenadas en el servidor?\n\nLa próxima persona que abra el mapa va a tener que volver a geocodificar todas las direcciones (tarda varios minutos)."))) return;
       btnReset.disabled = true;
       try {
         const r = await fetch('/compradores/mapa-geocode-reset', { method: 'POST' });
         const j = await r.json();
         if (j.ok) {
-          alert(`Cache borrado: ${j.borradas} entradas.\nRecargando...`);
+          await appAlert(`Cache borrado: ${j.borradas} entradas.\nRecargando...`, "exito");
           location.reload();
         }
       } catch(e) {
-        alert("Error al borrar el cache.");
+        appAlert("Error al borrar el cache.", "error");
       }
       btnReset.disabled = false;
     });

@@ -95,12 +95,12 @@
 function confirmarRestaura() {
   const inp = document.getElementById("inputZip");
   if (!inp.value) {
-    alert("Seleccioná un archivo .zip primero.");
+    appAlert("Seleccioná un archivo .zip primero.", "info");
     return;
   }
-  if (confirm("⚠️ ¿Estás seguro?\n\nEsto BORRARÁ todos los datos actuales y los reemplazará con el backup.\n\nEsta acción no se puede deshacer.")) {
-    document.getElementById("formRestaura").submit();
-  }
+  appConfirm("⚠️ ¿Estás seguro?\n\nEsto BORRARÁ todos los datos actuales y los reemplazará con el backup.\n\nEsta acción no se puede deshacer.", { okText: "Sí, restaurar" }).then(ok => {
+    if (ok) document.getElementById("formRestaura").submit();
+  });
 }
 </script>
 {% endblock %}

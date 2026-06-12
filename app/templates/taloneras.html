@@ -279,9 +279,9 @@ document.querySelectorAll('.btn-eliminar').forEach(function(btn) {
     var d = this.dataset;
     if (parseInt(d.vendidas) > 0) {
       if (d.tipo === 'CONTADO') {
-        alert('No se puede eliminar la talonera especial "' + d.nombre + '" porque tiene ' + d.vendidas + ' número(s) ya asignados a boletas pagadas al contado.');
+        appAlert('No se puede eliminar la talonera especial "' + d.nombre + '" porque tiene ' + d.vendidas + ' número(s) ya asignados a boletas pagadas al contado.', 'info');
       } else {
-        alert('No se puede eliminar "' + d.nombre + '" porque tiene ' + d.vendidas + ' boleta(s) vendida(s).\nPrimero editá los socios y cambiá sus boletas.');
+        appAlert('No se puede eliminar "' + d.nombre + '" porque tiene ' + d.vendidas + ' boleta(s) vendida(s).\nPrimero editá los socios y cambiá sus boletas.', 'info');
       }
       return;
     }
