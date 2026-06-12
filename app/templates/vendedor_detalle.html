@@ -1194,11 +1194,13 @@ function modalidadBoleta(bid) {
 }
 
 function actualizarSelectorModalidad(chk) {
+  // El selector por boleta ya NO se muestra: la modalidad la definen los botones
+  // de modo (Cuotas/Contado/Contado 2 veces) y el color del badge. El <select>
+  // queda oculto solo como campo del form (modalidad_<id> que lee el backend).
   const bid = chk.dataset.bid;
   const sel = document.querySelector(`.boleta-modalidad[data-bid="${bid}"]`);
   if (!sel) return;
-  if (chk.checked) sel.classList.remove('d-none');
-  else { sel.classList.add('d-none'); sel.value = 'cuotas'; }
+  if (!chk.checked) sel.value = 'cuotas';
 }
 
 function autoFillValorCuota() {
@@ -1248,10 +1250,15 @@ function onChkChange(chk) {
     recalcular();
     return;
   }
-  // Al tildar, el número toma el modo de venta activo (botones Cuotas/Contado/Contado 2 veces)
+  // Al tildar, el número toma el modo de venta activo (botones Cuotas/Contado/Contado 2 veces).
+  // Si ya estaba tildado con OTRA modalidad, el click lo repinta al modo activo
+  // (no lo destilda). Para destildarlo: clickearlo con su mismo modo activo.
+  const sel = document.querySelector(`.boleta-modalidad[data-bid="${chk.dataset.bid}"]`);
   if (chk.checked) {
-    const sel = document.querySelector(`.boleta-modalidad[data-bid="${chk.dataset.bid}"]`);
     if (sel) sel.value = modoLiquidar;
+  } else if (sel && sel.value !== modoLiquidar) {
+    chk.checked = true;
+    sel.value = modoLiquidar;
   }
   actualizarEstiloBadge(badge, chk.checked, modalidadBoleta(chk.dataset.bid));
   actualizarSelectorModalidad(chk);
