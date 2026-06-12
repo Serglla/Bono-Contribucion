@@ -697,6 +697,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
               <span class="small text-muted me-1">Números:</span>
               <span id="nuevoBoletaBadges"></span>
               <span id="nuevoBoletaTalonera" class="badge bg-danger ms-2"></span>
+              <span id="nuevoBoletaContadoBadge" class="badge ms-2 d-none"></span>
               <span id="nuevoBoletaYaTiene" class="text-warning small ms-2 d-none">
                 <i class="bi bi-exclamation-triangle-fill"></i> Ya tiene socio asignado
               </span>
@@ -775,6 +776,40 @@ document.querySelectorAll('.input-upper').forEach(el => {
           } else {
             hidden.value = b.id;
             yaTiene.classList.add('d-none');
+
+            // Boleta liquidada al CONTADO / CONTADO 2 VECES por el vendedor:
+            // las cuotas ya están cobradas → precargar pactadas = anticipadas (ej: 12/12).
+            // Los valores del operador se guardan y se restauran al buscar una boleta
+            // normal después (los campos "se recuerdan entre cargas" y no deben quedar
+            // pegados en 12/12 para el socio siguiente).
+            const liqBadge  = document.getElementById('nuevoBoletaContadoBadge');
+            const modLiq    = b.modalidad_liquidacion || '';
+            const cuotasInp = document.getElementById('cuotasInput');
+            const antInp    = document.getElementById('anticipadasInput');
+            if (liqBadge) liqBadge.classList.add('d-none');
+            if (modLiq === 'contado' || modLiq === 'contado2') {
+              const nc = parseInt(b.num_cuotas) || 12;
+              if (!window._prefillContadoPrevio) {
+                window._prefillContadoPrevio = { cuotas: cuotasInp.value, ant: antInp.value };
+              }
+              cuotasInp.value = nc;
+              cuotasInp.dispatchEvent(new Event('input'));   // actualiza el max de anticipadas
+              antInp.value = nc;
+              if (liqBadge) {
+                liqBadge.textContent = (modLiq === 'contado2'
+                  ? `💰 CONTADO 2 VECES — ${nc}/${nc} pagas`
+                  : `💰 CONTADO — ${nc}/${nc} pagas`);
+                liqBadge.className = (modLiq === 'contado2'
+                  ? 'badge bg-warning text-dark ms-2'
+                  : 'badge bg-primary ms-2');
+              }
+            } else if (window._prefillContadoPrevio) {
+              // Boleta normal después de una contado: restaurar lo que tenía el operador
+              cuotasInp.value = window._prefillContadoPrevio.cuotas;
+              cuotasInp.dispatchEvent(new Event('input'));
+              antInp.value = window._prefillContadoPrevio.ant;
+              window._prefillContadoPrevio = null;
+            }
 
             // Auto-completar vendedor desde la liquidación (prioridad máxima, pisa la zona)
             const vendedorSel   = document.getElementById('vendedorSelect');

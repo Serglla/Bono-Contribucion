@@ -592,9 +592,19 @@ async def crear(
             b.fecha_venta = date.fromisoformat(fecha_compra) if fecha_compra else b.fecha_venta
             if effective_vendedor_id:
                 b.vendedor_id = effective_vendedor_id
-            if cuotas_pactadas is not None and cuotas_pactadas > 0:
-                b.cuotas_pactadas = cuotas_pactadas
-            ant = cuotas_anticipadas if cuotas_anticipadas and cuotas_anticipadas > 0 else 1
+            # Si la boleta fue liquidada al contado (1 o 2 pagos) por el vendedor,
+            # las cuotas YA están cobradas: forzar pactadas completas y todo pago
+            # (ej: 12/12), sin importar lo que venga del formulario.
+            _mod_liq = (b.modalidad_liquidacion or "").strip().lower()
+            if _mod_liq in ("contado", "contado2"):
+                _nc_tal = (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0) \
+                          or (cuotas_pactadas if cuotas_pactadas and cuotas_pactadas > 0 else 0) or 12
+                b.cuotas_pactadas = _nc_tal
+                ant = _nc_tal
+            else:
+                if cuotas_pactadas is not None and cuotas_pactadas > 0:
+                    b.cuotas_pactadas = cuotas_pactadas
+                ant = cuotas_anticipadas if cuotas_anticipadas and cuotas_anticipadas > 0 else 1
             b.cuotas_anticipadas = ant
             b.cuotas_pagadas = ant   # las cuotas anticipadas ya están cobradas
             # Auto-asignar cobrador según la zona del comprador,

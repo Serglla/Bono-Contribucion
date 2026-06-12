@@ -466,6 +466,17 @@
               <i class="bi bi-x-lg"></i> Deseleccionar todo
             </button>
           </div>
+          {# ── Modo de venta (pincel): cada número que se tilda toma este modo ── #}
+          <div class="mb-2 d-flex align-items-center gap-2 flex-wrap">
+            <span class="small fw-semibold text-muted"><i class="bi bi-brush me-1"></i>Modo:</span>
+            <button type="button" id="modo-btn-cuotas" class="btn btn-sm py-0 px-2 fw-semibold"
+                    onclick="setModoLiquidar('cuotas')">Cuotas</button>
+            <button type="button" id="modo-btn-contado" class="btn btn-sm py-0 px-2 fw-semibold"
+                    onclick="setModoLiquidar('contado')">Contado</button>
+            <button type="button" id="modo-btn-contado2" class="btn btn-sm py-0 px-2 fw-semibold"
+                    onclick="setModoLiquidar('contado2')">Contado 2 veces</button>
+            <span class="text-muted" style="font-size:.7rem;">Los números que clickeás se marcan con el modo activo</span>
+          </div>
           <div id="seccionPatas"></div>
 
           {# ── Cuotas extras cobradas ── #}
@@ -1036,17 +1047,44 @@ function agruparPorPata(lista) {
   return grupos;
 }
 
-function actualizarEstiloBadge(badge, checked, esContado) {
-  if (checked) {
-    if (esContado) {
-      badge.style.background = '#fff3cd';
-      badge.style.color = '#856404';
-      badge.style.border = '1px solid #ffc10780';
+// ── Modo de venta activo (pincel) ──────────────────────────────────────
+// Cuotas = naranja · Contado = azul · Contado 2 veces = amarillo.
+// El número que se tilda toma la modalidad del botón activo y su color.
+const MODO_COLORES = {
+  cuotas:   { bg: '#fd7e14', fg: '#fff',    bd: '#fd7e14', txt: '#fd7e14' },
+  contado:  { bg: '#0d6efd', fg: '#fff',    bd: '#0d6efd', txt: '#0d6efd' },
+  contado2: { bg: '#ffc107', fg: '#212529', bd: '#d39e00', txt: '#b08800' },
+};
+let modoLiquidar = 'cuotas';
+
+function setModoLiquidar(modo) {
+  if (!MODO_COLORES[modo]) return;
+  modoLiquidar = modo;
+  ['cuotas', 'contado', 'contado2'].forEach(m => {
+    const btn = document.getElementById(`modo-btn-${m}`);
+    if (!btn) return;
+    const c = MODO_COLORES[m];
+    if (m === modo) {
+      btn.style.background = c.bg;
+      btn.style.color      = c.fg;
+      btn.style.border     = `1px solid ${c.bd}`;
+      btn.style.boxShadow  = `0 0 0 2px ${c.bg}55`;
     } else {
-      badge.style.background = '#d1e7dd';
-      badge.style.color = '#146c43';
-      badge.style.border = '1px solid #20c99740';
+      btn.style.background = '#fff';
+      btn.style.color      = c.txt;
+      btn.style.border     = `1px solid ${c.bd}80`;
+      btn.style.boxShadow  = 'none';
     }
+  });
+}
+
+function actualizarEstiloBadge(badge, checked, modalidad) {
+  if (!badge) return;
+  if (checked) {
+    const c = MODO_COLORES[modalidad] || MODO_COLORES.cuotas;
+    badge.style.background = c.bg;
+    badge.style.color = c.fg;
+    badge.style.border = `1px solid ${c.bd}`;
   } else {
     badge.style.background = '#e7f1ff';
     badge.style.color = '#0d6efd';
@@ -1210,8 +1248,12 @@ function onChkChange(chk) {
     recalcular();
     return;
   }
-  const esContado = modalidadBoleta(chk.dataset.bid) !== 'cuotas';
-  actualizarEstiloBadge(badge, chk.checked, esContado);
+  // Al tildar, el número toma el modo de venta activo (botones Cuotas/Contado/Contado 2 veces)
+  if (chk.checked) {
+    const sel = document.querySelector(`.boleta-modalidad[data-bid="${chk.dataset.bid}"]`);
+    if (sel) sel.value = modoLiquidar;
+  }
+  actualizarEstiloBadge(badge, chk.checked, modalidadBoleta(chk.dataset.bid));
   actualizarSelectorModalidad(chk);
   actualizarContadorPata(chk.dataset.pata);
   autoFillValorCuota();
@@ -1227,11 +1269,31 @@ function actualizarContadorPata(pata) {
 
 function togglePata(pata, estado) {
   document.querySelectorAll(`.boleta-chk[data-pata="${pata}"]`).forEach(chk => {
+    const yaEstaba = chk.checked;
     chk.checked = estado;
     const label = chk.closest('label');
     const badge = label ? label.querySelector('.badge') : chk.nextElementSibling;
-    const esContado = modalidadBoleta(chk.dataset.bid) !== 'cuotas';
-    actualizarEstiloBadge(badge, estado, esContado);
+    // Pool item: colores propios (amarillo con estrella), sin modalidad.
+    if (chk.dataset.pool === '1') {
+      if (badge) {
+        if (estado) {
+          badge.style.background = '#ffe69c';
+          badge.style.color      = '#664d03';
+          badge.style.border     = '1px solid #ffc107';
+        } else {
+          badge.style.background = '#fff8e1';
+          badge.style.color      = '#856404';
+          badge.style.border     = '1px solid #ffc10780';
+        }
+      }
+      return;
+    }
+    // Recién tildada por "Todo": toma el modo activo. Las ya tildadas conservan su modalidad.
+    if (estado && !yaEstaba) {
+      const sel = document.querySelector(`.boleta-modalidad[data-bid="${chk.dataset.bid}"]`);
+      if (sel) sel.value = modoLiquidar;
+    }
+    actualizarEstiloBadge(badge, estado, modalidadBoleta(chk.dataset.bid));
     actualizarSelectorModalidad(chk);
   });
   actualizarContadorPata(pata);
@@ -1275,7 +1337,7 @@ function recalcular() {
     // Refrescar color del badge segun modalidad actual
     const lbl = chk.closest('label');
     const bdg = lbl ? lbl.querySelector('.badge') : null;
-    if (bdg) actualizarEstiloBadge(bdg, true, modalidad !== 'cuotas');
+    if (bdg) actualizarEstiloBadge(bdg, true, modalidad);
     if (modalidad === 'contado' || modalidad === 'contado2') {
       nContados++;
       nContadosEq += mult;          // ponderado: PATA 1 ×1, PATA 2 ×2, PATA 0 ×0.67
@@ -1343,6 +1405,7 @@ function recalcular() {
 
 document.addEventListener('DOMContentLoaded', () => {
   renderPatas();
+  setModoLiquidar('cuotas');   // pinta los botones de modo (Cuotas activo por default)
   recalcular();
 });
 document.getElementById('modalLiquidar')?.addEventListener('shown.bs.modal', () => {

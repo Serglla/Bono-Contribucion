@@ -174,6 +174,11 @@ async def buscar_boleta_global(numero: int, request: Request, db: Session = Depe
         "comprador": b.comprador.apellido_nombre if b.comprador else None,
         "vendedor_id": vendedor_id,
         "vendedor_nombre": vendedor_nombre,
+        # Modalidad con la que el vendedor liquidó esta boleta:
+        # "" (sin liquidar) | "cuotas" | "contado" | "contado2".
+        # Si es contado/contado2, al cargar el socio las cuotas ya están cobradas.
+        "modalidad_liquidacion": (b.modalidad_liquidacion or ""),
+        "num_cuotas": (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 12),
     })
 
 
