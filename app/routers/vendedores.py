@@ -731,6 +731,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             contado_taloneras_norm[key] = t
     ranges_por_talonera: dict = {}
     for e in entregas_vendedor:
+        if (getattr(e, "tipo", "ENTREGA") or "ENTREGA") == "RETIRO":
+            continue  # los retiros no suman al pool del vendedor
         nm = (e.talonera_nombre or "").strip().lower()
         t_match = contado_taloneras_norm.get(nm)
         if t_match:
@@ -788,10 +790,16 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 nums_asignados.add(int(ne))
             if tei2 == t.id and ne2 is not None and ne2 in nums_entregados:
                 nums_asignados.add(int(ne2))
-        # Excluir numeros ya liquidados (pendientes de cargar al socio)
+        # Números del pool ya liquidados (pendientes de cargar al socio)
         nums_liquidados_t = {n for (tid, n) in nums_ya_liquidados if tid == t.id}
+        # Tres grupos dentro de lo entregado al vendedor:
+        #   pendientes → en mano, sin vender (azul, liquidables)
+        #   liquidados → liquidados, pend. comprador (verde, tachado)
+        #   vendidos   → numero_especial ya asignado a un socio (gris, tachado)
         pendientes_pool = sorted(nums_entregados - nums_asignados - nums_liquidados_t)
-        if not pendientes_pool:
+        liquidados_pool = sorted(nums_liquidados_t & nums_entregados)
+        vendidos_pool   = sorted(nums_asignados & nums_entregados)
+        if not (pendientes_pool or liquidados_pool or vendidos_pool):
             continue
         nd_c = t.num_digitos or 3
         fmt_c = "{:0" + str(nd_c) + "d}"
@@ -821,6 +829,22 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 "pool":        True,
                 "tipo_pool":   _tipo_pool,           # "contado" | "contado2"
                 "talonera_id": t.id,
+            })
+        # Liquidados pendientes de comprador → verde tachado (no liquidables)
+        for n in liquidados_pool:
+            patas[nombre_c]["boletas"].append({
+                "id": None, "num": n, "num_str": fmt_c.format(n),
+                "cond": "CAJA", "liq": True, "tiene_socio": False,
+                "contado": True, "pool": True,
+                "liq_por_otro_nombre": None, "liq_por_otro_es_jefe": False,
+            })
+        # Vendidos (numero_especial asignado a un socio) → gris tachado
+        for n in vendidos_pool:
+            patas[nombre_c]["boletas"].append({
+                "id": None, "num": n, "num_str": fmt_c.format(n),
+                "cond": "VENDIDO", "liq": True, "tiene_socio": True,
+                "contado": True, "pool": True,
+                "liq_por_otro_nombre": None, "liq_por_otro_es_jefe": False,
             })
         patas[nombre_c]["boletas"].sort(key=lambda x: x["num"])
 
@@ -1545,6 +1569,101 @@ async def pasar_caja(vid: int, request: Request, db: Session = Depends(get_db)):
         "vendedor_destino_id": destino_id,
         "vendedor_destino_nombre": v_destino.nombre,
         "entregas_creadas": len(entregas_creadas),
+    })
+
+
+@router.post("/{vid}/retirar-caja")
+async def retirar_caja(vid: int, request: Request, db: Session = Depends(get_db)):
+    """Retira boletas de la caja de {vid} y las DEVUELVE A LA INSTITUCIÓN.
+    Caso: números que el vendedor no vendió y ya no va a vender; no pasan a
+    otro vendedor — vuelven al stock (SIN_VENDER, sin vendedor).
+
+    Solo afecta boletas en CAJA, sin liquidar y sin comprador (las que el
+    vendedor todavía tiene físicamente en mano). Deja registro en el historial
+    como tipo='RETIRO'.
+
+    Form:
+      - boleta_ids[]: IDs de boletas a retirar.
+    """
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+
+    v_origen = db.query(models.Vendedor).get(vid)
+    if not v_origen:
+        return JSONResponse({"ok": False, "error": "Vendedor no encontrado"}, status_code=404)
+
+    form = await request.form()
+    raw_ids = form.getlist("boleta_ids")
+    boleta_ids = []
+    for x in raw_ids:
+        try:
+            boleta_ids.append(int(str(x)))
+        except Exception:
+            continue
+    if not boleta_ids:
+        return JSONResponse({"ok": False, "error": "No seleccionaste boletas"}, status_code=400)
+
+    # Solo boletas del vendedor, en CAJA, sin liquidar y sin comprador
+    boletas = db.query(models.Boleta).filter(
+        models.Boleta.id.in_(boleta_ids),
+        models.Boleta.vendedor_id == vid,
+        models.Boleta.condicion == CondicionBoleta.CAJA,
+        models.Boleta.liquidacion_vendedor_id.is_(None),
+        models.Boleta.comprador_id.is_(None),
+    ).all()
+    if not boletas:
+        return JSONResponse({"ok": False, "error": "Ninguna boleta válida para retirar"}, status_code=400)
+
+    # Agrupar por talonera y comprimir en rangos contiguos para el historial
+    from collections import defaultdict
+    por_talonera = defaultdict(list)
+    for b in boletas:
+        if b.talonera_id is None:
+            continue
+        por_talonera[b.talonera_id].append(b)
+
+    entregas_creadas = 0
+    for tid, bs in por_talonera.items():
+        t = db.query(models.Talonera).get(tid)
+        if not t:
+            continue
+        nums = sorted(b.numero_principal for b in bs)
+        rangos = []
+        ini = prev = nums[0]
+        for n in nums[1:]:
+            if n == prev + 1:
+                prev = n
+            else:
+                rangos.append((ini, prev))
+                ini = prev = n
+        rangos.append((ini, prev))
+        for d, h in rangos:
+            db.add(models.EntregaCaja(
+                talonera_nombre=t.nombre,
+                desde=d,
+                hasta=h,
+                boletas_afectadas=h - d + 1,
+                usuario_id=_perm_user.id,
+                vendedor_id=vid,
+                tipo="RETIRO",
+                observacion="Retiro — vuelve a la institución",
+            ))
+            entregas_creadas += 1
+
+    # Devolver las boletas al stock de la institución
+    total = 0
+    for b in boletas:
+        b.condicion = CondicionBoleta.SIN_VENDER
+        b.vendedor_id = None
+        total += 1
+
+    db.commit()
+
+    return JSONResponse({
+        "ok": True,
+        "total": total,
+        "entregas_creadas": entregas_creadas,
     })
 
 

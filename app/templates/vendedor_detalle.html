@@ -164,12 +164,16 @@
   {# ── Botones de acción de la tab CAJA ── #}
   <div class="mb-3 d-flex align-items-center flex-wrap gap-2">
     {% if can_edit %}
-    <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalEntregarCaja">
+    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalEntregarCaja">
       <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
     </button>
     <button id="btnPasarCaja" class="btn btn-warning" type="button"
             title="Pasá boletas a la caja de otro vendedor (antes de liquidar)">
       <i class="bi bi-arrow-left-right me-2"></i>Pasar Caja
+    </button>
+    <button id="btnRetirarCaja" class="btn btn-danger" type="button"
+            title="Retirá boletas que el vendedor no vendió y vuelven a la institución">
+      <i class="bi bi-box-arrow-up me-2"></i>Retirar Caja
     </button>
     {% else %}
     <button class="btn btn-outline-secondary" disabled>
@@ -208,6 +212,24 @@
       <button id="btnPasarCancelar" type="button" class="btn btn-sm btn-outline-secondary">Cancelar</button>
       <button id="btnPasarConfirmar" type="button" class="btn btn-sm btn-success" disabled>
         <i class="bi bi-check-lg me-1"></i>Confirmar pase
+      </button>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Toolbar de modo selección "Retirar Caja" (oculta por default) ── #}
+  {% if can_edit %}
+  <div id="toolbarRetirarCaja" class="alert alert-danger d-none align-items-center flex-wrap gap-2 py-2 mb-3"
+       style="border:2px dashed #dc3545;">
+    <i class="bi bi-box-arrow-up text-danger"></i>
+    <span class="fw-semibold">Retirar a institución:</span>
+    <span class="small">click en las boletas <span class="badge" style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;">0000</span> que el vendedor no vendió</span>
+    <span class="badge bg-danger ms-2"><span id="retirarCount">0</span> seleccionada(s)</span>
+
+    <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+      <button id="btnRetirarCancelar" type="button" class="btn btn-sm btn-outline-secondary">Cancelar</button>
+      <button id="btnRetirarConfirmar" type="button" class="btn btn-sm btn-danger" disabled>
+        <i class="bi bi-box-arrow-up me-1"></i>Confirmar retiro
       </button>
     </div>
   </div>
@@ -806,8 +828,12 @@
             <tbody id="ec-tbody-vendedor">
               {% for e in entregas_vendedor %}
               {% set _es_cont = e.talonera_nombre in nombres_contado %}
-              <tr id="ec-row-{{ e.id }}">
-                <td class="text-muted">{{ e.fecha.strftime('%d/%m/%y %H:%M') }}</td>
+              {% set _es_retiro = (e.tipo == 'RETIRO') %}
+              <tr id="ec-row-{{ e.id }}"{% if _es_retiro %} style="background:#fff5f5;"{% endif %}>
+                <td class="text-muted">
+                  {% if _es_retiro %}<span class="badge bg-danger me-1" title="Retiro — vuelve a la institución"><i class="bi bi-box-arrow-up"></i> RETIRO</span>{% endif %}
+                  {{ e.fecha.strftime('%d/%m/%y %H:%M') }}
+                </td>
                 <td>
                   {% if _es_cont %}
                   <span class="badge bg-warning text-dark" title="Talonera especial — Contado">
@@ -1039,6 +1065,23 @@ body.pasar-caja-mode .boleta-pasar-target:hover {
 }
 /* En modo selección, dejar opacas las boletas NO seleccionables (verdes, azul opaco, pool) */
 body.pasar-caja-mode .badge:not(.boleta-pasar-target) {
+  opacity: .35;
+}
+/* Modo Retirar Caja: mismo mecanismo, tema rojo */
+body.retirar-caja-mode .boleta-pasar-target { cursor: pointer; }
+body.retirar-caja-mode .boleta-pasar-target:hover {
+  outline: 2px solid #dc3545; outline-offset: 1px;
+}
+.boleta-pasar-target.retirar-selected {
+  background: #f8d7da !important;
+  color: #842029 !important;
+  border-color: #dc3545 !important;
+  box-shadow: 0 0 0 2px #dc3545 inset;
+}
+.boleta-pasar-target.retirar-selected::after {
+  content: " ✕"; font-weight: bold;
+}
+body.retirar-caja-mode .badge:not(.boleta-pasar-target) {
   opacity: .35;
 }
 </style>
@@ -2286,6 +2329,97 @@ function renderDetalleLiq(d) {
             appAlert('Error de red al pasar las boletas', 'error');
       btnConfirm.disabled = false;
       btnConfirm.innerHTML = '<i class="bi bi-check-lg me-1"></i>Confirmar pase';
+    }
+  });
+})();
+
+// ══════════════════════════════════════════════════════════════════
+// Modo "Retirar Caja": selección de boletas en caja que el vendedor NO
+// vendió y vuelven a la institución (SIN_VENDER, sin vendedor). Reutiliza
+// las mismas celditas azul claro como checkboxes visuales.
+// ═══════════════════════════════════════════════════════════════════
+(function() {
+  const btnAbrir   = document.getElementById('btnRetirarCaja');
+  const toolbar    = document.getElementById('toolbarRetirarCaja');
+  const btnCancel  = document.getElementById('btnRetirarCancelar');
+  const btnConfirm = document.getElementById('btnRetirarConfirmar');
+  const lblCount   = document.getElementById('retirarCount');
+  if (!btnAbrir || !toolbar) return;
+
+  const seleccionados = new Set();
+
+  function actualizarUI() {
+    lblCount.textContent = seleccionados.size;
+    btnConfirm.disabled = (seleccionados.size === 0);
+  }
+
+  function entrarModo() {
+    document.body.classList.add('retirar-caja-mode');
+    toolbar.classList.remove('d-none');
+    toolbar.classList.add('d-flex');
+    seleccionados.clear();
+    document.querySelectorAll('.boleta-pasar-target.retirar-selected')
+      .forEach(el => el.classList.remove('retirar-selected'));
+    actualizarUI();
+    toolbar.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  }
+
+  function salirModo() {
+    document.body.classList.remove('retirar-caja-mode');
+    toolbar.classList.add('d-none');
+    toolbar.classList.remove('d-flex');
+    seleccionados.clear();
+    document.querySelectorAll('.boleta-pasar-target.retirar-selected')
+      .forEach(el => el.classList.remove('retirar-selected'));
+  }
+
+  btnAbrir.addEventListener('click', entrarModo);
+  btnCancel.addEventListener('click', salirModo);
+
+  document.addEventListener('click', (ev) => {
+    if (!document.body.classList.contains('retirar-caja-mode')) return;
+    const el = ev.target.closest('.boleta-pasar-target');
+    if (!el) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const bid = el.dataset.bid;
+    if (!bid) return;
+    if (seleccionados.has(bid)) {
+      seleccionados.delete(bid);
+      el.classList.remove('retirar-selected');
+    } else {
+      seleccionados.add(bid);
+      el.classList.add('retirar-selected');
+    }
+    actualizarUI();
+  });
+
+  btnConfirm.addEventListener('click', async () => {
+    if (seleccionados.size === 0) return;
+    if (!(await appConfirm(`¿Retirar ${seleccionados.size} boleta(s) y devolverlas a la institución?`))) return;
+
+    btnConfirm.disabled = true;
+    btnConfirm.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Retirando…';
+
+    const fd = new FormData();
+    for (const bid of seleccionados) fd.append('boleta_ids', bid);
+
+    try {
+      const r = await fetch(`/vendedores/${VENDEDOR_ID}/retirar-caja`, {
+        method: 'POST', body: fd, credentials: 'include'
+      });
+      const data = await r.json();
+      if (!data.ok) {
+        appAlert('Error: ' + (data.error || 'no se pudo retirar'), 'error');
+        btnConfirm.disabled = false;
+        btnConfirm.innerHTML = '<i class="bi bi-box-arrow-up me-1"></i>Confirmar retiro';
+        return;
+      }
+      setTimeout(() => window.location.reload(), 400);
+    } catch (e) {
+      appAlert('Error de red al retirar las boletas', 'error');
+      btnConfirm.disabled = false;
+      btnConfirm.innerHTML = '<i class="bi bi-box-arrow-up me-1"></i>Confirmar retiro';
     }
   });
 })();

@@ -46,7 +46,8 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
                     0,
                 )
             ).filter(
-                func.lower(func.trim(models.EntregaCaja.talonera_nombre)) == (g["nombre"] or "").strip().lower()
+                func.lower(func.trim(models.EntregaCaja.talonera_nombre)) == (g["nombre"] or "").strip().lower(),
+                func.coalesce(models.EntregaCaja.tipo, "ENTREGA") != "RETIRO",
             ).scalar() or 0
             # Asignados a boletas — slot 1 (numero_especial)
             asignados_1 = db.query(func.count(models.Boleta.id)).filter(

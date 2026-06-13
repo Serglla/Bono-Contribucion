@@ -360,6 +360,18 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion vendedor_id entregas_caja: {e}")
 
+        # Migrar columna tipo en entregas_caja (ENTREGA | RETIRO)
+        try:
+            cols_ec2 = [c["name"] for c in inspector.get_columns("entregas_caja")]
+            if "tipo" not in cols_ec2:
+                db.execute(text("ALTER TABLE entregas_caja ADD COLUMN tipo VARCHAR DEFAULT 'ENTREGA'"))
+                db.execute(text("UPDATE entregas_caja SET tipo = 'ENTREGA' WHERE tipo IS NULL"))
+                db.commit()
+                print("Migracion tipo entregas_caja: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion tipo entregas_caja: {e}")
+
         # Crear tabla liquidaciones_vendedor
         try:
             if "liquidaciones_vendedor" not in inspector.get_table_names():

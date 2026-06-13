@@ -305,6 +305,7 @@ class EntregaCaja(Base):
     hasta            = Column(Integer, nullable=False)
     boletas_afectadas = Column(Integer, default=0)
     observacion      = Column(String, nullable=True)
+    tipo             = Column(String, default="ENTREGA")  # ENTREGA | RETIRO
     fecha            = Column(DateTime, default=_datetime.utcnow)
     usuario_id       = Column(Integer, ForeignKey("users.id"), nullable=True)
     vendedor_id      = Column(Integer, ForeignKey("vendedores.id"), nullable=True)
