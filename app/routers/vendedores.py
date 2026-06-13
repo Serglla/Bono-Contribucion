@@ -1564,13 +1564,104 @@ async def editar_entrega(
     e = db.query(models.EntregaCaja).get(entrega_id)
     if not e:
         raise HTTPException(404)
+
+    # Valores ANTERIORES de la entrega (para revertir las boletas reales)
+    old_nombre = e.talonera_nombre
+    old_desde = int(e.desde)
+    old_hasta = int(e.hasta)
+    old_vendedor_id = e.vendedor_id
+
+    if hasta < desde:
+        raise HTTPException(400, "Rango inválido")
+
+    # Vendedor al que aplica la entrega editada (si no se cambia, el actual)
+    target_vid = vendedor_id or old_vendedor_id
+
+    # ── Resolver taloneras viejas y nuevas por nombre ──────────────────────
+    def _resolver(nombre):
+        ts = db.query(models.Talonera).filter_by(nombre=nombre).all()
+        ids = [t.id for t in ts]
+        es_contado = bool(ts) and all((t.tipo or "COMUN") == "CONTADO" for t in ts)
+        return ids, es_contado
+
+    old_ids, old_es_contado = _resolver(old_nombre)
+    new_ids, new_es_contado = _resolver(talonera_nombre)
+
+    revertidas = 0
+    saltadas = 0          # boletas del rango viejo que NO se pudieron revertir (vendidas/liquidadas)
+    aplicadas = 0
+
+    # 1) REVERTIR el rango VIEJO → solo boletas COMUN que siguen en CAJA,
+    #    sin liquidar y sin comprador (seguras de devolver a SIN_VENDER).
+    if old_ids and not old_es_contado:
+        q_old = db.query(models.Boleta).filter(
+            models.Boleta.talonera_id.in_(old_ids),
+            models.Boleta.numero_principal >= old_desde,
+            models.Boleta.numero_principal <= old_hasta,
+        )
+        if old_vendedor_id:
+            q_old = q_old.filter(models.Boleta.vendedor_id == old_vendedor_id)
+
+        revertibles = q_old.filter(
+            models.Boleta.condicion == CondicionBoleta.CAJA,
+            models.Boleta.liquidacion_vendedor_id.is_(None),
+            models.Boleta.comprador_id.is_(None),
+        )
+        # Contar las que NO son revertibles para avisar (vendidas/liquidadas)
+        saltadas = q_old.filter(
+            (models.Boleta.condicion != CondicionBoleta.CAJA)
+            | (models.Boleta.liquidacion_vendedor_id.isnot(None))
+            | (models.Boleta.comprador_id.isnot(None)),
+        ).count()
+        revertidas = revertibles.update(
+            {"condicion": CondicionBoleta.SIN_VENDER, "vendedor_id": None},
+            synchronize_session=False,
+        )
+
+    # 2) APLICAR el rango NUEVO → mismas reglas que "Entrega a Caja".
+    if new_ids and not new_es_contado:
+        update_data = {"condicion": CondicionBoleta.CAJA}
+        if target_vid:
+            update_data["vendedor_id"] = target_vid
+        nuevas = db.query(models.Boleta).filter(
+            models.Boleta.talonera_id.in_(new_ids),
+            models.Boleta.numero_principal >= desde,
+            models.Boleta.numero_principal <= hasta,
+            models.Boleta.condicion == CondicionBoleta.SIN_VENDER,
+        ).update(update_data, synchronize_session=False)
+
+        reasignadas = 0
+        if target_vid:
+            reasignadas = db.query(models.Boleta).filter(
+                models.Boleta.talonera_id.in_(new_ids),
+                models.Boleta.numero_principal >= desde,
+                models.Boleta.numero_principal <= hasta,
+                models.Boleta.condicion == CondicionBoleta.CAJA,
+                models.Boleta.liquidacion_vendedor_id.is_(None),
+                (models.Boleta.vendedor_id.is_(None)) | (models.Boleta.vendedor_id != target_vid),
+            ).update({"vendedor_id": target_vid}, synchronize_session=False)
+        aplicadas = nuevas + reasignadas
+
+    # 3) Actualizar el registro de historial
     e.talonera_nombre = talonera_nombre
     e.desde = desde
     e.hasta = hasta
     e.observacion = observacion.strip() or None
-    if vendedor_id:
-        e.vendedor_id = vendedor_id
+    e.vendedor_id = target_vid
+    if not new_es_contado:
+        e.boletas_afectadas = aplicadas
+    else:
+        e.boletas_afectadas = max(0, hasta - desde + 1)
     db.commit()
+
+    # Redirige al detalle del vendedor con un resumen del impacto
+    _vid = target_vid or old_vendedor_id
+    if _vid:
+        return RedirectResponse(
+            f"/vendedores/{_vid}/detalle?msg=caja_editada"
+            f"&apl={aplicadas}&rev={revertidas}&salt={saltadas}",
+            status_code=302,
+        )
     return RedirectResponse("/vendedores/", status_code=302)
 
 

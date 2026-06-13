@@ -51,6 +51,20 @@
 <div class="alert alert-success py-2 small mb-3">
   <i class="bi bi-trash me-1"></i>Liquidación eliminada. Las boletas asociadas volvieron a caja sin liquidar.
 </div>
+{% elif msg == 'caja_editada' %}
+<div class="alert alert-success py-2 small mb-3">
+  <i class="bi bi-check-circle me-1"></i>Entrega actualizada.
+  Se aplicaron <strong>{{ request.query_params.get('apl', 0) }}</strong> boleta(s) al nuevo rango
+  y se revirtieron <strong>{{ request.query_params.get('rev', 0) }}</strong> del rango anterior.
+  {% set _salt = request.query_params.get('salt', '0') | int %}
+  {% if _salt > 0 %}
+  <div class="mt-1 text-warning-emphasis">
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    {{ _salt }} boleta(s) del rango anterior NO se revirtieron porque ya están
+    vendidas o liquidadas.
+  </div>
+  {% endif %}
+</div>
 {% endif %}
 
 {# ══════════ CONTEOS desde patas ══════════ #}
@@ -309,7 +323,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <p class="text-muted small mb-3"><strong>Las boletas ya modificadas no se revierten.</strong></p>
+        <p class="text-muted small mb-3">Al guardar, las boletas se re-sincronizan: se quitan de la caja los números que salgan del rango y se agregan los nuevos. <strong>Las boletas ya vendidas o liquidadas no se tocan.</strong></p>
         <div class="row g-2">
           <div class="col-12">
             <label class="form-label small fw-semibold">PATA</label>
