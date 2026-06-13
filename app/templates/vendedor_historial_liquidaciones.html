@@ -5,7 +5,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="fw-bold mb-0">
     <i class="bi bi-receipt-cutoff text-success me-2"></i>Historial de liquidaciones
-    <span class="text-muted small ms-1" style="font-weight:normal;">por semana</span>
+    <span class="text-muted small ms-1" style="font-weight:normal;">por mes y semana</span>
   </h4>
   <a href="/vendedores" class="btn btn-outline-secondary">
     <i class="bi bi-arrow-left me-1"></i>Volver a Vendedores
@@ -18,101 +18,134 @@
   (PATA 0 &times;0.67, PATA 1 &times;1, PATA 2 &times;2, ...); abajo, en chico, el conteo real de boletas.
 </p>
 
-{% if historial_semanal %}
-<div class="accordion" id="accordionSemanas">
-  {% for sem in historial_semanal %}
-  {% set is_open = (sem.key == semana_actual_key) %}
+{% macro tabla_semana(sem) %}
+<div class="table-responsive">
+  <table class="table table-sm align-middle mb-0 small table-hover text-center" style="font-size:.82rem;">
+    <thead class="table-light">
+      <tr>
+        <th rowspan="2" class="align-middle text-start">Vendedor</th>
+        <th colspan="3" class="table-success fw-bold" style="letter-spacing:.06em;">VENDIDOS</th>
+        <th rowspan="2" class="align-middle" title="Cantidad de cuotas extras cobradas (cuota 2, 3, ...)">CUOTAS<br>EXTRAS</th>
+        <th rowspan="2" class="align-middle text-end text-success" title="Total que el vendedor rinde a la organización">TOTAL A<br>RENDIR</th>
+        <th rowspan="2" class="align-middle" title="Liquidaciones del vendedor en la semana">Liq.</th>
+      </tr>
+      <tr class="text-muted" style="font-size:.72rem;">
+        <th title="Boletas en cuotas, ponderadas por PATA">CUOTAS</th>
+        <th title="Boletas al contado, ponderadas por PATA">CONTADOS</th>
+        <th title="CUOTAS + CONTADOS (ponderado)">TOTAL VENDIDOS</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fila in sem.vendedores %}
+      <tr style="cursor:pointer;"
+          ondblclick="window.location='/vendedores/{{ fila.vendedor_id }}/detalle'"
+          title="Doble-click para ir al detalle del vendedor">
+        <td class="text-start fw-semibold">{{ fila.nombre }}</td>
+        <td title="Boletas reales: {{ fila.cuotas_crudo }} &middot; Ponderado exacto: {{ '%.2f'|format(fila.cuotas_eq) }}">
+          <span class="fw-bold text-success">{{ fila.cuotas_eq | round(0) | int }}</span>
+          <span class="d-block text-muted" style="font-size:.68rem;">{{ fila.cuotas_crudo }} bol.</span>
+        </td>
+        <td title="Boletas reales: {{ fila.contados_crudo }} &middot; Ponderado exacto: {{ '%.2f'|format(fila.contados_eq) }}">
+          <span class="fw-bold text-success">{{ fila.contados_eq | round(0) | int }}</span>
+          <span class="d-block text-muted" style="font-size:.68rem;">{{ fila.contados_crudo }} bol.</span>
+        </td>
+        <td title="Total ponderado vendido (cuotas + contados)">
+          <span class="fw-bold">{{ (fila.cuotas_eq + fila.contados_eq) | round(0) | int }}</span>
+          <span class="d-block text-muted" style="font-size:.68rem;">{{ fila.cuotas_crudo + fila.contados_crudo }} bol.</span>
+        </td>
+        <td>{{ fila.extras }}</td>
+        <td class="text-end fw-bold text-success">${{ '%.2f'|format(fila.rinde) }}</td>
+        <td class="text-muted">{{ fila.n_liquidaciones }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot class="table-light">
+      <tr style="font-weight:600;">
+        <td class="text-start">Total semana:</td>
+        <td>
+          <span class="text-success">{{ sem.tot_cuotas_eq | round(0) | int }}</span>
+          <span class="d-block text-muted" style="font-size:.68rem;">{{ sem.tot_cuotas_crudo }} bol.</span>
+        </td>
+        <td>
+          <span class="text-success">{{ sem.tot_contados_eq | round(0) | int }}</span>
+          <span class="d-block text-muted" style="font-size:.68rem;">{{ sem.tot_contados_crudo }} bol.</span>
+        </td>
+        <td>
+          <span>{{ (sem.tot_cuotas_eq + sem.tot_contados_eq) | round(0) | int }}</span>
+          <span class="d-block text-muted" style="font-size:.68rem;">{{ sem.tot_cuotas_crudo + sem.tot_contados_crudo }} bol.</span>
+        </td>
+        <td>{{ sem.tot_extras }}</td>
+        <td class="text-end text-success">${{ '%.2f'|format(sem.tot_rinde) }}</td>
+        <td class="text-muted">{{ sem.n_liquidaciones }}</td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+{% endmacro %}
+
+{% if historial_mensual %}
+<div class="accordion" id="accordionMeses">
+  {% for mes in historial_mensual %}
+  {% set mes_open = (mes.key == mes_actual_key) %}
+  {% set mi = loop.index %}
   <div class="accordion-item">
-    <h2 class="accordion-header" id="semH{{ loop.index }}">
-      <button class="accordion-button {% if not is_open %}collapsed{% endif %} py-2"
-              type="button" data-bs-toggle="collapse"
-              data-bs-target="#semC{{ loop.index }}"
-              aria-expanded="{{ 'true' if is_open else 'false' }}"
-              aria-controls="semC{{ loop.index }}">
-        <i class="bi bi-calendar-week me-2"></i>
-        <span class="fw-semibold">Semana {{ sem.label }}</span>
-        {% if is_open %}
-        <span class="badge bg-success ms-2">Semana actual</span>
-        {% endif %}
-        <span class="badge bg-secondary ms-3" title="Liquidaciones de la semana">
-          {{ sem.n_liquidaciones }} liq.
-        </span>
-        <span class="badge bg-light text-dark ms-2" title="Vendedores con liquidaciones esta semana">
-          {{ sem.vendedores|length }} vend.
-        </span>
+    <h2 class="accordion-header" id="mesH{{ mi }}">
+      <button class="accordion-button {% if not mes_open %}collapsed{% endif %} py-2"
+              type="button" data-bs-toggle="collapse" data-bs-target="#mesC{{ mi }}"
+              aria-expanded="{{ 'true' if mes_open else 'false' }}" aria-controls="mesC{{ mi }}">
+        <i class="bi bi-calendar3 me-2"></i>
+        <span class="fw-bold">{{ mes.label }}</span>
+        {% if mes_open %}<span class="badge bg-success ms-2">Mes actual</span>{% endif %}
+        <span class="badge bg-secondary ms-3" title="Liquidaciones del mes">{{ mes.n_liquidaciones }} liq.</span>
+        <span class="badge bg-light text-dark ms-2" title="Vendedores con liquidaciones este mes">{{ mes.n_vendedores }} vend.</span>
         <span class="badge bg-success ms-2" title="Total que los vendedores rinden a la organización">
-          Rinde ${{ '{:,.0f}'.format(sem.tot_rinde)|replace(',', '.') }}
+          Rinde ${{ '{:,.0f}'.format(mes.tot_rinde)|replace(',', '.') }}
         </span>
       </button>
     </h2>
-    <div id="semC{{ loop.index }}"
-         class="accordion-collapse collapse {% if is_open %}show{% endif %}"
-         aria-labelledby="semH{{ loop.index }}">
-      <div class="accordion-body p-0">
-        <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0 small table-hover text-center"
-                 style="font-size:.82rem;">
-            <thead class="table-light">
-              <tr>
-                <th rowspan="2" class="align-middle text-start">Vendedor</th>
-                <th colspan="3" class="table-success fw-bold" style="letter-spacing:.06em;">VENDIDOS</th>
-                <th rowspan="2" class="align-middle"
-                    title="Cantidad de cuotas extras cobradas (cuota 2, 3, ...)">CUOTAS<br>EXTRAS</th>
-                <th rowspan="2" class="align-middle text-end text-success"
-                    title="Total que el vendedor rinde a la organización">TOTAL A<br>RENDIR</th>
-                <th rowspan="2" class="align-middle" title="Liquidaciones del vendedor en la semana">Liq.</th>
-              </tr>
-              <tr class="text-muted" style="font-size:.72rem;">
-                <th title="Boletas en cuotas, ponderadas por PATA">CUOTAS</th>
-                <th title="Boletas al contado, ponderadas por PATA">CONTADOS</th>
-                <th title="CUOTAS + CONTADOS (ponderado)">TOTAL VENDIDOS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for fila in sem.vendedores %}
-              <tr style="cursor:pointer;"
-                  ondblclick="window.location='/vendedores/{{ fila.vendedor_id }}/detalle'"
-                  title="Doble-click para ir al detalle del vendedor">
-                <td class="text-start fw-semibold">{{ fila.nombre }}</td>
-                <td title="Boletas reales: {{ fila.cuotas_crudo }} &middot; Ponderado exacto: {{ '%.2f'|format(fila.cuotas_eq) }}">
-                  <span class="fw-bold text-success">{{ fila.cuotas_eq | round(0) | int }}</span>
-                  <span class="d-block text-muted" style="font-size:.68rem;">{{ fila.cuotas_crudo }} bol.</span>
-                </td>
-                <td title="Boletas reales: {{ fila.contados_crudo }} &middot; Ponderado exacto: {{ '%.2f'|format(fila.contados_eq) }}">
-                  <span class="fw-bold text-success">{{ fila.contados_eq | round(0) | int }}</span>
-                  <span class="d-block text-muted" style="font-size:.68rem;">{{ fila.contados_crudo }} bol.</span>
-                </td>
-                <td title="Total ponderado vendido (cuotas + contados)">
-                  <span class="fw-bold">{{ (fila.cuotas_eq + fila.contados_eq) | round(0) | int }}</span>
-                  <span class="d-block text-muted" style="font-size:.68rem;">{{ fila.cuotas_crudo + fila.contados_crudo }} bol.</span>
-                </td>
-                <td>{{ fila.extras }}</td>
-                <td class="text-end fw-bold text-success">${{ '%.2f'|format(fila.rinde) }}</td>
-                <td class="text-muted">{{ fila.n_liquidaciones }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-            <tfoot class="table-light">
-              <tr style="font-weight:600;">
-                <td class="text-start">Total semana:</td>
-                <td>
-                  <span class="text-success">{{ sem.tot_cuotas_eq | round(0) | int }}</span>
-                  <span class="d-block text-muted" style="font-size:.68rem;">{{ sem.tot_cuotas_crudo }} bol.</span>
-                </td>
-                <td>
-                  <span class="text-success">{{ sem.tot_contados_eq | round(0) | int }}</span>
-                  <span class="d-block text-muted" style="font-size:.68rem;">{{ sem.tot_contados_crudo }} bol.</span>
-                </td>
-                <td>
-                  <span>{{ (sem.tot_cuotas_eq + sem.tot_contados_eq) | round(0) | int }}</span>
-                  <span class="d-block text-muted" style="font-size:.68rem;">{{ sem.tot_cuotas_crudo + sem.tot_contados_crudo }} bol.</span>
-                </td>
-                <td>{{ sem.tot_extras }}</td>
-                <td class="text-end text-success">${{ '%.2f'|format(sem.tot_rinde) }}</td>
-                <td class="text-muted">{{ sem.n_liquidaciones }}</td>
-              </tr>
-            </tfoot>
-          </table>
+    <div id="mesC{{ mi }}" class="accordion-collapse collapse {% if mes_open %}show{% endif %}"
+         aria-labelledby="mesH{{ mi }}">
+      <div class="accordion-body">
+        <div class="d-flex justify-content-end mb-2">
+          <a class="btn btn-sm btn-outline-danger" target="_blank"
+             href="/vendedores/historial-liquidaciones/informe?tipo=mes&key={{ mes.key }}">
+            <i class="bi bi-printer me-1"></i>Imprimir informe del mes
+          </a>
+        </div>
+
+        <div class="accordion" id="accSem{{ mi }}">
+          {% for sem in mes.semanas %}
+          {% set is_open = (sem.key == semana_actual_key) %}
+          {% set si = loop.index %}
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="semH{{ mi }}_{{ si }}">
+              <button class="accordion-button {% if not is_open %}collapsed{% endif %} py-2"
+                      type="button" data-bs-toggle="collapse" data-bs-target="#semC{{ mi }}_{{ si }}"
+                      aria-expanded="{{ 'true' if is_open else 'false' }}" aria-controls="semC{{ mi }}_{{ si }}">
+                <i class="bi bi-calendar-week me-2"></i>
+                <span class="fw-semibold">Semana {{ sem.label }}</span>
+                {% if is_open %}<span class="badge bg-success ms-2">Semana actual</span>{% endif %}
+                <span class="badge bg-secondary ms-3" title="Liquidaciones de la semana">{{ sem.n_liquidaciones }} liq.</span>
+                <span class="badge bg-light text-dark ms-2" title="Vendedores con liquidaciones esta semana">{{ sem.vendedores|length }} vend.</span>
+                <span class="badge bg-success ms-2" title="Total que los vendedores rinden a la organización">
+                  Rinde ${{ '{:,.0f}'.format(sem.tot_rinde)|replace(',', '.') }}
+                </span>
+              </button>
+            </h2>
+            <div id="semC{{ mi }}_{{ si }}" class="accordion-collapse collapse {% if is_open %}show{% endif %}"
+                 aria-labelledby="semH{{ mi }}_{{ si }}">
+              <div class="accordion-body p-0">
+                <div class="d-flex justify-content-end p-2">
+                  <a class="btn btn-sm btn-outline-danger" target="_blank"
+                     href="/vendedores/historial-liquidaciones/informe?tipo=semana&key={{ sem.key }}">
+                    <i class="bi bi-printer me-1"></i>Imprimir informe de la semana
+                  </a>
+                </div>
+                {{ tabla_semana(sem) }}
+              </div>
+            </div>
+          </div>
+          {% endfor %}
         </div>
       </div>
     </div>
