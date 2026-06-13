@@ -129,8 +129,8 @@
 <div class="d-flex flex-wrap gap-3 mb-3 small align-items-center">
   <span class="fw-semibold text-muted">Leyenda:</span>
   <span><span class="badge" style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;">0000</span> En caja (sin liquidar)</span>
-  <span><span class="badge" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;">0000</span> Liquidado — pend. comprador</span>
-  <span><span class="badge bg-primary" style="opacity:.6;">0000</span> En sistema</span>
+  <span><span class="badge" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;text-decoration:line-through;">0000</span> Liquidado — pend. comprador</span>
+  <span><span class="badge" style="background:#f1f3f5;color:#868e96;border:1px solid #dee2e6;text-decoration:line-through;">0000</span> Vendida (en sistema / en cobranza)</span>
   <span><i class="bi bi-star-fill text-warning"></i> Contado</span>
 </div>
 
@@ -218,7 +218,7 @@
   {% for pata_nombre, pata_data in patas.items() %}
   {% set ns2 = namespace(tiene=false) %}
   {% for b in pata_data.boletas %}
-    {% if b.cond in ['CAJA', 'VENDIDO'] %}{% set ns2.tiene = true %}{% endif %}
+    {% if b.cond in ['CAJA', 'VENDIDO', 'EN_COBRANZA'] %}{% set ns2.tiene = true %}{% endif %}
   {% endfor %}
   {% if ns2.tiene %}
   <div class="card border-0 shadow-sm mb-3">
@@ -226,16 +226,18 @@
          style="background:{{ pata_data.color }}30; border-left: 4px solid {{ pata_data.color }};">
       <span class="badge" style="background:{{ pata_data.color }};color:#333;border:1px solid #0003;">{{ pata_nombre }}</span>
       {# conteos por estado para la cabecera #}
-      {% set ns3 = namespace(nc=0, nl=0, nv=0) %}
+      {% set ns3 = namespace(nc=0, nl=0, nv=0, ne=0) %}
       {% for b in pata_data.boletas %}
         {% if b.cond == 'CAJA' and not b.liq %}{% set ns3.nc = ns3.nc + 1 %}{% endif %}
         {% if b.cond == 'CAJA' and b.liq and not b.tiene_socio %}{% set ns3.nl = ns3.nl + 1 %}{% endif %}
         {% if b.cond == 'VENDIDO' or (b.cond == 'CAJA' and b.tiene_socio) %}{% set ns3.nv = ns3.nv + 1 %}{% endif %}
+        {% if b.cond == 'EN_COBRANZA' %}{% set ns3.ne = ns3.ne + 1 %}{% endif %}
       {% endfor %}
       <span class="text-muted small">
         {% if ns3.nc > 0 %}<span class="text-primary">{{ ns3.nc }} en caja</span>{% endif %}
         {% if ns3.nl > 0 %}{% if ns3.nc > 0 %} · {% endif %}<span class="text-success">{{ ns3.nl }} liquidado(s)</span>{% endif %}
         {% if ns3.nv > 0 %}{% if ns3.nc > 0 or ns3.nl > 0 %} · {% endif %}<span style="color:#6c8ebf;">{{ ns3.nv }} en sistema</span>{% endif %}
+        {% if ns3.ne > 0 %}{% if ns3.nc > 0 or ns3.nl > 0 or ns3.nv > 0 %} · {% endif %}<span style="color:#0a97b0;">{{ ns3.ne }} en cobranza</span>{% endif %}
       </span>
     </div>
     <div class="card-body py-3">
@@ -257,7 +259,7 @@
               <span class="d-inline-flex align-items-center"
                     style="border:1px solid #20c99780;border-radius:.25rem;overflow:hidden;font-size:.8rem;"
                     title="Liquidado por {{ b.liq_por_otro_nombre }}{% if b.liq_por_otro_es_jefe %} (jefe de equipo){% endif %}{% if b.contado %} · Contado{% endif %}">
-                <span style="background:#d1e7dd;color:#146c43;padding:.2rem .4rem;">
+                <span style="background:#d1e7dd;color:#146c43;padding:.2rem .4rem;text-decoration:line-through;">
                   {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
                   {{ b.num_str }}
                 </span>
@@ -268,21 +270,23 @@
               </span>
             {% else %}
               <span class="badge"
-                    style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;"
+                    style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;text-decoration:line-through;"
                     title="Liquidado — pendiente comprador{% if b.contado %} · Contado{% endif %}">
                 {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
                 {{ b.num_str }}
               </span>
             {% endif %}
-          {% elif b.cond == 'VENDIDO' or (b.cond == 'CAJA' and b.tiene_socio) %}
-            {# En sistema → azul opaco. Incluye al-contado pagadas (condicion=CAJA pero con socio cargado) #}
+          {% elif b.cond == 'VENDIDO' or (b.cond == 'CAJA' and b.tiene_socio) or b.cond == 'EN_COBRANZA' %}
+            {# VENDIDA → se muestra TACHADA (sin color distinto). Cubre "en sistema"
+               (VENDIDO / contado con socio) y "en cobranza" (cuotas pendientes). #}
+            {% set _ttl = ('En cobranza' if b.cond == 'EN_COBRANZA' else 'En sistema') %}
             {% if b.liq_por_otro_nombre %}
-              {# Vendida con socio cargado, pero liquidada por otro vendedor (jefe de equipo) #}
+              {# Vendida pero liquidada por otro vendedor (jefe de equipo) → conserva el nombre. #}
               <span class="d-inline-flex align-items-center"
-                    style="border:1px solid #0d6efd55;border-radius:.25rem;overflow:hidden;font-size:.8rem;"
-                    title="En sistema · Liquidado por {{ b.liq_por_otro_nombre }}{% if b.liq_por_otro_es_jefe %} (jefe de equipo){% endif %}{% if b.contado %} · Contado{% endif %}">
-                <span class="bg-primary text-white" style="padding:.2rem .4rem;opacity:.7;">
-                  {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffd966;"></i>{% endif %}
+                    style="border:1px solid #dee2e6;border-radius:.25rem;overflow:hidden;font-size:.8rem;"
+                    title="{{ _ttl }} · Liquidado por {{ b.liq_por_otro_nombre }}{% if b.liq_por_otro_es_jefe %} (jefe de equipo){% endif %}{% if b.contado %} · Contado{% endif %}">
+                <span style="background:#f1f3f5;color:#868e96;padding:.2rem .4rem;text-decoration:line-through;">
+                  {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#d4b106;"></i>{% endif %}
                   {{ b.num_str }}
                 </span>
                 <span class="px-1 fw-semibold" style="background:#fff7e0;color:#8a6d00;font-size:.7rem;">
@@ -291,9 +295,10 @@
                 </span>
               </span>
             {% else %}
-              <span class="badge bg-primary" style="font-size:.8rem;opacity:.55;"
-                    title="En sistema{% if b.contado %} · Contado{% endif %}">
-                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffd966;"></i>{% endif %}
+              <span class="badge"
+                    style="background:#f1f3f5;color:#868e96;border:1px solid #dee2e6;font-size:.8rem;text-decoration:line-through;"
+                    title="{{ _ttl }}{% if b.contado %} · Contado{% endif %}">
+                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#d4b106;"></i>{% endif %}
                 {{ b.num_str }}
               </span>
             {% endif %}
