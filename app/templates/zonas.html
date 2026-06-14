@@ -94,22 +94,27 @@
 
 <div class="card border-0 shadow-sm">
   <div class="table-responsive">
-    <table class="table table-hover align-middle mb-0">
+    <table class="table table-hover align-middle mb-0" id="tablaZonas">
       <thead class="table-light">
         <tr>
-          <th>Nombre</th>
-          <th class="text-center">Estado</th>
-          <th class="text-center" title="Ponderado vendido este bono vs el anterior (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, ...)">Rendimiento vs anterior</th>
-          <th class="text-center" title="Compradores del bono anterior que aún no renovaron">Pend.</th>
-          <th>Compradores</th>
-          <th>Vendedor asignado</th>
+          <th class="sortable" data-key="nombre" style="cursor:pointer;">Nombre <i class="bi bi-arrow-down-up text-muted small"></i></th>
+          <th class="text-center sortable" data-key="hecha" style="cursor:pointer;">Estado <i class="bi bi-arrow-down-up text-muted small"></i></th>
+          <th class="text-center sortable" data-key="rend" style="cursor:pointer;" title="Ponderado vendido este bono vs el anterior (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, ...)">Rendimiento vs anterior <i class="bi bi-arrow-down-up text-muted small"></i></th>
+          <th class="text-center sortable" data-key="pend" style="cursor:pointer;" title="Compradores del bono anterior que aún no renovaron">Pend. <i class="bi bi-arrow-down-up text-muted small"></i></th>
+          <th class="sortable" data-key="comp" style="cursor:pointer;">Compradores <i class="bi bi-arrow-down-up text-muted small"></i></th>
+          <th class="sortable" data-key="vend" style="cursor:pointer;">Vendedor asignado <i class="bi bi-arrow-down-up text-muted small"></i></th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for z in zonas %}
         {% set st = stats.get(z.id) %}
-        <tr>
+        <tr data-nombre="{{ z.nombre|lower }}"
+            data-hecha="{{ 1 if z.hecha else 0 }}"
+            data-rend="{{ st.rend if st and st.pond_anterior > 0 else (st.pond_actual if st else 0) }}"
+            data-pend="{{ st.pendientes if st else 0 }}"
+            data-comp="{{ z.compradores|length }}"
+            data-vend="{{ (z.vendedor.nombre if z.vendedor else '')|lower }}">
           <td class="fw-semibold">
             {{ z.nombre }}
             {% if z.descripcion %}<span class="d-block text-muted small">{{ z.descripcion }}</span>{% endif %}
@@ -292,6 +297,43 @@
     document.getElementById('edit-cant-socios').textContent = cant;
     hint.style.display = (cant > 0) ? '' : 'none';
     setTimeout(() => document.getElementById('edit-nombre').select(), 50);
+  });
+})();
+
+// ── Ordenamiento de la tabla de zonas por columna ──
+(function() {
+  const tabla = document.getElementById('tablaZonas');
+  if (!tabla) return;
+  const tbody = tabla.querySelector('tbody');
+  let dirAsc = {};
+
+  function valor(tr, key) {
+    const v = tr.getAttribute('data-' + key);
+    const num = parseFloat(v);
+    return { raw: (v || ''), num: isNaN(num) ? null : num };
+  }
+
+  tabla.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.getAttribute('data-key');
+      const asc = !dirAsc[key];
+      dirAsc = {}; dirAsc[key] = asc;
+      const filas = Array.from(tbody.querySelectorAll('tr'));
+      filas.sort((a, b) => {
+        const va = valor(a, key), vb = valor(b, key);
+        let cmp;
+        if (va.num !== null && vb.num !== null) cmp = va.num - vb.num;
+        else cmp = va.raw.localeCompare(vb.raw, 'es', { numeric: true });
+        return asc ? cmp : -cmp;
+      });
+      filas.forEach(f => tbody.appendChild(f));
+      // indicador visual de columna activa
+      tabla.querySelectorAll('th.sortable i').forEach(i => {
+        i.className = 'bi bi-arrow-down-up text-muted small';
+      });
+      const icon = th.querySelector('i');
+      if (icon) icon.className = 'bi ' + (asc ? 'bi-sort-down-alt' : 'bi-sort-up') + ' text-primary small';
+    });
   });
 })();
 </script>
