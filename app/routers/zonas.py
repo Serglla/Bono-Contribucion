@@ -32,9 +32,25 @@ def _norm_key(nombre, direccion) -> str:
     return _norm_txt(nombre) + "|" + _norm_txt(direccion)
 
 
+def _prev_zona_by_key(ba_rows):
+    """Mapa identidad-de-comprador (nombre+dirección) -> zona normalizada que tenía
+    en el bono anterior. Se usa como respaldo cuando este bono no tiene zona cargada."""
+    m = {}
+    for r in ba_rows:
+        k = _norm_key(r.apellido_nombre, r.direccion)
+        if k not in m:
+            zk = _norm_zona(r.zona)
+            if zk:
+                m[k] = zk
+    return m
+
+
 def _stats_bono_anterior(db):
     """Calcula, por zona, el rendimiento ponderado del bono actual vs el anterior
-    y la cantidad de compradores que aún no renovaron (match por nombre+dirección)."""
+    y la cantidad de compradores que aún no renovaron (match por nombre+dirección).
+
+    Si un comprador de este bono NO tiene zona cargada pero SÍ la tenía en el bono
+    anterior, su venta se atribuye a esa zona anterior (respaldo automático)."""
     ba_rows = db.query(models.BonoAnterior).all()
     compradores = (
         db.query(models.Comprador)
@@ -42,14 +58,25 @@ def _stats_bono_anterior(db):
         .all()
     )
     current_keys = {_norm_key(c.apellido_nombre, c.direccion) for c in compradores}
+    prev_zona = _prev_zona_by_key(ba_rows)
+    zona_norm_by_id = {z.id: _norm_zona(z.nombre) for z in db.query(models.Zona).all()}
+    zonas_norm_set = set(zona_norm_by_id.values())
 
-    pond_actual = defaultdict(float)        # zona_id -> ponderado vendido este bono
+    pond_actual = defaultdict(float)        # norm zona name -> ponderado vendido este bono
+    sin_zona = 0
+    asignables = 0
     for c in compradores:
-        if not c.zona_id:
-            continue
-        for b in c.boletas:
-            if b.talonera:
-                pond_actual[c.zona_id] += float(b.talonera.multiplicador or 1.0)
+        pond_c = sum(float(b.talonera.multiplicador or 1.0) for b in c.boletas if b.talonera)
+        if c.zona_id and c.zona_id in zona_norm_by_id:
+            zk = zona_norm_by_id[c.zona_id]
+        else:
+            zk = prev_zona.get(_norm_key(c.apellido_nombre, c.direccion))
+            if not c.zona_id:
+                sin_zona += 1
+                if zk and zk in zonas_norm_set:
+                    asignables += 1
+        if pond_c > 0 and zk:
+            pond_actual[zk] += pond_c
 
     ba_por_zona = defaultdict(lambda: {"pond": 0.0, "pendientes": 0, "total": 0})
     for r in ba_rows:
@@ -59,7 +86,7 @@ def _stats_bono_anterior(db):
         if _norm_key(r.apellido_nombre, r.direccion) not in current_keys:
             g["pendientes"] += 1
 
-    return ba_rows, ba_por_zona, pond_actual
+    return ba_rows, ba_por_zona, pond_actual, {"sin_zona": sin_zona, "asignables": asignables}
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -76,11 +103,12 @@ async def listar(
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
 
-    ba_rows, ba_por_zona, pond_actual = _stats_bono_anterior(db)
+    ba_rows, ba_por_zona, pond_actual, extra = _stats_bono_anterior(db)
     stats = {}
     for z in zonas:
-        ba = ba_por_zona.get(_norm_zona(z.nombre), {"pond": 0.0, "pendientes": 0, "total": 0})
-        pa = pond_actual.get(z.id, 0.0)
+        zk = _norm_zona(z.nombre)
+        ba = ba_por_zona.get(zk, {"pond": 0.0, "pendientes": 0, "total": 0})
+        pa = pond_actual.get(zk, 0.0)
         stats[z.id] = {
             "pond_actual": pa,
             "pond_anterior": ba["pond"],
@@ -103,6 +131,8 @@ async def listar(
         "total_pendientes": total_pendientes,
         "tiene_bono_anterior": len(ba_rows) > 0,
         "total_bono_anterior": len(ba_rows),
+        "compradores_sin_zona": extra["sin_zona"],
+        "zonas_asignables": extra["asignables"],
     })
 
 
@@ -198,6 +228,31 @@ async def importar_bono_anterior(
 
     db.commit()
     return RedirectResponse(f"/zonas/?ok=importado&n={n_ins}", status_code=302)
+
+
+@router.post("/asignar-zonas-faltantes")
+async def asignar_zonas_faltantes(request: Request, db: Session = Depends(get_db)):
+    """Completa la zona de los compradores que NO tienen zona cargada este bono,
+    usando la zona que tenían en el bono anterior (match por nombre + dirección).
+    Solo asigna si existe una zona actual con ese nombre."""
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'zonas', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    ba_rows = db.query(models.BonoAnterior).all()
+    prev_zona = _prev_zona_by_key(ba_rows)
+    zona_by_norm = {}
+    for z in db.query(models.Zona).all():
+        zona_by_norm.setdefault(_norm_zona(z.nombre), z)
+
+    n = 0
+    for c in db.query(models.Comprador).filter(models.Comprador.zona_id.is_(None)).all():
+        zk = prev_zona.get(_norm_key(c.apellido_nombre, c.direccion))
+        if zk and zk in zona_by_norm:
+            c.zona_id = zona_by_norm[zk].id
+            n += 1
+    db.commit()
+    return RedirectResponse(f"/zonas/?ok=zonas_asignadas&n={n}", status_code=302)
 
 
 @router.post("/{zid}/toggle-hecha")

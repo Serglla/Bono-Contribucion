@@ -8,6 +8,15 @@
       <i class="bi bi-arrow-repeat me-1"></i>Renovaciones pendientes
       {% if total_pendientes %}<span class="badge bg-warning text-dark ms-1">{{ total_pendientes }}</span>{% endif %}
     </a>
+    {% if zonas_asignables %}
+    <form method="post" action="/zonas/asignar-zonas-faltantes" class="d-inline"
+          onsubmit="return appConfirmSubmit(event, '¿Completar la zona de {{ zonas_asignables }} comprador(es) desde el bono anterior?')">
+      <button class="btn btn-outline-success" title="Asigna la zona del bono anterior a los compradores que no tienen zona cargada">
+        <i class="bi bi-geo me-1"></i>Completar zonas faltantes
+        <span class="badge bg-success ms-1">{{ zonas_asignables }}</span>
+      </button>
+    </form>
+    {% endif %}
     <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalImportar">
       <i class="bi bi-upload me-1"></i>Importar bono anterior
     </button>
@@ -24,6 +33,10 @@
 {% elif msg_ok == 'importado' %}
 <div class="alert alert-success py-2 small d-flex align-items-center gap-2" role="alert">
   <i class="bi bi-check-circle"></i> Bono anterior importado: <strong>{{ msg_nombre or '' }}</strong> registros cargados.
+</div>
+{% elif msg_ok == 'zonas_asignadas' %}
+<div class="alert alert-success py-2 small d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-check-circle"></i> Se completó la zona de <strong>{{ msg_nombre or '' }}</strong> comprador(es) desde el bono anterior.
 </div>
 {% elif msg_err == 'nombre_duplicado' %}
 <div class="alert alert-danger py-2 small d-flex align-items-center gap-2" role="alert">
