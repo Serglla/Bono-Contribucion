@@ -90,6 +90,14 @@
   <div class="col-6 col-md-2">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-2 text-center">
+        <div class="fs-3 fw-bold text-warning">{{ zonas_empezadas }}</div>
+        <div class="small text-muted">Zonas empezadas</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-2 text-center">
         <div class="fs-3 fw-bold text-danger">{{ zonas_sin_hacer }}</div>
         <div class="small text-muted">Zonas sin hacer</div>
       </div>
@@ -98,7 +106,7 @@
   <div class="col-6 col-md-2">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-2 text-center">
-        <div class="fs-3 fw-bold text-success">{{ total_zonas - zonas_sin_hacer }}</div>
+        <div class="fs-3 fw-bold text-success">{{ zonas_hechas }}</div>
         <div class="small text-muted">Zonas hechas</div>
       </div>
     </div>
@@ -318,8 +326,12 @@
           <h6 class="fw-bold text-success"><i class="bi bi-cart-check me-1"></i>Ventas actuales
             <span class="badge bg-success ms-1" id="vz-n-actuales">0</span></h6>
           <div class="table-responsive" style="max-height:60vh;">
-            <table class="table table-sm table-hover small mb-0">
-              <thead class="table-light"><tr><th>PATA</th><th>Apellido y nombre</th><th>Dirección</th></tr></thead>
+            <table class="table table-sm table-hover small mb-0 vz-tabla" data-tbl="actuales">
+              <thead class="table-light"><tr>
+                <th class="vz-sort" data-k="pata" style="cursor:pointer;">PATA <i class="bi bi-arrow-down-up text-muted"></i></th>
+                <th class="vz-sort" data-k="nombre" style="cursor:pointer;">Apellido y nombre <i class="bi bi-arrow-down-up text-muted"></i></th>
+                <th class="vz-sort" data-k="direccion" style="cursor:pointer;">Dirección <i class="bi bi-arrow-down-up text-muted"></i></th>
+              </tr></thead>
               <tbody id="vz-actuales"></tbody>
             </table>
           </div>
@@ -328,8 +340,12 @@
           <h6 class="fw-bold text-secondary"><i class="bi bi-clock-history me-1"></i>Bono anterior
             <span class="badge bg-secondary ms-1" id="vz-n-anteriores">0</span></h6>
           <div class="table-responsive" style="max-height:60vh;">
-            <table class="table table-sm table-hover small mb-0">
-              <thead class="table-light"><tr><th>PATA</th><th>Apellido y nombre</th><th>Dirección</th></tr></thead>
+            <table class="table table-sm table-hover small mb-0 vz-tabla" data-tbl="anteriores">
+              <thead class="table-light"><tr>
+                <th class="vz-sort" data-k="pata" style="cursor:pointer;">PATA <i class="bi bi-arrow-down-up text-muted"></i></th>
+                <th class="vz-sort" data-k="nombre" style="cursor:pointer;">Apellido y nombre <i class="bi bi-arrow-down-up text-muted"></i></th>
+                <th class="vz-sort" data-k="direccion" style="cursor:pointer;">Dirección <i class="bi bi-arrow-down-up text-muted"></i></th>
+              </tr></thead>
               <tbody id="vz-anteriores"></tbody>
             </table>
           </div>
@@ -339,7 +355,8 @@
     <div class="modal-footer py-2">
       <span class="small text-muted me-auto">
         <span class="badge" style="background:#d1e7dd;color:#146c43;">●</span> renovó &nbsp;
-        <span class="badge bg-warning text-dark">●</span> no renovó
+        <span class="badge bg-warning text-dark">●</span> no renovó &nbsp;
+        <i class="bi bi-exclamation-triangle-fill text-danger"></i> misma dirección, distinto comprador
       </span>
       <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
     </div>
@@ -477,10 +494,50 @@
     let style = '';
     if (item.renovo) style = 'background:#d1e7dd;';            // mismo tono en ambas listas
     else if (marcarNoRenovado) style = 'background:#fff3cd;';  // anterior que no renovó
+    const alerta = item.alerta_dir
+      ? ' <i class="bi bi-exclamation-triangle-fill text-danger" title="Misma dirección, distinto comprador"></i>' : '';
     return '<tr style="' + style + '"><td><span class="badge bg-danger">' + esc(item.pata) +
            '</span></td><td class="fw-semibold">' + esc(item.nombre) +
-           '</td><td>' + esc(item.direccion) + '</td></tr>';
+           '</td><td>' + esc(item.direccion) + alerta + '</td></tr>';
   }
+
+  // Estado de orden por tabla
+  const estado = {
+    actuales:   { arr: [], key: 'nombre', asc: true, noRenov: false, tbody: 'vz-actuales',
+                  vacio: 'Sin ventas este bono.' },
+    anteriores: { arr: [], key: 'nombre', asc: true, noRenov: true,  tbody: 'vz-anteriores',
+                  vacio: 'Sin datos del bono anterior.' },
+  };
+
+  function render(which) {
+    const st = estado[which];
+    const arr = st.arr.slice().sort((a, b) => {
+      const va = (a[st.key] || '').toString(), vb = (b[st.key] || '').toString();
+      const cmp = va.localeCompare(vb, 'es', { numeric: true, sensitivity: 'base' });
+      return st.asc ? cmp : -cmp;
+    });
+    const tbody = document.getElementById(st.tbody);
+    tbody.innerHTML = arr.length
+      ? arr.map(i => filaHTML(i, st.noRenov)).join('')
+      : '<tr><td colspan="3" class="text-center text-muted py-3">' + st.vacio + '</td></tr>';
+  }
+
+  // Click en encabezados → ordenar
+  modalEl.querySelectorAll('.vz-tabla').forEach(tabla => {
+    const which = tabla.getAttribute('data-tbl');
+    tabla.querySelectorAll('th.vz-sort').forEach(th => {
+      th.addEventListener('click', () => {
+        const k = th.getAttribute('data-k');
+        const st = estado[which];
+        st.asc = (st.key === k) ? !st.asc : true;
+        st.key = k;
+        tabla.querySelectorAll('th.vz-sort i').forEach(i => i.className = 'bi bi-arrow-down-up text-muted');
+        const icon = th.querySelector('i');
+        if (icon) icon.className = 'bi ' + (st.asc ? 'bi-sort-down-alt' : 'bi-sort-up') + ' text-primary';
+        render(which);
+      });
+    });
+  });
 
   modalEl.addEventListener('show.bs.modal', async (ev) => {
     const a = ev.relatedTarget;
@@ -497,12 +554,10 @@
       document.getElementById('vz-nombre').textContent = data.zona || '';
       document.getElementById('vz-n-actuales').textContent = data.n_actuales;
       document.getElementById('vz-n-anteriores').textContent = data.n_anteriores;
-      document.getElementById('vz-actuales').innerHTML =
-        data.actuales.length ? data.actuales.map(i => filaHTML(i, false)).join('')
-                             : '<tr><td colspan="3" class="text-center text-muted py-3">Sin ventas este bono.</td></tr>';
-      document.getElementById('vz-anteriores').innerHTML =
-        data.anteriores.length ? data.anteriores.map(i => filaHTML(i, true)).join('')
-                               : '<tr><td colspan="3" class="text-center text-muted py-3">Sin datos del bono anterior.</td></tr>';
+      estado.actuales.arr = data.actuales || [];
+      estado.anteriores.arr = data.anteriores || [];
+      render('actuales');
+      render('anteriores');
       loading.classList.add('d-none');
       content.classList.remove('d-none');
     } catch (e) {

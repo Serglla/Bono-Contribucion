@@ -32,6 +32,86 @@ def _norm_key(nombre, direccion) -> str:
     return _norm_txt(nombre) + "|" + _norm_txt(direccion)
 
 
+_STOP_DIR = {"DE", "LA", "EL", "Y", "DEL", "LOS", "LAS", "N", "NRO", "N°", "DTO", "PB"}
+
+
+def _dir_parse(direccion):
+    """Devuelve (número de casa, set de palabras de calle) de una dirección.
+    El número de casa es el número MÁS GRANDE (en 'CALLE 25 DE AGOSTO 723' el 723,
+    no el 25). Las palabras de calle excluyen el número de casa y palabras comunes."""
+    toks = _norm_txt(direccion).split()
+    nums = [t for t in toks if t.isdigit()]
+    house = max(nums, key=int) if nums else ""
+    calles, quitado = set(), False
+    for t in toks:
+        if t in _STOP_DIR:
+            continue
+        if t == house and not quitado:
+            quitado = True
+            continue
+        calles.add(t)
+    return house, calles
+
+
+def _apellido_num(nombre, direccion):
+    """Descompone un socio en (apellido, número de casa, set de nombres de pila).
+    Se usa para match difuso entre bonos: "MAHER MARIA" y "MAHER MARIA CECILIA"
+    en "25 DE AGOSTO 723" son la misma persona."""
+    toks = _norm_txt(nombre).split()
+    apellido = toks[0] if toks else ""
+    given = set(toks[1:])
+    house, _ = _dir_parse(direccion)
+    return apellido, house, given
+
+
+def _marcar_alertas_direccion(*listas):
+    """Marca con alerta_dir=True las filas que comparten dirección (mismo número de
+    casa + alguna palabra de calle en común) con OTRA persona distinta (no el mismo
+    socio). Útil para avisar 'misma dirección, distinto comprador'."""
+    info = []
+    for lista in listas:
+        for it in lista:
+            it["alerta_dir"] = False
+            ap, num, given = _apellido_num(it["nombre"], it["direccion"])
+            _, calles = _dir_parse(it["direccion"])
+            info.append((ap, num, given, calles, it))
+    for i, (ap, num, given, calles, it) in enumerate(info):
+        if not num:
+            continue
+        for j, (ap2, num2, given2, calles2, it2) in enumerate(info):
+            if i == j or num2 != num:
+                continue
+            if not (calles & calles2):           # misma dirección (num + calle en común)
+                continue
+            mismo = (ap == ap2) and ((given & given2) or not given or not given2)
+            if not mismo:
+                it["alerta_dir"] = True
+                break
+
+
+def _build_socio_matcher(personas):
+    """Índice (apellido, número) -> lista de sets de nombres de pila."""
+    idx = defaultdict(list)
+    for nombre, direccion in personas:
+        ap, num, given = _apellido_num(nombre, direccion)
+        if ap and num:
+            idx[(ap, num)].append(given)
+    return idx
+
+
+def _socio_match(idx, nombre, direccion) -> bool:
+    """True si la persona coincide (difuso) con alguien del índice:
+    mismo apellido + mismo número de casa + comparten algún nombre de pila
+    (o uno de los dos no tiene nombres de pila adicionales)."""
+    ap, num, given = _apellido_num(nombre, direccion)
+    if not ap or not num:
+        return False
+    for g2 in idx.get((ap, num), []):
+        if (given & g2) or not given or not g2:
+            return True
+    return False
+
+
 def _prev_zona_by_key(ba_rows):
     """Mapa identidad-de-comprador (nombre+dirección) -> zona normalizada que tenía
     en el bono anterior. Se usa como respaldo cuando este bono no tiene zona cargada."""
@@ -57,7 +137,7 @@ def _stats_bono_anterior(db):
         .options(selectinload(models.Comprador.boletas).selectinload(models.Boleta.talonera))
         .all()
     )
-    current_keys = {_norm_key(c.apellido_nombre, c.direccion) for c in compradores}
+    current_matcher = _build_socio_matcher((c.apellido_nombre, c.direccion) for c in compradores)
     prev_zona = _prev_zona_by_key(ba_rows)
     zona_norm_by_id = {z.id: _norm_zona(z.nombre) for z in db.query(models.Zona).all()}
     zonas_norm_set = set(zona_norm_by_id.values())
@@ -83,7 +163,7 @@ def _stats_bono_anterior(db):
         g = ba_por_zona[_norm_zona(r.zona)]
         g["pond"] += float(r.multiplicador or 1.0)
         g["total"] += 1
-        if _norm_key(r.apellido_nombre, r.direccion) not in current_keys:
+        if not _socio_match(current_matcher, r.apellido_nombre, r.direccion):
             g["pendientes"] += 1
 
     return ba_rows, ba_por_zona, pond_actual, {"sin_zona": sin_zona, "asignables": asignables}
@@ -117,7 +197,13 @@ async def listar(
             "total_anterior": ba["total"],
             "rend": (pa / ba["pond"] * 100) if ba["pond"] > 0 else None,
         }
-    zonas_sin_hacer = sum(1 for z in zonas if not z.hecha)
+    # Estado de cada zona:
+    #   hecha    → marcada manualmente como terminada
+    #   empezada → no hecha pero ya tiene compradores cargados este bono
+    #   sin hacer→ no hecha y sin compradores este bono (todavía sin tocar)
+    zonas_hechas = sum(1 for z in zonas if z.hecha)
+    zonas_empezadas = sum(1 for z in zonas if not z.hecha and len(z.compradores) > 0)
+    zonas_sin_hacer = sum(1 for z in zonas if not z.hecha and len(z.compradores) == 0)
     total_pendientes = sum(s["pendientes"] for s in stats.values())
 
     # Zonas que vienen del bono anterior (a migrar) y cuántas faltan crear en el sistema
@@ -139,6 +225,8 @@ async def listar(
         "msg_sinmult": sinmult,
         "stats": stats,
         "zonas_sin_hacer": zonas_sin_hacer,
+        "zonas_empezadas": zonas_empezadas,
+        "zonas_hechas": zonas_hechas,
         "total_pendientes": total_pendientes,
         "tiene_bono_anterior": len(ba_rows) > 0,
         "total_bono_anterior": len(ba_rows),
@@ -321,11 +409,14 @@ async def ventas_zona(zid: int, request: Request, db: Session = Depends(get_db))
         .filter(models.Comprador.zona_id == zid)
         .all()
     )
-    # Claves (nombre+dirección) presentes en el bono anterior → para marcar renovados
-    prev_keys = {
-        _norm_key(r.apellido_nombre, r.direccion)
-        for r in db.query(models.BonoAnterior).all()
-    }
+    # Matchers difusos para detectar el mismo socio entre bonos (apellido + número
+    # de casa + nombre de pila en común), aunque el nombre no sea idéntico.
+    ba_all = db.query(models.BonoAnterior).all()
+    prev_matcher = _build_socio_matcher((r.apellido_nombre, r.direccion) for r in ba_all)
+    current_matcher = _build_socio_matcher(
+        (c.apellido_nombre, c.direccion) for c in db.query(models.Comprador).all()
+    )
+
     actuales = []
     for c in compradores:
         patas = sorted({b.talonera.nombre for b in c.boletas if b.talonera})
@@ -334,24 +425,26 @@ async def ventas_zona(zid: int, request: Request, db: Session = Depends(get_db))
             "nombre": c.apellido_nombre or "",
             "direccion": c.direccion or "",
             # vendido también en el anterior (renovó) → mismo tono en ambas listas
-            "renovo": _norm_key(c.apellido_nombre, c.direccion) in prev_keys,
+            "renovo": _socio_match(prev_matcher, c.apellido_nombre, c.direccion),
         })
     actuales.sort(key=lambda x: _norm_txt(x["nombre"]))
 
-    # Ventas anteriores: filas del bono anterior de esta zona (match por nombre normalizado)
+    # Ventas anteriores: filas del bono anterior de esta zona
     zk = _norm_zona(z.nombre)
-    current_keys = {_norm_key(c.apellido_nombre, c.direccion) for c in db.query(models.Comprador).all()}
     anteriores = []
-    for r in db.query(models.BonoAnterior).all():
+    for r in ba_all:
         if _norm_zona(r.zona) != zk:
             continue
         anteriores.append({
             "pata": r.pata or "—",
             "nombre": r.apellido_nombre or "",
             "direccion": r.direccion or "",
-            "renovo": _norm_key(r.apellido_nombre, r.direccion) in current_keys,
+            "renovo": _socio_match(current_matcher, r.apellido_nombre, r.direccion),
         })
     anteriores.sort(key=lambda x: _norm_txt(x["nombre"]))
+
+    # Avisar misma dirección con distinto comprador (entre actuales y anteriores)
+    _marcar_alertas_direccion(actuales, anteriores)
 
     return JSONResponse({
         "zona": z.nombre,
@@ -384,14 +477,14 @@ async def renovaciones(request: Request, db: Session = Depends(get_db)):
 
     ba_rows = db.query(models.BonoAnterior).all()
     compradores = db.query(models.Comprador).all()
-    current_keys = {_norm_key(c.apellido_nombre, c.direccion) for c in compradores}
+    current_matcher = _build_socio_matcher((c.apellido_nombre, c.direccion) for c in compradores)
 
     # Nombre legible de zona: si coincide con una zona actual, usar su nombre
     zonas_por_norm = {_norm_zona(z.nombre): z.nombre for z in db.query(models.Zona).all()}
 
     grupos = {}
     for r in ba_rows:
-        if _norm_key(r.apellido_nombre, r.direccion) in current_keys:
+        if _socio_match(current_matcher, r.apellido_nombre, r.direccion):
             continue
         zk = _norm_zona(r.zona)
         label = zonas_por_norm.get(zk, r.zona or "— sin zona —")
