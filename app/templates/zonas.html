@@ -77,63 +77,37 @@
 </div>
 {% endif %}
 
-{# ══════════ PANEL RESUMEN ══════════ #}
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-body py-2 text-center">
-        <div class="fs-3 fw-bold text-primary">{{ total_zonas }}</div>
-        <div class="small text-muted">Total de zonas</div>
+{# ══════════ PANEL RESUMEN (una sola fila, compacto) ══════════ #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2 px-2">
+    <div class="d-flex flex-nowrap text-center overflow-auto">
+      <div class="flex-fill px-2 border-end">
+        <div class="fs-4 fw-bold text-primary lh-1">{{ total_zonas }}</div>
+        <div class="text-muted" style="font-size:.7rem;">Total de zonas</div>
       </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-body py-2 text-center">
-        <div class="fs-3 fw-bold text-warning">{{ zonas_empezadas }}</div>
-        <div class="small text-muted">Zonas empezadas</div>
+      <div class="flex-fill px-2 border-end">
+        <div class="fs-4 fw-bold text-warning lh-1">{{ zonas_empezadas }}</div>
+        <div class="text-muted" style="font-size:.7rem;">Zonas empezadas</div>
       </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-body py-2 text-center">
-        <div class="fs-3 fw-bold text-danger">{{ zonas_sin_hacer }}</div>
-        <div class="small text-muted">Zonas sin hacer</div>
+      <div class="flex-fill px-2 border-end">
+        <div class="fs-4 fw-bold text-danger lh-1">{{ zonas_sin_hacer }}</div>
+        <div class="text-muted" style="font-size:.7rem;">Zonas sin hacer</div>
       </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-body py-2 text-center">
-        <div class="fs-3 fw-bold text-success">{{ zonas_hechas }}</div>
-        <div class="small text-muted">Zonas hechas</div>
+      <div class="flex-fill px-2 border-end">
+        <div class="fs-4 fw-bold text-success lh-1">{{ zonas_hechas }}</div>
+        <div class="text-muted" style="font-size:.7rem;">Zonas hechas</div>
       </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-body py-2 text-center">
-        <div class="fs-3 fw-bold text-warning">{{ total_pendientes }}</div>
-        <div class="small text-muted">Renovaciones pend.</div>
+      <div class="flex-fill px-2 border-end">
+        <div class="fs-4 fw-bold text-warning lh-1">{{ total_pendientes }}</div>
+        <div class="text-muted" style="font-size:.7rem;">Renovaciones pend.</div>
       </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-body py-2 text-center">
-        <div class="fs-3 fw-bold {% if zonas_faltan_crear %}text-warning{% else %}text-secondary{% endif %}">{{ zonas_bono_anterior_count }}</div>
-        <div class="small text-muted">Zonas a migrar
-          {% if zonas_faltan_crear %}<span class="d-block text-warning fw-semibold">{{ zonas_faltan_crear }} faltan crear</span>{% endif %}
-        </div>
+      <div class="flex-fill px-2 border-end">
+        <div class="fs-4 fw-bold {% if zonas_faltan_crear %}text-warning{% else %}text-secondary{% endif %} lh-1">{{ zonas_bono_anterior_count }}</div>
+        <div class="text-muted" style="font-size:.7rem;">Zonas a migrar{% if zonas_faltan_crear %} <span class="text-warning fw-semibold">({{ zonas_faltan_crear }} faltan)</span>{% endif %}</div>
       </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-body py-2 text-center">
-        <div class="fs-3 fw-bold text-secondary">{{ total_bono_anterior }}</div>
-        <div class="small text-muted">Registros bono anterior</div>
+      <div class="flex-fill px-2">
+        <div class="fs-4 fw-bold text-secondary lh-1">{{ total_bono_anterior }}</div>
+        <div class="text-muted" style="font-size:.7rem;">Registros bono ant.</div>
       </div>
     </div>
   </div>
