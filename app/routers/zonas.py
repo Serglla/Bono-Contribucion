@@ -99,6 +99,31 @@ def _build_socio_matcher(personas):
     return idx
 
 
+def _build_zona_index(items):
+    """items: iterable de (nombre, direccion, zona_display).
+    Devuelve (apellido, número) -> lista de (set de nombres de pila, zona_display).
+    Permite saber NO solo si la persona figura, sino en qué zona."""
+    idx = defaultdict(list)
+    for nombre, direccion, zona in items:
+        ap, num, given = _apellido_num(nombre, direccion)
+        if ap and num:
+            idx[(ap, num)].append((given, zona))
+    return idx
+
+
+def _socio_zonas(idx, nombre, direccion):
+    """Set de zonas (display) donde matchea esta persona (difuso)."""
+    ap, num, given = _apellido_num(nombre, direccion)
+    out = set()
+    if not ap or not num:
+        return out
+    for given2, zona in idx.get((ap, num), []):
+        if (given & given2) or not given or not given2:
+            if zona:
+                out.add(zona)
+    return out
+
+
 def _socio_match(idx, nombre, direccion) -> bool:
     """True si la persona coincide (difuso) con alguien del índice:
     mismo apellido + mismo número de casa + comparten algún nombre de pila
@@ -409,37 +434,45 @@ async def ventas_zona(zid: int, request: Request, db: Session = Depends(get_db))
         .filter(models.Comprador.zona_id == zid)
         .all()
     )
-    # Matchers difusos para detectar el mismo socio entre bonos (apellido + número
-    # de casa + nombre de pila en común), aunque el nombre no sea idéntico.
-    ba_all = db.query(models.BonoAnterior).all()
-    prev_matcher = _build_socio_matcher((r.apellido_nombre, r.direccion) for r in ba_all)
-    current_matcher = _build_socio_matcher(
-        (c.apellido_nombre, c.direccion) for c in db.query(models.Comprador).all()
+    zk = _norm_zona(z.nombre)
+    ba_zona = [r for r in db.query(models.BonoAnterior).all() if _norm_zona(r.zona) == zk]
+
+    # Índices GLOBALES (todas las zonas) con la zona de cada registro: así detectamos
+    # que la persona renovó aunque haya cambiado de zona, y avisamos dónde figuraba.
+    zona_nombre_by_id = {z2.id: z2.nombre for z2 in db.query(models.Zona).all()}
+    prev_idx = _build_zona_index(
+        (r.apellido_nombre, r.direccion, (r.zona or "").strip())
+        for r in db.query(models.BonoAnterior).all()
+    )
+    curr_idx = _build_zona_index(
+        (c.apellido_nombre, c.direccion, zona_nombre_by_id.get(c.zona_id, ""))
+        for c in db.query(models.Comprador).all()
     )
 
     actuales = []
     for c in compradores:
         patas = sorted({b.talonera.nombre for b in c.boletas if b.talonera})
+        zonas_prev = _socio_zonas(prev_idx, c.apellido_nombre, c.direccion)
+        otras = sorted({zp for zp in zonas_prev if _norm_zona(zp) != zk})
         actuales.append({
             "pata": ", ".join(patas) if patas else "—",
             "nombre": c.apellido_nombre or "",
             "direccion": c.direccion or "",
-            # vendido también en el anterior (renovó) → mismo tono en ambas listas
-            "renovo": _socio_match(prev_matcher, c.apellido_nombre, c.direccion),
+            "renovo": bool(zonas_prev),          # renovó (en esta u otra zona)
+            "zona_otro": ", ".join(otras),       # si renovó pero figuraba en otra zona
         })
     actuales.sort(key=lambda x: _norm_txt(x["nombre"]))
 
-    # Ventas anteriores: filas del bono anterior de esta zona
-    zk = _norm_zona(z.nombre)
     anteriores = []
-    for r in ba_all:
-        if _norm_zona(r.zona) != zk:
-            continue
+    for r in ba_zona:
+        zonas_act = _socio_zonas(curr_idx, r.apellido_nombre, r.direccion)
+        otras = sorted({za for za in zonas_act if _norm_zona(za) != zk})
         anteriores.append({
             "pata": r.pata or "—",
             "nombre": r.apellido_nombre or "",
             "direccion": r.direccion or "",
-            "renovo": _socio_match(current_matcher, r.apellido_nombre, r.direccion),
+            "renovo": bool(zonas_act),
+            "zona_otro": ", ".join(otras),       # si renovó pero ahora está en otra zona
         })
     anteriores.sort(key=lambda x: _norm_txt(x["nombre"]))
 

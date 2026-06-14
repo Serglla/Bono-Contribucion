@@ -497,8 +497,14 @@
     else if (marcarNoRenovado) cls = 'table-warning';  // anterior que no renovó
     const alerta = item.alerta_dir
       ? ' <i class="bi bi-exclamation-triangle-fill text-danger" title="Misma dirección, distinto comprador"></i>' : '';
+    // Renovó pero figuraba en otra zona → avisar dónde
+    const otra = item.zona_otro
+      ? ' <span class="badge bg-info text-dark" title="' +
+        (marcarNoRenovado ? 'Ahora figura en' : 'En el bono anterior figuraba en') +
+        ' otra zona">' + (marcarNoRenovado ? 'ahora: zona ' : 'antes: zona ') + esc(item.zona_otro) + '</span>'
+      : '';
     return '<tr class="' + cls + '"><td><span class="badge bg-danger">' + esc(item.pata) +
-           '</span></td><td class="fw-semibold">' + esc(item.nombre) +
+           '</span></td><td class="fw-semibold">' + esc(item.nombre) + otra +
            '</td><td>' + esc(item.direccion) + alerta + '</td></tr>';
   }
 
