@@ -549,7 +549,8 @@
     loading.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cargando…';
     content.classList.add('d-none');
     try {
-      const r = await fetch('/zonas/' + zid + '/ventas', { credentials: 'include' });
+      const r = await fetch('/zonas/' + zid + '/ventas?_=' + Date.now(),
+                            { credentials: 'include', cache: 'no-store' });
       const data = await r.json();
       document.getElementById('vz-nombre').textContent = data.zona || '';
       document.getElementById('vz-n-actuales').textContent = data.n_actuales;
