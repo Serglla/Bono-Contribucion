@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Renovaciones pendientes{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-arrow-repeat text-warning me-2"></i>Renovaciones pendientes
+    <span class="text-muted small ms-1" style="font-weight:normal;">por zona</span>
+  </h4>
+  <a href="/zonas/" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Volver a Zonas
+  </a>
+</div>
+
+<p class="text-muted small mb-3">
+  Compradores que adquirieron el bono <strong>anterior</strong> y todavía <strong>no renovaron</strong> este bono.
+  El cruce se hace por <strong>nombre + dirección</strong>. Total: <strong>{{ total }}</strong>.
+</p>
+
+{% if not tiene_bono_anterior %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+    Todavía no importaste el bono anterior. Andá a Zonas → "Importar bono anterior".
+  </div>
+</div>
+{% elif not grupos %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body text-center text-success py-5">
+    <i class="bi bi-check-circle fs-1 d-block mb-2"></i>
+    ¡No quedan renovaciones pendientes! Todos los del bono anterior ya renovaron.
+  </div>
+</div>
+{% else %}
+<div class="accordion" id="accRenov">
+  {% for g in grupos %}
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="rH{{ loop.index }}">
+      <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse"
+              data-bs-target="#rC{{ loop.index }}" aria-controls="rC{{ loop.index }}">
+        <i class="bi bi-geo-alt me-2"></i>
+        <span class="fw-semibold">Zona {{ g.zona }}</span>
+        <span class="badge bg-warning text-dark ms-3">{{ g.cantidad }} pendiente(s)</span>
+      </button>
+    </h2>
+    <div id="rC{{ loop.index }}" class="accordion-collapse collapse" aria-labelledby="rH{{ loop.index }}">
+      <div class="accordion-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0 small">
+            <thead class="table-light">
+              <tr>
+                <th>PATA</th>
+                <th>Apellido y nombre</th>
+                <th>Dirección</th>
+                <th>Cobrador</th>
+                <th>Vendedor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in g.filas %}
+              <tr>
+                <td><span class="badge bg-danger">{{ r.pata }}</span></td>
+                <td class="fw-semibold">{{ r.apellido_nombre }}</td>
+                <td>{{ r.direccion or "—" }}</td>
+                <td>{{ r.cobrador or "—" }}</td>
+                <td>{{ r.vendedor or "—" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}

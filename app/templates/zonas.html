@@ -1,16 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Zonas{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h4 class="fw-bold mb-0"><i class="bi bi-geo-alt-fill text-danger me-2"></i>Zonas</h4>
-  <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNueva">
-    <i class="bi bi-plus-lg me-1"></i>Nueva
-  </button>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="/zonas/renovaciones" class="btn btn-outline-warning">
+      <i class="bi bi-arrow-repeat me-1"></i>Renovaciones pendientes
+      {% if total_pendientes %}<span class="badge bg-warning text-dark ms-1">{{ total_pendientes }}</span>{% endif %}
+    </a>
+    <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalImportar">
+      <i class="bi bi-upload me-1"></i>Importar bono anterior
+    </button>
+    <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNueva">
+      <i class="bi bi-plus-lg me-1"></i>Nueva
+    </button>
+  </div>
 </div>
 
 {% if msg_ok == 'editada' %}
 <div class="alert alert-success py-2 small d-flex align-items-center gap-2" role="alert">
   <i class="bi bi-check-circle"></i> Zona actualizada. El nuevo nombre se aplicó a todos los socios vinculados.
+</div>
+{% elif msg_ok == 'importado' %}
+<div class="alert alert-success py-2 small d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-check-circle"></i> Bono anterior importado: <strong>{{ msg_nombre or '' }}</strong> registros cargados.
 </div>
 {% elif msg_err == 'nombre_duplicado' %}
 <div class="alert alert-danger py-2 small d-flex align-items-center gap-2" role="alert">
@@ -20,7 +33,51 @@
 <div class="alert alert-warning py-2 small d-flex align-items-center gap-2" role="alert">
   <i class="bi bi-exclamation-triangle"></i> El nombre no puede estar vacío.
 </div>
+{% elif msg_err == 'columnas' %}
+<div class="alert alert-danger py-2 small d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-x-circle"></i> No encontré las columnas PATA / APELLIDO Y NOMBRE en el Excel. Revisá los encabezados.
+</div>
+{% elif msg_err in ['archivo_invalido', 'archivo_vacio', 'openpyxl'] %}
+<div class="alert alert-danger py-2 small d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-x-circle"></i> No pude leer el archivo. Asegurate de subir un Excel (.xlsx) válido.
+</div>
 {% endif %}
+
+{# ══════════ PANEL RESUMEN ══════════ #}
+<div class="row g-2 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-2 text-center">
+        <div class="fs-3 fw-bold text-danger">{{ zonas_sin_hacer }}</div>
+        <div class="small text-muted">Zonas sin hacer</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-2 text-center">
+        <div class="fs-3 fw-bold text-success">{{ zonas|length - zonas_sin_hacer }}</div>
+        <div class="small text-muted">Zonas hechas</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-2 text-center">
+        <div class="fs-3 fw-bold text-warning">{{ total_pendientes }}</div>
+        <div class="small text-muted">Renovaciones pendientes</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-2 text-center">
+        <div class="fs-3 fw-bold text-secondary">{{ total_bono_anterior }}</div>
+        <div class="small text-muted">Registros bono anterior</div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="card border-0 shadow-sm">
   <div class="table-responsive">
@@ -28,7 +85,9 @@
       <thead class="table-light">
         <tr>
           <th>Nombre</th>
-          <th>Descripción</th>
+          <th class="text-center">Estado</th>
+          <th class="text-center" title="Ponderado vendido este bono vs el anterior (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, ...)">Rendimiento vs anterior</th>
+          <th class="text-center" title="Compradores del bono anterior que aún no renovaron">Pend.</th>
           <th>Compradores</th>
           <th>Vendedor asignado</th>
           <th></th>
@@ -36,9 +95,45 @@
       </thead>
       <tbody>
         {% for z in zonas %}
+        {% set st = stats.get(z.id) %}
         <tr>
-          <td class="fw-semibold">{{ z.nombre }}</td>
-          <td>{{ z.descripcion or "—" }}</td>
+          <td class="fw-semibold">
+            {{ z.nombre }}
+            {% if z.descripcion %}<span class="d-block text-muted small">{{ z.descripcion }}</span>{% endif %}
+          </td>
+          <td class="text-center">
+            <form method="post" action="/zonas/{{ z.id }}/toggle-hecha" class="d-inline">
+              {% if z.hecha %}
+              <button class="btn btn-sm btn-success" title="Marcada como hecha — click para desmarcar">
+                <i class="bi bi-check-circle-fill me-1"></i>Hecha
+              </button>
+              {% else %}
+              <button class="btn btn-sm btn-outline-secondary" title="Marcar zona como hecha">
+                <i class="bi bi-circle me-1"></i>Pendiente
+              </button>
+              {% endif %}
+            </form>
+          </td>
+          <td class="text-center">
+            {% if st and st.pond_anterior > 0 %}
+              {% set rend = st.rend %}
+              <span class="fw-bold {% if rend >= 100 %}text-success{% elif rend >= 50 %}text-warning{% else %}text-danger{% endif %}">
+                {{ rend | round(0) | int }}%
+              </span>
+              <span class="d-block text-muted" style="font-size:.7rem;">
+                {{ st.pond_actual | round(0) | int }} / {{ st.pond_anterior | round(0) | int }}
+              </span>
+            {% elif st and st.pond_actual > 0 %}
+              <span class="text-muted small">{{ st.pond_actual | round(0) | int }} (sin ref.)</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if st and st.pendientes %}
+              <span class="badge bg-warning text-dark">{{ st.pendientes }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
           <td><span class="badge bg-secondary">{{ z.compradores|length }}</span></td>
           <td>
             <form method="post" action="/zonas/{{ z.id }}/vendedor"
@@ -74,7 +169,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-center text-muted py-4">Sin zonas registradas</td></tr>
+        <tr><td colspan="7" class="text-center text-muted py-4">Sin zonas registradas</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -101,6 +196,33 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="submit" class="btn btn-danger">Crear</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# ══════════ MODAL IMPORTAR BONO ANTERIOR ══════════ #}
+<div class="modal fade" id="modalImportar" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <form method="post" action="/zonas/importar-bono-anterior" enctype="multipart/form-data">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-upload me-1"></i>Importar bono anterior</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">
+          Subí el Excel (.xlsx) del bono anterior. Debe tener encabezados:
+          <strong>PATA, APELLIDO Y NOMBRE, DIRECCION, ZONA, COBRADOR, CONDICION, VENDEDOR</strong>.
+        </p>
+        <div class="alert alert-warning py-2 small mb-2">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          Al importar se <strong>reemplaza</strong> todo el historial anterior cargado.
+        </div>
+        <input type="file" name="archivo" class="form-control" accept=".xlsx" required>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-1"></i>Importar</button>
       </div>
     </form>
   </div></div>

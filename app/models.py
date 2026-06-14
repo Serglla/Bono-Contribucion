@@ -55,6 +55,8 @@ class Zona(Base):
     # cobrador_id legacy column permanece en la DB pero ya no lo gestiona el ORM.
     # La relacion real es muchos-a-muchos via zona_cobradores.
     vendedor_id = Column(Integer, ForeignKey("vendedores.id"), nullable=True)
+    # Marca manual: la zona ya fue recorrida/terminada este bono.
+    hecha = Column(Boolean, default=False)
     vendedor = relationship("Vendedor", back_populates="zonas")
     compradores = relationship("Comprador", back_populates="zona")
     zona_cobradores = relationship(
@@ -311,6 +313,23 @@ class EntregaCaja(Base):
     vendedor_id      = Column(Integer, ForeignKey("vendedores.id"), nullable=True)
     usuario          = relationship("User")
     vendedor         = relationship("Vendedor")
+
+
+class BonoAnterior(Base):
+    """Historial de números vendidos en el bono ANTERIOR (importado desde Excel).
+    Cada fila = un bono vendido. Sirve para medir rendimiento de cada zona vs el
+    bono actual y detectar compradores que aún no renovaron."""
+    __tablename__ = "bono_anterior"
+    id              = Column(Integer, primary_key=True, index=True)
+    pata            = Column(String)                       # "PATA 2"
+    apellido_nombre = Column(String, index=True)
+    direccion       = Column(String)
+    zona            = Column(String, index=True)           # tal cual viene (ej. "35")
+    cobrador        = Column(String)
+    condicion       = Column(String)
+    vendedor        = Column(String)
+    multiplicador   = Column(Float, default=1.0)           # de la PATA (PATA 2 = 2.0, etc.)
+    importado_en    = Column(DateTime, default=_datetime.utcnow)
 
 
 class Sorteo(Base):

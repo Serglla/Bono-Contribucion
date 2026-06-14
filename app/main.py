@@ -360,6 +360,17 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion vendedor_id entregas_caja: {e}")
 
+        # Migrar columna hecha en zonas (marca manual de zona terminada)
+        try:
+            cols_z = [c["name"] for c in inspector.get_columns("zonas")]
+            if "hecha" not in cols_z:
+                db.execute(text("ALTER TABLE zonas ADD COLUMN hecha BOOLEAN DEFAULT FALSE"))
+                db.commit()
+                print("Migracion hecha zonas: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion hecha zonas: {e}")
+
         # Migrar columna tipo en entregas_caja (ENTREGA | RETIRO)
         try:
             cols_ec2 = [c["name"] for c in inspector.get_columns("entregas_caja")]
