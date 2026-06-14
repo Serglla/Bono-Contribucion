@@ -64,6 +64,35 @@ def _apellido_num(nombre, direccion):
     return apellido, house, given
 
 
+def _lev_le1(a, b):
+    """True si la distancia de edición entre a y b es <= 1 (1 typo)."""
+    if a == b:
+        return True
+    la, lb = len(a), len(b)
+    if abs(la - lb) > 1:
+        return False
+    i = 0
+    while i < min(la, lb) and a[i] == b[i]:
+        i += 1
+    if la == lb:
+        return a[i + 1:] == b[i + 1:]        # sustitución
+    if la < lb:
+        return a[i:] == b[i + 1:]            # inserción en b
+    return a[i + 1:] == b[i:]                # borrado en b
+
+
+def _apellido_sim(a, b):
+    """Apellidos 'iguales' tolerando typos/plurales: exacto, uno prefijo del otro
+    (nombres largos, ej. TRANSPORTE/TRANSPORTES), o 1 letra de diferencia."""
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if len(a) >= 4 and len(b) >= 4 and (a.startswith(b) or b.startswith(a)):
+        return True
+    return _lev_le1(a, b)
+
+
 def _build_addr_index(items):
     """items: (nombre, direccion, zona_display). Índice número de casa -> lista de
     (calles, apellido, given, nombre, zona). Para buscar quién está en una dirección."""
@@ -87,7 +116,7 @@ def _otro_en_direccion(idx, nombre, direccion):
     for calles2, ap2, given2, nombre2, zona2 in idx.get(num, []):
         if not (calles & calles2):                      # misma dirección (num + calle)
             continue
-        if (ap == ap2) and ((given & given2) or not given or not given2):
+        if _apellido_sim(ap, ap2) and ((given & given2) or not given or not given2):
             continue                                     # es el mismo socio → no avisar
         etiqueta = nombre2 + (" (zona " + str(zona2) + ")" if zona2 else "")
         if etiqueta not in out:
@@ -127,24 +156,24 @@ def _mismo_nombre_otra_dir(idx, nombre, direccion):
 
 
 def _build_socio_matcher(personas):
-    """Índice (apellido, número) -> lista de sets de nombres de pila."""
+    """Índice número de casa -> lista de (apellido, set de nombres de pila).
+    Se busca por número y se compara el apellido en forma tolerante (typos/plurales)."""
     idx = defaultdict(list)
     for nombre, direccion in personas:
         ap, num, given = _apellido_num(nombre, direccion)
         if ap and num:
-            idx[(ap, num)].append(given)
+            idx[num].append((ap, given))
     return idx
 
 
 def _build_zona_index(items):
     """items: iterable de (nombre, direccion, zona_display).
-    Devuelve (apellido, número) -> lista de (set de nombres de pila, zona_display).
-    Permite saber NO solo si la persona figura, sino en qué zona."""
+    Devuelve número de casa -> lista de (apellido, set de nombres de pila, zona)."""
     idx = defaultdict(list)
     for nombre, direccion, zona in items:
         ap, num, given = _apellido_num(nombre, direccion)
         if ap and num:
-            idx[(ap, num)].append((given, zona))
+            idx[num].append((ap, given, zona))
     return idx
 
 
@@ -154,8 +183,8 @@ def _socio_zonas(idx, nombre, direccion):
     out = set()
     if not ap or not num:
         return out
-    for given2, zona in idx.get((ap, num), []):
-        if (given & given2) or not given or not given2:
+    for ap2, given2, zona in idx.get(num, []):
+        if _apellido_sim(ap, ap2) and ((given & given2) or not given or not given2):
             if zona:
                 out.add(zona)
     return out
@@ -175,8 +204,8 @@ def _socio_match(idx, nombre, direccion) -> bool:
     ap, num, given = _apellido_num(nombre, direccion)
     if not ap or not num:
         return False
-    for g2 in idx.get((ap, num), []):
-        if (given & g2) or not given or not g2:
+    for ap2, g2 in idx.get(num, []):
+        if _apellido_sim(ap, ap2) and ((given & g2) or not given or not g2):
             return True
     return False
 
