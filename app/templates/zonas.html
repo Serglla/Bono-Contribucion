@@ -169,6 +169,7 @@
             data-vendid="{{ z.vendedor_id or '' }}">
           <td class="fw-semibold">
             <a href="#" class="zona-ver text-decoration-none" data-zid="{{ z.id }}"
+               data-bs-toggle="modal" data-bs-target="#modalVentasZona"
                title="Ver ventas actuales y del bono anterior">
               {{ z.nombre }} <i class="bi bi-eye small text-primary"></i>
             </a>
@@ -462,12 +463,11 @@
 })();
 
 // ── Modal: ver ventas de la zona (actual vs bono anterior) ──
+// Patrón declarativo (data-bs-toggle en el link) + evento show.bs.modal, porque
+// el bundle de Bootstrap se carga DESPUÉS de este script (no usar new bootstrap.Modal aquí).
 (function() {
   const modalEl = document.getElementById('modalVentasZona');
   if (!modalEl) return;
-  const modal = new bootstrap.Modal(modalEl);
-  const loading = document.getElementById('vz-loading');
-  const content = document.getElementById('vz-content');
 
   function esc(s) {
     return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -482,31 +482,32 @@
            '</td><td>' + esc(item.direccion) + '</td></tr>';
   }
 
-  document.querySelectorAll('.zona-ver').forEach(a => {
-    a.addEventListener('click', async (ev) => {
-      ev.preventDefault();
-      const zid = a.getAttribute('data-zid');
-      loading.classList.remove('d-none');
-      content.classList.add('d-none');
-      modal.show();
-      try {
-        const r = await fetch('/zonas/' + zid + '/ventas', { credentials: 'include' });
-        const data = await r.json();
-        document.getElementById('vz-nombre').textContent = data.zona || '';
-        document.getElementById('vz-n-actuales').textContent = data.n_actuales;
-        document.getElementById('vz-n-anteriores').textContent = data.n_anteriores;
-        document.getElementById('vz-actuales').innerHTML =
-          data.actuales.length ? data.actuales.map(i => filaHTML(i, false)).join('')
-                               : '<tr><td colspan="3" class="text-center text-muted py-3">Sin ventas este bono.</td></tr>';
-        document.getElementById('vz-anteriores').innerHTML =
-          data.anteriores.length ? data.anteriores.map(i => filaHTML(i, true)).join('')
-                                 : '<tr><td colspan="3" class="text-center text-muted py-3">Sin datos del bono anterior.</td></tr>';
-        loading.classList.add('d-none');
-        content.classList.remove('d-none');
-      } catch (e) {
-        loading.innerHTML = '<span class="text-danger">Error al cargar los datos.</span>';
-      }
-    });
+  modalEl.addEventListener('show.bs.modal', async (ev) => {
+    const a = ev.relatedTarget;
+    if (!a) return;
+    const zid = a.getAttribute('data-zid');
+    const loading = document.getElementById('vz-loading');
+    const content = document.getElementById('vz-content');
+    loading.classList.remove('d-none');
+    loading.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cargando…';
+    content.classList.add('d-none');
+    try {
+      const r = await fetch('/zonas/' + zid + '/ventas', { credentials: 'include' });
+      const data = await r.json();
+      document.getElementById('vz-nombre').textContent = data.zona || '';
+      document.getElementById('vz-n-actuales').textContent = data.n_actuales;
+      document.getElementById('vz-n-anteriores').textContent = data.n_anteriores;
+      document.getElementById('vz-actuales').innerHTML =
+        data.actuales.length ? data.actuales.map(i => filaHTML(i, false)).join('')
+                             : '<tr><td colspan="3" class="text-center text-muted py-3">Sin ventas este bono.</td></tr>';
+      document.getElementById('vz-anteriores').innerHTML =
+        data.anteriores.length ? data.anteriores.map(i => filaHTML(i, true)).join('')
+                               : '<tr><td colspan="3" class="text-center text-muted py-3">Sin datos del bono anterior.</td></tr>';
+      loading.classList.add('d-none');
+      content.classList.remove('d-none');
+    } catch (e) {
+      loading.innerHTML = '<span class="text-danger">Error al cargar los datos.</span>';
+    }
   });
 })();
 </script>
