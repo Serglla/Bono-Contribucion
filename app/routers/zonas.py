@@ -96,6 +96,7 @@ async def listar(
     ok: Optional[str] = None,
     err: Optional[str] = None,
     n: Optional[str] = None,
+    sinmult: Optional[str] = None,
 ):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'zonas', 'ver'):
@@ -119,6 +120,15 @@ async def listar(
     zonas_sin_hacer = sum(1 for z in zonas if not z.hecha)
     total_pendientes = sum(s["pendientes"] for s in stats.values())
 
+    # Zonas que vienen del bono anterior (a migrar) y cuántas faltan crear en el sistema
+    ba_zonas_orig = {}   # norm -> nombre original (display)
+    for r in ba_rows:
+        zk = _norm_zona(r.zona)
+        if zk and zk not in ba_zonas_orig:
+            ba_zonas_orig[zk] = (r.zona or "").strip()
+    current_norms = {_norm_zona(z.nombre) for z in zonas}
+    zonas_faltan_crear = sum(1 for nk in ba_zonas_orig if nk not in current_norms)
+
     return templates.TemplateResponse(request, "zonas.html", {
         "user": user,
         "zonas": zonas,
@@ -126,6 +136,7 @@ async def listar(
         "msg_ok": ok,
         "msg_err": err,
         "msg_nombre": n,
+        "msg_sinmult": sinmult,
         "stats": stats,
         "zonas_sin_hacer": zonas_sin_hacer,
         "total_pendientes": total_pendientes,
@@ -133,6 +144,9 @@ async def listar(
         "total_bono_anterior": len(ba_rows),
         "compradores_sin_zona": extra["sin_zona"],
         "zonas_asignables": extra["asignables"],
+        "total_zonas": len(zonas),
+        "zonas_bono_anterior_count": len(ba_zonas_orig),
+        "zonas_faltan_crear": zonas_faltan_crear,
     })
 
 
@@ -200,6 +214,7 @@ async def importar_bono_anterior(
     db.query(models.BonoAnterior).delete()
 
     n_ins = 0
+    patas_sin_match = set()   # PATAs del Excel que no coinciden con ninguna talonera
     for row in it:
         if row is None:
             continue
@@ -214,6 +229,9 @@ async def importar_bono_anterior(
                 zona_raw = str(int(float(zona_raw)))
         except (ValueError, TypeError):
             pass
+        pata_key = _norm_txt(pata)
+        if pata and pata_key not in mult_por_pata:
+            patas_sin_match.add(pata)
         db.add(models.BonoAnterior(
             pata=pata,
             apellido_nombre=nom,
@@ -222,12 +240,16 @@ async def importar_bono_anterior(
             cobrador=cell(row, c_cob),
             condicion=cell(row, c_cond),
             vendedor=cell(row, c_vend),
-            multiplicador=mult_por_pata.get(_norm_txt(pata), 1.0),
+            multiplicador=mult_por_pata.get(pata_key, 1.0),
         ))
         n_ins += 1
 
     db.commit()
-    return RedirectResponse(f"/zonas/?ok=importado&n={n_ins}", status_code=302)
+    from urllib.parse import quote_plus
+    url = f"/zonas/?ok=importado&n={n_ins}"
+    if patas_sin_match:
+        url += "&sinmult=" + quote_plus(", ".join(sorted(patas_sin_match)))
+    return RedirectResponse(url, status_code=302)
 
 
 @router.post("/asignar-zonas-faltantes")
@@ -253,6 +275,32 @@ async def asignar_zonas_faltantes(request: Request, db: Session = Depends(get_db
             n += 1
     db.commit()
     return RedirectResponse(f"/zonas/?ok=zonas_asignadas&n={n}", status_code=302)
+
+
+@router.post("/crear-zonas-faltantes")
+async def crear_zonas_faltantes(request: Request, db: Session = Depends(get_db)):
+    """Crea en el sistema las zonas que aparecen en el bono anterior y todavía no
+    existen (migración de zonas). El nombre se toma tal cual viene en el Excel."""
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'zonas', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    current_norms = {_norm_zona(z.nombre) for z in db.query(models.Zona).all()}
+    ba_zonas_orig = {}
+    for r in db.query(models.BonoAnterior).all():
+        zk = _norm_zona(r.zona)
+        if zk and zk not in ba_zonas_orig:
+            ba_zonas_orig[zk] = (r.zona or "").strip()
+
+    n = 0
+    for nk, nombre in ba_zonas_orig.items():
+        if nk in current_norms or not nombre:
+            continue
+        db.add(models.Zona(nombre=nombre))
+        current_norms.add(nk)
+        n += 1
+    db.commit()
+    return RedirectResponse(f"/zonas/?ok=zonas_creadas&n={n}", status_code=302)
 
 
 @router.post("/{zid}/toggle-hecha")

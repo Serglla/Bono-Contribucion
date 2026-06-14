@@ -17,6 +17,15 @@
       </button>
     </form>
     {% endif %}
+    {% if zonas_faltan_crear %}
+    <form method="post" action="/zonas/crear-zonas-faltantes" class="d-inline"
+          onsubmit="return appConfirmSubmit(event, '¿Crear {{ zonas_faltan_crear }} zona(s) del bono anterior que aún no existen?')">
+      <button class="btn btn-outline-info" title="Crea en el sistema las zonas del bono anterior que todavía no existen">
+        <i class="bi bi-geo-alt me-1"></i>Crear zonas faltantes
+        <span class="badge bg-info text-dark ms-1">{{ zonas_faltan_crear }}</span>
+      </button>
+    </form>
+    {% endif %}
     <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalImportar">
       <i class="bi bi-upload me-1"></i>Importar bono anterior
     </button>
@@ -34,9 +43,21 @@
 <div class="alert alert-success py-2 small d-flex align-items-center gap-2" role="alert">
   <i class="bi bi-check-circle"></i> Bono anterior importado: <strong>{{ msg_nombre or '' }}</strong> registros cargados.
 </div>
+{% if msg_sinmult %}
+<div class="alert alert-warning py-2 small d-flex align-items-start gap-2" role="alert">
+  <i class="bi bi-exclamation-triangle mt-1"></i>
+  <div>Estas PATAs del Excel <strong>no coinciden</strong> con ninguna talonera del sistema y se tomaron con multiplicador <strong>×1</strong>:
+  <strong>{{ msg_sinmult }}</strong>.
+  Revisá que el nombre coincida (ej. "PATA 2") o creá la talonera con su multiplicador, y volvé a importar.</div>
+</div>
+{% endif %}
 {% elif msg_ok == 'zonas_asignadas' %}
 <div class="alert alert-success py-2 small d-flex align-items-center gap-2" role="alert">
   <i class="bi bi-check-circle"></i> Se completó la zona de <strong>{{ msg_nombre or '' }}</strong> comprador(es) desde el bono anterior.
+</div>
+{% elif msg_ok == 'zonas_creadas' %}
+<div class="alert alert-success py-2 small d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-check-circle"></i> Se crearon <strong>{{ msg_nombre or '' }}</strong> zona(s) del bono anterior.
 </div>
 {% elif msg_err == 'nombre_duplicado' %}
 <div class="alert alert-danger py-2 small d-flex align-items-center gap-2" role="alert">
@@ -58,7 +79,15 @@
 
 {# ══════════ PANEL RESUMEN ══════════ #}
 <div class="row g-2 mb-3">
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-2 text-center">
+        <div class="fs-3 fw-bold text-primary">{{ total_zonas }}</div>
+        <div class="small text-muted">Total de zonas</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-2 text-center">
         <div class="fs-3 fw-bold text-danger">{{ zonas_sin_hacer }}</div>
@@ -66,23 +95,33 @@
       </div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-2 text-center">
-        <div class="fs-3 fw-bold text-success">{{ zonas|length - zonas_sin_hacer }}</div>
+        <div class="fs-3 fw-bold text-success">{{ total_zonas - zonas_sin_hacer }}</div>
         <div class="small text-muted">Zonas hechas</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-2 text-center">
         <div class="fs-3 fw-bold text-warning">{{ total_pendientes }}</div>
-        <div class="small text-muted">Renovaciones pendientes</div>
+        <div class="small text-muted">Renovaciones pend.</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-2 text-center">
+        <div class="fs-3 fw-bold {% if zonas_faltan_crear %}text-warning{% else %}text-secondary{% endif %}">{{ zonas_bono_anterior_count }}</div>
+        <div class="small text-muted">Zonas a migrar
+          {% if zonas_faltan_crear %}<span class="d-block text-warning fw-semibold">{{ zonas_faltan_crear }} faltan crear</span>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-2 text-center">
         <div class="fs-3 fw-bold text-secondary">{{ total_bono_anterior }}</div>
@@ -90,6 +129,18 @@
       </div>
     </div>
   </div>
+</div>
+
+<div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+  <label class="small fw-semibold mb-0"><i class="bi bi-funnel me-1"></i>Filtrar por vendedor:</label>
+  <select id="filtroVendedor" class="form-select form-select-sm" style="max-width:240px;">
+    <option value="">Todos</option>
+    {% for v in vendedores %}
+    <option value="{{ v.id }}">{{ v.nombre }}</option>
+    {% endfor %}
+    <option value="__none__">— Sin vendedor —</option>
+  </select>
+  <span class="text-muted small" id="filtroVendedorCount"></span>
 </div>
 
 <div class="card border-0 shadow-sm">
@@ -114,7 +165,8 @@
             data-rend="{{ st.rend if st and st.pond_anterior > 0 else (st.pond_actual if st else 0) }}"
             data-pend="{{ st.pendientes if st else 0 }}"
             data-comp="{{ z.compradores|length }}"
-            data-vend="{{ (z.vendedor.nombre if z.vendedor else '')|lower }}">
+            data-vend="{{ (z.vendedor.nombre if z.vendedor else '')|lower }}"
+            data-vendid="{{ z.vendedor_id or '' }}">
           <td class="fw-semibold">
             {{ z.nombre }}
             {% if z.descripcion %}<span class="d-block text-muted small">{{ z.descripcion }}</span>{% endif %}
@@ -335,6 +387,31 @@
       if (icon) icon.className = 'bi ' + (asc ? 'bi-sort-down-alt' : 'bi-sort-up') + ' text-primary small';
     });
   });
+})();
+
+// ── Filtro de zonas por vendedor ──
+(function() {
+  const sel = document.getElementById('filtroVendedor');
+  const tabla = document.getElementById('tablaZonas');
+  if (!sel || !tabla) return;
+  const tbody = tabla.querySelector('tbody');
+  const lbl = document.getElementById('filtroVendedorCount');
+
+  function aplicar() {
+    const val = sel.value;
+    let visibles = 0;
+    tbody.querySelectorAll('tr').forEach(tr => {
+      const vid = tr.getAttribute('data-vendid') || '';
+      let show;
+      if (val === '') show = true;
+      else if (val === '__none__') show = (vid === '');
+      else show = (vid === val);
+      tr.style.display = show ? '' : 'none';
+      if (show) visibles++;
+    });
+    lbl.textContent = val === '' ? '' : visibles + ' zona(s)';
+  }
+  sel.addEventListener('change', aplicar);
 })();
 </script>
 {% endblock %}
