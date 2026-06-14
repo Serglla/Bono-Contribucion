@@ -95,6 +95,37 @@ def _otro_en_direccion(idx, nombre, direccion):
     return out
 
 
+def _build_nombre_index(items):
+    """items: (nombre, direccion, zona). Índice apellido -> lista de
+    (given, num, calles, nombre, direccion, zona). Para buscar mismo nombre en otra dir."""
+    idx = defaultdict(list)
+    for nombre, direccion, zona in items:
+        ap, num, given = _apellido_num(nombre, direccion)
+        _, calles = _dir_parse(direccion)
+        if ap:
+            idx[ap].append((given, num, calles, nombre, direccion, zona))
+    return idx
+
+
+def _mismo_nombre_otra_dir(idx, nombre, direccion):
+    """Personas con el MISMO nombre (apellido + nombre de pila) pero en OTRA dirección.
+    Devuelve etiquetas 'NOMBRE — DIRECCION (zona X)'."""
+    ap, num, given = _apellido_num(nombre, direccion)
+    _, calles = _dir_parse(direccion)
+    out = []
+    if not ap:
+        return out
+    for given2, num2, calles2, nombre2, dir2, zona2 in idx.get(ap, []):
+        if not ((given & given2) or not given or not given2):
+            continue                                  # distinto nombre de pila
+        if num and num == num2 and (calles & calles2):
+            continue                                  # misma dirección → es la misma persona
+        etiqueta = nombre2 + " — " + (dir2 or "") + (" (zona " + str(zona2) + ")" if zona2 else "")
+        if etiqueta not in out:
+            out.append(etiqueta)
+    return out
+
+
 def _build_socio_matcher(personas):
     """Índice (apellido, número) -> lista de sets de nombres de pila."""
     idx = defaultdict(list)
@@ -537,29 +568,50 @@ async def renovaciones(request: Request, db: Session = Depends(get_db)):
 
     # Nombre legible de zona: si coincide con una zona actual, usar su nombre
     zonas_por_norm = {_norm_zona(z.nombre): z.nombre for z in db.query(models.Zona).all()}
+    zona_nombre_by_id = {z.id: z.nombre for z in db.query(models.Zona).all()}
+
+    # Índices del bono ACTUAL para los avisos:
+    #   - misma dirección con OTRO nombre (alguien nuevo ocupa esa casa)
+    #   - mismo nombre en OTRA dirección (quizás se mudó y renovó sin detectarse)
+    curr_addr_idx = _build_addr_index(
+        (c.apellido_nombre, c.direccion, zona_nombre_by_id.get(c.zona_id, "")) for c in compradores
+    )
+    curr_nombre_idx = _build_nombre_index(
+        (c.apellido_nombre, c.direccion, zona_nombre_by_id.get(c.zona_id, "")) for c in compradores
+    )
 
     grupos = {}
+    flat = []
     for r in ba_rows:
         if _socio_match(current_matcher, r.apellido_nombre, r.direccion):
             continue
         zk = _norm_zona(r.zona)
         label = zonas_por_norm.get(zk, r.zona or "— sin zona —")
-        grupos.setdefault((zk, label), []).append(r)
-
-    # Ordenar zonas (numéricas primero) y filas por nombre
-    def _zona_sort(item):
-        zk = item[0][0]
-        return (0, int(zk)) if zk.isdigit() else (1, zk)
+        row = {
+            "zona": label,
+            "zona_sort": (0, int(zk)) if zk.isdigit() else (1, zk),
+            "pata": r.pata or "—",
+            "nombre": r.apellido_nombre or "",
+            "direccion": r.direccion or "",
+            "vendedor": r.vendedor or "—",
+            "misma_dir_otro": "; ".join(_otro_en_direccion(curr_addr_idx, r.apellido_nombre, r.direccion)),
+            "mismo_nom_otra": "; ".join(_mismo_nombre_otra_dir(curr_nombre_idx, r.apellido_nombre, r.direccion)),
+        }
+        grupos.setdefault((zk, label), []).append(row)
+        flat.append(row)
 
     grupos_list = []
-    for (zk, label), filas in sorted(grupos.items(), key=_zona_sort):
-        filas.sort(key=lambda r: _norm_txt(r.apellido_nombre))
+    for (zk, label), filas in sorted(grupos.items(), key=lambda it: (0, int(it[0][0])) if it[0][0].isdigit() else (1, it[0][0])):
+        filas.sort(key=lambda x: _norm_txt(x["nombre"]))
         grupos_list.append({"zona": label, "filas": filas, "cantidad": len(filas)})
 
-    total = sum(g["cantidad"] for g in grupos_list)
+    flat.sort(key=lambda x: (x["zona_sort"], _norm_txt(x["nombre"])))
+
+    total = len(flat)
     return templates.TemplateResponse(request, "zonas_renovaciones.html", {
         "user": user,
         "grupos": grupos_list,
+        "flat": flat,
         "total": total,
         "tiene_bono_anterior": len(ba_rows) > 0,
     })

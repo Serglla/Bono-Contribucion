@@ -5,17 +5,40 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h4 class="fw-bold mb-0">
     <i class="bi bi-arrow-repeat text-warning me-2"></i>Renovaciones pendientes
-    <span class="text-muted small ms-1" style="font-weight:normal;">por zona</span>
   </h4>
-  <a href="/zonas/" class="btn btn-outline-secondary">
-    <i class="bi bi-arrow-left me-1"></i>Volver a Zonas
-  </a>
+  <div class="d-flex gap-2">
+    <div class="btn-group btn-group-sm" role="group">
+      <button type="button" class="btn btn-outline-primary active" id="btnVistaZona">
+        <i class="bi bi-list-nested me-1"></i>Por zona
+      </button>
+      <button type="button" class="btn btn-outline-primary" id="btnVistaLista">
+        <i class="bi bi-table me-1"></i>Lista
+      </button>
+    </div>
+    <a href="/zonas/" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left me-1"></i>Volver
+    </a>
+  </div>
 </div>
 
 <p class="text-muted small mb-3">
-  Compradores que adquirieron el bono <strong>anterior</strong> y todavía <strong>no renovaron</strong> este bono.
-  El cruce se hace por <strong>nombre + dirección</strong>. Total: <strong>{{ total }}</strong>.
+  Compradores que adquirieron el bono <strong>anterior</strong> y todavía <strong>no renovaron</strong> este bono
+  (cruce difuso por apellido + número de casa + nombre). Total: <strong>{{ total }}</strong>.
 </p>
+
+{# Macro para la celda de observaciones (avisos) #}
+{% macro obs(row) %}
+  {% if row.misma_dir_otro %}
+  <span class="badge bg-danger" title="En esa dirección ahora figura otro comprador">
+    <i class="bi bi-exclamation-triangle-fill me-1"></i>Misma dir., otro: {{ row.misma_dir_otro }}
+  </span>
+  {% endif %}
+  {% if row.mismo_nom_otra %}
+  <span class="badge bg-info text-dark" title="El mismo nombre aparece en otra dirección (quizás se mudó y renovó)">
+    <i class="bi bi-person-lines-fill me-1"></i>Mismo nombre en: {{ row.mismo_nom_otra }}
+  </span>
+  {% endif %}
+{% endmacro %}
 
 {% if not tiene_bono_anterior %}
 <div class="card border-0 shadow-sm">
@@ -32,6 +55,9 @@
   </div>
 </div>
 {% else %}
+
+{# ══════════ VISTA POR ZONA (acordeón) ══════════ #}
+<div id="vista-zona">
 <div class="accordion" id="accRenov">
   {% for g in grupos %}
   <div class="accordion-item">
@@ -48,22 +74,16 @@
         <div class="table-responsive">
           <table class="table table-sm table-hover align-middle mb-0 small">
             <thead class="table-light">
-              <tr>
-                <th>PATA</th>
-                <th>Apellido y nombre</th>
-                <th>Dirección</th>
-                <th>Cobrador</th>
-                <th>Vendedor</th>
-              </tr>
+              <tr><th>PATA</th><th>Apellido y nombre</th><th>Dirección</th><th>Vendedor</th><th>Observaciones</th></tr>
             </thead>
             <tbody>
               {% for r in g.filas %}
               <tr>
                 <td><span class="badge bg-danger">{{ r.pata }}</span></td>
-                <td class="fw-semibold">{{ r.apellido_nombre }}</td>
+                <td class="fw-semibold">{{ r.nombre }}</td>
                 <td>{{ r.direccion or "—" }}</td>
-                <td>{{ r.cobrador or "—" }}</td>
                 <td>{{ r.vendedor or "—" }}</td>
+                <td>{{ obs(r) }}</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -74,6 +94,53 @@
   </div>
   {% endfor %}
 </div>
+</div>
+
+{# ══════════ VISTA LISTA (tabla plana) ══════════ #}
+<div id="vista-lista" class="d-none">
+  <div class="card border-0 shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0 small">
+        <thead class="table-light">
+          <tr>
+            <th>Zona</th><th>PATA</th><th>Apellido y nombre</th><th>Dirección</th>
+            <th>Vendedor ant.</th><th>Observaciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in flat %}
+          <tr>
+            <td><span class="badge bg-secondary">{{ r.zona }}</span></td>
+            <td><span class="badge bg-danger">{{ r.pata }}</span></td>
+            <td class="fw-semibold">{{ r.nombre }}</td>
+            <td>{{ r.direccion or "—" }}</td>
+            <td>{{ r.vendedor or "—" }}</td>
+            <td>{{ obs(r) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const bZona = document.getElementById('btnVistaZona');
+  const bLista = document.getElementById('btnVistaLista');
+  const vZona = document.getElementById('vista-zona');
+  const vLista = document.getElementById('vista-lista');
+  if (!bZona || !bLista) return;
+  function set(lista) {
+    vZona.classList.toggle('d-none', lista);
+    vLista.classList.toggle('d-none', !lista);
+    bLista.classList.toggle('active', lista);
+    bZona.classList.toggle('active', !lista);
+  }
+  bZona.addEventListener('click', () => set(false));
+  bLista.addEventListener('click', () => set(true));
+})();
+</script>
 {% endif %}
 
 {% endblock %}
