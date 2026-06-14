@@ -491,12 +491,13 @@
   }
   // Verde para las renovadas (vendidas en ambos bonos); ámbar para las que no
   function filaHTML(item, marcarNoRenovado) {
-    let style = '';
-    if (item.renovo) style = 'background:#d1e7dd;';            // mismo tono en ambas listas
-    else if (marcarNoRenovado) style = 'background:#fff3cd;';  // anterior que no renovó
+    // Bootstrap pinta el fondo en cada celda: hay que usar clases de fila (no style en <tr>)
+    let cls = '';
+    if (item.renovo) cls = 'table-success';            // mismo tono en ambas listas (renovó)
+    else if (marcarNoRenovado) cls = 'table-warning';  // anterior que no renovó
     const alerta = item.alerta_dir
       ? ' <i class="bi bi-exclamation-triangle-fill text-danger" title="Misma dirección, distinto comprador"></i>' : '';
-    return '<tr style="' + style + '"><td><span class="badge bg-danger">' + esc(item.pata) +
+    return '<tr class="' + cls + '"><td><span class="badge bg-danger">' + esc(item.pata) +
            '</span></td><td class="fw-semibold">' + esc(item.nombre) +
            '</td><td>' + esc(item.direccion) + alerta + '</td></tr>';
   }
