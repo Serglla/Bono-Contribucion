@@ -168,7 +168,10 @@
             data-vend="{{ (z.vendedor.nombre if z.vendedor else '')|lower }}"
             data-vendid="{{ z.vendedor_id or '' }}">
           <td class="fw-semibold">
-            {{ z.nombre }}
+            <a href="#" class="zona-ver text-decoration-none" data-zid="{{ z.id }}"
+               title="Ver ventas actuales y del bono anterior">
+              {{ z.nombre }} <i class="bi bi-eye small text-primary"></i>
+            </a>
             {% if z.descripcion %}<span class="d-block text-muted small">{{ z.descripcion }}</span>{% endif %}
           </td>
           <td class="text-center">
@@ -298,6 +301,50 @@
   </div></div>
 </div>
 
+{# ══════════ MODAL VENTAS DE LA ZONA ══════════ #}
+<div class="modal fade" id="modalVentasZona" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header py-2">
+      <h5 class="modal-title"><i class="bi bi-geo-alt-fill text-danger me-1"></i>Zona <span id="vz-nombre"></span></h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <div id="vz-loading" class="text-center text-muted py-4">
+        <span class="spinner-border spinner-border-sm me-2"></span>Cargando…
+      </div>
+      <div id="vz-content" class="row g-3 d-none">
+        <div class="col-12 col-lg-6">
+          <h6 class="fw-bold text-success"><i class="bi bi-cart-check me-1"></i>Ventas actuales
+            <span class="badge bg-success ms-1" id="vz-n-actuales">0</span></h6>
+          <div class="table-responsive" style="max-height:60vh;">
+            <table class="table table-sm table-hover small mb-0">
+              <thead class="table-light"><tr><th>PATA</th><th>Apellido y nombre</th><th>Dirección</th></tr></thead>
+              <tbody id="vz-actuales"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <h6 class="fw-bold text-secondary"><i class="bi bi-clock-history me-1"></i>Bono anterior
+            <span class="badge bg-secondary ms-1" id="vz-n-anteriores">0</span></h6>
+          <div class="table-responsive" style="max-height:60vh;">
+            <table class="table table-sm table-hover small mb-0">
+              <thead class="table-light"><tr><th>PATA</th><th>Apellido y nombre</th><th>Dirección</th></tr></thead>
+              <tbody id="vz-anteriores"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer py-2">
+      <span class="small text-muted me-auto">
+        <span class="badge" style="background:#d1e7dd;color:#146c43;">●</span> renovó &nbsp;
+        <span class="badge bg-warning text-dark">●</span> no renovó
+      </span>
+      <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+    </div>
+  </div></div>
+</div>
+
 {# ══════════ MODAL EDITAR ZONA ══════════ #}
 <div class="modal fade" id="modalEditar" tabindex="-1">
   <div class="modal-dialog"><div class="modal-content">
@@ -412,6 +459,55 @@
     lbl.textContent = val === '' ? '' : visibles + ' zona(s)';
   }
   sel.addEventListener('change', aplicar);
+})();
+
+// ── Modal: ver ventas de la zona (actual vs bono anterior) ──
+(function() {
+  const modalEl = document.getElementById('modalVentasZona');
+  if (!modalEl) return;
+  const modal = new bootstrap.Modal(modalEl);
+  const loading = document.getElementById('vz-loading');
+  const content = document.getElementById('vz-content');
+
+  function esc(s) {
+    return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+  // Verde para las renovadas (vendidas en ambos bonos); ámbar para las que no
+  function filaHTML(item, marcarNoRenovado) {
+    let style = '';
+    if (item.renovo) style = 'background:#d1e7dd;';            // mismo tono en ambas listas
+    else if (marcarNoRenovado) style = 'background:#fff3cd;';  // anterior que no renovó
+    return '<tr style="' + style + '"><td><span class="badge bg-danger">' + esc(item.pata) +
+           '</span></td><td class="fw-semibold">' + esc(item.nombre) +
+           '</td><td>' + esc(item.direccion) + '</td></tr>';
+  }
+
+  document.querySelectorAll('.zona-ver').forEach(a => {
+    a.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      const zid = a.getAttribute('data-zid');
+      loading.classList.remove('d-none');
+      content.classList.add('d-none');
+      modal.show();
+      try {
+        const r = await fetch('/zonas/' + zid + '/ventas', { credentials: 'include' });
+        const data = await r.json();
+        document.getElementById('vz-nombre').textContent = data.zona || '';
+        document.getElementById('vz-n-actuales').textContent = data.n_actuales;
+        document.getElementById('vz-n-anteriores').textContent = data.n_anteriores;
+        document.getElementById('vz-actuales').innerHTML =
+          data.actuales.length ? data.actuales.map(i => filaHTML(i, false)).join('')
+                               : '<tr><td colspan="3" class="text-center text-muted py-3">Sin ventas este bono.</td></tr>';
+        document.getElementById('vz-anteriores').innerHTML =
+          data.anteriores.length ? data.anteriores.map(i => filaHTML(i, true)).join('')
+                                 : '<tr><td colspan="3" class="text-center text-muted py-3">Sin datos del bono anterior.</td></tr>';
+        loading.classList.add('d-none');
+        content.classList.remove('d-none');
+      } catch (e) {
+        loading.innerHTML = '<span class="text-danger">Error al cargar los datos.</span>';
+      }
+    });
+  });
 })();
 </script>
 {% endblock %}

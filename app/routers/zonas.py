@@ -3,7 +3,7 @@ import re
 from collections import defaultdict
 
 from fastapi import HTTPException,  APIRouter, Depends, Request, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from typing import Optional
 
 from sqlalchemy.orm import Session, selectinload
@@ -301,6 +301,65 @@ async def crear_zonas_faltantes(request: Request, db: Session = Depends(get_db))
         n += 1
     db.commit()
     return RedirectResponse(f"/zonas/?ok=zonas_creadas&n={n}", status_code=302)
+
+
+@router.get("/{zid}/ventas")
+async def ventas_zona(zid: int, request: Request, db: Session = Depends(get_db)):
+    """Devuelve, para una zona, las ventas actuales (compradores cargados este bono)
+    y las del bono anterior, con PATA, nombre y dirección."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'zonas', 'ver'):
+        raise HTTPException(403, 'Sin permiso')
+    z = db.query(models.Zona).get(zid)
+    if not z:
+        raise HTTPException(404, "Zona no encontrada")
+
+    # Ventas actuales: compradores asignados a esta zona
+    compradores = (
+        db.query(models.Comprador)
+        .options(selectinload(models.Comprador.boletas).selectinload(models.Boleta.talonera))
+        .filter(models.Comprador.zona_id == zid)
+        .all()
+    )
+    # Claves (nombre+dirección) presentes en el bono anterior → para marcar renovados
+    prev_keys = {
+        _norm_key(r.apellido_nombre, r.direccion)
+        for r in db.query(models.BonoAnterior).all()
+    }
+    actuales = []
+    for c in compradores:
+        patas = sorted({b.talonera.nombre for b in c.boletas if b.talonera})
+        actuales.append({
+            "pata": ", ".join(patas) if patas else "—",
+            "nombre": c.apellido_nombre or "",
+            "direccion": c.direccion or "",
+            # vendido también en el anterior (renovó) → mismo tono en ambas listas
+            "renovo": _norm_key(c.apellido_nombre, c.direccion) in prev_keys,
+        })
+    actuales.sort(key=lambda x: _norm_txt(x["nombre"]))
+
+    # Ventas anteriores: filas del bono anterior de esta zona (match por nombre normalizado)
+    zk = _norm_zona(z.nombre)
+    current_keys = {_norm_key(c.apellido_nombre, c.direccion) for c in db.query(models.Comprador).all()}
+    anteriores = []
+    for r in db.query(models.BonoAnterior).all():
+        if _norm_zona(r.zona) != zk:
+            continue
+        anteriores.append({
+            "pata": r.pata or "—",
+            "nombre": r.apellido_nombre or "",
+            "direccion": r.direccion or "",
+            "renovo": _norm_key(r.apellido_nombre, r.direccion) in current_keys,
+        })
+    anteriores.sort(key=lambda x: _norm_txt(x["nombre"]))
+
+    return JSONResponse({
+        "zona": z.nombre,
+        "actuales": actuales,
+        "anteriores": anteriores,
+        "n_actuales": len(actuales),
+        "n_anteriores": len(anteriores),
+    })
 
 
 @router.post("/{zid}/toggle-hecha")
