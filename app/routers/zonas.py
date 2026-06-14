@@ -64,29 +64,35 @@ def _apellido_num(nombre, direccion):
     return apellido, house, given
 
 
-def _marcar_alertas_direccion(*listas):
-    """Marca con alerta_dir=True las filas que comparten dirección (mismo número de
-    casa + alguna palabra de calle en común) con OTRA persona distinta (no el mismo
-    socio). Útil para avisar 'misma dirección, distinto comprador'."""
-    info = []
-    for lista in listas:
-        for it in lista:
-            it["alerta_dir"] = False
-            ap, num, given = _apellido_num(it["nombre"], it["direccion"])
-            _, calles = _dir_parse(it["direccion"])
-            info.append((ap, num, given, calles, it))
-    for i, (ap, num, given, calles, it) in enumerate(info):
-        if not num:
+def _build_addr_index(items):
+    """items: (nombre, direccion, zona_display). Índice número de casa -> lista de
+    (calles, apellido, given, nombre, zona). Para buscar quién está en una dirección."""
+    idx = defaultdict(list)
+    for nombre, direccion, zona in items:
+        ap, num, given = _apellido_num(nombre, direccion)
+        _, calles = _dir_parse(direccion)
+        if num:
+            idx[num].append((calles, ap, given, nombre, zona))
+    return idx
+
+
+def _otro_en_direccion(idx, nombre, direccion):
+    """Personas DISTINTAS (no el mismo socio) que están en la misma dirección.
+    Devuelve lista de etiquetas 'NOMBRE (zona X)'."""
+    ap, num, given = _apellido_num(nombre, direccion)
+    _, calles = _dir_parse(direccion)
+    out = []
+    if not num:
+        return out
+    for calles2, ap2, given2, nombre2, zona2 in idx.get(num, []):
+        if not (calles & calles2):                      # misma dirección (num + calle)
             continue
-        for j, (ap2, num2, given2, calles2, it2) in enumerate(info):
-            if i == j or num2 != num:
-                continue
-            if not (calles & calles2):           # misma dirección (num + calle en común)
-                continue
-            mismo = (ap == ap2) and ((given & given2) or not given or not given2)
-            if not mismo:
-                it["alerta_dir"] = True
-                break
+        if (ap == ap2) and ((given & given2) or not given or not given2):
+            continue                                     # es el mismo socio → no avisar
+        etiqueta = nombre2 + (" (zona " + str(zona2) + ")" if zona2 else "")
+        if etiqueta not in out:
+            out.append(etiqueta)
+    return out
 
 
 def _build_socio_matcher(personas):
@@ -124,6 +130,13 @@ def _socio_zonas(idx, nombre, direccion):
     return out
 
 
+def _zona_prev_unica(prev_idx, nombre, direccion):
+    """Zona (normalizada) donde figuraba la persona en el bono anterior, por match
+    difuso. Devuelve None si no hay match o si es ambiguo (figuraba en >1 zona)."""
+    norms = {_norm_zona(z) for z in _socio_zonas(prev_idx, nombre, direccion) if z}
+    return next(iter(norms)) if len(norms) == 1 else None
+
+
 def _socio_match(idx, nombre, direccion) -> bool:
     """True si la persona coincide (difuso) con alguien del índice:
     mismo apellido + mismo número de casa + comparten algún nombre de pila
@@ -135,19 +148,6 @@ def _socio_match(idx, nombre, direccion) -> bool:
         if (given & g2) or not given or not g2:
             return True
     return False
-
-
-def _prev_zona_by_key(ba_rows):
-    """Mapa identidad-de-comprador (nombre+dirección) -> zona normalizada que tenía
-    en el bono anterior. Se usa como respaldo cuando este bono no tiene zona cargada."""
-    m = {}
-    for r in ba_rows:
-        k = _norm_key(r.apellido_nombre, r.direccion)
-        if k not in m:
-            zk = _norm_zona(r.zona)
-            if zk:
-                m[k] = zk
-    return m
 
 
 def _stats_bono_anterior(db):
@@ -163,7 +163,10 @@ def _stats_bono_anterior(db):
         .all()
     )
     current_matcher = _build_socio_matcher((c.apellido_nombre, c.direccion) for c in compradores)
-    prev_zona = _prev_zona_by_key(ba_rows)
+    # Índice difuso del bono anterior con su zona (apellido + número de casa)
+    prev_idx = _build_zona_index(
+        (r.apellido_nombre, r.direccion, (r.zona or "").strip()) for r in ba_rows
+    )
     zona_norm_by_id = {z.id: _norm_zona(z.nombre) for z in db.query(models.Zona).all()}
     zonas_norm_set = set(zona_norm_by_id.values())
 
@@ -175,7 +178,8 @@ def _stats_bono_anterior(db):
         if c.zona_id and c.zona_id in zona_norm_by_id:
             zk = zona_norm_by_id[c.zona_id]
         else:
-            zk = prev_zona.get(_norm_key(c.apellido_nombre, c.direccion))
+            # respaldo: zona del bono anterior por match difuso (PINTO/PINTOS, etc.)
+            zk = _zona_prev_unica(prev_idx, c.apellido_nombre, c.direccion)
             if not c.zona_id:
                 sin_zona += 1
                 if zk and zk in zonas_norm_set:
@@ -375,14 +379,16 @@ async def asignar_zonas_faltantes(request: Request, db: Session = Depends(get_db
         raise HTTPException(403, 'No tenés permiso para editar en esta sección')
 
     ba_rows = db.query(models.BonoAnterior).all()
-    prev_zona = _prev_zona_by_key(ba_rows)
+    prev_idx = _build_zona_index(
+        (r.apellido_nombre, r.direccion, (r.zona or "").strip()) for r in ba_rows
+    )
     zona_by_norm = {}
     for z in db.query(models.Zona).all():
         zona_by_norm.setdefault(_norm_zona(z.nombre), z)
 
     n = 0
     for c in db.query(models.Comprador).filter(models.Comprador.zona_id.is_(None)).all():
-        zk = prev_zona.get(_norm_key(c.apellido_nombre, c.direccion))
+        zk = _zona_prev_unica(prev_idx, c.apellido_nombre, c.direccion)
         if zk and zk in zona_by_norm:
             c.zona_id = zona_by_norm[zk].id
             n += 1
@@ -476,8 +482,25 @@ async def ventas_zona(zid: int, request: Request, db: Session = Depends(get_db))
         })
     anteriores.sort(key=lambda x: _norm_txt(x["nombre"]))
 
-    # Avisar misma dirección con distinto comprador (entre actuales y anteriores)
-    _marcar_alertas_direccion(actuales, anteriores)
+    # Aviso "misma dirección, distinto comprador" indicando NOMBRE y ZONA del otro:
+    #   - en actuales: quién tenía esa dirección en el bono ANTERIOR (otra persona)
+    #   - en anteriores: quién la tiene AHORA en el bono ACTUAL (otra persona)
+    curr_addr_idx = _build_addr_index(
+        (c.apellido_nombre, c.direccion, zona_nombre_by_id.get(c.zona_id, ""))
+        for c in db.query(models.Comprador).all()
+    )
+    prev_addr_idx = _build_addr_index(
+        (r.apellido_nombre, r.direccion, (r.zona or "").strip())
+        for r in db.query(models.BonoAnterior).all()
+    )
+    for it in actuales:
+        otros = _otro_en_direccion(prev_addr_idx, it["nombre"], it["direccion"])
+        it["alerta_dir"] = bool(otros)
+        it["alerta_txt"] = "; ".join(otros)
+    for it in anteriores:
+        otros = _otro_en_direccion(curr_addr_idx, it["nombre"], it["direccion"])
+        it["alerta_dir"] = bool(otros)
+        it["alerta_txt"] = "; ".join(otros)
 
     return JSONResponse({
         "zona": z.nombre,

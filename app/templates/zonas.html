@@ -495,8 +495,13 @@
     let cls = '';
     if (item.renovo) cls = 'table-success';            // mismo tono en ambas listas (renovó)
     else if (marcarNoRenovado) cls = 'table-warning';  // anterior que no renovó
+    const ctx = marcarNoRenovado ? 'ahora: ' : 'antes: ';
     const alerta = item.alerta_dir
-      ? ' <i class="bi bi-exclamation-triangle-fill text-danger" title="Misma dirección, distinto comprador"></i>' : '';
+      ? ' <span class="text-danger" title="Misma dirección, distinto comprador">' +
+        '<i class="bi bi-exclamation-triangle-fill"></i>' +
+        (item.alerta_txt ? ' <small>' + ctx + esc(item.alerta_txt) + '</small>' : '') +
+        '</span>'
+      : '';
     // Renovó pero figuraba en otra zona → avisar dónde
     const otra = item.zona_otro
       ? ' <span class="badge bg-info text-dark" title="' +
