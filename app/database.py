@@ -12,7 +12,26 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bonos.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL)
+# Opciones del engine según el motor.
+# - Postgres (Railway): pool_pre_ping verifica que la conexión esté viva antes de
+#   usarla (Railway corta las conexiones inactivas; sin esto, la próxima request
+#   reusa una conexión muerta, espera el timeout y recién reconecta → lentitud y
+#   cuelgues intermitentes). pool_recycle las renueva antes de que el server las cierre.
+# - SQLite (local): check_same_thread=False para poder usarla entre threads.
+if DATABASE_URL.startswith("postgresql"):
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_recycle=1800,   # reciclar conexiones cada 30 min
+        pool_size=5,
+        max_overflow=10,
+        pool_timeout=30,
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+    )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
