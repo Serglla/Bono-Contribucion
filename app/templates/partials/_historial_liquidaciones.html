@@ -83,15 +83,17 @@
         <i class="bi bi-calendar3 me-2"></i>
         <span class="fw-bold">{{ mes.label }}</span>
         {% if mes_open %}<span class="badge bg-success ms-2">Mes actual</span>{% endif %}
-        <span class="badge bg-secondary ms-3" title="Liquidaciones del mes">{{ mes.n_liquidaciones }} liq.</span>
-        <span class="badge bg-light text-dark ms-2" title="Vendedores con liquidaciones este mes">{{ mes.n_vendedores }} vend.</span>
-        <span class="badge bg-success-subtle text-success border border-success-subtle ms-2"
+        <span class="badge bg-success-subtle text-success border border-success-subtle ms-3"
               title="Vendido en cuotas en el mes (ponderado por PATA) · boletas reales: {{ mes.tot_cuotas_crudo }}">
           Cuotas: {{ mes.tot_cuotas_eq | round(0) | int }}
         </span>
         <span class="badge bg-warning-subtle text-dark border border-warning-subtle ms-2"
               title="Vendido al contado en el mes (ponderado por PATA) · boletas reales: {{ mes.tot_contados_crudo }}">
           Contado: {{ mes.tot_contados_eq | round(0) | int }}
+        </span>
+        <span class="badge bg-primary-subtle text-primary border border-primary-subtle ms-2"
+              title="Total vendido en el mes = cuotas + contado (ponderado por PATA)">
+          Total: {{ (mes.tot_cuotas_eq + mes.tot_contados_eq) | round(0) | int }}
         </span>
         <span class="badge bg-success ms-2" title="Total que los vendedores rinden a la organización">
           Rinde ${{ '{:,.0f}'.format(mes.tot_rinde)|replace(',', '.') }}
@@ -120,15 +122,17 @@
                 <i class="bi bi-calendar-week me-2"></i>
                 <span class="fw-semibold">Semana {{ sem.label }}</span>
                 {% if is_open %}<span class="badge bg-success ms-2">Semana actual</span>{% endif %}
-                <span class="badge bg-secondary ms-3" title="Liquidaciones de la semana">{{ sem.n_liquidaciones }} liq.</span>
-                <span class="badge bg-light text-dark ms-2" title="Vendedores con liquidaciones esta semana">{{ sem.vendedores|length }} vend.</span>
-                <span class="badge bg-success-subtle text-success border border-success-subtle ms-2"
+                <span class="badge bg-success-subtle text-success border border-success-subtle ms-3"
                       title="Vendido en cuotas en la semana (ponderado por PATA) · boletas reales: {{ sem.tot_cuotas_crudo }}">
                   Cuotas: {{ sem.tot_cuotas_eq | round(0) | int }}
                 </span>
                 <span class="badge bg-warning-subtle text-dark border border-warning-subtle ms-2"
                       title="Vendido al contado en la semana (ponderado por PATA) · boletas reales: {{ sem.tot_contados_crudo }}">
                   Contado: {{ sem.tot_contados_eq | round(0) | int }}
+                </span>
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle ms-2"
+                      title="Total vendido en la semana = cuotas + contado (ponderado por PATA)">
+                  Total: {{ (sem.tot_cuotas_eq + sem.tot_contados_eq) | round(0) | int }}
                 </span>
                 <span class="badge bg-success ms-2" title="Total que los vendedores rinden a la organización">
                   Rinde ${{ '{:,.0f}'.format(sem.tot_rinde)|replace(',', '.') }}
