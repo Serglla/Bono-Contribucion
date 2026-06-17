@@ -134,26 +134,8 @@
   <span><i class="bi bi-star-fill text-warning"></i> Contado</span>
 </div>
 
-{# ══════════ NAV TABS: CAJA / LIQUIDACIONES ══════════ #}
-<ul class="nav nav-tabs mb-3" id="vendedorTabs" role="tablist">
-  <li class="nav-item" role="presentation">
-    <button class="nav-link active" id="tab-caja-btn" data-bs-toggle="tab"
-            data-bs-target="#tab-caja" type="button" role="tab"
-            aria-controls="tab-caja" aria-selected="true">
-      <i class="bi bi-box-seam me-1"></i>Caja
-      <span class="badge bg-primary ms-1">{{ ns.en_caja + ns.liq_pend_comp }}</span>
-    </button>
-  </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" id="tab-liq-btn" data-bs-toggle="tab"
-            data-bs-target="#tab-liq" type="button" role="tab"
-            aria-controls="tab-liq" aria-selected="false">
-      <i class="bi bi-cash-coin me-1"></i>Liquidaciones
-      {% if liquidaciones %}<span class="badge bg-success ms-1">{{ liquidaciones|length }}</span>{% endif %}
-    </button>
-  </li>
-</ul>
-
+{# Vista única (sin pestañas): la caja, y las acciones de liquidar / historial
+   van directo en la barra de acciones de abajo. #}
 <div class="tab-content" id="vendedorTabsContent">
 
 {# ════════════════════════════════════════════════════════════ #}
@@ -185,6 +167,25 @@
             data-bs-toggle="modal" data-bs-target="#modalHistEntregas">
       <i class="bi bi-clock-history me-1"></i>Historial de cajas
       <span class="badge bg-secondary ms-1">{{ entregas_vendedor|length }}</span>
+    </button>
+
+    {# ── Liquidar e historial de liquidaciones, directo (sin pestaña) ── #}
+    {% if can_edit and pendientes_count > 0 %}
+    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalLiquidar"
+            title="Liquidar las boletas en caja del vendedor">
+      <i class="bi bi-cash-coin me-2"></i>Liquidar
+      <span class="badge bg-white text-success ms-1">{{ pendientes_count }} boleta(s)</span>
+    </button>
+    {% else %}
+    <button class="btn btn-outline-secondary" disabled title="Sin boletas en caja pendientes de liquidar">
+      <i class="bi bi-cash-coin me-2"></i>Liquidar
+    </button>
+    {% endif %}
+
+    <button class="btn btn-outline-secondary" type="button"
+            data-bs-toggle="modal" data-bs-target="#modalHistLiquidaciones">
+      <i class="bi bi-clock-history me-1"></i>Historial de liquidaciones
+      <span class="badge bg-secondary ms-1">{{ liquidaciones|length if liquidaciones else 0 }}</span>
     </button>
   </div>
 
@@ -408,38 +409,6 @@
 
 </div>{# /tab-pane CAJA #}
 
-{# ════════════════════════════════════════════════════════════ #}
-{# ══════════ TAB LIQUIDACIONES ═══════════════════════════════ #}
-{# ════════════════════════════════════════════════════════════ #}
-<div class="tab-pane fade" id="tab-liq" role="tabpanel" aria-labelledby="tab-liq-btn">
-
-  {# ── Botones de acción de la tab Liquidaciones ── #}
-  <div class="mb-3 d-flex align-items-center flex-wrap gap-2">
-    {% if can_edit and pendientes_count > 0 %}
-    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalLiquidar">
-      <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
-      <span class="badge bg-white text-success ms-1">{{ pendientes_count }} boleta(s)</span>
-    </button>
-    {% else %}
-    <button class="btn btn-outline-secondary" disabled title="Sin boletas en caja pendientes de liquidar">
-      <i class="bi bi-cash-coin me-2"></i>Liquidar vendedor
-    </button>
-    {% endif %}
-
-    <button class="btn btn-outline-secondary" type="button"
-            data-bs-toggle="modal" data-bs-target="#modalHistLiquidaciones">
-      <i class="bi bi-clock-history me-1"></i>Historial de liquidaciones
-      <span class="badge bg-secondary ms-1">{{ liquidaciones|length if liquidaciones else 0 }}</span>
-    </button>
-
-    {% if pendientes_count == 0 %}
-    <span class="text-muted small ms-1">Sin boletas en caja para liquidar.</span>
-    {% endif %}
-  </div>
-
-  {# Historial de liquidaciones: se renderiza en #modalHistLiquidaciones (al final del template) #}
-
-</div>{# /tab-pane Liq #}
 </div>{# /tab-content vendedorTabsContent #}
 
 {# ══════════ MODAL DETALLE LIQUIDACIÓN ══════════ #}
