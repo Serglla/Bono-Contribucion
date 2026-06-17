@@ -2,7 +2,29 @@
 {% block title %}Cobradores{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="fw-bold mb-0"><i class="bi bi-cash-coin text-danger me-2"></i>Cobradores</h4>
+  <h4 class="fw-bold mb-0"><i class="bi bi-wallet2 text-danger me-2"></i>Cobranza</h4>
+</div>
+
+<!-- Tabs de navegación de Cobranza -->
+<ul class="nav nav-tabs mb-4">
+  {% if has_permission(user, 'cobranza', 'ver') %}
+  <li class="nav-item">
+    <a class="nav-link" href="/cobranza/">Planillas</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="/cobranza/emplanillado">Emplanillado</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="/cobranza/liquidacion">Liquidación</a>
+  </li>
+  {% endif %}
+  <li class="nav-item">
+    <a class="nav-link active fw-semibold" href="/cobradores/">Cobradores</a>
+  </li>
+</ul>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="fw-bold mb-0"><i class="bi bi-cash-coin text-danger me-2"></i>Cobradores</h5>
   <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNuevo">
     <i class="bi bi-plus-lg me-1"></i>Nuevo
   </button>

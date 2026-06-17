@@ -64,6 +64,26 @@
     }
     .topbar .user-info { color: #adb5bd; font-size: .8rem; }
     .topbar .user-info .username { color: #fff; }
+    /* Botón ☰ Menú */
+    .topbar .btn-menu { color:#fff; border:1px solid rgba(255,255,255,.28); background:rgba(255,255,255,.07); border-radius:8px; padding:.35rem .7rem; display:flex; align-items:center; white-space:nowrap; }
+    .topbar .btn-menu:hover { background:rgba(255,255,255,.18); color:#fff; }
+    .quick-links { flex-wrap: nowrap; overflow-x: auto; -ms-overflow-style: none; scrollbar-width: none; }
+    .quick-links::-webkit-scrollbar { display: none; }
+    /* Panel lateral del menú */
+    .menu-panel { width: 290px; max-width: 84vw; background:#fff; }
+    .menu-panel .offcanvas-header { background:#1a2a4a; color:#fff; }
+    .menu-link { display:flex; align-items:center; gap:.6rem; padding:.6rem .75rem; border-radius:8px; color:#334155; text-decoration:none; font-weight:500; margin-bottom:2px; }
+    .menu-link i { font-size:1.05rem; width:1.4rem; text-align:center; color:#64748b; }
+    .menu-link:hover { background:#f1f3f7; color:#1a2a4a; }
+    .menu-link:hover i { color:#1a2a4a; }
+    .menu-link.active { background:#e63946; color:#fff; }
+    .menu-link.active i { color:#fff; }
+    .menu-group-label { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; font-weight:700; margin:.25rem .25rem .4rem; }
+    @media (max-width: 575.98px) {
+      .quick-links .ql-text { display:none; }
+      .topbar .navbar-brand small { display:none; }
+      .topbar .navbar-brand span { font-size:.95rem; }
+    }
     .main-content { min-height: calc(100vh - 56px); }
     .badge-vendido { background: #198754; }
     .badge-caja { background: #0d6efd; }
@@ -84,107 +104,104 @@
 </head>
 <body>
 <!-- Topbar -->
-<nav class="navbar navbar-expand-lg topbar shadow-sm sticky-top">
-  <div class="container-fluid px-3">
-    <a class="navbar-brand d-flex align-items-center" href="/reportes/">
+<nav class="navbar topbar shadow-sm sticky-top">
+  <div class="container-fluid px-3 d-flex align-items-center gap-2 flex-nowrap">
+    <a class="navbar-brand d-flex align-items-center me-1" href="/reportes/">
       <i class="bi bi-shield-fill-check text-danger me-2 fs-4"></i>
       <span>CDELU<small>Bomberos 2026-2027</small></span>
     </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="mainNav">
-      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        {% if has_permission(user, 'reportes', 'ver') %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/reportes') %}active{% endif %}" href="/reportes/">
-            <i class="bi bi-bar-chart-fill me-1"></i>Dashboard
-          </a>
-        </li>
-        {% endif %}
-        {% if has_permission(user, 'taloneras', 'ver') %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/taloneras') %}active{% endif %}" href="/taloneras/">
-            <i class="bi bi-journal-text me-1"></i>Taloneras
-          </a>
-        </li>
-        {% endif %}
-        {% if has_permission(user, 'compradores', 'ver') %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/compradores') %}active{% endif %}" href="/compradores/">
-            <i class="bi bi-people-fill me-1"></i>Socios
-          </a>
-        </li>
-        {% endif %}
-        {% if has_permission(user, 'vendedores', 'ver') %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/vendedores') %}active{% endif %}" href="/vendedores/">
-            <i class="bi bi-person-badge me-1"></i>Vendedores
-          </a>
-        </li>
-        {% endif %}
-        {% if has_permission(user, 'cobradores', 'ver') %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/cobradores') %}active{% endif %}" href="/cobradores/">
-            <i class="bi bi-cash-coin me-1"></i>Cobradores
-          </a>
-        </li>
-        {% endif %}
-        {% if has_permission(user, 'zonas', 'ver') %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/zonas') %}active{% endif %}" href="/zonas/">
-            <i class="bi bi-geo-alt-fill me-1"></i>Zonas
-          </a>
-        </li>
-        {% endif %}
-        {% if has_permission(user, 'sorteos', 'ver') %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/sorteos') %}active{% endif %}" href="/sorteos/">
-            <i class="bi bi-trophy-fill me-1"></i>Sorteos
-          </a>
-        </li>
-        {% endif %}
-        {% if has_permission(user, 'cobranza', 'ver') %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/cobranza') %}active{% endif %}" href="/cobranza/">
-            <i class="bi bi-wallet2 me-1"></i>Cobranza
-          </a>
-        </li>
-        {% endif %}
-        {% if user and user.is_admin %}
-        <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/auth/usuarios') %}active{% endif %}" href="/auth/usuarios">
-            <i class="bi bi-person-lock me-1"></i>Usuarios
-          </a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/backup') %}active{% endif %}" href="/backup/">
-            <i class="bi bi-database-fill-down me-1"></i>Backup
-          </a>
-        </li>
-        {% endif %}
-      </ul>
-      {% if user %}
-      <div class="d-flex align-items-center user-block gap-2">
-        {% if user.is_admin %}
-        <a href="/contabilidad/" class="user-info text-decoration-none" title="Contabilidad">
-          <i class="bi bi-person-circle me-1"></i><span class="username">{{ user.username }}</span>
+
+    <!-- Accesos directos siempre visibles -->
+    <ul class="navbar-nav flex-row align-items-center gap-1 quick-links me-auto">
+      {% if has_permission(user, 'compradores', 'ver') %}
+      <li class="nav-item">
+        <a class="nav-link {% if request.url.path.startswith('/compradores') %}active{% endif %}" href="/compradores/">
+          <i class="bi bi-people-fill me-1"></i><span class="ql-text">Socios</span>
         </a>
-        {% else %}
-        <span class="user-info"><i class="bi bi-person-circle me-1"></i><span class="username">{{ user.username }}</span></span>
-        {% endif %}
-        <button type="button" class="btn btn-sm btn-outline-light" title="Compartir la app con un nuevo cliente"
-                data-bs-toggle="modal" data-bs-target="#modalCompartir">
-          <i class="bi bi-share-fill me-1"></i>Compartir
-        </button>
-        <a href="/auth/logout" class="btn btn-sm btn-outline-light">
-          <i class="bi bi-box-arrow-left me-1"></i>Salir
-        </a>
-      </div>
+      </li>
       {% endif %}
-    </div>
+      {% if has_permission(user, 'cobranza', 'ver') %}
+      <li class="nav-item">
+        <a class="nav-link {% if request.url.path.startswith('/cobranza') or request.url.path.startswith('/cobradores') %}active{% endif %}" href="/cobranza/">
+          <i class="bi bi-wallet2 me-1"></i><span class="ql-text">Cobranza</span>
+        </a>
+      </li>
+      {% endif %}
+      {% if has_permission(user, 'vendedores', 'ver') %}
+      <li class="nav-item">
+        <a class="nav-link {% if request.url.path.startswith('/vendedores') %}active{% endif %}" href="/vendedores/">
+          <i class="bi bi-person-badge me-1"></i><span class="ql-text">Vendedores</span>
+        </a>
+      </li>
+      {% endif %}
+    </ul>
+
+    {% if user %}
+    <button class="btn btn-menu" type="button" data-bs-toggle="offcanvas" data-bs-target="#mainMenu" aria-controls="mainMenu">
+      <i class="bi bi-list fs-5"></i><span class="d-none d-sm-inline ms-1">Menú</span>
+    </button>
+    <a href="/auth/logout" class="btn btn-sm btn-outline-light" title="Salir">
+      <i class="bi bi-box-arrow-left"></i><span class="d-none d-md-inline ms-1">Salir</span>
+    </a>
+    {% endif %}
   </div>
 </nav>
+
+{% if user %}
+<!-- Panel lateral (menú completo) -->
+<div class="offcanvas offcanvas-start menu-panel" tabindex="-1" id="mainMenu" aria-labelledby="mainMenuLabel">
+  <div class="offcanvas-header">
+    <h5 class="offcanvas-title d-flex align-items-center mb-0" id="mainMenuLabel">
+      <i class="bi bi-shield-fill-check text-danger me-2"></i>Menú
+    </h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+  </div>
+  <div class="offcanvas-body d-flex flex-column">
+    <div class="menu-group-label">Secciones</div>
+    {% if has_permission(user, 'reportes', 'ver') %}
+    <a class="menu-link {% if request.url.path.startswith('/reportes') %}active{% endif %}" href="/reportes/"><i class="bi bi-bar-chart-fill"></i>Dashboard</a>
+    {% endif %}
+    {% if has_permission(user, 'compradores', 'ver') %}
+    <a class="menu-link {% if request.url.path.startswith('/compradores') %}active{% endif %}" href="/compradores/"><i class="bi bi-people-fill"></i>Socios</a>
+    {% endif %}
+    {% if has_permission(user, 'vendedores', 'ver') %}
+    <a class="menu-link {% if request.url.path.startswith('/vendedores') %}active{% endif %}" href="/vendedores/"><i class="bi bi-person-badge"></i>Vendedores</a>
+    {% endif %}
+    {% if has_permission(user, 'cobranza', 'ver') %}
+    <a class="menu-link {% if request.url.path.startswith('/cobranza') or request.url.path.startswith('/cobradores') %}active{% endif %}" href="/cobranza/"><i class="bi bi-wallet2"></i>Cobranza</a>
+    {% endif %}
+    {% if has_permission(user, 'taloneras', 'ver') %}
+    <a class="menu-link {% if request.url.path.startswith('/taloneras') %}active{% endif %}" href="/taloneras/"><i class="bi bi-journal-text"></i>Taloneras</a>
+    {% endif %}
+    {% if has_permission(user, 'zonas', 'ver') %}
+    <a class="menu-link {% if request.url.path.startswith('/zonas') %}active{% endif %}" href="/zonas/"><i class="bi bi-geo-alt-fill"></i>Zonas</a>
+    {% endif %}
+    {% if has_permission(user, 'sorteos', 'ver') %}
+    <a class="menu-link {% if request.url.path.startswith('/sorteos') %}active{% endif %}" href="/sorteos/"><i class="bi bi-trophy-fill"></i>Sorteos</a>
+    {% endif %}
+
+    {% if user.is_admin %}
+    <div class="menu-group-label mt-3">Administración</div>
+    <a class="menu-link {% if request.url.path.startswith('/auth/usuarios') %}active{% endif %}" href="/auth/usuarios"><i class="bi bi-person-lock"></i>Usuarios</a>
+    <a class="menu-link {% if request.url.path.startswith('/backup') %}active{% endif %}" href="/backup/"><i class="bi bi-database-fill-down"></i>Backup</a>
+    <a class="menu-link {% if request.url.path.startswith('/contabilidad') %}active{% endif %}" href="/contabilidad/"><i class="bi bi-cash-stack"></i>Contabilidad</a>
+    {% endif %}
+
+    <div class="mt-auto pt-3 border-top">
+      <div class="d-flex align-items-center gap-2 mb-2 px-1">
+        <i class="bi bi-person-circle fs-5 text-secondary"></i>
+        <span class="fw-semibold">{{ user.username }}</span>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline-primary w-100 mb-2" id="menuCompartirBtn">
+        <i class="bi bi-share-fill me-1"></i>Compartir la app
+      </button>
+      <a href="/auth/logout" class="btn btn-sm btn-outline-secondary w-100">
+        <i class="bi bi-box-arrow-left me-1"></i>Salir
+      </a>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- Main -->
 <div class="main-content p-4">
@@ -414,6 +431,25 @@ function copiarLinkApp() {
 function compartirWhatsapp() {
   window.open("https://wa.me/?text=" + encodeURIComponent(_shareMessage()), "_blank");
 }
+
+// Abrir "Compartir" desde el panel lateral: cerrar el offcanvas y luego abrir el modal
+// (evita que queden dos backdrops superpuestos).
+(function () {
+  const btn = document.getElementById("menuCompartirBtn");
+  const panel = document.getElementById("mainMenu");
+  const modalEl = document.getElementById("modalCompartir");
+  if (!btn || !modalEl) return;
+  btn.addEventListener("click", () => {
+    const oc = panel ? bootstrap.Offcanvas.getInstance(panel) : null;
+    const abrirModal = () => bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    if (oc) {
+      panel.addEventListener("hidden.bs.offcanvas", abrirModal, { once: true });
+      oc.hide();
+    } else {
+      abrirModal();
+    }
+  });
+})();
 
 // ── Diálogos propios: appConfirm / appAlert / appConfirmSubmit ────────────────
 (function () {
