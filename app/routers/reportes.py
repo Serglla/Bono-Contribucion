@@ -247,95 +247,19 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         "compradores": db.query(func.count(models.Comprador.id)).scalar(),
     }
 
-    # Stats por zona con desglose de taloneras
-    zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
-    stats_por_zona = []
-    for z in zonas:
-        compradores_zona = db.query(func.count(models.Comprador.id)).filter(
-            models.Comprador.zona_id == z.id
-        ).scalar()
-        taloneras_zona = db.query(
-            func.coalesce(func.sum(models.Talonera.multiplicador), 0)
-        ).select_from(models.Boleta).join(
-            models.Comprador, models.Comprador.id == models.Boleta.comprador_id
-        ).join(
-            models.Talonera, models.Talonera.id == models.Boleta.talonera_id
-        ).filter(
-            models.Comprador.zona_id == z.id
-        ).scalar() or 0
-        vendidas_zona = db.query(
-            func.coalesce(func.sum(models.Talonera.multiplicador), 0)
-        ).select_from(models.Boleta).join(
-            models.Comprador, models.Comprador.id == models.Boleta.comprador_id
-        ).join(
-            models.Talonera, models.Talonera.id == models.Boleta.talonera_id
-        ).filter(
-            models.Comprador.zona_id == z.id
-        ).scalar() or 0
-        baja_zona = db.query(
-            func.coalesce(func.sum(models.Talonera.multiplicador), 0)
-        ).select_from(models.Boleta).join(
-            models.Comprador, models.Comprador.id == models.Boleta.comprador_id
-        ).join(
-            models.Talonera, models.Talonera.id == models.Boleta.talonera_id
-        ).filter(
-            models.Comprador.zona_id == z.id,
-            models.Boleta.condicion == CondicionBoleta.BAJA
-        ).scalar() or 0
-        en_cobranza_zona = db.query(
-            func.coalesce(func.sum(models.Talonera.multiplicador), 0)
-        ).select_from(models.Boleta).join(
-            models.Comprador, models.Comprador.id == models.Boleta.comprador_id
-        ).join(
-            models.Talonera, models.Talonera.id == models.Boleta.talonera_id
-        ).filter(
-            models.Comprador.zona_id == z.id,
-            models.Boleta.condicion == CondicionBoleta.EN_COBRANZA
-        ).scalar() or 0
-        if z.vendedor_id:
-            sin_vender_zona = db.query(
-                func.coalesce(func.sum(models.Talonera.multiplicador), 0)
-            ).select_from(models.Boleta).join(
-                models.Talonera, models.Talonera.id == models.Boleta.talonera_id
-            ).filter(
-                models.Boleta.vendedor_id == z.vendedor_id,
-                models.Boleta.condicion == CondicionBoleta.SIN_VENDER
-            ).scalar() or 0
-        else:
-            sin_vender_zona = 0
-
-        # Desglose por talonera dentro de esta zona
-        talonera_detalle_zona = db.query(
-            models.Talonera.nombre,
-            func.coalesce(func.sum(models.Talonera.multiplicador), 0).label("vendidas")
-        ).select_from(models.Boleta).join(
-            models.Comprador, models.Comprador.id == models.Boleta.comprador_id
-        ).join(
-            models.Talonera, models.Talonera.id == models.Boleta.talonera_id
-        ).filter(
-            models.Comprador.zona_id == z.id,
-            models.Talonera.tipo != "CONTADO",
-        ).group_by(models.Talonera.nombre).order_by(models.Talonera.nombre).all()
-
-        stats_por_zona.append({
-            "zona": z,
-            "taloneras": taloneras_zona,
-            "compradores": compradores_zona,
-            "vendidas": vendidas_zona,
-            "baja": baja_zona,
-            "en_cobranza": en_cobranza_zona,
-            "sin_vender": sin_vender_zona,
-            "vendedor": z.vendedor.nombre if z.vendedor else "—",
-            "cobrador": z.cobrador.nombre if z.cobrador else "—",
-            "talonera_detalle": [
-                {"nombre": row.nombre, "vendidas": int(row.vendidas or 0)}
-                for row in talonera_detalle_zona
-            ],
-        })
+    # Zonas trabajadas = cantidad de zonas distintas donde hay números vendidos
+    # (boletas con comprador asignado). Una sola consulta, en vez del detalle por zona.
+    zonas_trabajadas = db.query(
+        func.count(func.distinct(models.Comprador.zona_id))
+    ).select_from(models.Boleta).join(
+        models.Comprador, models.Comprador.id == models.Boleta.comprador_id
+    ).filter(
+        models.Comprador.zona_id.isnot(None)
+    ).scalar() or 0
 
     return templates.TemplateResponse(request, "reportes.html", {"user": user,
         "stats_por_talonera": stats_por_talonera,
         "top_vendedores": top_vendedores,
         "top_cobradores": top_cobradores,
         "totales": totales,
-        "stats_por_zona": stats_por_zona})
+        "zonas_trabajadas": zonas_trabajadas})
