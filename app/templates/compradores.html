@@ -804,10 +804,11 @@ document.querySelectorAll('.input-upper').forEach(el => {
                   : 'badge bg-primary ms-2');
               }
             } else if (window._prefillContadoPrevio) {
-              // Boleta normal después de una contado: restaurar lo que tenía el operador
+              // Boleta normal después de una contado: restaurar las cuotas pactadas
+              // del operador y dejar "Cuotas al contado" en 1 (default seguro).
               cuotasInp.value = window._prefillContadoPrevio.cuotas;
               cuotasInp.dispatchEvent(new Event('input'));
-              antInp.value = window._prefillContadoPrevio.ant;
+              antInp.value = '1';
               window._prefillContadoPrevio = null;
             }
 
@@ -931,7 +932,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
   const MEMORIA = {
     fecha:       { key: 'bono_fecha',       el: 'fechaInput',       def: '' },
     cuotas:      { key: 'bono_cuotas',      el: 'cuotasInput',      def: '11' },
-    anticipadas: { key: 'bono_anticipadas', el: 'anticipadasInput', def: '1' },
+    // "Cuotas al contado" NO se recuerda: siempre arranca en 1 para cada socio
+    // (evita que un valor anterior — p.ej. 12/12 de una boleta contado — quede
+    //  pegado y el socio siguiente se cargue por error como pago al contado).
     zona:        { key: 'bono_zona',        el: 'zonaSelect',        def: '' },
     vendedor:    { key: 'bono_vendedor',    el: 'vendedorSelect',    def: '' },
   };
@@ -966,6 +969,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
     document.getElementById('nuevoBoletaInfo').classList.add('d-none');
     document.getElementById('nuevoBoletaError').classList.add('d-none');
     document.getElementById('nuevoBoletaRequerida').classList.add('d-none');
+    // "Cuotas al contado" vuelve siempre a 1 para el próximo socio
+    document.getElementById('anticipadasInput').value = '1';
+    window._prefillContadoPrevio = null;
     // Ocultar badge de vendedor por boleta y restaurar el recordado (si zona no lo bloqueó)
     document.getElementById('vendedorBoletaBadge').classList.add('d-none');
     const vendedorSel = document.getElementById('vendedorSelect');
