@@ -17,10 +17,21 @@
     break-inside: avoid;     /* un número nunca se parte entre dos columnas */
     margin: 0 0 .25rem 0;
   }
+  /* Ítem de número del modal de liquidar (badge + selector oculto): bloque que
+     no se parte entre columnas, para que el grid se lea de arriba hacia abajo. */
+  .liq-num-item {
+    display: flex;
+    align-items: center;
+    gap: .25rem;
+    width: -moz-fit-content;
+    width: fit-content;
+    break-inside: avoid;
+    margin: 0 0 .3rem 0;
+  }
 </style>
 
 {# ══════════ HEADER ══════════ #}
-<div class="d-flex align-items-center gap-3 mb-4">
+<div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
   <a href="/vendedores/" class="btn btn-outline-secondary btn-sm">
     <i class="bi bi-arrow-left"></i>
   </a>
@@ -34,6 +45,51 @@
       {% endif %}
     </h4>
     <small class="text-muted">{{ v.telefono or "Sin teléfono" }}</small>
+  </div>
+
+  {# ── Botones de acción (movidos acá, junto al nombre) ── #}
+  <div class="ms-auto d-flex align-items-center flex-wrap gap-2">
+    {% if can_edit %}
+    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalEntregarCaja">
+      <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
+    </button>
+    <button id="btnPasarCaja" class="btn btn-warning" type="button"
+            title="Pasá boletas a la caja de otro vendedor (antes de liquidar)">
+      <i class="bi bi-arrow-left-right me-2"></i>Pasar Caja
+    </button>
+    <button id="btnRetirarCaja" class="btn btn-danger" type="button"
+            title="Retirá boletas que el vendedor no vendió y vuelven a la institución">
+      <i class="bi bi-box-arrow-up me-2"></i>Retirar Caja
+    </button>
+    {% else %}
+    <button class="btn btn-outline-secondary" disabled>
+      <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
+    </button>
+    {% endif %}
+
+    <button class="btn btn-outline-secondary" type="button"
+            data-bs-toggle="modal" data-bs-target="#modalHistEntregas">
+      <i class="bi bi-clock-history me-1"></i>Historial de cajas
+      <span class="badge bg-secondary ms-1">{{ entregas_vendedor|length }}</span>
+    </button>
+
+    {% if can_edit and pendientes_count > 0 %}
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalLiquidar"
+            title="Liquidar las boletas en caja del vendedor">
+      <i class="bi bi-cash-coin me-2"></i>Liquidar
+      <span class="badge bg-white text-primary ms-1">{{ pendientes_count }} boleta(s)</span>
+    </button>
+    {% else %}
+    <button class="btn btn-outline-secondary" disabled title="Sin boletas en caja pendientes de liquidar">
+      <i class="bi bi-cash-coin me-2"></i>Liquidar
+    </button>
+    {% endif %}
+
+    <button class="btn btn-outline-secondary" type="button"
+            data-bs-toggle="modal" data-bs-target="#modalHistLiquidaciones">
+      <i class="bi bi-clock-history me-1"></i>Historial de liquidaciones
+      <span class="badge bg-secondary ms-1">{{ liquidaciones|length if liquidaciones else 0 }}</span>
+    </button>
   </div>
 </div>
 
@@ -142,52 +198,6 @@
 {# ══════════ TAB CAJA ════════════════════════════════════════ #}
 {# ════════════════════════════════════════════════════════════ #}
 <div class="tab-pane fade show active" id="tab-caja" role="tabpanel" aria-labelledby="tab-caja-btn">
-
-  {# ── Botones de acción de la tab CAJA ── #}
-  <div class="mb-3 d-flex align-items-center flex-wrap gap-2">
-    {% if can_edit %}
-    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalEntregarCaja">
-      <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
-    </button>
-    <button id="btnPasarCaja" class="btn btn-warning" type="button"
-            title="Pasá boletas a la caja de otro vendedor (antes de liquidar)">
-      <i class="bi bi-arrow-left-right me-2"></i>Pasar Caja
-    </button>
-    <button id="btnRetirarCaja" class="btn btn-danger" type="button"
-            title="Retirá boletas que el vendedor no vendió y vuelven a la institución">
-      <i class="bi bi-box-arrow-up me-2"></i>Retirar Caja
-    </button>
-    {% else %}
-    <button class="btn btn-outline-secondary" disabled>
-      <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
-    </button>
-    {% endif %}
-
-    <button class="btn btn-outline-secondary" type="button"
-            data-bs-toggle="modal" data-bs-target="#modalHistEntregas">
-      <i class="bi bi-clock-history me-1"></i>Historial de cajas
-      <span class="badge bg-secondary ms-1">{{ entregas_vendedor|length }}</span>
-    </button>
-
-    {# ── Liquidar e historial de liquidaciones, directo (sin pestaña) ── #}
-    {% if can_edit and pendientes_count > 0 %}
-    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalLiquidar"
-            title="Liquidar las boletas en caja del vendedor">
-      <i class="bi bi-cash-coin me-2"></i>Liquidar
-      <span class="badge bg-white text-success ms-1">{{ pendientes_count }} boleta(s)</span>
-    </button>
-    {% else %}
-    <button class="btn btn-outline-secondary" disabled title="Sin boletas en caja pendientes de liquidar">
-      <i class="bi bi-cash-coin me-2"></i>Liquidar
-    </button>
-    {% endif %}
-
-    <button class="btn btn-outline-secondary" type="button"
-            data-bs-toggle="modal" data-bs-target="#modalHistLiquidaciones">
-      <i class="bi bi-clock-history me-1"></i>Historial de liquidaciones
-      <span class="badge bg-secondary ms-1">{{ liquidaciones|length if liquidaciones else 0 }}</span>
-    </button>
-  </div>
 
   {# ── Toolbar de modo selección "Pasar Caja" (oculta por default) ── #}
   {% if can_edit %}
@@ -1160,7 +1170,7 @@ function renderPatas() {
         ${bulkBtns}
       </div>
       <div class="card-body py-2">
-        <div class="d-flex flex-wrap gap-1">`;
+        <div class="num-cols">`;
 
     data.boletas.forEach(b => {
       if (b.pool === true) {
@@ -1169,7 +1179,7 @@ function renderPatas() {
         const tipoPool = b.tipo_pool || (pata.toUpperCase().includes('2') ? 'contado2' : 'contado');
         const title = `Pool ${pata} #${b.num_str} — entregado a institución (sin valor monetario)`;
         html += `
-          <div class="d-inline-flex align-items-center gap-1" style="margin:0 4px 4px 0;">
+          <div class="liq-num-item">
             <label title="${title}" style="margin:0;cursor:pointer;">
               <input type="checkbox" name="boleta_ids" value="${b.id}"
                      data-pata="${pata}" data-bid="${b.id}"
@@ -1189,7 +1199,7 @@ function renderPatas() {
       const contadoTotal = mult * PATA1_NC * PATA1_VC;
       const title = `×${fmtMult(mult)} — Cuota 1: $${cuota1Unit.toLocaleString('es-AR')} · Contado total: $${contadoTotal.toLocaleString('es-AR')}`;
       html += `
-          <div class="d-inline-flex align-items-center gap-1" style="margin:0 4px 4px 0;">
+          <div class="liq-num-item">
             <label title="${title}" style="margin:0;cursor:pointer;">
               <input type="checkbox" name="boleta_ids" value="${b.id}"
                      data-pata="${pata}" data-bid="${b.id}"
@@ -2142,7 +2152,7 @@ function renderDetalleLiq(d) {
         g.items.forEach(x => {
           const mult = parseFloat(x.multiplicador) || 1;
           badges += `
-            <div class="d-inline-flex align-items-center gap-1" style="margin:0 4px 4px 0;">
+            <div class="liq-num-item">
               <label style="margin:0;cursor:pointer;" title="×${fmtMult(mult)}">
                 <input type="checkbox" class="d-none dl-add-chk" value="${x.id}"
                        data-pata="${pata}" onchange="onAddChkChange(this)">
