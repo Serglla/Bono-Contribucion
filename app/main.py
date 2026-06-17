@@ -17,6 +17,19 @@ app = FastAPI(title="Bonos Bomberos CDELU", version="1.0")
 from fastapi.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
+# Diagnóstico: medir cuánto tarda el SERVIDOR en procesar cada request (sin contar
+# la red). Se expone en el header `Server-Timing: app;dur=<ms>`, visible en DevTools
+# → Network → request → Timing/Headers. Si app;dur ≈ TTFB, el cuello es el servidor;
+# si app;dur es chico pero el TTFB grande, el cuello es la red o la cola de requests.
+import time as _time
+@app.middleware("http")
+async def _server_timing(request, call_next):
+    _t0 = _time.perf_counter()
+    response = await call_next(request)
+    _ms = (_time.perf_counter() - _t0) * 1000.0
+    response.headers["Server-Timing"] = f"app;dur={_ms:.1f}"
+    return response
+
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
