@@ -203,26 +203,39 @@ async def listar(request: Request, db: Session = Depends(get_db),
     # Contado liquidado por vendedor pero todavía sin cargar en sistema:
     # son los LiquidacionContadoItem cuyo número aún no fue asignado
     # a ninguna Boleta con comprador (via numero_especial o numero_especial_2).
-    lci_all = db.query(models.LiquidacionContadoItem).all()
+    # Solo necesitamos (talonera_id, numero) de cada LCI: seleccionar esas
+    # columnas evita materializar objetos ORM completos.
+    lci_all = db.query(
+        models.LiquidacionContadoItem.talonera_id,
+        models.LiquidacionContadoItem.numero,
+    ).all()
     if lci_all:
-        asignados_slot1 = {
-            (b.talonera_especial_id, b.numero_especial)
-            for b in db.query(models.Boleta).filter(
+        # Traer SOLO las columnas necesarias como tuplas (una query cada set).
+        # Importante: numero_especial_2 / talonera_especial_2_id son columnas
+        # `deferred` — recorrer objetos Boleta y accederlas dispara una consulta
+        # extra por fila (N+1). Pedirlas explícitas en el SELECT lo evita.
+        asignados_slot1 = set(
+            db.query(
+                models.Boleta.talonera_especial_id,
+                models.Boleta.numero_especial,
+            ).filter(
                 models.Boleta.comprador_id.isnot(None),
                 models.Boleta.numero_especial.isnot(None),
             ).all()
-        }
-        asignados_slot2 = {
-            (b.talonera_especial_2_id, b.numero_especial_2)
-            for b in db.query(models.Boleta).filter(
+        )
+        asignados_slot2 = set(
+            db.query(
+                models.Boleta.talonera_especial_2_id,
+                models.Boleta.numero_especial_2,
+            ).filter(
                 models.Boleta.comprador_id.isnot(None),
                 models.Boleta.numero_especial_2.isnot(None),
             ).all()
-        }
+        )
         contado_sin_cargar = sum(
-            1 for lci in lci_all
-            if (lci.talonera_id, lci.numero) not in asignados_slot1
-            and (lci.talonera_id, lci.numero) not in asignados_slot2
+            1 for (t_id, num) in lci_all
+            if (t_id, num) not in asignados_slot1
+            and (t_id, num) not in asignados_slot2
         )
     else:
         contado_sin_cargar = 0

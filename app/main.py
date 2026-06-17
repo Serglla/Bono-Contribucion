@@ -12,6 +12,11 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Bonos Bomberos CDELU", version="1.0")
 
+# Comprimir respuestas (HTML/JS/CSS/JSON) para reducir el tiempo de transferencia
+# sobre la latencia hacia Railway. minimum_size evita comprimir respuestas chicas.
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
@@ -73,6 +78,25 @@ def create_default_admin():
     db = SessionLocal()
     try:
         inspector = inspect(engine)
+
+        # Índices de performance en columnas usadas en JOINs/filtros.
+        # ForeignKey() NO crea índice por sí solo: sin esto, las queries de la
+        # página de Socios (y otras) hacen seq-scan sobre Boleta. CREATE INDEX
+        # IF NOT EXISTS es idempotente y funciona en Postgres y SQLite.
+        for _ix_sql in (
+            "CREATE INDEX IF NOT EXISTS ix_boletas_comprador_id ON boletas (comprador_id)",
+            "CREATE INDEX IF NOT EXISTS ix_boletas_talonera_id ON boletas (talonera_id)",
+            "CREATE INDEX IF NOT EXISTS ix_boletas_cobrador_id ON boletas (cobrador_id)",
+            "CREATE INDEX IF NOT EXISTS ix_boletas_vendedor_id ON boletas (vendedor_id)",
+            "CREATE INDEX IF NOT EXISTS ix_boletas_planilla_id ON boletas (planilla_id)",
+            "CREATE INDEX IF NOT EXISTS ix_compradores_zona_id ON compradores (zona_id)",
+        ):
+            try:
+                db.execute(text(_ix_sql))
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                print(f"Indice perf: {e}")
 
         # Asegurar columna legacy cobrador_id en zonas
         try:
