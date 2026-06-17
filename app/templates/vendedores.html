@@ -5,7 +5,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h4 class="fw-bold mb-0"><i class="bi bi-person-badge text-danger me-2"></i>Vendedores</h4>
   <div class="d-flex gap-2">
-    <a href="/vendedores/historial-liquidaciones" class="btn btn-outline-success btn-sm-mobile">
+    <a href="#historial-liq" class="btn btn-outline-success btn-sm-mobile">
       <i class="bi bi-receipt-cutoff me-1"></i><span class="d-none d-sm-inline">Historial de liquidaciones</span><span class="d-sm-none">Historial</span>
     </a>
     <button class="btn btn-danger btn-sm-mobile" data-bs-toggle="modal" data-bs-target="#modalNuevo">
@@ -532,13 +532,14 @@ function abrirHistorialTotal() {
 </div>
 {% endfor %}
 
-<div class="alert alert-light border small mb-4 d-flex align-items-center gap-2">
-  <i class="bi bi-info-circle text-primary"></i>
-  <span>
-    Para <strong>entregar boletas a la caja de un vendedor</strong>, <span class="d-none d-md-inline">hacé doble clic sobre su fila</span><span class="d-md-none">tocá su tarjeta</span> —
-    desde su detalle podés cargar las entregas y ver su historial.
-  </span>
+<!-- Historial de liquidaciones embebido (meses → semanas → tabla) -->
+<div id="historial-liq" class="d-flex align-items-center mb-3 mt-4" style="scroll-margin-top:70px;">
+  <h5 class="fw-bold mb-0">
+    <i class="bi bi-receipt-cutoff text-success me-2"></i>Historial de liquidaciones
+  </h5>
+  <span class="text-muted small ms-2">por mes y semana</span>
 </div>
+{% include "partials/_historial_liquidaciones.html" %}
 
 <!-- Modal Nuevo Vendedor -->
 <div class="modal fade" id="modalNuevo" tabindex="-1">

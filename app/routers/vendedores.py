@@ -508,6 +508,19 @@ async def listar(request: Request, db: Session = Depends(get_db)):
         "n_liquidaciones": sum(r["n_liquidaciones"] for r in historial_mensual),
     }
 
+    # Historial de liquidaciones (mismo dataset que la página dedicada) para
+    # embeberlo al pie de la página de Vendedores. Usa nombres hl_* para no
+    # chocar con `historial_mensual` (que acá es el histórico de entregas a caja).
+    from datetime import datetime as _dt_hl, timedelta as _td_hl
+    _nombres_hl = {v.id: v.nombre for v in vendedores}
+    _liqs_hl = db.query(models.LiquidacionVendedor).all()
+    hl_meses = _build_meses(_liqs_hl, _nombres_hl)
+    _hoy_hl = _dt_hl.utcnow().date()
+    _lunes_hl = _hoy_hl - _td_hl(days=_hoy_hl.weekday())
+    _domingo_hl = _lunes_hl + _td_hl(days=6)
+    hl_semana_key = _lunes_hl.isoformat()
+    hl_mes_key = f"{_domingo_hl.year:04d}-{_domingo_hl.month:02d}"
+
     return templates.TemplateResponse(request, "vendedores.html", {
         "user": user,
         "vendedores": vendedores,
@@ -521,6 +534,9 @@ async def listar(request: Request, db: Session = Depends(get_db)):
         "totales": totales,
         "historial_mensual": historial_mensual,
         "historial_total": historial_total,
+        "hl_meses": hl_meses,
+        "hl_semana_key": hl_semana_key,
+        "hl_mes_key": hl_mes_key,
     })
 
 
@@ -645,9 +661,9 @@ async def historial_liquidaciones(request: Request, db: Session = Depends(get_db
 
     return templates.TemplateResponse(request, "vendedor_historial_liquidaciones.html", {
         "user": user,
-        "historial_mensual": historial_mensual,
-        "semana_actual_key": semana_actual_key,
-        "mes_actual_key": mes_actual_key,
+        "hl_meses": historial_mensual,
+        "hl_semana_key": semana_actual_key,
+        "hl_mes_key": mes_actual_key,
     })
 
 
