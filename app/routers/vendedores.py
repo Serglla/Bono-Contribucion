@@ -1152,6 +1152,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
                 "key": key, "year": y, "month": m,
                 "label": f"{_MESES_ES[m-1]} {y}",
                 "liquidaciones": [],
+                "dias_dict": {},
                 "total_ingresos": 0.0,
                 "total_rinde": 0.0,
                 "total_boletas": 0,
@@ -1184,6 +1185,47 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         g["total_entregados_c2"]  += int(_liq_pool.get("c2", 0))
         g["total_extras"]         += (int(liq.cuotas_extras_cantidad or 0)
                                       + int(getattr(liq, "cuotas_extras_p0_cantidad", 0) or 0))
+
+        # ── Agrupado por DÍA (las liquidaciones del mismo día se suman en una fila) ──
+        dkey = liq.fecha.date()
+        d = g["dias_dict"].get(dkey)
+        if d is None:
+            d = {
+                "fecha": liq.fecha,
+                "fecha_str": liq.fecha.strftime("%d/%m/%y"),
+                "ids": [],
+                "n_liq": 0,
+                "cuotas_eq": 0.0, "cuotas_crudo": 0,
+                "contados_eq": 0.0, "contados_crudo": 0,
+                "pool_c1": 0, "pool_c2": 0, "pool_total": 0,
+                "extras_cantidad": 0,
+                "total_a_rendir": 0.0,
+                "_obs": [],
+            }
+            g["dias_dict"][dkey] = d
+        d["ids"].append(liq.id)
+        d["n_liq"] += 1
+        d["cuotas_eq"]      += _liq_cuotas_eq
+        d["cuotas_crudo"]   += int(liq.cuotas_vendidas or 0)
+        d["contados_eq"]    += _liq_contados_eq
+        d["contados_crudo"] += int(liq.contados_vendidos or 0)
+        d["pool_c1"]    += int(_liq_pool.get("c1", 0))
+        d["pool_c2"]    += int(_liq_pool.get("c2", 0))
+        d["pool_total"] += int(_liq_pool.get("total", 0))
+        d["extras_cantidad"] += (int(liq.cuotas_extras_cantidad or 0)
+                                 + int(getattr(liq, "cuotas_extras_p0_cantidad", 0) or 0))
+        d["total_a_rendir"]  += float(liq.total_a_rendir or 0)
+        _obs = (liq.observacion or "").strip()
+        if _obs:
+            d["_obs"].append(_obs)
+
+    # Convertir el dict de días a lista ordenada (día más reciente arriba)
+    for g in grupos_mes_dict.values():
+        dias = sorted(g["dias_dict"].values(), key=lambda d: d["fecha"], reverse=True)
+        for d in dias:
+            # Observaciones únicas, conservando orden
+            d["obs_str"] = " · ".join(dict.fromkeys(d["_obs"]))
+        g["dias"] = dias
 
     # Orden cronológico inverso: mes actual primero, luego pasados (más reciente arriba)
     liquidaciones_por_mes = sorted(
@@ -1977,6 +2019,42 @@ async def eliminar_liquidacion(liq_id: int, request: Request, db: Session = Depe
         liquidacion_id=liq_id
     ).delete(synchronize_session=False)
     db.delete(liq)
+    db.commit()
+    return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liq_eliminada", status_code=302)
+
+
+@router.post("/liquidaciones/eliminar-dia")
+async def eliminar_liquidaciones_dia(request: Request, db: Session = Depends(get_db)):
+    """Elimina TODAS las liquidaciones de un día (las que figuran agrupadas en una
+    misma fila del historial). SOLO admin. Mismo efecto que eliminar cada una:
+    las boletas vuelven a CAJA sin liquidar y el pool CONTADO vuelve al pool libre.
+    Recibe `ids` (lista de IDs separados por coma)."""
+    user = await auth_module.require_user(request, db)
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(403, "Solo admin puede eliminar liquidaciones")
+    form = await request.form()
+    raw = (form.get("ids") or "").strip()
+    try:
+        ids = [int(x) for x in raw.split(",") if x.strip()]
+    except Exception:
+        ids = []
+    if not ids:
+        raise HTTPException(400, "No se indicaron liquidaciones a eliminar")
+    liqs = db.query(models.LiquidacionVendedor).filter(
+        models.LiquidacionVendedor.id.in_(ids)
+    ).all()
+    if not liqs:
+        raise HTTPException(404, "Liquidaciones no encontradas")
+    vid = liqs[0].vendedor_id
+    for liq in liqs:
+        db.query(models.Boleta).filter_by(liquidacion_vendedor_id=liq.id).update(
+            {"liquidacion_vendedor_id": None, "condicion": CondicionBoleta.CAJA},
+            synchronize_session=False
+        )
+        db.query(models.LiquidacionContadoItem).filter_by(
+            liquidacion_id=liq.id
+        ).delete(synchronize_session=False)
+        db.delete(liq)
     db.commit()
     return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liq_eliminada", status_code=302)
 

@@ -450,6 +450,12 @@
     </div>
   </div>
 </div>
+{% if user and user.is_admin %}
+{# Form oculto para eliminar todas las liquidaciones de un día (fila agrupada del historial) #}
+<form method="post" action="/vendedores/liquidaciones/eliminar-dia" id="formEliminarDia" class="d-none">
+  <input type="hidden" name="ids" value="">
+</form>
+{% endif %}
 {% endif %}
 
 {# ══════════ MODAL LIQUIDAR ══════════ #}
@@ -925,44 +931,43 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {% for liq in grupo.liquidaciones %}
-                      {% set _cu_eq = liq.cuotas_equiv or liq.cuotas_vendidas or 0 %}
-                      {% set _co_eq = liq.contados_equiv or liq.contados_vendidos or 0 %}
-                      <tr style="cursor:pointer;" ondblclick="verDetalleLiq({{ liq.id }})"
-                          title="Doble-click para ver el detalle de esta liquidación">
-                        <td class="text-start text-muted">{{ liq.fecha.strftime('%d/%m/%y %H:%M') }}</td>
-                        <td title="Boletas reales: {{ liq.cuotas_vendidas }} · Ponderado exacto: {{ '%.2f'|format(_cu_eq) }}">
-                          <span class="fw-bold text-success">{{ _cu_eq | round(0) | int }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">{{ liq.cuotas_vendidas }} bol.</span>
+                      {# Una fila por DÍA: las liquidaciones del mismo día se suman y agrupan. #}
+                      {% for d in grupo.dias %}
+                      <tr style="cursor:pointer;" ondblclick="verDetalleDia({{ d.ids|tojson }})"
+                          title="Doble-click para ver el detalle del día{% if d.n_liq > 1 %} ({{ d.n_liq }} liquidaciones agrupadas){% endif %}">
+                        <td class="text-start text-muted">
+                          {{ d.fecha_str }}
+                          {% if d.n_liq > 1 %}<span class="badge bg-secondary ms-1" style="font-size:.6rem;font-weight:600;" title="{{ d.n_liq }} liquidaciones de este día, sumadas">{{ d.n_liq }} liq.</span>{% endif %}
                         </td>
-                        <td title="Boletas reales: {{ liq.contados_vendidos }} · Ponderado exacto: {{ '%.2f'|format(_co_eq) }} · Monto contados: ${{ '%.2f'|format(liq.monto_contados or 0) }} ({{ liq.comision_contados_pct }}% comisión)">
-                          <span class="fw-bold text-success">{{ _co_eq | round(0) | int }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">{{ liq.contados_vendidos }} bol.</span>
+                        <td title="Boletas reales: {{ d.cuotas_crudo }} · Ponderado exacto: {{ '%.2f'|format(d.cuotas_eq) }}">
+                          <span class="fw-bold text-success">{{ d.cuotas_eq | round(0) | int }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">{{ d.cuotas_crudo }} bol.</span>
+                        </td>
+                        <td title="Boletas reales: {{ d.contados_crudo }} · Ponderado exacto: {{ '%.2f'|format(d.contados_eq) }}">
+                          <span class="fw-bold text-success">{{ d.contados_eq | round(0) | int }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">{{ d.contados_crudo }} bol.</span>
                         </td>
                         <td title="Total ponderado vendido (cuotas + contados)">
-                          <span class="fw-bold">{{ (_cu_eq + _co_eq) | round(0) | int }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">{{ liq.cuotas_vendidas + liq.contados_vendidos }} bol.</span>
+                          <span class="fw-bold">{{ (d.cuotas_eq + d.contados_eq) | round(0) | int }}</span>
+                          <span class="d-block text-muted" style="font-size:.68rem;">{{ d.cuotas_crudo + d.contados_crudo }} bol.</span>
                         </td>
-                        {% set _pool = (pool_by_liq_v.get(liq.id) if pool_by_liq_v else None) or {'c1': 0, 'c2': 0, 'total': 0} %}
-                        <td title="Pool entregados a institución (sin valor monetario) — CO: {{ _pool.c1 }} · CO2: {{ _pool.c2 }}"
-                            class="{% if _pool.total %}table-warning{% endif %}">
-                          <span class="fw-bold text-warning-emphasis">{{ _pool.c1 }}</span>
+                        <td title="Pool entregados a institución (sin valor monetario) — CO: {{ d.pool_c1 }} · CO2: {{ d.pool_c2 }}"
+                            class="{% if d.pool_total %}table-warning{% endif %}">
+                          <span class="fw-bold text-warning-emphasis">{{ d.pool_c1 }}</span>
                           <span class="text-muted">/</span>
-                          <span class="fw-bold text-warning-emphasis">{{ _pool.c2 }}</span>
+                          <span class="fw-bold text-warning-emphasis">{{ d.pool_c2 }}</span>
                           <span class="d-block text-muted" style="font-size:.62rem;">CO / CO2</span>
                         </td>
-                        <td title="Monto extras: ${{ '%.2f'|format(liq.cuotas_extras_monto or 0) }} ({{ liq.comision_cuotas_pct }}% comisión)">{{ liq.cuotas_extras_cantidad or 0 }}</td>
-                        <td class="text-end fw-bold text-success">${{ '%.2f'|format(liq.total_a_rendir or 0) }}</td>
-                        <td class="text-start text-muted fst-italic">{{ liq.observacion or "—" }}</td>
+                        <td>{{ d.extras_cantidad or 0 }}</td>
+                        <td class="text-end fw-bold text-success">${{ '%.2f'|format(d.total_a_rendir or 0) }}</td>
+                        <td class="text-start text-muted fst-italic">{{ d.obs_str or "—" }}</td>
                         {% if user and user.is_admin %}
                         <td onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
-                          <form method="post" action="/vendedores/liquidaciones/{{ liq.id }}/eliminar"
-                                class="d-inline" onsubmit="return confirmEliminarLiq(this);"
-                                title="Eliminar esta liquidación (solo admin)">
-                            <button type="submit" class="btn btn-sm btn-outline-danger" style="padding:1px 6px;">
-                              <i class="bi bi-trash"></i>
-                            </button>
-                          </form>
+                          <button type="button" class="btn btn-sm btn-outline-danger" style="padding:1px 6px;"
+                                  onclick='eliminarDia({{ d.ids|tojson }}, {{ d.fecha_str|tojson }})'
+                                  title="Eliminar {% if d.n_liq > 1 %}las {{ d.n_liq }} liquidaciones de este día{% else %}esta liquidación{% endif %} (solo admin)">
+                            <i class="bi bi-trash"></i>
+                          </button>
                         </td>
                         {% endif %}
                       </tr>
@@ -1784,6 +1789,116 @@ async function verDetalleLiq(liqId) {
   }
 }
 
+// Muestra/oculta los controles por-liquidación del footer (Editar / Eliminar individual).
+// En la vista combinada de un día con varias liquidaciones se ocultan.
+function _dlSetControls(show) {
+  const editBtn = document.getElementById('dl-edit-btn');
+  const delForm = document.getElementById('formEliminarLiqDetalle');
+  if (editBtn) editBtn.style.display = show ? '' : 'none';
+  if (delForm) delForm.style.display = show ? '' : 'none';
+}
+
+// Doble-click en una fila del historial (agrupada por día).
+// 1 liquidación → detalle normal (editable). Varias → detalle combinado de solo lectura.
+function verDetalleDia(ids) {
+  ids = (ids || []).map(Number).filter(n => n);
+  if (!ids.length) return;
+  if (ids.length === 1) {
+    _dlSetControls(true);
+    verDetalleLiq(ids[0]);
+    return;
+  }
+  verDetalleDiaCombinado(ids);
+}
+
+// Suma los detalles de varias liquidaciones del mismo día en un único objeto
+// con la misma forma que /detalle, para reusar renderDetalleLiq (solo lectura).
+function mergeDetalleDia(parts) {
+  const sumF = (k) => parts.reduce((a, p) => a + (parseFloat(p[k]) || 0), 0);
+  const sumI = (k) => parts.reduce((a, p) => a + (parseInt(p[k], 10) || 0), 0);
+  const m = {
+    id: null,
+    fecha: (parts[0].fecha || '').split(' ')[0] + ' · ' + parts.length + ' liquidaciones',
+    cuotas_vendidas:        sumI('cuotas_vendidas'),
+    cuotas_equiv:           sumF('cuotas_equiv'),
+    contados_vendidos:      sumI('contados_vendidos'),
+    monto_contados:         sumF('monto_contados'),
+    comision_contados_pct:  parts[0].comision_contados_pct,
+    comision_contados:      sumF('comision_contados'),
+    cuotas_extras_cantidad: sumI('cuotas_extras_cantidad'),
+    cuotas_extras_valor:    parts[0].cuotas_extras_valor,
+    cuotas_extras_monto:    sumF('cuotas_extras_monto'),
+    comision_cuotas_pct:    parts[0].comision_cuotas_pct,
+    comision_cuotas_extras: sumF('comision_cuotas_extras'),
+    total_a_rendir:         sumF('total_a_rendir'),
+    cuota_1_total:          sumF('cuota_1_total'),
+    observacion: '',
+    boletas: [],
+    pool_items: [],
+    disponibles: [],
+  };
+  parts.forEach(p => {
+    (p.boletas || []).forEach(b => m.boletas.push(b));
+    (p.pool_items || []).forEach(it => m.pool_items.push(it));
+  });
+  return m;
+}
+
+async function verDetalleDiaCombinado(ids) {
+  const modalEl = document.getElementById('modalDetalleLiq');
+  if (!modalEl) return;
+  if (modalEl.parentElement !== document.body) document.body.appendChild(modalEl);
+  // Vista combinada → solo lectura (no se puede editar/eliminar a través de ella).
+  dlCurrentLiqId = null;
+  dlDetalleData  = null;
+  dlEditMode     = false;
+  dlPendingMsg   = null;
+  _dlSetControls(false);
+  const body = document.getElementById('dl-body');
+  const fechaLbl = document.getElementById('dl-fecha');
+  body.innerHTML = `<div class="text-center text-muted py-4">
+    <div class="spinner-border spinner-border-sm me-2"></div>Cargando…</div>`;
+  fechaLbl.textContent = '—';
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  modal.show();
+  try {
+    const results = await Promise.all(ids.map(id =>
+      fetch(`/vendedores/liquidaciones/${id}/detalle`, { credentials:'include' })
+        .then(r => r.ok ? r.json() : null).catch(() => null)));
+    const parts = results.filter(Boolean);
+    if (!parts.length) {
+      body.innerHTML = `<div class="alert alert-danger small mb-0">
+        <i class="bi bi-x-circle me-1"></i>Error al cargar el detalle del día</div>`;
+      return;
+    }
+    dlDetalleData = mergeDetalleDia(parts);
+    renderDetalleLiq(dlDetalleData);
+  } catch (e) {
+    body.innerHTML = `<div class="alert alert-danger small mb-0">
+      <i class="bi bi-x-circle me-1"></i>Error de red al cargar el detalle del día</div>`;
+  }
+}
+
+// Elimina todas las liquidaciones de un día (fila agrupada). Solo admin.
+function eliminarDia(ids, fechaStr) {
+  ids = (ids || []).map(Number).filter(n => n);
+  if (!ids.length) return;
+  const n = ids.length;
+  const msg = (n > 1
+      ? `¿Eliminar las ${n} liquidaciones del ${fechaStr}?\n\n`
+      : `¿Eliminar la liquidación del ${fechaStr}?\n\n`) +
+    'Las boletas asociadas volverán a CAJA sin liquidar (quedan pendientes de liquidar de nuevo).\n' +
+    'Los números del pool CONTADO declarados acá volverán al pool libre.\n\n' +
+    'Esta acción no se puede deshacer.';
+  appConfirm(msg, { okText: n > 1 ? `Sí, eliminar ${n}` : 'Sí, eliminar' }).then(ok => {
+    if (!ok) return;
+    const f = document.getElementById('formEliminarDia');
+    if (!f) return;
+    f.querySelector('[name="ids"]').value = ids.join(',');
+    f.submit();
+  });
+}
+
 // Re-fetch del detalle tras agregar/sacar un número (modal sigue abierto).
 async function refetchDetalleLiq(msg) {
   if (msg) dlPendingMsg = msg;
@@ -2382,7 +2497,6 @@ function renderDetalleLiq(d) {
       const data = await r.json();
       if (!data.ok) {
         appAlert('Error: ' + (data.error || 'no se pudo retirar'), 'error');
-        btnConfirm.disabled = false;
         btnConfirm.innerHTML = '<i class="bi bi-box-arrow-up me-1"></i>Confirmar retiro';
         return;
       }
