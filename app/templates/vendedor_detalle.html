@@ -288,18 +288,14 @@
           {% elif b.cond == 'CAJA' and b.liq and not b.tiene_socio %}
             {# Liquidado — pendiente comprador → verde #}
             {% if b.liq_por_otro_nombre %}
-              {# Liquidada por otro vendedor (tipico: jefe de equipo) → badge compuesto #}
-              <span class="d-inline-flex align-items-center"
-                    style="border:1px solid #20c99780;border-radius:.25rem;overflow:hidden;font-size:.8rem;"
+              {# Liquidada por otro vendedor (tipico: jefe de equipo) → mismo recuadro + ícono de vendedor en la esquina (el nombre va en el tooltip, no agranda el recuadro) #}
+              <span class="badge position-relative"
+                    style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;text-decoration:line-through;"
                     title="Liquidado por {{ b.liq_por_otro_nombre }}{% if b.liq_por_otro_es_jefe %} (jefe de equipo){% endif %}{% if b.contado %} · Contado{% endif %}">
-                <span style="background:#d1e7dd;color:#146c43;padding:.2rem .4rem;text-decoration:line-through;">
-                  {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
-                  {{ b.num_str }}
-                </span>
-                <span class="px-1 fw-semibold" style="background:#fff7e0;color:#8a6d00;font-size:.7rem;">
-                  {% if b.liq_por_otro_es_jefe %}<i class="bi bi-star-fill" style="font-size:.55rem;color:#ffc107;"></i>{% else %}<i class="bi bi-person-fill" style="font-size:.65rem;"></i>{% endif %}
-                  {{ b.liq_por_otro_nombre }}
-                </span>
+                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
+                {{ b.num_str }}
+                <i class="bi {% if b.liq_por_otro_es_jefe %}bi-star-fill{% else %}bi-person-fill{% endif %}"
+                   style="position:absolute;top:-4px;right:-4px;font-size:.55rem;line-height:1;color:#8a6d00;background:#fff7e0;border:1px solid #e0c878;border-radius:50%;padding:1px;text-decoration:none;"></i>
               </span>
             {% else %}
               <span class="badge"
@@ -314,18 +310,14 @@
                (VENDIDO / contado con socio) y "en cobranza" (cuotas pendientes). #}
             {% set _ttl = ('En cobranza' if b.cond == 'EN_COBRANZA' else 'En sistema') %}
             {% if b.liq_por_otro_nombre %}
-              {# Vendida pero liquidada por otro vendedor (jefe de equipo) → conserva el nombre. #}
-              <span class="d-inline-flex align-items-center"
-                    style="border:1px solid #dee2e6;border-radius:.25rem;overflow:hidden;font-size:.8rem;"
+              {# Vendida pero liquidada por otro vendedor (jefe de equipo) → mismo recuadro + ícono de vendedor en la esquina (el nombre va en el tooltip, no agranda el recuadro). #}
+              <span class="badge position-relative"
+                    style="background:#f1f3f5;color:#868e96;border:1px solid #dee2e6;font-size:.8rem;text-decoration:line-through;"
                     title="{{ _ttl }} · Liquidado por {{ b.liq_por_otro_nombre }}{% if b.liq_por_otro_es_jefe %} (jefe de equipo){% endif %}{% if b.contado %} · Contado{% endif %}">
-                <span style="background:#f1f3f5;color:#868e96;padding:.2rem .4rem;text-decoration:line-through;">
-                  {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#d4b106;"></i>{% endif %}
-                  {{ b.num_str }}
-                </span>
-                <span class="px-1 fw-semibold" style="background:#fff7e0;color:#8a6d00;font-size:.7rem;">
-                  {% if b.liq_por_otro_es_jefe %}<i class="bi bi-star-fill" style="font-size:.55rem;color:#ffc107;"></i>{% else %}<i class="bi bi-person-fill" style="font-size:.65rem;"></i>{% endif %}
-                  {{ b.liq_por_otro_nombre }}
-                </span>
+                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#d4b106;"></i>{% endif %}
+                {{ b.num_str }}
+                <i class="bi {% if b.liq_por_otro_es_jefe %}bi-star-fill{% else %}bi-person-fill{% endif %}"
+                   style="position:absolute;top:-4px;right:-4px;font-size:.55rem;line-height:1;color:#8a6d00;background:#fff7e0;border:1px solid #e0c878;border-radius:50%;padding:1px;text-decoration:none;"></i>
               </span>
             {% else %}
               <span class="badge"
