@@ -1,0 +1,303 @@
+/* ===================================================================
+   BONO CDELU — Design System v1.0
+   Bootstrap 5 companion — mobile-first improvements
+   =================================================================== */
+
+/* === Tokens === */
+:root {
+  --navy:      #1a2a4a;
+  --red:       #e63946;
+  --bg:        #eef1f7;
+  --surface:   #ffffff;
+  --border:    #dde1ea;
+  --text:      #1e293b;
+  --muted:     #64748b;
+  --radius:    10px;
+  --radius-lg: 16px;
+  --sh-sm:     0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.04);
+  --sh-md:     0 4px 16px rgba(0,0,0,.10);
+  --transition: 150ms ease;
+}
+
+/* === Base === */
+body { background: var(--bg); color: var(--text); }
+
+/* === Page header === */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .6rem;
+  margin-bottom: 1.2rem;
+}
+.page-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  margin: 0;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+/* === KPI Cards (dashboard) === */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: .75rem;
+  margin-bottom: 1.25rem;
+}
+.kpi-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: .9rem .85rem;
+  box-shadow: var(--sh-sm);
+  border-top: 3px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  cursor: default;
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+.kpi-card:hover { box-shadow: var(--sh-md); transform: translateY(-1px); }
+.kpi-icon { font-size: 1.3rem; margin-bottom: .3rem; }
+.kpi-value {
+  font-size: 1.9rem;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-label {
+  font-size: .68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+  margin-top: .25rem;
+  line-height: 1.2;
+}
+
+/* Color variants */
+.kpi-success { border-top-color: #22c55e; }
+.kpi-success .kpi-value { color: #16a34a; }
+.kpi-success .kpi-icon { color: #22c55e; }
+
+.kpi-info { border-top-color: #38bdf8; }
+.kpi-info .kpi-value { color: #0284c7; }
+.kpi-info .kpi-icon { color: #38bdf8; }
+
+.kpi-warning { border-top-color: #f59e0b; }
+.kpi-warning .kpi-value { color: #d97706; }
+.kpi-warning .kpi-icon { color: #f59e0b; }
+
+.kpi-danger { border-top-color: #ef4444; }
+.kpi-danger .kpi-value { color: #dc2626; }
+.kpi-danger .kpi-icon { color: #ef4444; }
+
+.kpi-primary { border-top-color: #6366f1; }
+.kpi-primary .kpi-value { color: #4f46e5; }
+.kpi-primary .kpi-icon { color: #6366f1; }
+
+/* === Section card === */
+.sec-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--sh-sm);
+  overflow: hidden;
+  margin-bottom: 1.1rem;
+}
+.sec-header {
+  padding: .65rem 1rem;
+  border-bottom: 1px solid var(--border);
+  font-size: .78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+}
+.sec-header i { color: var(--navy); font-size: .95rem; }
+
+/* === Search bar === */
+.search-wrap {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--sh-sm);
+  padding: .55rem .75rem;
+  margin-bottom: .85rem;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+.search-wrap .form-control,
+.search-wrap .form-select {
+  border: none;
+  background: #f4f6fb;
+  border-radius: 8px;
+  font-size: .85rem;
+}
+.search-wrap .form-control:focus,
+.search-wrap .form-select:focus {
+  background: #eef1f8;
+  box-shadow: 0 0 0 2px rgba(26,42,74,.18);
+}
+
+/* === Login page === */
+.login-page {
+  min-height: 100svh;
+  background: linear-gradient(145deg, #1a2a4a 0%, #0f1d36 60%, #0d1626 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  position: relative;
+  overflow: hidden;
+}
+/* Decorative circle */
+.login-page::before {
+  content: '';
+  position: absolute;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(230,57,70,.15) 0%, transparent 70%);
+  top: -80px;
+  right: -80px;
+  pointer-events: none;
+}
+.login-page::after {
+  content: '';
+  position: absolute;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99,102,241,.1) 0%, transparent 70%);
+  bottom: -60px;
+  left: -60px;
+  pointer-events: none;
+}
+.login-card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  padding: 2rem 1.75rem 1.75rem;
+  width: 100%;
+  max-width: 390px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.38);
+  position: relative;
+  z-index: 1;
+}
+.login-logo { font-size: 2.8rem; line-height: 1; }
+.login-title { font-size: 1.2rem; font-weight: 800; color: var(--text); margin: .45rem 0 .1rem; }
+.login-sub { font-size: .77rem; color: var(--muted); }
+.login-divider { height: 1px; background: var(--border); margin: 1.2rem 0; }
+.login-field label { font-size: .8rem; font-weight: 600; color: #475569; margin-bottom: .3rem; display: block; }
+.login-field .form-control {
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: .6rem .85rem;
+  font-size: .92rem;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.login-field .form-control:focus {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(26,42,74,.15);
+}
+.btn-login {
+  width: 100%;
+  padding: .7rem;
+  font-size: .95rem;
+  font-weight: 700;
+  background: var(--red);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  margin-top: 1.1rem;
+  cursor: pointer;
+  transition: background var(--transition), transform var(--transition), box-shadow var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  min-height: 46px;
+}
+.btn-login:hover { background: #c9303b; box-shadow: 0 4px 14px rgba(230,57,70,.35); transform: translateY(-1px); }
+.btn-login:active { transform: translateY(0); }
+
+/* === Mobile table improvements === */
+@media (max-width: 767.98px) {
+  .table-sm td, .table-sm th { padding: .3rem .45rem; font-size: .8rem; }
+}
+
+/* === Chips / status badges === */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  padding: .18rem .5rem;
+  border-radius: 999px;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
+.chip-green   { background: #dcfce7; color: #15803d; }
+.chip-red     { background: #fee2e2; color: #b91c1c; }
+.chip-blue    { background: #dbeafe; color: #1d4ed8; }
+.chip-yellow  { background: #fef9c3; color: #a16207; }
+.chip-gray    { background: #f1f5f9; color: #475569; }
+
+/* === Alert tightening on mobile === */
+@media (max-width: 575.98px) {
+  .alert { font-size: .82rem; padding: .5rem .7rem; }
+  .alert .btn { font-size: .78rem; padding: .25rem .6rem; min-height: 34px; }
+}
+
+/* === Topbar brand micro-improvement === */
+.topbar .navbar-brand { letter-spacing: -.01em; }
+
+/* === Card base === */
+.card { border-color: var(--border); }
+.card.shadow-sm { box-shadow: var(--sh-sm) !important; }
+
+/* === Tab improvements mobile === */
+@media (max-width: 575.98px) {
+  .nav-tabs .nav-link { font-size: .8rem; padding: .4rem .6rem; }
+  h4.fw-bold, h4.page-title { font-size: 1.1rem; }
+}
+
+/* === Table inside card === */
+.card-table { border-radius: 0; margin-bottom: 0; }
+.card-table thead th { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: #f8f9fc; }
+
+/* === Responsive modal === */
+@media (max-width: 575.98px) {
+  .modal-dialog { margin: .5rem; }
+  .modal-header { padding: .75rem 1rem; }
+  .modal-body { padding: .75rem 1rem; }
+}
+
+/* === Tablet tweaks (576-991px) === */
+@media (min-width: 576px) and (max-width: 991.98px) {
+  .main-content { padding: 1.25rem !important; }
+  .kpi-value { font-size: 1.7rem; }
+}
+
+/* === Safe area padding === */
+@supports (padding: max(0px)) {
+  .main-content {
+    padding-left:   max(1rem, env(safe-area-inset-left));
+    padding-right:  max(1rem, env(safe-area-inset-right));
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* === Reduced motion === */
+@media (prefers-reduced-motion: reduce) {
+  .kpi-card, .btn-login { transition: none; }
+  .kpi-card:hover { transform: none; }
+}

@@ -4,36 +4,31 @@
 <h4 class="fw-bold mb-4"><i class="bi bi-bar-chart-fill text-danger me-2"></i>Dashboard General</h4>
 
 <!-- Tarjetas resumen -->
-<div class="row row-cols-2 row-cols-sm-3 row-cols-lg-5 g-3 mb-4">
-  <div class="col">
-    <div class="card border-0 shadow-sm text-center p-3 h-100">
-      <div class="fs-1 fw-bold text-success">{{ (totales.vendidas or 0) | round(0) | int }}</div>
-      <div class="text-muted small">Taloneras Vendidas</div>
-    </div>
+<div class="kpi-row">
+  <div class="kpi-card kpi-success">
+    <div class="kpi-icon"><i class="bi bi-check2-circle"></i></div>
+    <div class="kpi-value">{{ (totales.vendidas or 0) | round(0) | int }}</div>
+    <div class="kpi-label">Vendidas</div>
   </div>
-  <div class="col">
-    <div class="card border-0 shadow-sm text-center p-3 h-100">
-      <div class="fs-1 fw-bold text-info">{{ (totales.cuotas or 0) | round(0) | int }}</div>
-      <div class="text-muted small">Vendidas en Cuotas</div>
-    </div>
+  <div class="kpi-card kpi-info">
+    <div class="kpi-icon"><i class="bi bi-calendar-check"></i></div>
+    <div class="kpi-value">{{ (totales.cuotas or 0) | round(0) | int }}</div>
+    <div class="kpi-label">En Cuotas</div>
   </div>
-  <div class="col">
-    <div class="card border-0 shadow-sm text-center p-3 h-100">
-      <div class="fs-1 fw-bold text-warning">{{ (totales.contado or 0) | round(0) | int }}</div>
-      <div class="text-muted small">Al Contado</div>
-    </div>
+  <div class="kpi-card kpi-warning">
+    <div class="kpi-icon"><i class="bi bi-cash-coin"></i></div>
+    <div class="kpi-value">{{ (totales.contado or 0) | round(0) | int }}</div>
+    <div class="kpi-label">Al Contado</div>
   </div>
-  <div class="col">
-    <div class="card border-0 shadow-sm text-center p-3 h-100">
-      <div class="fs-1 fw-bold text-danger">{{ (totales.baja or 0) | round(0) | int }}</div>
-      <div class="text-muted small">Baja</div>
-    </div>
+  <div class="kpi-card kpi-danger">
+    <div class="kpi-icon"><i class="bi bi-x-circle"></i></div>
+    <div class="kpi-value">{{ (totales.baja or 0) | round(0) | int }}</div>
+    <div class="kpi-label">Baja</div>
   </div>
-  <div class="col">
-    <div class="card border-0 shadow-sm text-center p-3 h-100">
-      <div class="fs-1 fw-bold text-primary">{{ totales.compradores }}</div>
-      <div class="text-muted small">Compradores</div>
-    </div>
+  <div class="kpi-card kpi-primary">
+    <div class="kpi-icon"><i class="bi bi-people-fill"></i></div>
+    <div class="kpi-value">{{ totales.compradores }}</div>
+    <div class="kpi-label">Compradores</div>
   </div>
 </div>
 
