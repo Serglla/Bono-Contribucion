@@ -2,6 +2,31 @@
 {% block title %}Vendedores{% endblock %}
 {% block content %}
 
+<style>
+  /* Pulido de las tarjetas de vendedor en celular: cada stat como mini-tile */
+  @media (max-width: 767.98px) {
+    .vendedor-card-mobile .card-body { padding: .85rem !important; }
+    .vendedor-card-mobile .row.g-1 > [class^="col-"] {
+      padding: .35rem .1rem;
+    }
+    .vendedor-card-mobile .row.g-1 > [class^="col-"] > div:first-child {
+      font-size: .64rem !important;
+      letter-spacing: .2px;
+    }
+    .vendedor-card-mobile .row.g-1 {
+      background: #f8fafc;
+      border: 1px solid #eef1f5;
+      border-radius: 10px;
+      padding: .25rem .15rem;
+      margin: 0;
+    }
+    .vendedor-card-mobile .row.g-1 .badge { font-size: .74rem !important; padding: .3em .5em; }
+    .vendedor-card-mobile .row.g-1 .text-muted { color: #cbd2dc !important; }
+    .vendedor-card-mobile hr { display: none; }
+    .vendedor-card-mobile .row.g-1 + .row.g-1 { margin-top: .4rem; }
+  }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h4 class="fw-bold mb-0"><i class="bi bi-person-badge text-danger me-2"></i>Vendedores</h4>
   <div class="d-flex gap-2">

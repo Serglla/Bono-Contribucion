@@ -998,4 +998,38 @@ Bootstrap collapse se evitó porque en `<tr>` usa `display:block` rompiendo el l
   - `renderCobradores()` llamado en `cargar()`.
 
 ---
-*Última actualización: 23 de mayo de 2026 (cont. 6) — Mapa v5: volver al mapa tras edición (from=mapa), filtro por cobrador, cambio de cobrador desde popup con AJAX.*
+
+### Sesión 18/06/2026 — Detalle de vendedor: ícono de "liquidado por otro" + historial de liquidaciones agrupado por día
+
+Dos cambios en `app/templates/vendedor_detalle.html` (+ un endpoint y el armado de datos en `app/routers/vendedores.py`). Ambos en disco local: **falta `git add/commit/push` + deploy en Railway.**
+
+**⚠️ Truncamiento del editor (bug del entorno Cowork):** al editar, las file tools cortaron el final de `app/routers/vendedores.py` (a mitad del docstring de `liquidacion_quitar_boleta`), de `app/templates/vendedor_detalle.html` (a mitad de `btnConfirm.innerHTML = '<i class="bi bi-box-`) y de este mismo `memoria_sergio.md`. Mis ediciones (todas en el medio del archivo) quedaron intactas; solo se perdió la cola. Detectado con `python3 -m py_compile` y `jinja2 ... env.parse`. **Reconstrucción**: `head -n N <archivo>` hasta la última línea íntegra + `git show HEAD:<archivo> | sed -n 'M,$p'` (o heredoc) para reanexar la cola desde HEAD (archivos **LF**, no CRLF). Regla: tras editar archivos grandes acá, validar el final con compile/parse y, si está cortado, reanexar desde HEAD.
+
+**1) Ícono de vendedor en la esquina del recuadro (boletas liquidadas por otro)**
+- Problema (reporte con captura): cuando una boleta fue liquidada por otro vendedor (típico jefe de equipo, ej. "Victor"), el grid de boletas del detalle armaba un **badge compuesto** (`d-inline-flex`: recuadro del número + recuadro con el nombre al lado), lo que **agrandaba la celda** respecto de los demás números.
+- Decisión de Sergio (AskUserQuestion): mostrar **solo un ícono de vendedor**, sin agrandar el recuadro (el nombre queda en el tooltip).
+- Fix: en los **dos** bloques `{% if b.liq_por_otro_nombre %}` (caso verde "liquidado — pend. comprador" y caso gris "vendida/en sistema/en cobranza"), se reemplazó el badge compuesto por **el mismo badge único** que el resto (mismo tamaño/estilo) con `class="badge position-relative"` y un `<i>` superpuesto: `position:absolute; top:-4px; right:-4px; font-size:.55rem`, fondo crema + borde, `text-decoration:none` (para que el `line-through` del badge no tache el ícono). Ícono = `bi-star-fill` si `liq_por_otro_es_jefe`, si no `bi-person-fill`. Nombre y "(jefe de equipo)" siguen en el `title`. Al ser `position:absolute`, no cambia ni desplaza el recuadro.
+
+**2) Historial de liquidaciones agrupado por DÍA (modal del detalle)**
+- Pedido: en el historial de liquidaciones (y para los registros), **las liquidaciones hechas un mismo día se suman y agrupan** en una sola fila (antes una fila por liquidación con hora; p. ej. 18/06 22:09 y 18/06 22:06 eran dos filas).
+- Decisión de Sergio (AskUserQuestion) sobre las acciones por fila: **"Solo fila por día sumada"** — doble-click muestra el **detalle combinado del día** y borrar elimina **todas** las liquidaciones de ese día (acepta perder el acceso individual). La otra opción (fila expandible) no se eligió.
+- **Backend (`vendedores.py`, armado de `liquidaciones_por_mes` en el detalle del vendedor)**: a cada grupo de mes se le agregó `dias_dict` y, dentro del loop, se acumula por `liq.fecha.date()`: `ids[]`, `n_liq`, `cuotas_eq`/`cuotas_crudo`, `contados_eq`/`contados_crudo`, `pool_c1`/`pool_c2`/`pool_total`, `extras_cantidad`, `total_a_rendir` y observaciones. Tras el loop se arma `g["dias"]` ordenado por fecha desc, con `obs_str` = observaciones únicas unidas por `·`. Las columnas del mes/tfoot no cambiaron.
+- **Backend — endpoint nuevo** `POST /vendedores/liquidaciones/eliminar-dia` (solo admin): recibe `ids` (separados por coma) y por cada liquidación resetea sus boletas a `CAJA` con `liquidacion_vendedor_id=NULL`, borra sus `LiquidacionContadoItem` y borra la liquidación (mismo efecto que `/{liq_id}/eliminar`, en lote). Redirige a `/vendedores/{vid}/detalle?msg=liq_eliminada`.
+- **Template — tabla del modal**: el loop pasó de `{% for liq in grupo.liquidaciones %}` a `{% for d in grupo.dias %}`. Cada fila muestra `d.fecha_str` (sin hora) + badge `N liq.` si `d.n_liq > 1`, y columnas sumadas. Doble-click → `verDetalleDia(d.ids|tojson)`. Borrar (admin) → `eliminarDia(d.ids|tojson, d.fecha_str|tojson)`. Form oculto `#formEliminarDia` (admin) que postea a `/vendedores/liquidaciones/eliminar-dia`.
+- **Template — JS nuevo** (junto a `verDetalleLiq`):
+  - `verDetalleDia(ids)`: 1 id → `verDetalleLiq(id)` (detalle normal, editable). Varios → `verDetalleDiaCombinado(ids)`.
+  - `verDetalleDiaCombinado(ids)`: fetchea en paralelo cada `/vendedores/liquidaciones/{id}/detalle` (endpoint existente), mergea y rinde con `renderDetalleLiq` en **solo lectura** (`dlCurrentLiqId=null`, `dlEditMode=false`, oculta Editar/Eliminar individual vía `_dlSetControls(false)`).
+  - `mergeDetalleDia(parts)`: suma escalares (`monto_contados`, `comision_contados`, `cuotas_extras_monto`, `total_a_rendir`, `cuota_1_total`, `cuotas_*_vendid*`, etc.) y **concatena** `boletas[]` y `pool_items[]`. Porcentajes/valores no sumables (`comision_*_pct`, `cuotas_extras_valor`) toman el valor de la primera liq (cosmético; en combinado no se edita).
+  - `_dlSetControls(show)`: muestra/oculta `#dl-edit-btn` y `#formEliminarLiqDetalle` del footer del detalle.
+  - `eliminarDia(ids, fechaStr)`: `appConfirm` + submit del form oculto con `ids.join(',')`.
+- **Alcance**: el único lugar con tabla por-liquidación con hora era este modal. La página dedicada (`vendedor_historial_liquidaciones.html` vía `partials/_historial_liquidaciones.html`) y el informe imprimible (`liquidaciones_informe.html`) ya agregan por vendedor/semana; no se tocaron.
+
+#### Archivos modificados
+- `app/routers/vendedores.py`: `dias_dict`/`g["dias"]` en el armado del detalle; endpoint `POST /vendedores/liquidaciones/eliminar-dia`.
+- `app/templates/vendedor_detalle.html`: ícono superpuesto en los dos bloques de boleta liquidada-por-otro; tabla del modal de historial por día; form oculto `#formEliminarDia`; funciones JS `verDetalleDia`/`verDetalleDiaCombinado`/`mergeDetalleDia`/`_dlSetControls`/`eliminarDia`.
+
+#### Pendiente
+- `git add/commit/push` de los archivos + deploy en Railway (en disco local).
+
+---
+*Última actualización: 18 de junio de 2026 — Detalle vendedor: ícono de "liquidado por otro" sin agrandar el recuadro; historial de liquidaciones agrupado y sumado por día (detalle combinado de solo lectura + borrar todo el día). Truncamiento del editor reconstruido desde HEAD.*
