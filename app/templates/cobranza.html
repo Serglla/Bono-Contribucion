@@ -46,33 +46,65 @@
 {% if resumen %}
 <div class="row g-3 mb-2">
   {% for r in resumen %}
-  {% if r.total > 0 %}
-  <div class="col-md-4 col-sm-6">
+  {% if r.total > 0 or r.planillas %}
+  <div class="col-lg-4 col-md-6">
     <div class="sec-card h-100" style="display:flex;flex-direction:column;">
       <div class="sec-header">
         <i class="bi bi-person-circle"></i>{{ r.cobrador.nombre }}
-        {% if r.planillas %}
-        <span class="badge bg-success ms-auto" style="font-size:.7rem;">{{ r.planillas|length }} planilla{% if r.planillas|length != 1 %}s{% endif %}</span>
-        {% endif %}
+        <span class="badge ms-auto {% if r.planillas %}bg-success{% else %}bg-secondary{% endif %}" style="font-size:.7rem;">
+          {{ r.planillas|length }} planilla{% if r.planillas|length != 1 %}s{% endif %}
+        </span>
       </div>
-      <div class="p-3" style="flex:1;">
-        <div class="d-flex gap-3">
-          <div class="text-center">
-            <div class="fw-bold text-dark fs-5">{{ r.total }}</div>
-            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;">Activas</div>
+
+      <div class="p-3 pb-2" style="flex:1;">
+        <!-- Cuotas en cobranza + % de cobro -->
+        <div class="d-flex align-items-end justify-content-between mb-1">
+          <div>
+            <div class="fw-bold text-dark" style="font-size:1.6rem;line-height:1;">{{ r.cuotas_cobranza }}</div>
+            <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;">Cuotas en cobranza</div>
           </div>
-          <div class="text-center">
-            <div class="fw-bold text-warning fs-5">{{ r.pendientes }}</div>
-            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;">Pendientes</div>
+          <div class="text-end">
+            {% if r.cobranza_iniciada %}
+            <div class="fw-bold {% if r.pct_cobro >= 100 %}text-success{% elif r.pct_cobro >= 50 %}text-primary{% else %}text-warning{% endif %}" style="font-size:1.25rem;line-height:1;">{{ r.pct_cobro }}%</div>
+            <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;">Cobrado</div>
+            {% else %}
+            <span class="badge bg-light text-muted border" style="font-size:.66rem;">Cobranza sin iniciar</span>
+            {% endif %}
           </div>
         </div>
+
+        {% if r.cobranza_iniciada %}
+        <div class="progress mb-2" style="height:7px;border-radius:6px;">
+          <div class="progress-bar {% if r.pct_cobro >= 100 %}bg-success{% elif r.pct_cobro >= 50 %}bg-primary{% else %}bg-warning{% endif %}"
+               role="progressbar" style="width:{{ r.pct_cobro }}%;" aria-valuenow="{{ r.pct_cobro }}" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+        {% endif %}
+
+        <!-- Pendientes de emplanillar -->
+        <div class="d-flex align-items-center gap-2 mt-2 px-2 py-1 rounded"
+             style="background:{% if r.pend_emplanillar > 0 %}#fff7ed{% else %}#f1f5f9{% endif %};">
+          <i class="bi {% if r.pend_emplanillar > 0 %}bi-exclamation-triangle-fill text-warning{% else %}bi-check-circle-fill text-success{% endif %}"></i>
+          <span class="fw-semibold {% if r.pend_emplanillar > 0 %}text-dark{% else %}text-muted{% endif %}">{{ r.pend_emplanillar }}</span>
+          <span class="text-muted small">cuota{% if r.pend_emplanillar != 1 %}s{% endif %} pendiente{% if r.pend_emplanillar != 1 %}s{% endif %} de emplanillar</span>
+        </div>
       </div>
-      <div class="p-3 pt-0">
+
+      <!-- Listado de planillas, de la primera a la última, con su entrega -->
+      <div class="p-3 pt-1">
         {% if r.planillas %}
+          <div class="text-muted mb-1" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;">Planillas entregadas</div>
           <div class="d-flex flex-column gap-1">
             {% for pl in r.planillas %}
-            <a href="/cobranza/planilla/{{ pl.id }}/ver" class="btn btn-sm btn-danger w-100">
-              <i class="bi bi-printer me-1"></i>Ver P{{ pl.numero }}
+            <a href="/cobranza/planilla/{{ pl.id }}/ver"
+               class="d-flex align-items-center gap-2 text-decoration-none border rounded px-2 py-1"
+               style="color:inherit;">
+              <span class="badge bg-danger" style="font-size:.72rem;">P{{ pl.numero }}</span>
+              <span class="small text-muted">{{ meses[pl.mes - 1] }} {{ pl.anio }}</span>
+              <span class="small text-muted ms-auto">
+                <i class="bi bi-calendar-check me-1"></i>
+                {% if pl.fecha_creacion %}{{ pl.fecha_creacion.strftime('%d/%m/%Y') }}{% else %}—{% endif %}
+              </span>
+              <i class="bi bi-printer text-danger"></i>
             </a>
             {% endfor %}
           </div>

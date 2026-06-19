@@ -182,23 +182,61 @@ async def index(request: Request, db: Session = Depends(get_db),
 
     resumen = []
     for co in cobradores:
-        base_filter = [
-            models.Boleta.cobrador_id == co.id,
-            models.Boleta.condicion != CondicionBoleta.BAJA,
-        ]
-        total = (db.query(func.count(models.Boleta.id))
-                 .filter(*base_filter)
-                 .scalar() or 0)
-        boletas_pendientes = (db.query(models.Boleta)
-                              .filter(*base_filter,
-                                      models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
-                              .all())
-        pendientes = sum(_pata_valor(b) for b in boletas_pendientes)
+        # Todas las boletas vivas del cobrador (excluye solo las dadas de baja).
+        boletas = (db.query(models.Boleta)
+                   .filter(models.Boleta.cobrador_id == co.id,
+                           models.Boleta.condicion != CondicionBoleta.BAJA)
+                   .all())
+        total = len(boletas)
+
+        # Métricas en CUOTAS (ponderadas por PATA: una boleta PATA 2 = 2 cuotas).
+        #   - cuotas_cobranza: cuotas a cobrar de las boletas YA emplanilladas y
+        #     no terminadas → "lo que el cobrador tiene en cobranza" (suma de
+        #     todas sus planillas activas).
+        #   - pend_emplanillar: cuotas de boletas activas que todavía NO están en
+        #     ninguna planilla (pendientes de emplanillar). Excluye contado.
+        # Progreso de cobro (en cuotas, sin ponderar): Σ pagadas / Σ pactadas
+        # sobre las boletas emplanilladas. La cobranza se considera "iniciada"
+        # solo si se cobró algo MÁS ALLÁ de las cuotas anticipadas (las que cobra
+        # el vendedor en la venta); si no, se oculta el porcentaje.
+        cuotas_cobranza = 0
+        pend_emplanillar = 0
+        pactadas_tot = 0
+        pagadas_tot = 0
+        anticipadas_tot = 0
+        for b in boletas:
+            no_terminada = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
+            pv = _pata_valor(b)
+            if b.planilla_id is not None:
+                if no_terminada:
+                    cuotas_cobranza += pv
+                pactadas_tot += (b.cuotas_pactadas or 0)
+                pagadas_tot += (b.cuotas_pagadas or 0)
+                anticipadas_tot += (b.cuotas_anticipadas or 0)
+            elif no_terminada and b.numero_especial_2 is None:
+                pend_emplanillar += pv
+
+        cobrado_efectivo = pagadas_tot - anticipadas_tot
+        cobranza_iniciada = pactadas_tot > 0 and cobrado_efectivo > 0
+        pct_cobro = round(pagadas_tot / pactadas_tot * 100) if pactadas_tot > 0 else 0
+
+        # Todas las planillas del cobrador (de la primera a la última), con su
+        # número y la fecha en que se entregó (se armó) cada una.
         planillas = (db.query(models.Planilla)
-                     .filter_by(cobrador_id=co.id, mes=mes, anio=anio)
-                     .order_by(models.Planilla.numero)
+                     .filter_by(cobrador_id=co.id)
+                     .order_by(models.Planilla.anio,
+                               models.Planilla.mes,
+                               models.Planilla.numero)
                      .all())
-        resumen.append({"cobrador": co, "total": total, "pendientes": pendientes, "planillas": planillas})
+        resumen.append({
+            "cobrador": co,
+            "total": total,
+            "cuotas_cobranza": cuotas_cobranza,
+            "pend_emplanillar": pend_emplanillar,
+            "pct_cobro": pct_cobro,
+            "cobranza_iniciada": cobranza_iniciada,
+            "planillas": planillas,
+        })
 
     # ── TODAS las planillas, agrupadas por período (mes/año) ──────────────────
     # Independiente del selector de período: el objetivo es ver el histórico
