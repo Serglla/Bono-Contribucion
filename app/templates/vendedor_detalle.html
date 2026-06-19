@@ -31,7 +31,7 @@
 </style>
 
 {# ══════════ HEADER ══════════ #}
-<div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+<div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
   <a href="/vendedores/" class="btn btn-outline-secondary btn-sm">
     <i class="bi bi-arrow-left"></i>
   </a>
@@ -46,50 +46,77 @@
     </h4>
     <small class="text-muted">{{ v.telefono or "Sin teléfono" }}</small>
   </div>
+</div>
 
-  {# ── Botones de acción (movidos acá, junto al nombre) ── #}
-  <div class="ms-auto d-flex align-items-center flex-wrap gap-2">
-    {% if can_edit %}
-    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modalEntregarCaja">
-      <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
-    </button>
-    <button id="btnPasarCaja" class="btn btn-warning" type="button"
-            title="Pasá boletas a la caja de otro vendedor (antes de liquidar)">
-      <i class="bi bi-arrow-left-right me-2"></i>Pasar Caja
-    </button>
-    <button id="btnRetirarCaja" class="btn btn-danger" type="button"
-            title="Retirá boletas que el vendedor no vendió y vuelven a la institución">
-      <i class="bi bi-box-arrow-up me-2"></i>Retirar Caja
-    </button>
-    {% else %}
-    <button class="btn btn-outline-secondary" disabled>
-      <i class="bi bi-box-arrow-in-down me-2"></i>Entregar a Caja
-    </button>
-    {% endif %}
+{# ── Bloque de acciones ── #}
+<div class="sec-card mb-4">
+  <div class="p-3 d-flex flex-column gap-3">
 
-    <button class="btn btn-outline-secondary" type="button"
-            data-bs-toggle="modal" data-bs-target="#modalHistEntregas">
-      <i class="bi bi-clock-history me-1"></i>Historial de cajas
-      <span class="badge bg-secondary ms-1">{{ entregas_vendedor|length }}</span>
-    </button>
+    {# Grupo CAJAS #}
+    <div>
+      <div class="text-uppercase fw-bold mb-2" style="font-size:.68rem;letter-spacing:.08em;color:#64748b;">
+        <i class="bi bi-archive me-1"></i>Cajas
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        {% if can_edit %}
+        <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#modalEntregarCaja">
+          <i class="bi bi-box-arrow-in-down me-1"></i>Entregar a Caja
+        </button>
+        <button id="btnPasarCaja" class="btn btn-sm btn-warning" type="button"
+                title="Pasá boletas a la caja de otro vendedor (antes de liquidar)">
+          <i class="bi bi-arrow-left-right me-1"></i>Pasar Caja
+        </button>
+        <button id="btnRetirarCaja" class="btn btn-sm btn-danger" type="button"
+                title="Retirá boletas que el vendedor no vendió y vuelven a la institución">
+          <i class="bi bi-box-arrow-up me-1"></i>Retirar Caja
+        </button>
+        {% else %}
+        <button class="btn btn-sm btn-outline-secondary" disabled>
+          <i class="bi bi-box-arrow-in-down me-1"></i>Entregar a Caja
+        </button>
+        {% endif %}
+      </div>
+    </div>
 
-    {% if can_edit and pendientes_count > 0 %}
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalLiquidar"
-            title="Liquidar las boletas en caja del vendedor">
-      <i class="bi bi-cash-coin me-2"></i>Liquidar
-      <span class="badge bg-white text-primary ms-1">{{ pendientes_count }} boleta(s)</span>
-    </button>
-    {% else %}
-    <button class="btn btn-outline-secondary" disabled title="Sin boletas en caja pendientes de liquidar">
-      <i class="bi bi-cash-coin me-2"></i>Liquidar
-    </button>
-    {% endif %}
+    {# Grupo LIQUIDAR + HISTORIALES #}
+    <div class="d-flex gap-2 flex-wrap align-items-center">
+      {% if can_edit and pendientes_count > 0 %}
+      <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#modalLiquidar"
+              title="Liquidar las boletas en caja del vendedor">
+        <i class="bi bi-cash-coin me-1"></i>Liquidar
+        <span class="badge bg-white text-primary ms-1">{{ pendientes_count }} boleta(s)</span>
+      </button>
+      {% else %}
+      <button class="btn btn-sm btn-outline-secondary" disabled title="Sin boletas en caja pendientes de liquidar">
+        <i class="bi bi-cash-coin me-1"></i>Liquidar
+      </button>
+      {% endif %}
 
-    <button class="btn btn-outline-secondary" type="button"
-            data-bs-toggle="modal" data-bs-target="#modalHistLiquidaciones">
-      <i class="bi bi-clock-history me-1"></i>Historial de liquidaciones
-      <span class="badge bg-secondary ms-1">{{ liquidaciones|length if liquidaciones else 0 }}</span>
-    </button>
+      {# Dropdown Historiales #}
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-clock-history me-1"></i>Historiales
+        </button>
+        <ul class="dropdown-menu shadow-sm">
+          <li>
+            <button class="dropdown-item" type="button"
+                    data-bs-toggle="modal" data-bs-target="#modalHistEntregas">
+              <i class="bi bi-archive me-2 text-danger"></i>Historial de cajas
+              <span class="badge bg-secondary ms-1">{{ entregas_vendedor|length }}</span>
+            </button>
+          </li>
+          <li>
+            <button class="dropdown-item" type="button"
+                    data-bs-toggle="modal" data-bs-target="#modalHistLiquidaciones">
+              <i class="bi bi-receipt me-2 text-success"></i>Historial de liquidaciones
+              <span class="badge bg-secondary ms-1">{{ liquidaciones|length if liquidaciones else 0 }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+
   </div>
 </div>
 
