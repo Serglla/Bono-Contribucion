@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Socios{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div class="d-flex align-items-center gap-2">
-    <a href="/compradores/mapa" class="btn btn-sm btn-outline-primary" title="Ver mapa de socios">
-      <i class="bi bi-geo-alt-fill"></i>
+<div class="page-header">
+  <h4 class="page-title">
+    <i class="bi bi-people-fill text-danger"></i>Socios
+    <a href="/compradores/mapa" class="btn btn-sm btn-outline-primary ms-2" title="Ver mapa de socios" style="font-size:.75rem;font-weight:600;">
+      <i class="bi bi-geo-alt-fill"></i><span class="d-none d-sm-inline ms-1">Mapa</span>
     </a>
-    <h4 class="fw-bold mb-0 ms-1"><i class="bi bi-people-fill text-danger me-2"></i>Socios</h4>
-  </div>
-  <div class="d-flex gap-2 page-actions ms-auto">
+  </h4>
+  <div class="d-flex gap-2">
     <a href="/compradores/exportar" class="btn btn-sm btn-outline-success">
-      <i class="bi bi-file-earmark-excel me-1"></i><span class="d-none d-sm-inline">Exportar </span>Excel
+      <i class="bi bi-file-earmark-excel me-1"></i><span class="d-none d-sm-inline">Excel</span>
     </a>
     <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#modalNuevo">
       <i class="bi bi-plus-lg me-1"></i>Nuevo
@@ -240,12 +240,13 @@ function verContadoSinCargar(btn) {
 })();
 </script>
 
-<!-- Búsqueda — un solo input con selector de columna (cliente) -->
-<div class="mb-3 d-flex gap-2 align-items-center">
-  <select id="busquedaColumna" class="form-select" style="max-width:180px;">
+<!-- Búsqueda -->
+<div class="search-wrap">
+  <i class="bi bi-search text-muted" style="font-size:.95rem;flex-shrink:0;"></i>
+  <select id="busquedaColumna" class="form-select form-select-sm" style="max-width:150px;flex-shrink:0;">
     <option value="-1">Todo</option>
     <option value="1">N° Boleta</option>
-    <option value="2">Apellido y Nombre</option>
+    <option value="2">Apellido / Nombre</option>
     <option value="3">Dirección</option>
     <option value="4">Zona</option>
     <option value="5">Fecha compra</option>
@@ -254,8 +255,8 @@ function verContadoSinCargar(btn) {
     <option value="8">Teléfono</option>
     <option value="9">Cuotas</option>
   </select>
-  <input type="text" id="busquedaTexto" class="form-control" placeholder="Buscar..." value="{{ q }}" autocomplete="off">
-  <button type="button" class="btn btn-outline-danger" id="btnBusquedaLimpiar" title="Limpiar búsqueda">
+  <input type="text" id="busquedaTexto" class="form-control form-control-sm" placeholder="Buscar..." value="{{ q }}" autocomplete="off" style="flex:1;min-width:80px;">
+  <button type="button" class="btn btn-sm btn-outline-danger" id="btnBusquedaLimpiar" title="Limpiar búsqueda">
     <i class="bi bi-x-lg"></i>
   </button>
 </div>

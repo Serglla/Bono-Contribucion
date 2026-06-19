@@ -1,18 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Taloneras{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="fw-bold mb-0"><i class="bi bi-journal-text text-danger me-2"></i>Taloneras</h4>
-  <div class="d-flex gap-2">
-    <a href="/taloneras/enumeracion" class="btn btn-outline-secondary">
-      <i class="bi bi-grid-3x3-gap me-1"></i>Enumeración
+<div class="page-header">
+  <h4 class="page-title"><i class="bi bi-journal-text text-danger"></i>Taloneras</h4>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="/taloneras/enumeracion" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-grid-3x3-gap me-1"></i><span class="d-none d-sm-inline">Enumeración</span><span class="d-sm-none">Enum.</span>
     </a>
     {% if user.is_admin %}
-    <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#modalNuevaContado">
-      <i class="bi bi-star-fill me-1"></i>Nueva Talonera Especial
+    <button class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#modalNuevaContado">
+      <i class="bi bi-star-fill me-1"></i><span class="d-none d-sm-inline">Nueva Especial</span><span class="d-sm-none">Especial</span>
     </button>
-    <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNueva">
-      <i class="bi bi-plus-lg me-1"></i>Nueva Talonera
+    <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#modalNueva">
+      <i class="bi bi-plus-lg me-1"></i>Nueva
     </button>
     {% endif %}
   </div>

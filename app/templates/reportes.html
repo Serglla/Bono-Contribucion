@@ -33,11 +33,11 @@
 </div>
 
 <!-- Por talonera -->
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-white fw-semibold">Por Talonera</div>
+<div class="sec-card mb-4">
+  <div class="sec-header"><i class="bi bi-journal-text"></i>Por Talonera</div>
   <div class="table-responsive">
-    <table class="table table-hover align-middle mb-0">
-      <thead class="table-light">
+    <table class="table table-hover table-sm align-middle mb-0 card-table">
+      <thead>
         <tr>
           <th style="width:28px"></th>
           <th>Talonera</th><th>Total</th><th>Vendidas</th><th>Baja</th><th>En Caja</th>
@@ -100,13 +100,12 @@
 </div>
 
 <!-- Zonas trabajadas -->
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-body d-flex align-items-center gap-3 py-3">
-    <i class="bi bi-geo-alt-fill text-danger fs-3"></i>
+<div class="kpi-row mb-4">
+  <div class="kpi-card kpi-info" style="flex-direction:row;text-align:left;gap:.75rem;grid-column:1/-1;">
+    <i class="bi bi-geo-alt-fill" style="font-size:2rem;color:#38bdf8;flex-shrink:0;"></i>
     <div>
-      <div class="text-muted small">Zonas trabajadas</div>
-      <div class="fw-bold fs-4 lh-1">{{ zonas_trabajadas }}</div>
-      <div class="text-muted" style="font-size:.75rem;">zonas distintas con números vendidos</div>
+      <div class="kpi-value" style="font-size:1.6rem;">{{ zonas_trabajadas }}</div>
+      <div class="kpi-label">Zonas trabajadas con ventas</div>
     </div>
   </div>
 </div>
@@ -114,8 +113,8 @@
 <!-- Top vendedores y cobradores -->
 <div class="row g-3 mb-4">
   <div class="col-md-6">
-    <div class="card border-0 shadow-sm">
-      <div class="card-header bg-white fw-semibold"><i class="bi bi-person-badge me-1 text-danger"></i>Top Vendedores</div>
+    <div class="sec-card">
+      <div class="sec-header"><i class="bi bi-person-badge"></i>Top Vendedores</div>
       <ul class="list-group list-group-flush">
         {% for v in top_vendedores %}
         <li class="list-group-item p-0">

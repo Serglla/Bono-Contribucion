@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Cobranza{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="fw-bold mb-0"><i class="bi bi-wallet2 text-danger me-2"></i>Cobranza</h4>
+<div class="page-header">
+  <h4 class="page-title"><i class="bi bi-wallet2 text-danger"></i>Cobranza</h4>
 </div>
 
 <!-- Tabs de navegación -->
@@ -24,61 +24,60 @@
 </ul>
 
 <!-- Selector de mes/año -->
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-body py-3">
-    <form method="get" action="/cobranza/" class="d-flex align-items-center gap-3 flex-wrap">
-      <label class="fw-semibold text-muted small mb-0">Período:</label>
-      <select name="mes" class="form-select form-select-sm" style="width:140px;">
-        {% for m in meses %}
-        <option value="{{ loop.index }}" {% if loop.index == mes %}selected{% endif %}>{{ m }}</option>
-        {% endfor %}
-      </select>
-      <select name="anio" class="form-select form-select-sm" style="width:100px;">
-        {% for a in anios %}
-        <option value="{{ a }}" {% if a == anio %}selected{% endif %}>{{ a }}</option>
-        {% endfor %}
-      </select>
-      <button type="submit" class="btn btn-sm btn-danger">Ver</button>
-      <span class="text-muted small ms-2">Planillas para cobrar en <strong>{{ mes_nombre }} {{ anio }}</strong></span>
-    </form>
-  </div>
+<div class="search-wrap mb-4">
+  <i class="bi bi-calendar3 text-muted" style="flex-shrink:0;"></i>
+  <form method="get" action="/cobranza/" class="d-flex align-items-center gap-2 flex-wrap w-100">
+    <select name="mes" class="form-select form-select-sm" style="width:130px;flex-shrink:0;">
+      {% for m in meses %}
+      <option value="{{ loop.index }}" {% if loop.index == mes %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+    <select name="anio" class="form-select form-select-sm" style="width:90px;flex-shrink:0;">
+      {% for a in anios %}
+      <option value="{{ a }}" {% if a == anio %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-sm btn-danger">Ver</button>
+    <span class="text-muted small ms-1 d-none d-sm-inline">Planillas: <strong>{{ mes_nombre }} {{ anio }}</strong></span>
+  </form>
 </div>
 
 <!-- Tarjetas por cobrador -->
 {% if resumen %}
-<div class="row g-3">
+<div class="row g-3 mb-2">
   {% for r in resumen %}
   {% if r.total > 0 %}
   <div class="col-md-4 col-sm-6">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-body">
-        <div class="d-flex align-items-center gap-2 mb-2">
-          <i class="bi bi-person-circle text-danger fs-4"></i>
-          <h6 class="fw-bold mb-0">{{ r.cobrador.nombre }}</h6>
-          {% if r.planillas %}
-          <span class="badge bg-success ms-auto">{{ r.planillas|length }} planilla{% if r.planillas|length != 1 %}s{% endif %}</span>
-          {% endif %}
-        </div>
-        <p class="text-muted small mb-1">
-          <span class="badge bg-dark me-1">{{ r.total }}</span> boletas activas
-        </p>
-        <p class="text-muted small mb-0">
-          <span class="badge bg-warning text-dark me-1">{{ r.pendientes }}</span> con cuotas pendientes
-        </p>
+    <div class="sec-card h-100" style="display:flex;flex-direction:column;">
+      <div class="sec-header">
+        <i class="bi bi-person-circle"></i>{{ r.cobrador.nombre }}
+        {% if r.planillas %}
+        <span class="badge bg-success ms-auto" style="font-size:.7rem;">{{ r.planillas|length }} planilla{% if r.planillas|length != 1 %}s{% endif %}</span>
+        {% endif %}
       </div>
-      <div class="card-footer bg-white">
+      <div class="p-3" style="flex:1;">
+        <div class="d-flex gap-3">
+          <div class="text-center">
+            <div class="fw-bold text-dark fs-5">{{ r.total }}</div>
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;">Activas</div>
+          </div>
+          <div class="text-center">
+            <div class="fw-bold text-warning fs-5">{{ r.pendientes }}</div>
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;">Pendientes</div>
+          </div>
+        </div>
+      </div>
+      <div class="p-3 pt-0">
         {% if r.planillas %}
           <div class="d-flex flex-column gap-1">
             {% for pl in r.planillas %}
-            <a href="/cobranza/planilla/{{ pl.id }}/ver"
-               class="btn btn-sm btn-danger w-100">
+            <a href="/cobranza/planilla/{{ pl.id }}/ver" class="btn btn-sm btn-danger w-100">
               <i class="bi bi-printer me-1"></i>Ver P{{ pl.numero }}
             </a>
             {% endfor %}
           </div>
         {% else %}
-          <a href="/cobranza/{{ r.cobrador.id }}/planilla?mes={{ mes }}&anio={{ anio }}"
-             class="btn btn-sm btn-outline-secondary w-100">
+          <a href="/cobranza/{{ r.cobrador.id }}/planilla?mes={{ mes }}&anio={{ anio }}" class="btn btn-sm btn-outline-secondary w-100">
             <i class="bi bi-eye me-1"></i>Vista previa
           </a>
         {% endif %}

@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Cobradores{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="fw-bold mb-0"><i class="bi bi-wallet2 text-danger me-2"></i>Cobranza</h4>
+<div class="page-header">
+  <h4 class="page-title"><i class="bi bi-wallet2 text-danger"></i>Cobranza</h4>
 </div>
 
 <!-- Tabs de navegación de Cobranza -->
@@ -23,16 +23,16 @@
   </li>
 </ul>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h5 class="fw-bold mb-0"><i class="bi bi-cash-coin text-danger me-2"></i>Cobradores</h5>
-  <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#modalNuevo">
+<div class="page-header">
+  <h5 class="page-title" style="font-size:1.05rem;"><i class="bi bi-cash-coin text-danger"></i>Cobradores</h5>
+  <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#modalNuevo">
     <i class="bi bi-plus-lg me-1"></i>Nuevo
   </button>
 </div>
 
-<div class="card border-0 shadow-sm">
+<div class="sec-card">
   <div class="table-responsive">
-    <table class="table table-hover align-middle mb-0">
+    <table class="table table-hover table-sm align-middle mb-0 card-table">
       <thead class="table-light">
         <tr>
           <th>Nombre</th>
