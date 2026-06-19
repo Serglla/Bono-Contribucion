@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Renovaciones pendientes{% if zona_filtro %} · Zona {{ zona_filtro }}{% endif %}{% endblock %}
+{% block content %}
+
+<!-- Toolbar (no se imprime) -->
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap d-print-none">
+  <a href="/zonas/renovaciones" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-file-earmark-pdf text-danger me-2"></i>
+    Renovaciones pendientes{% if zona_filtro %} · Zona {{ zona_filtro }}{% endif %}
+  </h4>
+  <button class="btn btn-sm btn-primary ms-auto" onclick="window.print()">
+    <i class="bi bi-printer me-1"></i>Imprimir / Guardar PDF
+  </button>
+</div>
+
+<div class="alert alert-info py-2 px-3 small d-print-none mb-3">
+  <i class="bi bi-info-circle me-1"></i>
+  Para guardar como PDF, presioná <strong>Imprimir</strong> y elegí destino
+  <strong>"Guardar como PDF"</strong>.
+</div>
+
+{# ══════════ HOJA IMPRIMIBLE ══════════ #}
+<div class="hoja">
+
+  <div class="encabezado">
+    <div>
+      <div class="titulo">Renovaciones pendientes — Bono Bomberos CDELU</div>
+      <div class="subtitulo">
+        Compradores del bono <strong>anterior</strong> que todavía <strong>no renovaron</strong>.
+        {% if zona_filtro %}Zona <strong>{{ zona_filtro }}</strong>.{% else %}Todas las zonas.{% endif %}
+      </div>
+    </div>
+    <div class="meta">
+      <div>Total: <strong>{{ total }}</strong></div>
+      <div>{{ generado }}</div>
+    </div>
+  </div>
+
+  {% if not grupos %}
+    <p class="text-muted">No hay renovaciones pendientes para imprimir.</p>
+  {% endif %}
+
+  {% for g in grupos %}
+  <div class="zona-bloque">
+    <h5 class="zona-titulo">
+      Zona {{ g.zona }}
+      <span class="zona-cant">{{ g.cantidad }} pendiente(s)</span>
+    </h5>
+    <table class="tabla-print">
+      <thead>
+        <tr>
+          <th style="width:8%;">PATA</th>
+          <th style="width:27%;">Apellido y nombre</th>
+          <th style="width:25%;">Dirección</th>
+          <th style="width:13%;">Vendedor</th>
+          <th style="width:27%;">Observaciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in g.filas %}
+        <tr>
+          <td>{{ r.pata }}</td>
+          <td class="fw-semibold">{{ r.nombre }}</td>
+          <td>{{ r.direccion or "—" }}</td>
+          <td>{{ r.vendedor or "—" }}</td>
+          <td class="obs">
+            {% if r.misma_dir_otro %}<div>⚠ Misma dir., otro: {{ r.misma_dir_otro }}</div>{% endif %}
+            {% if r.mismo_nom_otra %}<div>↪ Mismo nombre en: {{ r.mismo_nom_otra }}</div>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+
+</div>
+
+<style>
+  .hoja { background:#fff; color:#000; }
+  .encabezado {
+    display:flex; justify-content:space-between; align-items:flex-start;
+    border-bottom:2px solid #000; padding-bottom:6px; margin-bottom:12px;
+  }
+  .titulo { font-size:1.1rem; font-weight:700; }
+  .subtitulo { font-size:.8rem; color:#333; }
+  .meta { text-align:right; font-size:.8rem; white-space:nowrap; }
+  .zona-bloque { margin-bottom:16px; }
+  .zona-titulo {
+    font-size:.95rem; font-weight:700; margin:0 0 4px 0;
+    background:#f0f0f0; padding:4px 8px; border-left:4px solid #dc3545;
+  }
+  .zona-cant { font-weight:400; font-size:.8rem; color:#555; margin-left:8px; }
+  table.tabla-print { width:100%; border-collapse:collapse; font-size:.78rem; }
+  table.tabla-print th, table.tabla-print td {
+    border:1px solid #999; padding:3px 6px; text-align:left; vertical-align:top;
+  }
+  table.tabla-print thead th { background:#e9e9e9; }
+  table.tabla-print td.obs { font-size:.72rem; color:#b02a37; }
+  table.tabla-print td.obs div { margin-bottom:1px; }
+
+  @media print {
+    .d-print-none { display:none !important; }
+    @page { size:A4; margin:12mm; }
+    .zona-bloque { break-inside:avoid; }
+    table.tabla-print tr { break-inside:avoid; }
+    table.tabla-print thead { display:table-header-group; }
+  }
+</style>
+{% endblock %}

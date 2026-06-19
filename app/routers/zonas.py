@@ -607,14 +607,11 @@ async def toggle_hecha(zid: int, request: Request, db: Session = Depends(get_db)
     return RedirectResponse("/zonas/", status_code=302)
 
 
-@router.get("/renovaciones", response_class=HTMLResponse)
-async def renovaciones(request: Request, db: Session = Depends(get_db)):
-    """Subsección: por zona, compradores del bono anterior que TODAVÍA no renovaron
-    este bono (match por nombre + dirección)."""
-    user = await auth_module.require_user(request, db)
-    if not auth_module.has_permission(user, 'zonas', 'ver'):
-        raise HTTPException(403, 'No tenés permiso para ver esta sección')
-
+def _calcular_renovaciones(db):
+    """Calcula, por zona, los compradores del bono ANTERIOR que TODAVÍA no
+    renovaron este bono (cruce difuso por apellido + número de casa + nombre),
+    con avisos de misma dirección / mismo nombre en otra dirección.
+    Devuelve (grupos_list, flat, tiene_bono_anterior)."""
     ba_rows = db.query(models.BonoAnterior).all()
     compradores = db.query(models.Comprador).all()
     current_matcher = _build_socio_matcher((c.apellido_nombre, c.direccion) for c in compradores)
@@ -659,14 +656,48 @@ async def renovaciones(request: Request, db: Session = Depends(get_db)):
         grupos_list.append({"zona": label, "filas": filas, "cantidad": len(filas)})
 
     flat.sort(key=lambda x: (x["zona_sort"], _norm_txt(x["nombre"])))
+    return grupos_list, flat, len(ba_rows) > 0
 
-    total = len(flat)
+
+@router.get("/renovaciones", response_class=HTMLResponse)
+async def renovaciones(request: Request, db: Session = Depends(get_db)):
+    """Subsección: por zona, compradores del bono anterior que TODAVÍA no renovaron
+    este bono (match por nombre + dirección)."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'zonas', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+
+    grupos_list, flat, tiene = _calcular_renovaciones(db)
     return templates.TemplateResponse(request, "zonas_renovaciones.html", {
         "user": user,
         "grupos": grupos_list,
         "flat": flat,
+        "total": len(flat),
+        "tiene_bono_anterior": tiene,
+    })
+
+
+@router.get("/renovaciones/imprimir", response_class=HTMLResponse)
+async def renovaciones_imprimir(request: Request, zona: str = "", db: Session = Depends(get_db)):
+    """Vista imprimible (PDF vía navegador) de las renovaciones pendientes.
+    Si `zona` viene dado, imprime solo esa zona; si no, todas."""
+    from datetime import datetime as _dt
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'zonas', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+
+    grupos_list, _flat, tiene = _calcular_renovaciones(db)
+    zona = (zona or "").strip()
+    if zona:
+        grupos_list = [g for g in grupos_list if str(g["zona"]) == zona]
+    total = sum(g["cantidad"] for g in grupos_list)
+    return templates.TemplateResponse(request, "zonas_renovaciones_print.html", {
+        "user": user,
+        "grupos": grupos_list,
         "total": total,
-        "tiene_bono_anterior": len(ba_rows) > 0,
+        "zona_filtro": zona,
+        "tiene_bono_anterior": tiene,
+        "generado": _dt.now().strftime("%d/%m/%Y %H:%M"),
     })
 
 

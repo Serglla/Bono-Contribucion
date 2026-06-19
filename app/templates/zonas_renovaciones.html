@@ -15,6 +15,12 @@
         <i class="bi bi-table me-1"></i>Lista
       </button>
     </div>
+    {% if grupos %}
+    <a href="/zonas/renovaciones/imprimir" target="_blank" class="btn btn-danger btn-sm"
+       title="Imprimir / exportar a PDF todas las zonas">
+      <i class="bi bi-file-earmark-pdf me-1"></i>PDF (todas)
+    </a>
+    {% endif %}
     <a href="/zonas/" class="btn btn-outline-secondary btn-sm">
       <i class="bi bi-arrow-left me-1"></i>Volver
     </a>
@@ -61,13 +67,20 @@
 <div class="accordion" id="accRenov">
   {% for g in grupos %}
   <div class="accordion-item">
-    <h2 class="accordion-header" id="rH{{ loop.index }}">
+    {# El <a> va FUERA del <button> (HTML válido): se posiciona sobre el header #}
+    <h2 class="accordion-header position-relative" id="rH{{ loop.index }}">
       <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse"
               data-bs-target="#rC{{ loop.index }}" aria-controls="rC{{ loop.index }}">
         <i class="bi bi-geo-alt me-2"></i>
         <span class="fw-semibold">Zona {{ g.zona }}</span>
         <span class="badge bg-warning text-dark ms-3">{{ g.cantidad }} pendiente(s)</span>
       </button>
+      <a href="/zonas/renovaciones/imprimir?zona={{ g.zona | urlencode }}" target="_blank"
+         class="btn btn-sm btn-outline-danger position-absolute top-50 translate-middle-y"
+         style="right:3rem; z-index:5;"
+         title="Imprimir / exportar a PDF esta zona">
+        <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+      </a>
     </h2>
     <div id="rC{{ loop.index }}" class="accordion-collapse collapse" aria-labelledby="rH{{ loop.index }}">
       <div class="accordion-body p-0">
