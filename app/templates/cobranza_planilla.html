@@ -8,6 +8,12 @@
 
     body { font-family: Arial, sans-serif; background: #aaa; }
 
+    /* Modo miniatura: sólo la hoja, sin barra ni márgenes (para previsualizar) */
+    body.thumb { background: #fff; }
+    body.thumb .page { margin: 0; box-shadow: none; }
+
+    .btn-liq { background: #198754; color: #fff; font-weight: 700; }
+
     /* ── Toolbar ── */
     .toolbar {
       background: #222; padding: 7px 14px;
@@ -187,16 +193,21 @@
     }
   </style>
 </head>
-<body>
+<body{% if thumb %} class="thumb"{% endif %}>
 
+{% if not thumb %}
 <div class="toolbar">
   <a href="/cobranza/?mes={{ mes }}&anio={{ anio }}" class="btn-back">← Volver</a>
   <button onclick="window.print()" class="btn-print">🖨 Imprimir</button>
+  {% if planilla %}
+  <a href="/cobranza/liquidacion/{{ planilla.id }}" class="btn-liq">💲 Liquidar planilla</a>
+  {% endif %}
   <span class="toolbar-info">
     {% if planilla_label %}<strong style="color:#f88;">{{ planilla_label }}</strong> — {% endif %}{{ cobrador.nombre | upper }} — {{ mes_nombre | upper }} {{ anio }}
     {% if not planilla %}<span style="color:#fa0; margin-left:8px;">⚠ Planilla no guardada (vista previa)</span>{% endif %}
   </span>
 </div>
+{% endif %}
 
 <div class="page">
 
