@@ -496,7 +496,10 @@ async def ventas_zona(zid: int, request: Request, db: Session = Depends(get_db))
     # Ventas actuales: compradores asignados a esta zona
     compradores = (
         db.query(models.Comprador)
-        .options(selectinload(models.Comprador.boletas).selectinload(models.Boleta.talonera))
+        .options(
+            selectinload(models.Comprador.boletas).selectinload(models.Boleta.talonera),
+            selectinload(models.Comprador.boletas).selectinload(models.Boleta.vendedor),
+        )
         .filter(models.Comprador.zona_id == zid)
         .all()
     )
@@ -518,12 +521,14 @@ async def ventas_zona(zid: int, request: Request, db: Session = Depends(get_db))
     actuales = []
     for c in compradores:
         patas = sorted({b.talonera.nombre for b in c.boletas if b.talonera})
+        vendedores = sorted({b.vendedor.nombre for b in c.boletas if b.vendedor})
         zonas_prev = _socio_zonas(prev_idx, c.apellido_nombre, c.direccion)
         otras = sorted({zp for zp in zonas_prev if _norm_zona(zp) != zk})
         actuales.append({
             "pata": ", ".join(patas) if patas else "—",
             "nombre": c.apellido_nombre or "",
             "direccion": c.direccion or "",
+            "vendedor": ", ".join(vendedores) if vendedores else "—",
             "renovo": bool(zonas_prev),          # renovó (en esta u otra zona)
             "zona_otro": ", ".join(otras),       # si renovó pero figuraba en otra zona
         })
@@ -537,6 +542,7 @@ async def ventas_zona(zid: int, request: Request, db: Session = Depends(get_db))
             "pata": r.pata or "—",
             "nombre": r.apellido_nombre or "",
             "direccion": r.direccion or "",
+            "vendedor": (r.vendedor or "").strip() or "—",
             "renovo": bool(zonas_act),
             "zona_otro": ", ".join(otras),       # si renovó pero ahora está en otra zona
         })

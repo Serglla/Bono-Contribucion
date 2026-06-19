@@ -305,6 +305,7 @@
                 <th class="vz-sort" data-k="pata" style="cursor:pointer;">PATA <i class="bi bi-arrow-down-up text-muted"></i></th>
                 <th class="vz-sort" data-k="nombre" style="cursor:pointer;">Apellido y nombre <i class="bi bi-arrow-down-up text-muted"></i></th>
                 <th class="vz-sort" data-k="direccion" style="cursor:pointer;">Dirección <i class="bi bi-arrow-down-up text-muted"></i></th>
+                <th class="vz-sort" data-k="vendedor" style="cursor:pointer;">Vendedor <i class="bi bi-arrow-down-up text-muted"></i></th>
               </tr></thead>
               <tbody id="vz-actuales"></tbody>
             </table>
@@ -319,6 +320,7 @@
                 <th class="vz-sort" data-k="pata" style="cursor:pointer;">PATA <i class="bi bi-arrow-down-up text-muted"></i></th>
                 <th class="vz-sort" data-k="nombre" style="cursor:pointer;">Apellido y nombre <i class="bi bi-arrow-down-up text-muted"></i></th>
                 <th class="vz-sort" data-k="direccion" style="cursor:pointer;">Dirección <i class="bi bi-arrow-down-up text-muted"></i></th>
+                <th class="vz-sort" data-k="vendedor" style="cursor:pointer;">Vendedor <i class="bi bi-arrow-down-up text-muted"></i></th>
               </tr></thead>
               <tbody id="vz-anteriores"></tbody>
             </table>
@@ -482,9 +484,13 @@
         (marcarNoRenovado ? 'Ahora figura en' : 'En el bono anterior figuraba en') +
         ' otra zona">' + (marcarNoRenovado ? 'ahora: zona ' : 'antes: zona ') + esc(item.zona_otro) + '</span>'
       : '';
+    const vend = item.vendedor && item.vendedor !== '—'
+      ? '<span class="badge bg-light text-dark border">' + esc(item.vendedor) + '</span>'
+      : '<span class="text-muted">—</span>';
     return '<tr class="' + cls + '"><td><span class="badge bg-danger">' + esc(item.pata) +
            '</span></td><td class="fw-semibold">' + esc(item.nombre) + otra +
-           '</td><td>' + esc(item.direccion) + alerta + '</td></tr>';
+           '</td><td>' + esc(item.direccion) + alerta +
+           '</td><td>' + vend + '</td></tr>';
   }
 
   // Estado de orden por tabla
@@ -505,7 +511,7 @@
     const tbody = document.getElementById(st.tbody);
     tbody.innerHTML = arr.length
       ? arr.map(i => filaHTML(i, st.noRenov)).join('')
-      : '<tr><td colspan="3" class="text-center text-muted py-3">' + st.vacio + '</td></tr>';
+      : '<tr><td colspan="4" class="text-center text-muted py-3">' + st.vacio + '</td></tr>';
   }
 
   // Click en encabezados → ordenar
