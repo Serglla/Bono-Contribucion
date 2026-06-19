@@ -301,3 +301,22 @@ body { background: var(--bg); color: var(--text); }
   .kpi-card, .btn-login { transition: none; }
   .kpi-card:hover { transform: none; }
 }
+
+/* === Historial liquidaciones — badges del acordeón === */
+/* En desktop los badges van inline; en mobile saltan a segunda línea
+   para que no floten al aire ni sean tapados por el chevron. */
+.hl-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+@media (max-width: 575.98px) {
+  .accordion-button { flex-wrap: wrap; }
+  .hl-label { flex: 1 1 100%; }   /* el texto ocupa toda la primera línea */
+  .hl-badges {
+    width: 100%;
+    margin-top: 4px;
+    padding-right: 1.5rem;       /* deja espacio al chevron */
+  }
+}
