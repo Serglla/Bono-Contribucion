@@ -38,8 +38,11 @@ _STOP_DIR = {"DE", "LA", "EL", "Y", "DEL", "LOS", "LAS", "N", "NRO", "N°", "DTO
 def _dir_parse(direccion):
     """Devuelve (número de casa, set de palabras de calle) de una dirección.
     El número de casa es el número MÁS GRANDE (en 'CALLE 25 DE AGOSTO 723' el 723,
-    no el 25). Las palabras de calle excluyen el número de casa y palabras comunes."""
-    toks = _norm_txt(direccion).split()
+    no el 25). Las palabras de calle excluyen el número de casa y palabras comunes.
+    Se ignora la puntuación ('V.' / 'V,' -> 'V') y las abreviaturas de 1 letra
+    (ej. la 'V' de 'V. ETCHEVERRY' = Villa), que solo aportan ruido al match."""
+    limpio = re.sub(r"[^\w\s]", " ", _norm_txt(direccion))
+    toks = limpio.split()
     nums = [t for t in toks if t.isdigit()]
     house = max(nums, key=int) if nums else ""
     calles, quitado = set(), False
@@ -49,8 +52,23 @@ def _dir_parse(direccion):
         if t == house and not quitado:
             quitado = True
             continue
+        if len(t) <= 1:            # ignora abreviaturas/ruido de 1 letra
+            continue
         calles.add(t)
     return house, calles
+
+
+def _calles_sim(c1, c2):
+    """True si dos conjuntos de palabras de calle comparten alguna palabra
+    'parecida': exacta, prefijo (nombres largos) o 1 typo. Tolera variantes de
+    grafía del mismo nombre de calle (ej. ETCHEVERRY / ECHEVERRY)."""
+    if c1 & c2:
+        return True
+    for a in c1:
+        for b in c2:
+            if _apellido_sim(a, b):
+                return True
+    return False
 
 
 def _apellido_num(nombre, direccion):
@@ -114,7 +132,7 @@ def _otro_en_direccion(idx, nombre, direccion):
     if not num:
         return out
     for calles2, ap2, given2, nombre2, zona2 in idx.get(num, []):
-        if not (calles & calles2):                      # misma dirección (num + calle)
+        if not _calles_sim(calles, calles2):            # misma dirección (num + calle, difuso)
             continue
         if _apellido_sim(ap, ap2) and ((given & given2) or not given or not given2):
             continue                                     # es el mismo socio → no avisar
@@ -147,7 +165,7 @@ def _mismo_nombre_otra_dir(idx, nombre, direccion):
     for given2, num2, calles2, nombre2, dir2, zona2 in idx.get(ap, []):
         if not ((given & given2) or not given or not given2):
             continue                                  # distinto nombre de pila
-        if num and num == num2 and (calles & calles2):
+        if num and num == num2 and _calles_sim(calles, calles2):
             continue                                  # misma dirección → es la misma persona
         etiqueta = nombre2 + " — " + (dir2 or "") + (" (zona " + str(zona2) + ")" if zona2 else "")
         if etiqueta not in out:

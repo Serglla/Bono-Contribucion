@@ -178,6 +178,9 @@ async def buscar_boleta_global(numero: int, request: Request, db: Session = Depe
         # "" (sin liquidar) | "cuotas" | "contado" | "contado2".
         # Si es contado/contado2, al cargar el socio las cuotas ya están cobradas.
         "modalidad_liquidacion": (b.modalidad_liquidacion or ""),
+        # Señal alternativa de contado: tiene número especial asignado (data vieja /
+        # rearmada que no dejó modalidad_liquidacion). El modal precarga igual.
+        "es_contado": (b.numero_especial is not None) or (b.numero_especial_2 is not None),
         "num_cuotas": (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 12),
     })
 

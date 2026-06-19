@@ -608,8 +608,19 @@ async def crear(
             # Si la boleta fue liquidada al contado (1 o 2 pagos) por el vendedor,
             # las cuotas YA están cobradas: forzar pactadas completas y todo pago
             # (ej: 12/12), sin importar lo que venga del formulario.
+            # Se detecta el contado por DOS señales (cualquiera alcanza), porque no
+            # siempre están las dos a la vez:
+            #   - modalidad_liquidacion ('contado'/'contado2'): liquidaciones hechas
+            #     desde la app (puede no tener numero_especial todavía).
+            #   - numero_especial / numero_especial_2 asignado: contados de data vieja
+            #     o rearmada por script, que NO setearon modalidad_liquidacion.
             _mod_liq = (b.modalidad_liquidacion or "").strip().lower()
-            if _mod_liq in ("contado", "contado2"):
+            _contado_liq = (
+                _mod_liq in ("contado", "contado2")
+                or b.numero_especial is not None
+                or b.numero_especial_2 is not None
+            )
+            if _contado_liq:
                 _nc_tal = (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0) \
                           or (cuotas_pactadas if cuotas_pactadas and cuotas_pactadas > 0 else 0) or 12
                 b.cuotas_pactadas = _nc_tal

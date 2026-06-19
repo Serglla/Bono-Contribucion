@@ -797,10 +797,13 @@ document.querySelectorAll('.input-upper').forEach(el => {
             // pegados en 12/12 para el socio siguiente).
             const liqBadge  = document.getElementById('nuevoBoletaContadoBadge');
             const modLiq    = b.modalidad_liquidacion || '';
+            // Contado por modalidad O por número especial asignado (data vieja/rearmada
+            // que no dejó modalidad_liquidacion). Cualquiera de las dos precarga cuotas.
+            const esContado = (modLiq === 'contado' || modLiq === 'contado2' || b.es_contado);
             const cuotasInp = document.getElementById('cuotasInput');
             const antInp    = document.getElementById('anticipadasInput');
             if (liqBadge) liqBadge.classList.add('d-none');
-            if (modLiq === 'contado' || modLiq === 'contado2') {
+            if (esContado) {
               const nc = parseInt(b.num_cuotas) || 12;
               if (!window._prefillContadoPrevio) {
                 window._prefillContadoPrevio = { cuotas: cuotasInp.value, ant: antInp.value };
