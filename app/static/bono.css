@@ -100,6 +100,10 @@ body { background: var(--bg); color: var(--text); }
 .kpi-primary .kpi-value { color: #4f46e5; }
 .kpi-primary .kpi-icon { color: #6366f1; }
 
+.kpi-secondary { border-top-color: #64748b; }
+.kpi-secondary .kpi-value { color: #475569; }
+.kpi-secondary .kpi-icon { color: #64748b; }
+
 /* === Section card === */
 .sec-card {
   background: var(--surface);

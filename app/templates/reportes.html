@@ -20,6 +20,13 @@
     <div class="kpi-value">{{ (totales.vendidas or 0) | round(0) | int }}</div>
     <div class="kpi-label">Vendidas (total)</div>
   </div>
+  <a class="kpi-card kpi-secondary text-decoration-none" href="#" role="button"
+     onclick="abrirSinCargar(event)"
+     title="Boletas liquidadas por el vendedor pero sin el socio cargado todavía. Clic para ver cuáles.">
+    <div class="kpi-icon"><i class="bi bi-hourglass-split"></i></div>
+    <div class="kpi-value">{{ (totales.sin_cargar or 0) | round(0) | int }}</div>
+    <div class="kpi-label">Sin cargar</div>
+  </a>
   <div class="kpi-card kpi-danger">
     <div class="kpi-icon"><i class="bi bi-x-circle"></i></div>
     <div class="kpi-value">{{ (totales.baja or 0) | round(0) | int }}</div>
@@ -231,6 +238,21 @@
   </div>
 </div>
 
+<!-- Modal: números liquidados sin cargar el socio -->
+<div class="modal fade" id="modalSinCargar" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-hourglass-split me-2"></i>Números liquidados sin cargar el socio</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="sinCargarBody">
+        <div class="text-center text-muted py-4">Cargando…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 function toggleRow(id) {
   const el = document.getElementById(id);
@@ -247,6 +269,43 @@ function toggleDiv(id) {
   const isHidden = el.style.display === 'none' || el.style.display === '';
   el.style.display = isHidden ? 'block' : 'none';
   if (icon) icon.style.transform = isHidden ? 'rotate(90deg)' : '';
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+async function abrirSinCargar(ev){
+  if (ev) ev.preventDefault();
+  const modalEl = document.getElementById('modalSinCargar');
+  const body = document.getElementById('sinCargarBody');
+  body.innerHTML = '<div class="text-center text-muted py-4">Cargando…</div>';
+  bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  try {
+    const r = await fetch('/reportes/sin-cargar-lista');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (!data.items || !data.items.length) {
+      body.innerHTML = '<div class="text-center text-success py-4"><i class="bi bi-check2-circle me-1"></i>No hay números pendientes de cargar.</div>';
+      return;
+    }
+    const grupos = {};
+    data.items.forEach(it => { (grupos[it.vendedor] = grupos[it.vendedor] || []).push(it); });
+    let html = '<p class="text-muted small mb-3">' + data.total + ' número(s) liquidados pendientes de cargar el comprador.</p>';
+    Object.keys(grupos).sort().forEach(vend => {
+      const its = grupos[vend];
+      html += '<div class="mb-3"><div class="fw-semibold mb-1">' + escapeHtml(vend) +
+              ' <span class="badge bg-secondary">' + its.length + '</span></div>' +
+              '<div class="d-flex flex-wrap gap-1">';
+      its.forEach(it => {
+        html += '<span class="badge bg-light text-dark border">' +
+                escapeHtml(it.talonera) + ' · ' + escapeHtml(it.numero_fmt) + '</span>';
+      });
+      html += '</div></div>';
+    });
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = '<div class="text-center text-danger py-4">Error al cargar la lista. Probá de nuevo.</div>';
+  }
 }
 </script>
 {% endblock %}
