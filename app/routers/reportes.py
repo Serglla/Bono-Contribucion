@@ -7,6 +7,7 @@ from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..models import CondicionBoleta
 from ..database import get_db
+from .vendedores import _stats_bulk
 
 router = APIRouter(prefix="/reportes", tags=["reportes"])
 
@@ -152,63 +153,63 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "contado_2": int(contado_2),
         })
 
-    # Top vendedores con desglose por talonera
-    raw_v = db.query(
-        models.Vendedor.id,
-        models.Vendedor.nombre,
-        models.Talonera.nombre.label("tal_nombre"),
-        func.coalesce(func.sum(models.Talonera.multiplicador), 0).label("cant")
-    ).outerjoin(
-        models.Boleta,
-        (models.Boleta.vendedor_id == models.Vendedor.id) &
-        (models.Boleta.comprador_id.isnot(None))
-    ).outerjoin(
-        models.Talonera, models.Boleta.talonera_id == models.Talonera.id
-    ).group_by(
-        models.Vendedor.id, models.Vendedor.nombre, models.Talonera.nombre
-    ).order_by(models.Vendedor.nombre, models.Talonera.nombre).all()
+    # ── Liquidado por vendedor ─────────────────────────────────────────────
+    # Reusa la misma lógica que la tabla de Vendedores: ponderado por PATA
+    # (PATA 1 ×1, PATA 2 ×2, PATA 0 ×0.67) y SIN contar los números de sorteo
+    # extra (pool CONTADO / CONTADO 2 VECES) como ventas.
+    _stats = _stats_bulk(db)
+    vendedores_liq = []
+    for v in db.query(models.Vendedor).order_by(models.Vendedor.nombre).all():
+        s = _stats.get(v.id, {})
+        vendedores_liq.append({
+            "nombre": v.nombre,
+            "cuotas": int(s.get("liquidados_cuotas", 0)),
+            "contados": int(s.get("liquidados_contados", 0)),
+            "total": int(s.get("liquidados", 0)),
+        })
+    # Ordenar por total liquidado (descendente), los que tienen 0 al final
+    vendedores_liq.sort(key=lambda x: x["total"], reverse=True)
+    vendedores_liq_total = {
+        "cuotas":   sum(v["cuotas"]   for v in vendedores_liq),
+        "contados": sum(v["contados"] for v in vendedores_liq),
+        "total":    sum(v["total"]    for v in vendedores_liq),
+    }
 
-    v_map = {}
-    for row in raw_v:
-        if row.id not in v_map:
-            v_map[row.id] = {"id": row.id, "nombre": row.nombre, "cantidad": 0, "taloneras": []}
-        if row.tal_nombre:
-            v_map[row.id]["taloneras"].append({
-                "nombre": row.tal_nombre,
-                "cantidad": int(row.cant or 0)
-            })
-            v_map[row.id]["cantidad"] += int(row.cant or 0)
-
-    top_vendedores = sorted(v_map.values(), key=lambda x: x["cantidad"], reverse=True)[:10]
-
-    # Top cobradores con desglose por talonera
-    raw_c = db.query(
-        models.Cobrador.id,
-        models.Cobrador.nombre,
-        models.Talonera.nombre.label("tal_nombre"),
-        func.coalesce(func.sum(models.Talonera.multiplicador), 0).label("cant")
-    ).outerjoin(
-        models.Boleta,
-        (models.Boleta.cobrador_id == models.Cobrador.id) &
-        (models.Boleta.comprador_id.isnot(None))
-    ).outerjoin(
-        models.Talonera, models.Boleta.talonera_id == models.Talonera.id
-    ).group_by(
-        models.Cobrador.id, models.Cobrador.nombre, models.Talonera.nombre
-    ).order_by(models.Cobrador.nombre, models.Talonera.nombre).all()
-
-    c_map = {}
-    for row in raw_c:
-        if row.id not in c_map:
-            c_map[row.id] = {"id": row.id, "nombre": row.nombre, "cantidad": 0, "taloneras": []}
-        if row.tal_nombre:
-            c_map[row.id]["taloneras"].append({
-                "nombre": row.tal_nombre,
-                "cantidad": int(row.cant or 0)
-            })
-            c_map[row.id]["cantidad"] += int(row.cant or 0)
-
-    top_cobradores = sorted(c_map.values(), key=lambda x: x["cantidad"], reverse=True)[:10]
+    # ── Resumen de cobradores ──────────────────────────────────────────────
+    # Cantidad de planillas + cuotas cobradas + monto cobrado (de las planillas
+    # ya liquidadas). Una planilla cuenta aunque todavía no esté liquidada.
+    planillas_por_cob = dict(
+        db.query(
+            models.Planilla.cobrador_id,
+            func.count(models.Planilla.id),
+        ).group_by(models.Planilla.cobrador_id).all()
+    )
+    liq_por_cob = {
+        row[0]: row
+        for row in db.query(
+            models.Planilla.cobrador_id,
+            func.coalesce(func.sum(models.Liquidacion.total_cuotas), 0),
+            func.coalesce(func.sum(models.Liquidacion.monto_total), 0.0),
+            func.coalesce(func.sum(models.Liquidacion.neto), 0.0),
+        ).join(
+            models.Liquidacion, models.Liquidacion.planilla_id == models.Planilla.id
+        ).group_by(models.Planilla.cobrador_id).all()
+    }
+    cobradores_resumen = []
+    for c in db.query(models.Cobrador).order_by(models.Cobrador.nombre).all():
+        lr = liq_por_cob.get(c.id)
+        cobradores_resumen.append({
+            "nombre": c.nombre,
+            "planillas": int(planillas_por_cob.get(c.id, 0) or 0),
+            "cuotas": int(lr[1]) if lr else 0,
+            "monto": float(lr[2]) if lr else 0.0,
+        })
+    cobradores_resumen.sort(key=lambda x: x["cuotas"], reverse=True)
+    cobradores_total = {
+        "planillas": sum(c["planillas"] for c in cobradores_resumen),
+        "cuotas":    sum(c["cuotas"]    for c in cobradores_resumen),
+        "monto":     sum(c["monto"]     for c in cobradores_resumen),
+    }
 
     # Tarjetas del dashboard — ponderadas por Talonera.multiplicador
     def _sum_mult(filtro=None):
@@ -248,7 +249,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     }
 
     # Zonas trabajadas = cantidad de zonas distintas donde hay números vendidos
-    # (boletas con comprador asignado). Una sola consulta, en vez del detalle por zona.
+    # (boletas con comprador asignado). Una sola consulta, en vez del detalle  por zona.
     zonas_trabajadas = db.query(
         func.count(func.distinct(models.Comprador.zona_id))
     ).select_from(models.Boleta).join(
@@ -259,7 +260,9 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
 
     return templates.TemplateResponse(request, "reportes.html", {"user": user,
         "stats_por_talonera": stats_por_talonera,
-        "top_vendedores": top_vendedores,
-        "top_cobradores": top_cobradores,
+        "vendedores_liq": vendedores_liq,
+        "vendedores_liq_total": vendedores_liq_total,
+        "cobradores_resumen": cobradores_resumen,
+        "cobradores_total": cobradores_total,
         "totales": totales,
         "zonas_trabajadas": zonas_trabajadas})

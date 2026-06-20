@@ -32,69 +32,49 @@
   </div>
 </div>
 
-<!-- Por talonera -->
+<!-- Liquidado por vendedor -->
 <div class="sec-card mb-4">
-  <div class="sec-header"><i class="bi bi-journal-text"></i>Por Talonera</div>
+  <div class="sec-header"><i class="bi bi-person-badge"></i>Liquidado por vendedor
+    <span class="text-muted fw-normal ms-2" style="font-size:.8rem;">ponderado por PATA (X1×1, X2×2…)</span>
+  </div>
   <div class="table-responsive">
     <table class="table table-hover table-sm align-middle mb-0 card-table">
       <thead>
         <tr>
-          <th style="width:28px"></th>
-          <th>Talonera</th><th>Total</th><th>Vendidas</th><th>Baja</th><th>En Caja</th>
-          <th>En Cobranza</th><th>Sin Vender</th><th></th>
+          <th>Vendedor</th>
+          <th class="text-center text-success">Liq. Cuotas</th>
+          <th class="text-center text-success">Liq. Contados</th>
+          <th class="text-center">Liq. Total</th>
         </tr>
       </thead>
       <tbody>
-        {% for s in stats_por_talonera %}
-        <tr style="cursor:pointer;" onclick="toggleRow('tal-{{ loop.index }}')" title="Ver detalle contado">
-          <td class="text-center ps-3">
-            <i class="bi bi-chevron-right" id="icon-tal-{{ loop.index }}" style="transition:transform .2s;font-size:.75rem;color:#999;"></i>
+        {% for v in vendedores_liq %}
+        <tr>
+          <td class="fw-semibold">{{ v.nombre }}</td>
+          <td class="text-center">
+            {% if v.cuotas > 0 %}<span class="badge bg-success-subtle text-success border border-success-subtle">{{ v.cuotas }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
-          <td><span class="badge bg-danger">{{ s.nombre | replace('PATA ', 'X') }}</span></td>
-          <td>{{ (s.total or 0) | round(0) | int }}</td>
-          <td><span class="text-success fw-semibold">{{ (s.vendidas or 0) | round(0) | int }}</span></td>
-          <td><span class="text-danger">{{ (s.baja or 0) | round(0) | int }}</span></td>
-          <td><span class="text-primary">{{ (s.en_caja or 0) | round(0) | int }}</span></td>
-          <td><span class="text-warning">{{ (s.en_cobranza or 0) | round(0) | int }}</span></td>
-          <td><span class="text-secondary">{{ (s.sin_vender or 0) | round(0) | int }}</span></td>
-          <td onclick="event.stopPropagation()">
-            {% if s.tipo != 'CONTADO' %}
-            <a href="/compradores/?pata={{ s.nombre | urlencode }}"
-               class="btn btn-sm btn-outline-danger" title="Ver socios">
-              <i class="bi bi-eye"></i>
-            </a>
-            {% endif %}
+          <td class="text-center">
+            {% if v.contados > 0 %}<span class="badge" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;">{{ v.contados }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
-        </tr>
-        <tr id="tal-{{ loop.index }}" style="display:none; background:#fafafa;">
-          <td colspan="9" class="py-2 px-4 border-top-0">
-            <div class="d-flex gap-4 align-items-center small text-muted py-1">
-              {% if s.tipo == 'CONTADO' %}
-              <span>
-                <i class="bi bi-cash text-warning me-1"></i>
-                <strong class="text-dark">Contado:</strong> {{ s.vendidas_1 }}
-              </span>
-              <span>
-                <i class="bi bi-cash-stack text-warning me-1"></i>
-                <strong class="text-dark">Contado 2 Veces:</strong> {{ s.vendidas_2 }}
-              </span>
-              {% else %}
-              <span>
-                <i class="bi bi-cash text-warning me-1"></i>
-                <strong class="text-dark">Contado:</strong> {{ s.contado_1 }}
-              </span>
-              <span>
-                <i class="bi bi-cash-stack text-warning me-1"></i>
-                <strong class="text-dark">Contado 2 Veces:</strong> {{ s.contado_2 }}
-              </span>
-              {% endif %}
-            </div>
+          <td class="text-center">
+            {% if v.total > 0 %}<span class="badge bg-success">{{ v.total }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="text-center text-muted py-3">Sin datos aún</td></tr>
+        <tr><td colspan="4" class="text-center text-muted py-3">Sin datos aún</td></tr>
         {% endfor %}
       </tbody>
+      {% if vendedores_liq %}
+      <tfoot>
+        <tr class="fw-bold border-top" style="border-top-width:2px !important;">
+          <td>TOTAL</td>
+          <td class="text-center"><span class="badge bg-success-subtle text-success border border-success-subtle">{{ vendedores_liq_total.cuotas }}</span></td>
+          <td class="text-center"><span class="badge" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;">{{ vendedores_liq_total.contados }}</span></td>
+          <td class="text-center"><span class="badge bg-success">{{ vendedores_liq_total.total }}</span></td>
+        </tr>
+      </tfoot>
+      {% endif %}
     </table>
   </div>
 </div>
@@ -110,72 +90,118 @@
   </div>
 </div>
 
-<!-- Top vendedores y cobradores -->
-<div class="row g-3 mb-4">
-  <div class="col-md-6">
-    <div class="sec-card">
-      <div class="sec-header"><i class="bi bi-person-badge"></i>Top Vendedores</div>
-      <ul class="list-group list-group-flush">
-        {% for v in top_vendedores %}
-        <li class="list-group-item p-0">
-          <div class="d-flex justify-content-between align-items-center px-3 py-2"
-               style="cursor:pointer;" onclick="toggleDiv('vend-{{ loop.index }}')">
-            <span>
-              <i class="bi bi-chevron-right me-1" id="icon-vend-{{ loop.index }}"
-                 style="transition:transform .2s;font-size:.75rem;color:#999;"></i>
-              {{ v.nombre }}
-            </span>
-            <span class="badge bg-secondary">{{ (v.cantidad or 0) | round(0) | int }}</span>
-          </div>
-          <div id="vend-{{ loop.index }}" style="display:none; background:#fafafa;" class="px-4 py-2 border-top">
-            {% if v.taloneras %}
-            <div class="d-flex flex-wrap gap-2 small">
-              {% for t in v.taloneras %}
-              <span class="badge bg-danger bg-opacity-75 fw-normal">{{ t.nombre }}: {{ t.cantidad }}</span>
-              {% endfor %}
-            </div>
-            {% else %}
-            <span class="text-muted small">Sin taloneras asignadas</span>
-            {% endif %}
-          </div>
-        </li>
+<!-- Resumen de cobradores -->
+<div class="sec-card mb-4">
+  <div class="sec-header"><i class="bi bi-cash-coin"></i>Resumen de cobradores</div>
+  <div class="table-responsive">
+    <table class="table table-hover table-sm align-middle mb-0 card-table">
+      <thead>
+        <tr>
+          <th>Cobrador</th>
+          <th class="text-center">Planillas</th>
+          <th class="text-center">Cuotas cobradas</th>
+          <th class="text-end">Monto cobrado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in cobradores_resumen %}
+        <tr>
+          <td class="fw-semibold">{{ c.nombre }}</td>
+          <td class="text-center">
+            {% if c.planillas > 0 %}<span class="badge bg-secondary">{{ c.planillas }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if c.cuotas > 0 %}<span class="badge bg-info-subtle text-info border border-info-subtle">{{ c.cuotas }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-end">{% if c.monto > 0 %}<span class="fw-semibold text-success">{{ c.monto | pesos }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        </tr>
         {% else %}
-        <li class="list-group-item text-muted">Sin datos</li>
+        <tr><td colspan="4" class="text-center text-muted py-3">Sin datos aún</td></tr>
         {% endfor %}
-      </ul>
-    </div>
+      </tbody>
+      {% if cobradores_resumen %}
+      <tfoot>
+        <tr class="fw-bold border-top" style="border-top-width:2px !important;">
+          <td>TOTAL</td>
+          <td class="text-center"><span class="badge bg-secondary">{{ cobradores_total.planillas }}</span></td>
+          <td class="text-center"><span class="badge bg-info-subtle text-info border border-info-subtle">{{ cobradores_total.cuotas }}</span></td>
+          <td class="text-end"><span class="text-success">{{ cobradores_total.monto | pesos }}</span></td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
   </div>
-  <div class="col-md-6">
-    <div class="card border-0 shadow-sm">
-      <div class="card-header bg-white fw-semibold"><i class="bi bi-cash-coin me-1 text-danger"></i>Top Cobradores</div>
-      <ul class="list-group list-group-flush">
-        {% for c in top_cobradores %}
-        <li class="list-group-item p-0">
-          <div class="d-flex justify-content-between align-items-center px-3 py-2"
-               style="cursor:pointer;" onclick="toggleDiv('cob-{{ loop.index }}')">
-            <span>
-              <i class="bi bi-chevron-right me-1" id="icon-cob-{{ loop.index }}"
-                 style="transition:transform .2s;font-size:.75rem;color:#999;"></i>
-              {{ c.nombre }}
-            </span>
-            <span class="badge bg-secondary">{{ (c.cantidad or 0) | round(0) | int }}</span>
-          </div>
-          <div id="cob-{{ loop.index }}" style="display:none; background:#fafafa;" class="px-4 py-2 border-top">
-            {% if c.taloneras %}
-            <div class="d-flex flex-wrap gap-2 small">
-              {% for t in c.taloneras %}
-              <span class="badge bg-danger bg-opacity-75 fw-normal">{{ t.nombre }}: {{ t.cantidad }}</span>
-              {% endfor %}
-            </div>
-            {% else %}
-            <span class="text-muted small">Sin taloneras asignadas</span>
-            {% endif %}
-          </div>
-        </li>
-        {% else %}
-        <li class="list-group-item text-muted">Sin datos</li>
-        {% endfor %}
-      </ul>
+</div>
+
+<!-- Por talonera (colapsable) -->
+<div class="sec-card mb-4">
+  <div class="sec-header" style="cursor:pointer;" onclick="toggleDiv('bloque-talonera')">
+    <i class="bi bi-chevron-right me-1" id="icon-bloque-talonera" style="transition:transform .2s;font-size:.8rem;"></i>
+    <i class="bi bi-journal-text"></i>Ventas por Talonera
+    <span class="text-muted fw-normal ms-2" style="font-size:.8rem;">(clic para ver)</span>
+  </div>
+  <div id="bloque-talonera" style="display:none;">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0 card-table">
+        <thead>
+          <tr>
+            <th style="width:28px"></th>
+            <th>Talonera</th><th>Total</th><th>Vendidas</th><th>Baja</th><th>En Caja</th>
+            <th>En Cobranza</th><th>Sin Vender</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in stats_por_talonera %}
+          <tr style="cursor:pointer;" onclick="toggleRow('tal-{{ loop.index }}')" title="Ver detalle contado">
+            <td class="text-center ps-3">
+              <i class="bi bi-chevron-right" id="icon-tal-{{ loop.index }}" style="transition:transform .2s;font-size:.75rem;color:#999;"></i>
+            </td>
+            <td><span class="badge bg-danger">{{ s.nombre | replace('PATA ', 'X') }}</span></td>
+            <td>{{ (s.total or 0) | round(0) | int }}</td>
+            <td><span class="text-success fw-semibold">{{ (s.vendidas or 0) | round(0) | int }}</span></td>
+            <td><span class="text-danger">{{ (s.baja or 0) | round(0) | int }}</span></td>
+            <td><span class="text-primary">{{ (s.en_caja or 0) | round(0) | int }}</span></td>
+            <td><span class="text-warning">{{ (s.en_cobranza or 0) | round(0) | int }}</span></td>
+            <td><span class="text-secondary">{{ (s.sin_vender or 0) | round(0) | int }}</span></td>
+            <td onclick="event.stopPropagation()">
+              {% if s.tipo != 'CONTADO' %}
+              <a href="/compradores/?pata={{ s.nombre | urlencode }}"
+                 class="btn btn-sm btn-outline-danger" title="Ver socios">
+                <i class="bi bi-eye"></i>
+              </a>
+              {% endif %}
+            </td>
+          </tr>
+          <tr id="tal-{{ loop.index }}" style="display:none; background:#fafafa;">
+            <td colspan="9" class="py-2 px-4 border-top-0">
+              <div class="d-flex gap-4 align-items-center small text-muted py-1">
+                {% if s.tipo == 'CONTADO' %}
+                <span>
+                  <i class="bi bi-cash text-warning me-1"></i>
+                  <strong class="text-dark">Contado:</strong> {{ s.vendidas_1 }}
+                </span>
+                <span>
+                  <i class="bi bi-cash-stack text-warning me-1"></i>
+                  <strong class="text-dark">Contado 2 Veces:</strong> {{ s.vendidas_2 }}
+                </span>
+                {% else %}
+                <span>
+                  <i class="bi bi-cash text-warning me-1"></i>
+                  <strong class="text-dark">Contado:</strong> {{ s.contado_1 }}
+                </span>
+                <span>
+                  <i class="bi bi-cash-stack text-warning me-1"></i>
+                  <strong class="text-dark">Contado 2 Veces:</strong> {{ s.contado_2 }}
+                </span>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-muted py-3">Sin datos aún</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
