@@ -5,11 +5,6 @@
 
 <!-- Tarjetas resumen -->
 <div class="kpi-row">
-  <div class="kpi-card kpi-success">
-    <div class="kpi-icon"><i class="bi bi-check2-circle"></i></div>
-    <div class="kpi-value">{{ (totales.vendidas or 0) | round(0) | int }}</div>
-    <div class="kpi-label">Vendidas</div>
-  </div>
   <div class="kpi-card kpi-info">
     <div class="kpi-icon"><i class="bi bi-calendar-check"></i></div>
     <div class="kpi-value">{{ (totales.cuotas or 0) | round(0) | int }}</div>
@@ -19,6 +14,11 @@
     <div class="kpi-icon"><i class="bi bi-cash-coin"></i></div>
     <div class="kpi-value">{{ (totales.contado or 0) | round(0) | int }}</div>
     <div class="kpi-label">Al Contado</div>
+  </div>
+  <div class="kpi-card kpi-success">
+    <div class="kpi-icon"><i class="bi bi-check2-circle"></i></div>
+    <div class="kpi-value">{{ (totales.vendidas or 0) | round(0) | int }}</div>
+    <div class="kpi-label">Vendidas (total)</div>
   </div>
   <div class="kpi-card kpi-danger">
     <div class="kpi-icon"><i class="bi bi-x-circle"></i></div>
