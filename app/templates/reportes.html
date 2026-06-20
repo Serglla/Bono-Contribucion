@@ -37,6 +37,11 @@
     <div class="kpi-value">{{ totales.compradores }}</div>
     <div class="kpi-label">Compradores</div>
   </div>
+  <div class="kpi-card kpi-info">
+    <div class="kpi-icon"><i class="bi bi-geo-alt-fill"></i></div>
+    <div class="kpi-value">{{ zonas_trabajadas }}</div>
+    <div class="kpi-label">Zonas trabajadas</div>
+  </div>
 </div>
 
 <!-- Liquidado por vendedor -->
@@ -83,17 +88,6 @@
       </tfoot>
       {% endif %}
     </table>
-  </div>
-</div>
-
-<!-- Zonas trabajadas -->
-<div class="kpi-row mb-4">
-  <div class="kpi-card kpi-info" style="flex-direction:row;text-align:left;gap:.75rem;grid-column:1/-1;">
-    <i class="bi bi-geo-alt-fill" style="font-size:2rem;color:#38bdf8;flex-shrink:0;"></i>
-    <div>
-      <div class="kpi-value" style="font-size:1.6rem;">{{ zonas_trabajadas }}</div>
-      <div class="kpi-label">Zonas trabajadas con ventas</div>
-    </div>
   </div>
 </div>
 
@@ -297,7 +291,9 @@ async function abrirSinCargar(ev){
               ' <span class="badge bg-secondary">' + its.length + '</span></div>' +
               '<div class="d-flex flex-wrap gap-1">';
       its.forEach(it => {
-        html += '<span class="badge bg-light text-dark border">' +
+        const tip = it.fecha_liq ? ('Liquidado: ' + it.fecha_liq) : 'Sin fecha de liquidación';
+        html += '<span class="badge bg-light text-dark border" style="cursor:help" title="' +
+                escapeHtml(tip) + '">' +
                 escapeHtml(it.talonera) + ' · ' + escapeHtml(it.numero_fmt) + '</span>';
       });
       html += '</div></div>';

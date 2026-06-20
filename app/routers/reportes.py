@@ -318,7 +318,8 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
 @router.get("/sin-cargar-lista", response_class=JSONResponse)
 async def sin_cargar_lista(request: Request, db: Session = Depends(get_db)):
     """Lista de boletas liquidadas por el vendedor pero SIN socio cargado todavia.
-    Devuelve items {vendedor, talonera, numero_fmt} ordenados por vendedor/talonera/numero."""
+    Devuelve items {vendedor, talonera, numero_fmt, fecha_liq} ordenados por
+    vendedor/talonera/numero. fecha_liq = fecha en que se liquido la boleta."""
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'reportes', 'ver'):
         raise HTTPException(403, 'Sin permiso')
@@ -327,10 +328,14 @@ async def sin_cargar_lista(request: Request, db: Session = Depends(get_db)):
         models.Talonera.nombre,
         models.Talonera.num_digitos,
         models.Boleta.numero_principal,
+        models.LiquidacionVendedor.fecha,
     ).select_from(models.Boleta).join(
         models.Talonera, models.Talonera.id == models.Boleta.talonera_id
     ).outerjoin(
         models.Vendedor, models.Vendedor.id == models.Boleta.vendedor_id
+    ).outerjoin(
+        models.LiquidacionVendedor,
+        models.LiquidacionVendedor.id == models.Boleta.liquidacion_vendedor_id
     ).filter(
         models.Boleta.liquidacion_vendedor_id.isnot(None),
         models.Boleta.comprador_id.is_(None),
@@ -338,10 +343,11 @@ async def sin_cargar_lista(request: Request, db: Session = Depends(get_db)):
         models.Vendedor.nombre, models.Talonera.nombre, models.Boleta.numero_principal
     ).all()
     items = []
-    for vn, tn, nd, num in rows:
+    for vn, tn, nd, num, fl in rows:
         items.append({
             "vendedor": vn or "(sin vendedor)",
             "talonera": (tn or "").replace("PATA ", "X"),
             "numero_fmt": str(num).zfill(nd or 4),
+            "fecha_liq": fl.strftime("%d/%m/%Y") if fl else "",
         })
     return JSONResponse({"items": items, "total": len(items)})
