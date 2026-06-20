@@ -176,39 +176,80 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     }
 
     # ── Resumen de cobradores ──────────────────────────────────────────────
-    # Cantidad de planillas + cuotas cobradas + monto cobrado (de las planillas
-    # ya liquidadas). Una planilla cuenta aunque todavía no esté liquidada.
+    # Columnas: Planillas | Cuotas a cobrar (vencidas a la fecha) | % de cobrado
+    # (éxito de cobranza = cobradas ÷ vencidas) | Bajas.
+    #
+    # Criterio de "vencidas" / tasa = MISMO que el módulo Contabilidad:
+    #   vencidas_boleta = max(0, min(meses_transcurridos, pactadas) - anticipadas)
+    #   pagas_cob       = max(0, pagadas - anticipadas)   (capadas a lo vencido)
+    # Se excluyen contados (no se cobran por cobranza) y bajas del universo a cobrar.
+    from datetime import date as _date
+    _hoy = _date.today()
+    _camp_start_anio, _camp_start_mes = 2026, 5   # cuota 1 = Mayo 2026 (mes de venta)
+    _meses_transcurridos = max(
+        0,
+        (_hoy.year - _camp_start_anio) * 12 + (_hoy.month - _camp_start_mes) + 1
+    )
+
+    def _es_contado_b(b):
+        if b.numero_especial is not None or b.numero_especial_2 is not None:
+            return True
+        pac = b.cuotas_pactadas or 0
+        ant = b.cuotas_anticipadas or 0
+        return pac > 0 and ant >= pac
+
     planillas_por_cob = dict(
         db.query(
             models.Planilla.cobrador_id,
             func.count(models.Planilla.id),
         ).group_by(models.Planilla.cobrador_id).all()
     )
-    liq_por_cob = {
-        row[0]: row
-        for row in db.query(
-            models.Planilla.cobrador_id,
-            func.coalesce(func.sum(models.Liquidacion.total_cuotas), 0),
-            func.coalesce(func.sum(models.Liquidacion.monto_total), 0.0),
-            func.coalesce(func.sum(models.Liquidacion.neto), 0.0),
-        ).join(
-            models.Liquidacion, models.Liquidacion.planilla_id == models.Planilla.id
-        ).group_by(models.Planilla.cobrador_id).all()
-    }
+
+    # Acumuladores por cobrador
+    _cob_acc: dict = {}   # cid -> {"vencidas": int, "cobradas": int, "bajas": int}
+    boletas_con_cob = db.query(models.Boleta).filter(
+        models.Boleta.cobrador_id.isnot(None)
+    ).all()
+    for b in boletas_con_cob:
+        cid = b.cobrador_id
+        acc = _cob_acc.setdefault(cid, {"vencidas": 0, "cobradas": 0, "bajas": 0})
+        if b.condicion == CondicionBoleta.BAJA:
+            acc["bajas"] += 1
+            continue
+        if _es_contado_b(b):
+            continue
+        pac = b.cuotas_pactadas    or 0
+        pag = b.cuotas_pagadas     or 0
+        ant = b.cuotas_anticipadas or 0
+        vencidas_boleta = max(0, min(_meses_transcurridos, pac) - ant)
+        pagas_cob       = max(0, pag - ant)
+        acc["vencidas"] += vencidas_boleta
+        acc["cobradas"] += min(pagas_cob, vencidas_boleta)
+
     cobradores_resumen = []
     for c in db.query(models.Cobrador).order_by(models.Cobrador.nombre).all():
-        lr = liq_por_cob.get(c.id)
+        acc = _cob_acc.get(c.id, {"vencidas": 0, "cobradas": 0, "bajas": 0})
+        venc = int(acc["vencidas"])
+        cobr = int(acc["cobradas"])
+        pct = round(cobr / venc * 100, 1) if venc > 0 else None
         cobradores_resumen.append({
             "nombre": c.nombre,
             "planillas": int(planillas_por_cob.get(c.id, 0) or 0),
-            "cuotas": int(lr[1]) if lr else 0,
-            "monto": float(lr[2]) if lr else 0.0,
+            "a_cobrar": venc,
+            "cobradas": cobr,
+            "pct": pct,
+            "bajas": int(acc["bajas"]),
         })
-    cobradores_resumen.sort(key=lambda x: x["cuotas"], reverse=True)
+    cobradores_resumen.sort(key=lambda x: (x["a_cobrar"], x["planillas"]), reverse=True)
+
+    _tot_venc = sum(c["a_cobrar"] for c in cobradores_resumen)
+    _tot_cobr = sum(c["cobradas"] for c in cobradores_resumen)
     cobradores_total = {
         "planillas": sum(c["planillas"] for c in cobradores_resumen),
-        "cuotas":    sum(c["cuotas"]    for c in cobradores_resumen),
-        "monto":     sum(c["monto"]     for c in cobradores_resumen),
+        "a_cobrar":  _tot_venc,
+        "cobradas":  _tot_cobr,
+        "pct":       round(_tot_cobr / _tot_venc * 100, 1) if _tot_venc > 0 else None,
+        "bajas":     sum(c["bajas"] for c in cobradores_resumen),
     }
 
     # Tarjetas del dashboard — ponderadas por Talonera.multiplicador
@@ -249,7 +290,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     }
 
     # Zonas trabajadas = cantidad de zonas distintas donde hay números vendidos
-    # (boletas con comprador asignado). Una sola consulta, en vez del detalle  por zona.
+    # (boletas con comprador asignado). Una sola consulta, en vez del detalle por zona.
     zonas_trabajadas = db.query(
         func.count(func.distinct(models.Comprador.zona_id))
     ).select_from(models.Boleta).join(

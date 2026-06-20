@@ -92,15 +92,18 @@
 
 <!-- Resumen de cobradores -->
 <div class="sec-card mb-4">
-  <div class="sec-header"><i class="bi bi-cash-coin"></i>Resumen de cobradores</div>
+  <div class="sec-header"><i class="bi bi-cash-coin"></i>Resumen de cobradores
+    <span class="text-muted fw-normal ms-2" style="font-size:.8rem;">% sobre cuotas vencidas a la fecha</span>
+  </div>
   <div class="table-responsive">
     <table class="table table-hover table-sm align-middle mb-0 card-table">
       <thead>
         <tr>
           <th>Cobrador</th>
           <th class="text-center">Planillas</th>
-          <th class="text-center">Cuotas cobradas</th>
-          <th class="text-end">Monto cobrado</th>
+          <th class="text-center">Cuotas a cobrar</th>
+          <th class="text-center">% de cobrado</th>
+          <th class="text-center">Bajas</th>
         </tr>
       </thead>
       <tbody>
@@ -111,12 +114,24 @@
             {% if c.planillas > 0 %}<span class="badge bg-secondary">{{ c.planillas }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
           <td class="text-center">
-            {% if c.cuotas > 0 %}<span class="badge bg-info-subtle text-info border border-info-subtle">{{ c.cuotas }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+            {% if c.a_cobrar > 0 %}
+              <span class="badge bg-info-subtle text-info border border-info-subtle">{{ c.a_cobrar }}</span>
+              <div class="text-muted" style="font-size:.7rem;">{{ c.cobradas }} cobradas</div>
+            {% else %}<span class="text-muted">—</span>{% endif %}
           </td>
-          <td class="text-end">{% if c.monto > 0 %}<span class="fw-semibold text-success">{{ c.monto | pesos }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-center">
+            {% if c.pct is none %}<span class="text-muted" title="Sin cuotas vencidas todavía">—</span>
+            {% else %}
+              {% set _cls = 'bg-success' if c.pct >= 80 else ('bg-warning text-dark' if c.pct >= 50 else 'bg-danger') %}
+              <span class="badge {{ _cls }}">{{ c.pct }}%</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if c.bajas > 0 %}<span class="badge bg-danger">{{ c.bajas }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="text-center text-muted py-3">Sin datos aún</td></tr>
+        <tr><td colspan="5" class="text-center text-muted py-3">Sin datos aún</td></tr>
         {% endfor %}
       </tbody>
       {% if cobradores_resumen %}
@@ -124,8 +139,18 @@
         <tr class="fw-bold border-top" style="border-top-width:2px !important;">
           <td>TOTAL</td>
           <td class="text-center"><span class="badge bg-secondary">{{ cobradores_total.planillas }}</span></td>
-          <td class="text-center"><span class="badge bg-info-subtle text-info border border-info-subtle">{{ cobradores_total.cuotas }}</span></td>
-          <td class="text-end"><span class="text-success">{{ cobradores_total.monto | pesos }}</span></td>
+          <td class="text-center">
+            <span class="badge bg-info-subtle text-info border border-info-subtle">{{ cobradores_total.a_cobrar }}</span>
+            <div class="text-muted" style="font-size:.7rem;">{{ cobradores_total.cobradas }} cobradas</div>
+          </td>
+          <td class="text-center">
+            {% if cobradores_total.pct is none %}<span class="text-muted">—</span>
+            {% else %}
+              {% set _clst = 'bg-success' if cobradores_total.pct >= 80 else ('bg-warning text-dark' if cobradores_total.pct >= 50 else 'bg-danger') %}
+              <span class="badge {{ _clst }}">{{ cobradores_total.pct }}%</span>
+            {% endif %}
+          </td>
+          <td class="text-center"><span class="badge bg-danger">{{ cobradores_total.bajas }}</span></td>
         </tr>
       </tfoot>
       {% endif %}
