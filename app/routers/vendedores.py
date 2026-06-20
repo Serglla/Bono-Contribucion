@@ -88,9 +88,15 @@ def _stats_bulk(db):
             stats[vid] = _empty()
         stats[vid]["vendido"] = total
 
-    # Liquidados — desglose cuotas vs contados.
-    # Usamos los snapshots cuotas_equiv y contados_equiv de cada LiquidacionVendedor
-    # para el desglose cuotas/contados (la boleta sola no guarda su modalidad).
+    # Liquidados — desglose cuotas vs contados (ambos ponderados por PATA:
+    # PATA 1 ×1, PATA 2 ×2, PATA 0 ×0.67). Usamos los snapshots cuotas_equiv y
+    # contados_equiv de cada LiquidacionVendedor (la boleta sola no guarda su modalidad).
+    #
+    # IMPORTANTE (regla de negocio): "contado" = la TALONERA (la boleta) pagada de una
+    # sola vez, ponderada por su PATA. Los números de sorteo extra (pool CONTADO /
+    # CONTADO 2 VECES, modelo LiquidacionContadoItem) NO son ventas: son premios que
+    # recibe quien paga al contado. Por eso NO se suman a "liquidados_contados" ni a
+    # "liquidados" — se muestran aparte en las columnas Contado ★ / Contado 2× ★.
     liq_split_rows = db.query(
         models.LiquidacionVendedor.vendedor_id,
         func.coalesce(func.sum(models.LiquidacionVendedor.cuotas_equiv), 0),
@@ -102,55 +108,11 @@ def _stats_bulk(db):
         stats[vid]["liquidados_cuotas"]   = int(round(float(cuotas_eq or 0)))
         stats[vid]["liquidados_contados"] = int(round(float(contados_eq or 0)))
 
-    # Pool CONTADO declarados en liquidaciones del vendedor (números puros sin boleta).
-    # Cuentan como contado (1 c/u).
-    pool_rows = db.query(
-        models.LiquidacionVendedor.vendedor_id,
-        func.count(models.LiquidacionContadoItem.id)
-    ).join(
-        models.LiquidacionContadoItem,
-        models.LiquidacionContadoItem.liquidacion_id == models.LiquidacionVendedor.id
-    ).group_by(models.LiquidacionVendedor.vendedor_id).all()
-    for vid, total in pool_rows:
-        if vid not in stats:
-            stats[vid] = _empty()
-        stats[vid]["liquidados_contados"] += int(total or 0)
-
-    # Total liquidados — calculado on-the-fly desde boletas (igual que la tarjeta
-    # del detalle de vendedor) para evitar que snapshots stale (cuotas_equiv desactualizado
-    # cuando cambia talonera.multiplicador) den un total distinto al detalle.
-    # Mismo criterio: contado-de-boleta (numero_especial) cuenta como 1.0,
-    # el resto cuenta como talonera.multiplicador actual.
-    liq_total_rows = db.query(
-        models.Boleta.vendedor_id,
-        func.coalesce(
-            func.sum(
-                case(
-                    (
-                        (models.Boleta.numero_especial.isnot(None)) |
-                        (models.Boleta.numero_especial_2.isnot(None)),
-                        1.0,
-                    ),
-                    else_=func.coalesce(models.Talonera.multiplicador, 1.0),
-                )
-            ),
-            0,
-        ),
-    ).join(
-        models.Talonera, models.Talonera.id == models.Boleta.talonera_id
-    ).filter(
-        models.Boleta.vendedor_id.isnot(None),
-        models.Boleta.liquidacion_vendedor_id.isnot(None),
-    ).group_by(models.Boleta.vendedor_id).all()
-    for vid, total_eq in liq_total_rows:
-        if vid not in stats:
-            stats[vid] = _empty()
-        stats[vid]["liquidados"] = int(round(float(total_eq or 0)))
-
-    # Sumar pool items al total on-the-fly (ya fueron sumados a liquidados_contados arriba).
-    for vid, total in pool_rows:
-        if vid in stats:
-            stats[vid]["liquidados"] += int(total or 0)
+    # Total liquidados = cuotas + contados (ponderado por PATA). Sin pool/sorteo extra.
+    for vid in stats:
+        stats[vid]["liquidados"] = (
+            stats[vid]["liquidados_cuotas"] + stats[vid]["liquidados_contados"]
+        )
 
     return stats
 
@@ -469,23 +431,16 @@ async def listar(request: Request, db: Session = Depends(get_db)):
         bucket["entregas"] += int(e.boletas_afectadas or 0)
         bucket["n_entregas"] += 1
 
-    # Pool CONTADO items por liquidacion (números puros declarados sin boleta).
-    pool_by_liq = dict(
-        db.query(
-            models.LiquidacionContadoItem.liquidacion_id,
-            func.count(models.LiquidacionContadoItem.id),
-        ).group_by(models.LiquidacionContadoItem.liquidacion_id).all()
-    )
-
-    # Liquidaciones: cuotas_equiv (ponderado por PATA) + contados (1 c/u) + pool.
+    # Liquidaciones: cuotas + contados, ambos ponderados por PATA (PATA 1 ×1, PATA 2 ×2,
+    # PATA 0 ×0.67). El pool de sorteo extra (CONTADO / CONTADO 2 VECES) NO se cuenta
+    # como venta — son premios de quien paga al contado, no boletas vendidas.
     for liq in db.query(models.LiquidacionVendedor).all():
         if not liq.fecha:
             continue
         bucket = _bucket((liq.fecha.year, liq.fecha.month))
-        cuotas_eq = int(liq.cuotas_equiv or 0)
-        contados  = int(liq.contados_vendidos or 0)
-        pool      = int(pool_by_liq.get(liq.id, 0) or 0)
-        bucket["liquidaciones"] += cuotas_eq + contados + pool
+        cuotas_eq   = float(liq.cuotas_equiv or 0)
+        contados_eq = float(liq.contados_equiv or liq.contados_vendidos or 0)
+        bucket["liquidaciones"] += int(round(cuotas_eq + contados_eq))
         bucket["n_liquidaciones"] += 1
 
     historial_mensual = []

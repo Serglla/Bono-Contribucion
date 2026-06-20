@@ -271,7 +271,7 @@
           <th class="text-center" title="Números de sorteo CONTADO entregados al vendedor pendientes de asignar">Contado ★</th>
           <th class="text-center" title="Números de sorteo CONTADO 2 VECES entregados al vendedor pendientes de asignar">Contado 2× ★</th>
           <th class="text-center text-success" title="Boletas liquidadas EN CUOTAS, ponderadas por PATA (PATA 1×1, PATA 2×2, PATA 3×3, ...).">Liq. Cuotas</th>
-          <th class="text-center text-success" title="Boletas liquidadas AL CONTADO, ponderadas por PATA, + items del pool CONTADO declarados.">Liq. Contados</th>
+          <th class="text-center text-success" title="Boletas liquidadas AL CONTADO, ponderadas por PATA (PATA 1×1, PATA 2×2). No incluye los números de sorteo extra (esos van en Contado ★ / Contado 2× ★).">Liq. Contados</th>
           <th class="text-center" title="Total liquidados = Cuotas + Contados (ponderado por PATA).">Liq. Total</th>
           <th class="text-center" title="Boletas dadas de baja en cobranza">Bajas <span class="text-muted fw-normal">(cobranza)</span></th>
           <th class="text-center">Estado</th>
@@ -321,7 +321,7 @@
           </td>
           <td class="text-center">
             {% if s.liquidados_contados > 0 %}
-            <a href="/vendedores/{{ v.id }}/detalle" class="badge text-decoration-none" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;" title="Liquidados al contado (ponderado por PATA) + items del pool CONTADO">{{ s.liquidados_contados }}</a>
+            <a href="/vendedores/{{ v.id }}/detalle" class="badge text-decoration-none" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;" title="Liquidados al contado (ponderado por PATA). No incluye números de sorteo extra.">{{ s.liquidados_contados }}</a>
             {% else %}<span class="text-muted small">—</span>{% endif %}
           </td>
           <td class="text-center">
@@ -399,7 +399,7 @@
           </td>
           <td class="text-center">
             {% if totales.liquidados_contados > 0 %}
-            <span class="badge" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;" title="Total liquidados al contado (ponderado por PATA) + pool CONTADO">{{ totales.liquidados_contados }}</span>
+            <span class="badge" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;" title="Total liquidados al contado (ponderado por PATA). No incluye números de sorteo extra.">{{ totales.liquidados_contados }}</span>
             {% else %}<span class="text-muted small">—</span>{% endif %}
           </td>
           <td class="text-center">
@@ -455,7 +455,7 @@
                 <th class="text-center" title="Boletas entregadas a caja (suma de boletas_afectadas en EntregaCaja)">
                   Entregas a caja
                 </th>
-                <th class="text-center" title="Cuotas equivalentes liquidadas (ponderado por PATA) + contados + pool CONTADO">
+                <th class="text-center" title="Liquidaciones: cuotas + contados, ponderado por PATA (PATA 1×1, PATA 2×2). No incluye números de sorteo extra.">
                   Liquidaciones
                 </th>
               </tr>
