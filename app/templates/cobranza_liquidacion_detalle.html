@@ -3,7 +3,7 @@
 {% block content %}
 
 <div class="d-flex align-items-center gap-2 mb-2">
-  <a href="/cobranza/liquidacion"
+  <a href="/cobranza/"
      class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
   <h5 class="fw-bold mb-0">
     Liquidación — {{ planilla.cobrador.nombre }}
@@ -196,7 +196,7 @@
   </div><!-- /scrollWrapper -->
 
   <div class="d-flex justify-content-end gap-2 mt-3">
-    <a href="/cobranza/liquidacion"
+    <a href="/cobranza/"
        class="btn btn-secondary">Cancelar</a>
     <button type="button" class="btn btn-outline-secondary" onclick="imprimirLiquidacion()">
       <i class="bi bi-printer me-1"></i>Imprimir
@@ -528,7 +528,7 @@
       }
       clearDraft();
       if (resp.redirected || resp.ok) {
-        location.href = resp.url || "/cobranza/liquidacion";
+        location.href = resp.url || "/cobranza/";
       }
     } catch (err) {
       saveDraft(form);
