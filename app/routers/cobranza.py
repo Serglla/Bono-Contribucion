@@ -1107,3 +1107,117 @@ async def adelanto_recibo(request: Request, adelanto_id: int,
         "mes_nombre": MESES[e.mes - 1],
         "institucion": INSTITUCION_NOMBRE,
     })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LIQUIDACIÓN CONSOLIDADA por cobrador / mes de cobranza
+# Suma lo cobrado en el mes en TODAS las planillas del cobrador, calcula comisión
+# y neto, y le resta los ADELANTOS ya entregados de ese mes → saldo a entregar.
+# El dinero se calcula con el valor REAL de cada cuota (PATA 0=$10.000, etc.), así
+# que es exacto sin depender de ponderaciones.
+# ─────────────────────────────────────────────────────────────────────────────
+def _consolidado_cobrador(db, cobrador, mes, anio):
+    detalle = []
+    tot_monto = 0.0
+    tot_com = 0.0
+    tot_cuotas = 0.0
+    planillas = (db.query(models.Planilla)
+                 .filter_by(cobrador_id=cobrador.id)
+                 .order_by(models.Planilla.anio, models.Planilla.mes, models.Planilla.numero)
+                 .all())
+    for p in planillas:
+        pct = float(p.comision_pct or 0)
+        boletas = db.query(models.Boleta).filter_by(planilla_id=p.id).all()
+        todo0 = _planilla_todo_pata0(boletas)
+        m_pl = 0.0
+        c_pl = 0.0
+        for b in boletas:
+            try:
+                h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+            except (ValueError, TypeError):
+                h = {}
+            # cuotas cobradas en ESTE mes calendario (historial[cuota] == mes)
+            cM = sum(1 for v in h.values() if str(v) == str(mes))
+            if cM:
+                vc = float(b.talonera.valor_cuota) if (b.talonera and b.talonera.valor_cuota) else 0.0
+                m_pl += cM * vc
+                c_pl += cM * (1.0 if todo0 else _pata_valor(b))
+        if m_pl or c_pl:
+            com = round(m_pl * pct / 100.0, 2)
+            detalle.append({
+                "numero": p.numero, "mes_planilla": p.mes, "anio_planilla": p.anio,
+                "cuotas": c_pl, "monto": round(m_pl, 2), "pct": pct,
+                "comision": com, "neto": round(m_pl - com, 2),
+            })
+            tot_monto += m_pl
+            tot_com += com
+            tot_cuotas += c_pl
+    neto = round(tot_monto - tot_com, 2)
+    adelantos = (db.query(models.EntregaCobrador)
+                 .filter_by(cobrador_id=cobrador.id, mes=mes, anio=anio)
+                 .order_by(models.EntregaCobrador.fecha)
+                 .all())
+    tot_adel = sum(float(a.monto or 0) for a in adelantos)
+    return {
+        "cobrador": cobrador,
+        "detalle": detalle,
+        "adelantos": adelantos,
+        "cuotas": int(round(tot_cuotas)),
+        "monto": round(tot_monto, 2),
+        "comision": round(tot_com, 2),
+        "neto": neto,
+        "total_adelantos": round(tot_adel, 2),
+        "saldo": round(neto - tot_adel, 2),
+    }
+
+
+@router.get("/consolidado", response_class=HTMLResponse)
+async def consolidado_index(request: Request, db: Session = Depends(get_db),
+                            mes: int = Query(default=0), anio: int = Query(default=0)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    hoy = date.today()
+    if not mes:  mes = hoy.month
+    if not anio: anio = hoy.year
+    cobradores = db.query(models.Cobrador).order_by(models.Cobrador.nombre).all()
+    filas = [_consolidado_cobrador(db, c, mes, anio) for c in cobradores]
+    totales = {
+        "monto":            round(sum(f["monto"] for f in filas), 2),
+        "comision":         round(sum(f["comision"] for f in filas), 2),
+        "neto":             round(sum(f["neto"] for f in filas), 2),
+        "total_adelantos":  round(sum(f["total_adelantos"] for f in filas), 2),
+        "saldo":            round(sum(f["saldo"] for f in filas), 2),
+    }
+    return templates.TemplateResponse(request, "cobranza_consolidado.html", {
+        "user": user,
+        "filas": filas,
+        "totales": totales,
+        "mes": mes, "anio": anio,
+        "mes_nombre": MESES[mes - 1],
+    })
+
+
+@router.get("/consolidado/{cobrador_id}/comprobante", response_class=HTMLResponse)
+async def consolidado_comprobante(request: Request, cobrador_id: int,
+                                  db: Session = Depends(get_db),
+                                  mes: int = Query(default=0), anio: int = Query(default=0)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    hoy = date.today()
+    if not mes:  mes = hoy.month
+    if not anio: anio = hoy.year
+    cobrador = db.query(models.Cobrador).get(cobrador_id)
+    if not cobrador:
+        raise HTTPException(404)
+    data = _consolidado_cobrador(db, cobrador, mes, anio)
+    return templates.TemplateResponse(request, "cobranza_consolidado_comprobante.html", {
+        "user": user,
+        "d": data,
+        "cobrador": cobrador,
+        "mes": mes, "anio": anio,
+        "mes_nombre": MESES[mes - 1],
+        "institucion": INSTITUCION_NOMBRE,
+        "hoy": hoy.strftime("%d/%m/%Y"),
+    })

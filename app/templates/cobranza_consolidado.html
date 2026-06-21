@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Consolidado – Cobranza{% endblock %}
+{% block content %}
+<h4 class="fw-bold mb-3"><i class="bi bi-wallet2 text-danger me-2"></i>Cobranza</h4>
+
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item"><a class="nav-link" href="/cobranza/">Planillas</a></li>
+  <li class="nav-item"><a class="nav-link" href="/cobranza/emplanillado">Emplanillado</a></li>
+  <li class="nav-item"><a class="nav-link" href="/cobranza/liquidacion">Liquidación</a></li>
+  <li class="nav-item"><a class="nav-link" href="/cobranza/adelantos">Adelantos</a></li>
+  <li class="nav-item"><a class="nav-link active fw-semibold" href="/cobranza/consolidado">Consolidado</a></li>
+  {% if has_permission(user, 'cobradores', 'ver') %}
+  <li class="nav-item"><a class="nav-link" href="/cobradores/">Cobradores</a></li>
+  {% endif %}
+</ul>
+
+<form method="get" action="/cobranza/consolidado" class="d-flex align-items-end gap-2 mb-3 flex-wrap">
+  {% set _meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] %}
+  <div>
+    <label class="form-label small mb-0">Mes</label>
+    <select name="mes" class="form-select form-select-sm" style="width:150px">
+      {% for m in range(1,13) %}<option value="{{ m }}" {% if m == mes %}selected{% endif %}>{{ _meses[m-1] }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="form-label small mb-0">Año</label>
+    <input type="number" name="anio" value="{{ anio }}" class="form-control form-control-sm" style="width:100px">
+  </div>
+  <button class="btn btn-sm btn-danger">Ver</button>
+  <span class="text-muted ms-2 align-self-center">Liquidación consolidada de <strong>{{ mes_nombre }} {{ anio }}</strong></span>
+</form>
+
+<div class="sec-card mb-4">
+  <div class="sec-header"><i class="bi bi-cash-coin"></i>Consolidado por cobrador — {{ mes_nombre }} {{ anio }}
+    <span class="text-muted fw-normal ms-2" style="font-size:.8rem;">cobrado − comisión − adelantos = saldo a entregar</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover table-sm align-middle mb-0 card-table">
+      <thead>
+        <tr>
+          <th>Cobrador</th>
+          <th class="text-end">Cobrado</th>
+          <th class="text-end">Comisión</th>
+          <th class="text-end">Neto a rendir</th>
+          <th class="text-end">Adelantos</th>
+          <th class="text-end">Saldo a entregar</th>
+          <th class="text-center" style="width:80px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in filas %}
+        <tr>
+          <td class="fw-semibold">{{ f.cobrador.nombre }}</td>
+          <td class="text-end">{% if f.monto %}{{ f.monto | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end text-muted">{% if f.comision %}{{ f.comision | pesos }}{% else %}—{% endif %}</td>
+          <td class="text-end">{% if f.neto %}{{ f.neto | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end text-success">{% if f.total_adelantos %}{{ f.total_adelantos | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end fw-bold {% if f.saldo < 0 %}text-danger{% endif %}">{{ f.saldo | pesos }}</td>
+          <td class="text-center">
+            {% if f.monto or f.total_adelantos %}
+            <a href="/cobranza/consolidado/{{ f.cobrador.id }}/comprobante?mes={{ mes }}&anio={{ anio }}" target="_blank" class="btn btn-sm btn-outline-secondary" title="Comprobante"><i class="bi bi-file-earmark-text"></i></a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-3">Sin datos</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if filas %}
+      <tfoot>
+        <tr class="fw-bold border-top" style="border-top-width:2px !important;">
+          <td>TOTAL</td>
+          <td class="text-end">{{ totales.monto | pesos }}</td>
+          <td class="text-end">{{ totales.comision | pesos }}</td>
+          <td class="text-end">{{ totales.neto | pesos }}</td>
+          <td class="text-end text-success">{{ totales.total_adelantos | pesos }}</td>
+          <td class="text-end {% if totales.saldo < 0 %}text-danger{% endif %}">{{ totales.saldo | pesos }}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+  <div class="px-3 py-2 text-muted" style="font-size:.78rem;">
+    <i class="bi bi-info-circle me-1"></i><strong>Saldo a entregar</strong> = neto a rendir (cobrado − comisión) menos los adelantos ya entregados del mes.
+    Si es negativo, el cobrador entregó de más.
+  </div>
+</div>
+{% endblock %}

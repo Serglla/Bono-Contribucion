@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+<title>Liquidación consolidada — {{ cobrador.nombre }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  body { background:#e9ecef; }
+  .hoja, .hoja * { color:#000 !important; -webkit-text-fill-color:#000 !important; }
+  .hoja a { text-decoration:none !important; pointer-events:none; }
+  .hoja {
+    width:210mm; min-height:160mm; margin:1rem auto; background:#fff; padding:14mm 16mm;
+    font-family:'Times New Roman', Times, serif; box-shadow:0 0 8px rgba(0,0,0,.25);
+  }
+  .hoja table { width:100%; border-collapse:collapse; font-size:11.5pt; }
+  .hoja th, .hoja td { border:1px solid #000; padding:2mm 3mm; }
+  .hoja th { text-align:center; }
+  .num { text-align:right; }
+  .toolbar { text-align:center; margin:1rem; }
+  @media print { body{background:#fff;} .toolbar{display:none;} .hoja{box-shadow:none;margin:0;width:auto;min-height:auto;} }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button class="btn btn-danger" onclick="window.print()">Imprimir</button>
+  <button class="btn btn-outline-secondary" onclick="window.close()">Cerrar</button>
+</div>
+<div class="hoja">
+  <div style="text-align:center; margin-bottom:8mm;">
+    <div style="font-size:13pt; font-weight:bold;">{{ institucion }}</div>
+    <div style="font-size:16pt; font-weight:bold; margin-top:5mm; letter-spacing:1px;">LIQUIDACIÓN DE COBRANZA</div>
+    <div style="font-size:12pt; margin-top:2mm;">{{ mes_nombre }} {{ anio }}</div>
+  </div>
+
+  <div style="font-size:12pt; line-height:1.8; margin-bottom:5mm;">
+    <strong>Cobrador/a:</strong> {{ cobrador.nombre }}<br>
+    <strong>Fecha de liquidación:</strong> {{ hoy }}
+  </div>
+
+  <table style="margin-bottom:6mm;">
+    <thead>
+      <tr><th>Planilla</th><th>Cuotas</th><th>Cobrado</th><th>Comisión</th><th>Neto</th></tr>
+    </thead>
+    <tbody>
+      {% for p in d.detalle %}
+      <tr>
+        <td style="text-align:center;">P{{ p.numero }}</td>
+        <td style="text-align:center;">{{ p.cuotas | round(0) | int }}</td>
+        <td class="num">{{ p.monto | pesos }}</td>
+        <td class="num">{{ p.comision | pesos }} <span style="font-size:9pt;">({{ p.pct | round(0) | int }}%)</span></td>
+        <td class="num">{{ p.neto | pesos }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" style="text-align:center;">Sin cobranza registrada este mes</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="font-weight:bold;">
+        <td style="text-align:right;">TOTALES</td>
+        <td style="text-align:center;">{{ d.cuotas }}</td>
+        <td class="num">{{ d.monto | pesos }}</td>
+        <td class="num">{{ d.comision | pesos }}</td>
+        <td class="num">{{ d.neto | pesos }}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  {% if d.adelantos %}
+  <div style="font-size:11.5pt; margin-bottom:3mm;"><strong>Adelantos entregados en el mes:</strong></div>
+  <table style="margin-bottom:6mm;">
+    <thead><tr><th>Fecha</th><th>Monto</th><th>Observación</th></tr></thead>
+    <tbody>
+      {% for a in d.adelantos %}
+      <tr>
+        <td style="text-align:center;">{{ a.fecha.strftime('%d/%m/%Y') }}</td>
+        <td class="num">{{ a.monto | pesos }}</td>
+        <td>{{ a.observacion or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr style="font-weight:bold;"><td style="text-align:right;">TOTAL ADELANTOS</td><td class="num">{{ d.total_adelantos | pesos }}</td><td></td></tr></tfoot>
+  </table>
+  {% endif %}
+
+  <table style="width:90mm; margin-left:auto; font-size:12.5pt;">
+    <tr><td>Neto a rendir</td><td class="num">{{ d.neto | pesos }}</td></tr>
+    <tr><td>(−) Adelantos entregados</td><td class="num">{{ d.total_adelantos | pesos }}</td></tr>
+    <tr style="font-weight:bold; font-size:13.5pt;"><td>SALDO A ENTREGAR</td><td class="num">{{ d.saldo | pesos }}</td></tr>
+  </table>
+
+  <div style="margin-top:24mm; display:flex; justify-content:space-between; gap:20mm;">
+    <div style="text-align:center; flex:1; border-top:1px solid #000; padding-top:2mm;">Firma del cobrador</div>
+    <div style="text-align:center; flex:1; border-top:1px solid #000; padding-top:2mm;">Firma por la institución</div>
+  </div>
+</div>
+</body>
+</html>
