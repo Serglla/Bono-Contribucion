@@ -298,6 +298,12 @@
     return false;
   }
 
+  // Formatea cuotas: entero si es entero, si no 1 decimal redondeado (ej. 17.3333 -> 17.3).
+  function fmtCuota(n) {
+    const r = Math.round(n * 10) / 10;
+    return Number.isInteger(r) ? String(r) : r.toFixed(1);
+  }
+
   function recalcResumen() {
     // Las cuotas marcadas EN EL MES ACTUAL se cuentan todas juntas en la
     // fila del mes actual (sin importar el número de cuota).
@@ -321,9 +327,9 @@
       const td2 = tr.querySelector('.rs-c2');
       const td3 = tr.querySelector('.rs-c3');
 
-      const b1 = parseInt(td1.dataset.base) || 0;
-      const b2 = parseInt(td2.dataset.base) || 0;
-      const b3 = parseInt(td3.dataset.base) || 0;
+      const b1 = parseFloat(td1.dataset.base) || 0;
+      const b2 = parseFloat(td2.dataset.base) || 0;
+      const b3 = parseFloat(td3.dataset.base) || 0;
 
       const c1 = b1 + (esMesActual ? cntMesActual[1] : 0);
       const c2 = b2 + (esMesActual ? cntMesActual[2] : 0);
@@ -334,10 +340,10 @@
       const comis  = dinero * (COMISION_PCT / 100);
       const neto   = dinero - comis;
 
-      td1.textContent = c1 || '';
-      td2.textContent = c2 || '';
-      td3.textContent = c3 || '';
-      tr.querySelector('.rs-tot').textContent = tot || '';
+      td1.textContent = c1 ? fmtCuota(c1) : '';
+      td2.textContent = c2 ? fmtCuota(c2) : '';
+      td3.textContent = c3 ? fmtCuota(c3) : '';
+      tr.querySelector('.rs-tot').textContent = tot ? fmtCuota(tot) : '';
       tr.querySelector('.rs-cv').textContent  = tot ? fmt$(VALOR_CUOTA) : '';
       tr.querySelector('.rs-din').textContent = tot ? fmt$(dinero) : '';
       tr.querySelector('.rs-com').textContent = tot ? fmt$(comis)  : '';
@@ -347,10 +353,10 @@
       totTot += tot; totDin += dinero; totCom += comis; totNeto += neto;
     });
 
-    document.getElementById('rstC1').textContent   = totC1   || '';
-    document.getElementById('rstC2').textContent   = totC2   || '';
-    document.getElementById('rstC3').textContent   = totC3   || '';
-    document.getElementById('rstTot').textContent  = totTot  || '';
+    document.getElementById('rstC1').textContent   = totC1  ? fmtCuota(totC1)  : '';
+    document.getElementById('rstC2').textContent   = totC2  ? fmtCuota(totC2)  : '';
+    document.getElementById('rstC3').textContent   = totC3  ? fmtCuota(totC3)  : '';
+    document.getElementById('rstTot').textContent  = totTot ? fmtCuota(totTot) : '';
     document.getElementById('rstDin').textContent  = totTot ? fmt$(totDin)  : '';
     document.getElementById('rstCom').textContent  = totTot ? fmt$(totCom)  : '';
     document.getElementById('rstNeto').textContent = totTot ? fmt$(totNeto) : '';
