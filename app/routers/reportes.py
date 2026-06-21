@@ -29,6 +29,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             grupos[key] = {
                 "nombre": t.nombre,
                 "num_series": t.num_series,
+                "multiplicador": t.multiplicador,
                 "tipo": (t.tipo or "COMUN"),
                 "ids": [],
             }
@@ -37,7 +38,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     stats_por_talonera = []
     for key, g in grupos.items():
         ids = g["ids"]
-        factor = max(1, (g["num_series"] or 3) // 3)
+        factor = float(g["multiplicador"] or 1.0)   # ponderación real por PATA (PATA 0=0.67, 4=4, 6=6...)
         tipo = g["tipo"]
 
         if tipo == "CONTADO":
@@ -146,9 +147,9 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "en_cobranza": en_cobranza,
             "sin_vender": sin_vender,
             "cuotas_cobradas": cuotas_cobradas,
-            "total_ponderado": total * factor,
-            "vendidas_ponderado": vendidas * factor,
-            "baja_ponderado": baja * factor,
+            "total_ponderado": int(round(total * factor)),
+            "vendidas_ponderado": int(round(vendidas * factor)),
+            "baja_ponderado": int(round(baja * factor)),
             "contado_1": int(contado_1),
             "contado_2": int(contado_2),
         })
@@ -176,27 +177,19 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     }
 
     # ── Resumen de cobradores ──────────────────────────────────────────────
-    # Columnas: Planillas | Cuotas a cobrar (vencidas a la fecha) | % de cobrado
-    # (éxito de cobranza = cobradas ÷ vencidas) | Bajas.
-    #
-    # Criterio de "vencidas" / tasa = MISMO que el módulo Contabilidad:
-    #   vencidas_boleta = max(0, min(meses_transcurridos, pactadas) - anticipadas)
-    #   pagas_cob       = max(0, pagadas - anticipadas)   (capadas a lo vencido)
-    # Se excluyen contados (no se cobran por cobranza) y bajas del universo a cobrar.
-    from datetime import date as _date
-    _hoy = _date.today()
-    _camp_start_anio, _camp_start_mes = 2026, 5   # cuota 1 = Mayo 2026 (mes de venta)
-    _meses_transcurridos = max(
-        0,
-        (_hoy.year - _camp_start_anio) * 12 + (_hoy.month - _camp_start_mes) + 1
-    )
-
-    def _es_contado_b(b):
-        if b.numero_especial is not None or b.numero_especial_2 is not None:
-            return True
-        pac = b.cuotas_pactadas or 0
-        ant = b.cuotas_anticipadas or 0
-        return pac > 0 and ant >= pac
+    # MISMO criterio que el módulo Cobranza (/cobranza/), para que coincida con las
+    # tarjetas por cobrador:
+    #   - "A cobrar" = cuotas de boletas YA emplanilladas (planillas entregadas) y no
+    #     terminadas, ponderadas por PATA. Son las que están por cobrar / se liquidan.
+    #   - "Del mes"  = cuotas pendientes de emplanillar (todavía sin planilla),
+    #     ponderadas por PATA. Excluye contado (numero_especial_2).
+    #   - "% de cobrado" = progreso de cobro de lo emplanillado (pagadas/pactadas).
+    #     Si no se cobró nada más allá de las anticipadas → "Sin iniciar".
+    def _pata_valor_b(b):
+        # Ponderación por PATA = multiplicador real (PATA 0=0.67, 1=1, 2=2, 4=4, 6=6...).
+        if b.talonera and b.talonera.multiplicador:
+            return float(b.talonera.multiplicador)
+        return 1.0
 
     planillas_por_cob = dict(
         db.query(
@@ -205,62 +198,55 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ).group_by(models.Planilla.cobrador_id).all()
     )
 
-    # Acumuladores por cobrador. Separamos las cuotas vencidas en:
-    #   - "del mes": las que vencen en el mes en curso (cuota N = meses_transcurridos).
-    #   - "a cobrar": las vencidas de meses ANTERIORES (lo que se liquida en la proxima).
-    # a_cobrar + del_mes = total vencido. El % de exito se calcula sobre el total vencido.
-    _cob_acc: dict = {}   # cid -> {"vencidas","cobradas","bajas","mes"}
+    _cob_acc: dict = {}
     boletas_con_cob = db.query(models.Boleta).filter(
         models.Boleta.cobrador_id.isnot(None)
     ).all()
     for b in boletas_con_cob:
         cid = b.cobrador_id
-        acc = _cob_acc.setdefault(cid, {"vencidas": 0, "cobradas": 0, "bajas": 0, "mes": 0})
+        acc = _cob_acc.setdefault(cid, {
+            "a_cobrar": 0, "del_mes": 0, "bajas": 0,
+            "pactadas": 0, "pagadas": 0, "anticipadas": 0,
+        })
         if b.condicion == CondicionBoleta.BAJA:
             acc["bajas"] += 1
             continue
-        if _es_contado_b(b):
-            continue
-        pac = b.cuotas_pactadas    or 0
-        pag = b.cuotas_pagadas     or 0
-        ant = b.cuotas_anticipadas or 0
-        vencidas_boleta = max(0, min(_meses_transcurridos, pac) - ant)
-        pagas_cob       = max(0, pag - ant)
-        acc["vencidas"] += vencidas_boleta
-        acc["cobradas"] += min(pagas_cob, vencidas_boleta)
-        # La cuota de este mes (N = meses_transcurridos) cuenta como "del mes"
-        # solo si es una cuota real cobrable (no anticipada y dentro de las pactadas).
-        if ant < _meses_transcurridos <= pac:
-            acc["mes"] += 1
+        no_terminada = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
+        pv = _pata_valor_b(b)
+        if b.planilla_id is not None:
+            if no_terminada:
+                acc["a_cobrar"] += pv          # emplanillada (planilla entregada)
+            acc["pactadas"]    += (b.cuotas_pactadas or 0)
+            acc["pagadas"]     += (b.cuotas_pagadas or 0)
+            acc["anticipadas"] += (b.cuotas_anticipadas or 0)
+        elif no_terminada and b.numero_especial_2 is None:
+            acc["del_mes"] += pv               # pendiente de emplanillar
 
     cobradores_resumen = []
+    _g_pac = _g_pag = _g_ant = 0
     for c in db.query(models.Cobrador).order_by(models.Cobrador.nombre).all():
-        acc = _cob_acc.get(c.id, {"vencidas": 0, "cobradas": 0, "bajas": 0, "mes": 0})
-        venc = int(acc["vencidas"])
-        cobr = int(acc["cobradas"])
-        mes  = int(acc["mes"])
-        pct = round(cobr / venc * 100, 1) if venc > 0 else None
+        acc = _cob_acc.get(c.id, {"a_cobrar": 0, "del_mes": 0, "bajas": 0,
+                                  "pactadas": 0, "pagadas": 0, "anticipadas": 0})
+        pac = acc["pactadas"]; pag = acc["pagadas"]; ant = acc["anticipadas"]
+        _g_pac += pac; _g_pag += pag; _g_ant += ant
+        iniciada = pac > 0 and (pag - ant) > 0
+        pct = round(pag / pac * 100, 1) if (iniciada and pac > 0) else None
         cobradores_resumen.append({
             "nombre": c.nombre,
             "planillas": int(planillas_por_cob.get(c.id, 0) or 0),
-            "a_cobrar": max(0, venc - mes),   # vencidas de meses anteriores (se liquida ahora)
-            "del_mes": mes,                   # cuotas que vencen este mes (no se liquidan aun)
-            "vencidas": venc,                 # total vencido = a_cobrar + del_mes
-            "cobradas": cobr,
+            "a_cobrar": int(round(acc["a_cobrar"])),
+            "del_mes": int(round(acc["del_mes"])),
             "pct": pct,
             "bajas": int(acc["bajas"]),
         })
-    cobradores_resumen.sort(key=lambda x: (x["vencidas"], x["planillas"]), reverse=True)
+    cobradores_resumen.sort(key=lambda x: (x["a_cobrar"], x["del_mes"]), reverse=True)
 
-    _tot_venc = sum(c["vencidas"] for c in cobradores_resumen)
-    _tot_cobr = sum(c["cobradas"] for c in cobradores_resumen)
+    _ini_tot = _g_pac > 0 and (_g_pag - _g_ant) > 0
     cobradores_total = {
         "planillas": sum(c["planillas"] for c in cobradores_resumen),
         "a_cobrar":  sum(c["a_cobrar"] for c in cobradores_resumen),
         "del_mes":   sum(c["del_mes"]  for c in cobradores_resumen),
-        "vencidas":  _tot_venc,
-        "cobradas":  _tot_cobr,
-        "pct":       round(_tot_cobr / _tot_venc * 100, 1) if _tot_venc > 0 else None,
+        "pct":       round(_g_pag / _g_pac * 100, 1) if (_ini_tot and _g_pac > 0) else None,
         "bajas":     sum(c["bajas"] for c in cobradores_resumen),
     }
 

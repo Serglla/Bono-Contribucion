@@ -45,14 +45,14 @@ def _meses_campana_desde(mes_planilla: int, num_cuotas: int):
     ]
 
 
-def _pata_valor(boleta) -> int:
-    """Retorna el valor de PATA de una boleta (1, 2 o 3) según el nombre de la talonera."""
-    if boleta.talonera:
-        nombre = boleta.talonera.nombre.upper()
-        for n in (3, 2, 1):
-            if str(n) in nombre:
-                return n
-    return 1
+def _pata_valor(boleta) -> float:
+    """Ponderación por PATA = multiplicador de la talonera
+    (PATA 0=0.67, 1=1, 2=2, 3=3, 4=4, 6=6...).
+    OJO: antes parseaba el nombre buscando los dígitos 1/2/3, por lo que PATA 0, 4,
+    5, 6, 8 devolvían 1 (mal contabilizado). Ahora usa el multiplicador real."""
+    if boleta.talonera and boleta.talonera.multiplicador:
+        return float(boleta.talonera.multiplicador)
+    return 1.0
 
 
 def _get_pata_boleta(b) -> str:
@@ -231,8 +231,8 @@ async def index(request: Request, db: Session = Depends(get_db),
         resumen.append({
             "cobrador": co,
             "total": total,
-            "cuotas_cobranza": cuotas_cobranza,
-            "pend_emplanillar": pend_emplanillar,
+            "cuotas_cobranza": int(round(cuotas_cobranza)),
+            "pend_emplanillar": int(round(pend_emplanillar)),
             "pct_cobro": pct_cobro,
             "cobranza_iniciada": cobranza_iniciada,
             "planillas": planillas,

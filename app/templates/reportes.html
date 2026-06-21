@@ -94,7 +94,7 @@
 <!-- Resumen de cobradores -->
 <div class="sec-card mb-4">
   <div class="sec-header"><i class="bi bi-cash-coin"></i>Resumen de cobradores
-    <span class="text-muted fw-normal ms-2" style="font-size:.8rem;">% sobre cuotas vencidas a la fecha</span>
+    <span class="text-muted fw-normal ms-2" style="font-size:.8rem;">mismo criterio que Cobranza (planillas entregadas)</span>
   </div>
   <div class="table-responsive">
     <table class="table table-hover table-sm align-middle mb-0 card-table">
@@ -107,8 +107,8 @@
           <th rowspan="2" class="text-center align-middle">Bajas</th>
         </tr>
         <tr>
-          <th class="text-center" style="font-size:.78rem;" title="Cuotas vencidas de meses anteriores — lo que se liquida en la próxima">A cobrar</th>
-          <th class="text-center" style="font-size:.78rem;" title="Cuotas que vencen este mes — todavía no se liquidan">Del mes</th>
+          <th class="text-center" style="font-size:.78rem;" title="Cuotas en planillas ya entregadas — por cobrar / se liquidan">A cobrar</th>
+          <th class="text-center" style="font-size:.78rem;" title="Cuotas pendientes de emplanillar (todavía sin planilla)">Del mes</th>
         </tr>
       </thead>
       <tbody>
@@ -125,10 +125,10 @@
             {% if c.del_mes > 0 %}<span class="badge" style="background:#fff3cd;color:#664d03;border:1px solid #ffc10740;">{{ c.del_mes }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
           <td class="text-center">
-            {% if c.pct is none %}<span class="text-muted" title="Sin cuotas vencidas todavía">—</span>
+            {% if c.pct is none %}<span class="badge bg-secondary-subtle text-secondary border" title="No se cobró nada más allá de las anticipadas">Sin iniciar</span>
             {% else %}
               {% set _cls = 'bg-success' if c.pct >= 80 else ('bg-warning text-dark' if c.pct >= 50 else 'bg-danger') %}
-              <span class="badge {{ _cls }}" title="{{ c.cobradas }} cobradas de {{ c.vencidas }} vencidas">{{ c.pct }}%</span>
+              <span class="badge {{ _cls }}">{{ c.pct }}%</span>
             {% endif %}
           </td>
           <td class="text-center">
@@ -147,7 +147,7 @@
           <td class="text-center"><span class="badge bg-info-subtle text-info border border-info-subtle">{{ cobradores_total.a_cobrar }}</span></td>
           <td class="text-center"><span class="badge" style="background:#fff3cd;color:#664d03;border:1px solid #ffc10740;">{{ cobradores_total.del_mes }}</span></td>
           <td class="text-center">
-            {% if cobradores_total.pct is none %}<span class="text-muted">—</span>
+            {% if cobradores_total.pct is none %}<span class="badge bg-secondary-subtle text-secondary border">Sin iniciar</span>
             {% else %}
               {% set _clst = 'bg-success' if cobradores_total.pct >= 80 else ('bg-warning text-dark' if cobradores_total.pct >= 50 else 'bg-danger') %}
               <span class="badge {{ _clst }}">{{ cobradores_total.pct }}%</span>
