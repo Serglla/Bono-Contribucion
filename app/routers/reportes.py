@@ -205,14 +205,17 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ).group_by(models.Planilla.cobrador_id).all()
     )
 
-    # Acumuladores por cobrador
-    _cob_acc: dict = {}   # cid -> {"vencidas": int, "cobradas": int, "bajas": int}
+    # Acumuladores por cobrador. Separamos las cuotas vencidas en:
+    #   - "del mes": las que vencen en el mes en curso (cuota N = meses_transcurridos).
+    #   - "a cobrar": las vencidas de meses ANTERIORES (lo que se liquida en la proxima).
+    # a_cobrar + del_mes = total vencido. El % de exito se calcula sobre el total vencido.
+    _cob_acc: dict = {}   # cid -> {"vencidas","cobradas","bajas","mes"}
     boletas_con_cob = db.query(models.Boleta).filter(
         models.Boleta.cobrador_id.isnot(None)
     ).all()
     for b in boletas_con_cob:
         cid = b.cobrador_id
-        acc = _cob_acc.setdefault(cid, {"vencidas": 0, "cobradas": 0, "bajas": 0})
+        acc = _cob_acc.setdefault(cid, {"vencidas": 0, "cobradas": 0, "bajas": 0, "mes": 0})
         if b.condicion == CondicionBoleta.BAJA:
             acc["bajas"] += 1
             continue
@@ -225,28 +228,37 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         pagas_cob       = max(0, pag - ant)
         acc["vencidas"] += vencidas_boleta
         acc["cobradas"] += min(pagas_cob, vencidas_boleta)
+        # La cuota de este mes (N = meses_transcurridos) cuenta como "del mes"
+        # solo si es una cuota real cobrable (no anticipada y dentro de las pactadas).
+        if ant < _meses_transcurridos <= pac:
+            acc["mes"] += 1
 
     cobradores_resumen = []
     for c in db.query(models.Cobrador).order_by(models.Cobrador.nombre).all():
-        acc = _cob_acc.get(c.id, {"vencidas": 0, "cobradas": 0, "bajas": 0})
+        acc = _cob_acc.get(c.id, {"vencidas": 0, "cobradas": 0, "bajas": 0, "mes": 0})
         venc = int(acc["vencidas"])
         cobr = int(acc["cobradas"])
+        mes  = int(acc["mes"])
         pct = round(cobr / venc * 100, 1) if venc > 0 else None
         cobradores_resumen.append({
             "nombre": c.nombre,
             "planillas": int(planillas_por_cob.get(c.id, 0) or 0),
-            "a_cobrar": venc,
+            "a_cobrar": max(0, venc - mes),   # vencidas de meses anteriores (se liquida ahora)
+            "del_mes": mes,                   # cuotas que vencen este mes (no se liquidan aun)
+            "vencidas": venc,                 # total vencido = a_cobrar + del_mes
             "cobradas": cobr,
             "pct": pct,
             "bajas": int(acc["bajas"]),
         })
-    cobradores_resumen.sort(key=lambda x: (x["a_cobrar"], x["planillas"]), reverse=True)
+    cobradores_resumen.sort(key=lambda x: (x["vencidas"], x["planillas"]), reverse=True)
 
-    _tot_venc = sum(c["a_cobrar"] for c in cobradores_resumen)
+    _tot_venc = sum(c["vencidas"] for c in cobradores_resumen)
     _tot_cobr = sum(c["cobradas"] for c in cobradores_resumen)
     cobradores_total = {
         "planillas": sum(c["planillas"] for c in cobradores_resumen),
-        "a_cobrar":  _tot_venc,
+        "a_cobrar":  sum(c["a_cobrar"] for c in cobradores_resumen),
+        "del_mes":   sum(c["del_mes"]  for c in cobradores_resumen),
+        "vencidas":  _tot_venc,
         "cobradas":  _tot_cobr,
         "pct":       round(_tot_cobr / _tot_venc * 100, 1) if _tot_venc > 0 else None,
         "bajas":     sum(c["bajas"] for c in cobradores_resumen),

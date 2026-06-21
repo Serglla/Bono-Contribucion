@@ -100,11 +100,15 @@
     <table class="table table-hover table-sm align-middle mb-0 card-table">
       <thead>
         <tr>
-          <th>Cobrador</th>
-          <th class="text-center">Planillas</th>
-          <th class="text-center">Cuotas a cobrar</th>
-          <th class="text-center">% de cobrado</th>
-          <th class="text-center">Bajas</th>
+          <th rowspan="2" class="align-middle">Cobrador</th>
+          <th rowspan="2" class="text-center align-middle">Planillas</th>
+          <th colspan="2" class="text-center" style="border-bottom:1px solid #dee2e6;">Cuotas</th>
+          <th rowspan="2" class="text-center align-middle">% de cobrado</th>
+          <th rowspan="2" class="text-center align-middle">Bajas</th>
+        </tr>
+        <tr>
+          <th class="text-center" style="font-size:.78rem;" title="Cuotas vencidas de meses anteriores — lo que se liquida en la próxima">A cobrar</th>
+          <th class="text-center" style="font-size:.78rem;" title="Cuotas que vencen este mes — todavía no se liquidan">Del mes</th>
         </tr>
       </thead>
       <tbody>
@@ -115,16 +119,16 @@
             {% if c.planillas > 0 %}<span class="badge bg-secondary">{{ c.planillas }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
           <td class="text-center">
-            {% if c.a_cobrar > 0 %}
-              <span class="badge bg-info-subtle text-info border border-info-subtle">{{ c.a_cobrar }}</span>
-              <div class="text-muted" style="font-size:.7rem;">{{ c.cobradas }} cobradas</div>
-            {% else %}<span class="text-muted">—</span>{% endif %}
+            {% if c.a_cobrar > 0 %}<span class="badge bg-info-subtle text-info border border-info-subtle">{{ c.a_cobrar }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if c.del_mes > 0 %}<span class="badge" style="background:#fff3cd;color:#664d03;border:1px solid #ffc10740;">{{ c.del_mes }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
           <td class="text-center">
             {% if c.pct is none %}<span class="text-muted" title="Sin cuotas vencidas todavía">—</span>
             {% else %}
               {% set _cls = 'bg-success' if c.pct >= 80 else ('bg-warning text-dark' if c.pct >= 50 else 'bg-danger') %}
-              <span class="badge {{ _cls }}">{{ c.pct }}%</span>
+              <span class="badge {{ _cls }}" title="{{ c.cobradas }} cobradas de {{ c.vencidas }} vencidas">{{ c.pct }}%</span>
             {% endif %}
           </td>
           <td class="text-center">
@@ -132,7 +136,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-center text-muted py-3">Sin datos aún</td></tr>
+        <tr><td colspan="6" class="text-center text-muted py-3">Sin datos aún</td></tr>
         {% endfor %}
       </tbody>
       {% if cobradores_resumen %}
@@ -140,10 +144,8 @@
         <tr class="fw-bold border-top" style="border-top-width:2px !important;">
           <td>TOTAL</td>
           <td class="text-center"><span class="badge bg-secondary">{{ cobradores_total.planillas }}</span></td>
-          <td class="text-center">
-            <span class="badge bg-info-subtle text-info border border-info-subtle">{{ cobradores_total.a_cobrar }}</span>
-            <div class="text-muted" style="font-size:.7rem;">{{ cobradores_total.cobradas }} cobradas</div>
-          </td>
+          <td class="text-center"><span class="badge bg-info-subtle text-info border border-info-subtle">{{ cobradores_total.a_cobrar }}</span></td>
+          <td class="text-center"><span class="badge" style="background:#fff3cd;color:#664d03;border:1px solid #ffc10740;">{{ cobradores_total.del_mes }}</span></td>
           <td class="text-center">
             {% if cobradores_total.pct is none %}<span class="text-muted">—</span>
             {% else %}
