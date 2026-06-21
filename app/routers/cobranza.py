@@ -55,6 +55,14 @@ def _pata_valor(boleta) -> float:
     return 1.0
 
 
+def _planilla_todo_pata0(boletas) -> bool:
+    """True si TODAS las boletas (con talonera) de la planilla son PATA 0
+    (multiplicador < 1). En ese caso las cuotas se cuentan ×1 y valen el importe
+    uniforme real ($10.000), sin aplicar el 0.67 (no hay PATA 1 con que comparar)."""
+    bs = [b for b in boletas if b.talonera]
+    return bool(bs) and all((b.talonera.multiplicador or 1.0) < 1.0 for b in bs)
+
+
 def _get_pata_boleta(b) -> str:
     """Dígito de PATA de una boleta ('0', '1', '2'...) o '?' si no tiene talonera."""
     if b and b.talonera:
@@ -690,22 +698,27 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         if cell and not isinstance(cell, dict):
             columna_de_boleta[cell.id] = 3
 
-    # ── Mapa boleta_id → multiplicador (PATA 1 ×1, PATA 2 ×2, PATA 3 ×3, …) ──
-    # Cada cuota cobrada SUMA según el número de la PATA de la boleta:
-    # una cuota de PATA 3 cuenta como 3 unidades, una de PATA 2 como 2, etc.
+    # ── Ponderación por PATA + valor de cuota base ──────────────────────────
+    # El resumen calcula: dinero = cuotas_ponderadas × valor_cuota_base.
+    #   - Planilla MIXTA: valor base = PATA 1 (= valor_cuota / multiplicador) y cada
+    #     boleta pondera por su multiplicador (PATA 0 = 0.67, PATA 2 = 2, ...).
+    #     Así PATA 0 da 0.67 × $15.000 = $10.000 y PATA 2 da 2 × $15.000 = $30.000.
+    #   - Planilla ÚNICAMENTE PATA 0: cada cuota cuenta ×1 y el valor es el uniforme
+    #     real ($10.000). No se aplica el 0.67 (regla pedida por el negocio).
+    _todo_pata0 = _planilla_todo_pata0(boletas)
     multiplicador_de_boleta = {}
     for b in boletas:
-        p = _get_pata_boleta(b)
-        try:
-            multiplicador_de_boleta[b.id] = max(1, int(p))
-        except (ValueError, TypeError):
-            multiplicador_de_boleta[b.id] = 1
+        multiplicador_de_boleta[b.id] = 1.0 if _todo_pata0 else _pata_valor(b)
 
-    # ── Valor de la cuota (uniforme) ────────────────────────────────────────
     valor_cuota = 0.0
     for b in boletas:
         if b.talonera and b.talonera.valor_cuota:
-            valor_cuota = float(b.talonera.valor_cuota)
+            vc = float(b.talonera.valor_cuota)
+            if _todo_pata0:
+                valor_cuota = vc                      # importe uniforme real ($10.000)
+            else:
+                m = float(b.talonera.multiplicador or 1.0) or 1.0
+                valor_cuota = round(vc / m)           # base PATA 1 ($15.000)
             break
 
     # ── Meses de la campaña (cuota 1 = mes siguiente al mes de la planilla) ──
