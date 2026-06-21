@@ -665,13 +665,19 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
 
     liq = planilla.liquidacion
 
+    # El mes que se está liquidando = mes CALENDARIO real de hoy (el mes en que el
+    # cobrador está cobrando). planilla.mes es el mes de VENTA/entrega (Mayo), no el
+    # de cobranza, por eso NO se usa como "mes actual".
+    mes_liq = date.today().month
+    anio_liq = date.today().year
+
     # Construir historial y selección actual por boleta
     historial_map = {}
     cuotas_mes_actual = {}
     for b in boletas:
         h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
         historial_map[b.id] = h
-        cuotas_mes_actual[b.id] = [int(k) for k, v in h.items() if v == planilla.mes]
+        cuotas_mes_actual[b.id] = [int(k) for k, v in h.items() if v == mes_liq]
 
     # ── Mismo grid 3 columnas que la planilla ──────────────────────────────
     _grid = _armar_grid_patas(boletas)
@@ -740,7 +746,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
                 mes_pago = int(v)
             except (TypeError, ValueError):
                 continue
-            if mes_pago == planilla.mes:
+            if mes_pago == mes_liq:
                 continue  # el JS lo maneja en la fila del mes actual
             if 1 <= mes_pago <= 12:
                 resumen_otros[mes_pago][col] += mult
@@ -770,8 +776,9 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "historial_map": historial_map,
         "cuotas_mes_actual": cuotas_mes_actual,
         "liquidacion": liq,
-        "mes_nombre": MESES[planilla.mes - 1],
-        "mes_actual": planilla.mes,
+        "mes_nombre": MESES[mes_liq - 1],
+        "mes_actual": mes_liq,
+        "anio_actual": anio_liq,
         "cuota_nums": cuota_nums,
         "num_cuotas": num_cuotas,
         "columna_de_boleta": columna_de_boleta,
@@ -814,10 +821,11 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
             continue
 
         # Actualizar historial_cuotas: quitar entradas del mes actual y reemplazar
+        _mes_liq = date.today().month
         historial = json.loads(boleta.historial_cuotas) if boleta.historial_cuotas else {}
-        historial = {k: v for k, v in historial.items() if v != planilla.mes}
+        historial = {k: v for k, v in historial.items() if v != _mes_liq}
         for cn in cuotas_nuevas:
-            historial[str(cn)] = planilla.mes
+            historial[str(cn)] = _mes_liq
         boleta.historial_cuotas = json.dumps(historial)
 
         # cuotas_pagadas = anticipadas + todas las del historial
