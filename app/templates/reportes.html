@@ -268,6 +268,12 @@ function toggleDiv(id) {
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+function toggleFecha(el){
+  const f = el.nextElementSibling;
+  if (!f) return;
+  const hidden = (f.style.display === 'none' || f.style.display === '');
+  f.style.display = hidden ? 'inline-block' : 'none';
+}
 async function abrirSinCargar(ev){
   if (ev) ev.preventDefault();
   const modalEl = document.getElementById('modalSinCargar');
@@ -291,10 +297,16 @@ async function abrirSinCargar(ev){
               ' <span class="badge bg-secondary">' + its.length + '</span></div>' +
               '<div class="d-flex flex-wrap gap-1">';
       its.forEach(it => {
-        const tip = it.fecha_liq ? ('Liquidado: ' + it.fecha_liq) : 'Sin fecha de liquidación';
-        html += '<span class="badge bg-light text-dark border" style="cursor:help" title="' +
-                escapeHtml(tip) + '">' +
-                escapeHtml(it.talonera) + ' · ' + escapeHtml(it.numero_fmt) + '</span>';
+        const fecha = it.fecha_liq || 'sin fecha';
+        html += '<span class="d-inline-flex align-items-center gap-1 me-1 mb-1">' +
+                  '<span class="badge bg-light text-dark border sc-num" style="cursor:pointer" ' +
+                    'title="Liquidado: ' + escapeHtml(fecha) + '" onclick="toggleFecha(this)">' +
+                    escapeHtml(it.talonera) + ' \u00b7 ' + escapeHtml(it.numero_fmt) +
+                  '</span>' +
+                  '<span class="badge bg-secondary-subtle text-secondary sc-fecha" style="display:none">' +
+                    '<i class="bi bi-calendar3 me-1"></i>' + escapeHtml(fecha) +
+                  '</span>' +
+                '</span>';
       });
       html += '</div></div>';
     });
