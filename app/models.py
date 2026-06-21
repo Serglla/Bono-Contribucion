@@ -445,3 +445,19 @@ class GeocodeCache(Base):
     lng       = Column(Float, nullable=True)
     intentos  = Column(Integer, default=0)
     last_try  = Column(DateTime, nullable=True)
+
+
+class EntregaCobrador(Base):
+    """Adelantos de dinero que el cobrador entrega DURANTE el mes, a cuenta de la
+    cobranza. Se descuentan del saldo en la liquidación consolidada del cobrador.
+    Son sueltos (no atados a una planilla): cobrador + período (mes/año) + monto."""
+    __tablename__ = "entregas_cobrador"
+    id          = Column(Integer, primary_key=True, index=True)
+    cobrador_id = Column(Integer, ForeignKey("cobradores.id"), nullable=False, index=True)
+    fecha       = Column(Date, nullable=False)
+    mes         = Column(Integer, nullable=False)   # período de cobranza al que aplica
+    anio        = Column(Integer, nullable=False)
+    monto       = Column(Float, default=0.0)
+    observacion = Column(String, nullable=True)
+    created_at  = Column(DateTime, server_default=func.now())
+    cobrador    = relationship("Cobrador")

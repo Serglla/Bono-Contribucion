@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+<title>Recibo de adelanto</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  body { background:#e9ecef; }
+  .recibo-hoja, .recibo-hoja * { color:#000 !important; -webkit-text-fill-color:#000 !important; }
+  .recibo-hoja a { text-decoration:none !important; pointer-events:none; }
+  .recibo-hoja {
+    width:210mm; min-height:140mm; margin:1rem auto; background:#fff; padding:16mm 18mm;
+    font-family: 'Times New Roman', Times, serif; box-shadow:0 0 8px rgba(0,0,0,.25);
+  }
+  .toolbar { text-align:center; margin:1rem; }
+  @media print {
+    body { background:#fff; }
+    .toolbar { display:none; }
+    .recibo-hoja { box-shadow:none; margin:0; width:auto; min-height:auto; }
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button class="btn btn-danger" onclick="window.print()">Imprimir</button>
+  <button class="btn btn-outline-secondary" onclick="window.close()">Cerrar</button>
+</div>
+<div class="recibo-hoja">
+  <div style="text-align:center; margin-bottom:12mm;">
+    <div style="font-size:13pt; font-weight:bold;">{{ institucion }}</div>
+    <div style="font-size:17pt; font-weight:bold; margin-top:8mm; letter-spacing:1px;">RECIBO DE ADELANTO</div>
+    <div style="font-size:11pt; margin-top:2mm;">N° {{ "%06d"|format(adelanto.id) }}</div>
+  </div>
+  <div style="font-size:13pt; line-height:2;">
+    <p>Recibí del cobrador/a <strong>{{ cobrador.nombre if cobrador else '—' }}</strong>, en concepto de
+       <strong>adelanto a cuenta de la cobranza de {{ mes_nombre }} {{ adelanto.anio }}</strong>,
+       la suma de <strong>{{ adelanto.monto | pesos }}</strong>.</p>
+    {% if adelanto.observacion %}<p>Observación: {{ adelanto.observacion }}</p>{% endif %}
+    <p>Fecha de entrega: <strong>{{ adelanto.fecha.strftime('%d/%m/%Y') }}</strong></p>
+  </div>
+  <div style="margin-top:26mm; display:flex; justify-content:space-between; gap:20mm;">
+    <div style="text-align:center; flex:1; border-top:1px solid #000; padding-top:2mm;">Firma quien recibe</div>
+    <div style="text-align:center; flex:1; border-top:1px solid #000; padding-top:2mm;">Aclaración</div>
+  </div>
+</div>
+</body>
+</html>

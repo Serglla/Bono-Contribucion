@@ -999,3 +999,111 @@ async def planilla(request: Request, cobrador_id: int,
         "mes": mes, "anio": anio,
         "mes_nombre": MESES[mes - 1],
     })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADELANTOS de cobradores (dinero entregado a cuenta durante el mes)
+# Sueltos por cobrador + período (mes/año). Se descuentan en la liquidación
+# consolidada del cobrador. Se puede imprimir un recibo A4 de cada entrega.
+# ─────────────────────────────────────────────────────────────────────────────
+INSTITUCION_NOMBRE = "Asociación de Bomberos Voluntarios de Concepción del Uruguay"
+
+
+@router.get("/adelantos", response_class=HTMLResponse)
+async def adelantos_index(request: Request, db: Session = Depends(get_db),
+                          mes: int = Query(default=0), anio: int = Query(default=0)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    hoy = date.today()
+    if not mes:  mes = hoy.month
+    if not anio: anio = hoy.year
+
+    cobradores = db.query(models.Cobrador).order_by(models.Cobrador.nombre).all()
+    adelantos = (db.query(models.EntregaCobrador)
+                 .filter(models.EntregaCobrador.mes == mes,
+                         models.EntregaCobrador.anio == anio)
+                 .order_by(models.EntregaCobrador.fecha.desc(),
+                           models.EntregaCobrador.id.desc())
+                 .all())
+    nombres = {c.id: c.nombre for c in cobradores}
+    total_por_cob = {}
+    total_general = 0.0
+    for a in adelantos:
+        total_por_cob[a.cobrador_id] = total_por_cob.get(a.cobrador_id, 0.0) + float(a.monto or 0)
+        total_general += float(a.monto or 0)
+
+    return templates.TemplateResponse(request, "cobranza_adelantos.html", {
+        "user": user,
+        "cobradores": cobradores,
+        "adelantos": adelantos,
+        "nombres": nombres,
+        "total_por_cob": total_por_cob,
+        "total_general": total_general,
+        "mes": mes, "anio": anio,
+        "mes_nombre": MESES[mes - 1],
+        "hoy_iso": hoy.isoformat(),
+    })
+
+
+@router.post("/adelantos")
+async def adelantos_crear(request: Request,
+                          cobrador_id: int = Form(...),
+                          fecha: str = Form(...),
+                          mes: int = Form(...),
+                          anio: int = Form(...),
+                          monto: float = Form(...),
+                          observacion: str = Form(default=""),
+                          db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    try:
+        _fecha = date.fromisoformat(fecha)
+    except (ValueError, TypeError):
+        _fecha = date.today()
+    if monto and monto > 0:
+        db.add(models.EntregaCobrador(
+            cobrador_id=cobrador_id,
+            fecha=_fecha,
+            mes=int(mes),
+            anio=int(anio),
+            monto=float(monto),
+            observacion=(observacion or "").strip() or None,
+        ))
+        db.commit()
+    return RedirectResponse(f"/cobranza/adelantos?mes={mes}&anio={anio}", status_code=302)
+
+
+@router.post("/adelantos/{adelanto_id}/eliminar")
+async def adelantos_eliminar(request: Request, adelanto_id: int,
+                             db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    e = db.query(models.EntregaCobrador).get(adelanto_id)
+    mes = e.mes if e else date.today().month
+    anio = e.anio if e else date.today().year
+    if e:
+        db.delete(e)
+        db.commit()
+    return RedirectResponse(f"/cobranza/adelantos?mes={mes}&anio={anio}", status_code=302)
+
+
+@router.get("/adelantos/{adelanto_id}/recibo", response_class=HTMLResponse)
+async def adelanto_recibo(request: Request, adelanto_id: int,
+                          db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    e = db.query(models.EntregaCobrador).get(adelanto_id)
+    if not e:
+        raise HTTPException(404)
+    cobrador = db.query(models.Cobrador).get(e.cobrador_id)
+    return templates.TemplateResponse(request, "cobranza_adelanto_recibo.html", {
+        "user": user,
+        "adelanto": e,
+        "cobrador": cobrador,
+        "mes_nombre": MESES[e.mes - 1],
+        "institucion": INSTITUCION_NOMBRE,
+    })

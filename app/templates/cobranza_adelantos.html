@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Adelantos – Cobranza{% endblock %}
+{% block content %}
+<h4 class="fw-bold mb-3"><i class="bi bi-wallet2 text-danger me-2"></i>Cobranza</h4>
+
+<!-- Tabs de navegación -->
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item"><a class="nav-link" href="/cobranza/">Planillas</a></li>
+  <li class="nav-item"><a class="nav-link" href="/cobranza/emplanillado">Emplanillado</a></li>
+  <li class="nav-item"><a class="nav-link" href="/cobranza/liquidacion">Liquidación</a></li>
+  <li class="nav-item"><a class="nav-link active fw-semibold" href="/cobranza/adelantos">Adelantos</a></li>
+  {% if has_permission(user, 'cobradores', 'ver') %}
+  <li class="nav-item"><a class="nav-link" href="/cobradores/">Cobradores</a></li>
+  {% endif %}
+</ul>
+
+<!-- Selector de período -->
+<form method="get" action="/cobranza/adelantos" class="d-flex align-items-end gap-2 mb-3 flex-wrap">
+  {% set _meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] %}
+  <div>
+    <label class="form-label small mb-0">Mes</label>
+    <select name="mes" class="form-select form-select-sm" style="width:150px">
+      {% for m in range(1,13) %}<option value="{{ m }}" {% if m == mes %}selected{% endif %}>{{ _meses[m-1] }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="form-label small mb-0">Año</label>
+    <input type="number" name="anio" value="{{ anio }}" class="form-control form-control-sm" style="width:100px">
+  </div>
+  <button class="btn btn-sm btn-danger">Ver</button>
+  <span class="text-muted ms-2 align-self-center">Adelantos de <strong>{{ mes_nombre }} {{ anio }}</strong></span>
+</form>
+
+{% if has_permission(user, 'cobranza', 'editar') %}
+<div class="sec-card mb-4">
+  <div class="sec-header"><i class="bi bi-plus-circle"></i>Registrar adelanto</div>
+  <form method="post" action="/cobranza/adelantos" class="row g-2 align-items-end p-3">
+    <div class="col-md-3">
+      <label class="form-label small mb-0">Cobrador</label>
+      <select name="cobrador_id" class="form-select form-select-sm" required>
+        <option value="">— Elegir —</option>
+        {% for c in cobradores %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small mb-0">Fecha</label>
+      <input type="date" name="fecha" value="{{ hoy_iso }}" class="form-control form-control-sm" required>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small mb-0">Monto $</label>
+      <input type="number" step="0.01" min="0" name="monto" class="form-control form-control-sm" required>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label small mb-0">Observación</label>
+      <input type="text" name="observacion" class="form-control form-control-sm" placeholder="opcional">
+    </div>
+    <input type="hidden" name="mes" value="{{ mes }}">
+    <input type="hidden" name="anio" value="{{ anio }}">
+    <div class="col-md-2">
+      <button class="btn btn-sm btn-success w-100"><i class="bi bi-check-lg me-1"></i>Agregar</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<div class="sec-card mb-4">
+  <div class="sec-header"><i class="bi bi-cash-stack"></i>Adelantos de {{ mes_nombre }} {{ anio }}
+    <span class="ms-auto fw-semibold">Total: {{ total_general | pesos }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover table-sm align-middle mb-0 card-table">
+      <thead>
+        <tr>
+          <th>Cobrador</th><th>Fecha</th><th class="text-end">Monto</th>
+          <th>Observación</th><th class="text-center" style="width:120px">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in adelantos %}
+        <tr>
+          <td class="fw-semibold">{{ nombres.get(a.cobrador_id, '—') }}</td>
+          <td>{{ a.fecha.strftime('%d/%m/%Y') }}</td>
+          <td class="text-end fw-semibold text-success">{{ a.monto | pesos }}</td>
+          <td class="text-muted">{{ a.observacion or '' }}</td>
+          <td class="text-center">
+            <a href="/cobranza/adelantos/{{ a.id }}/recibo" target="_blank" class="btn btn-sm btn-outline-secondary" title="Recibo"><i class="bi bi-file-earmark-text"></i></a>
+            {% if has_permission(user, 'cobranza', 'editar') %}
+            <form method="post" action="/cobranza/adelantos/{{ a.id }}/eliminar" class="d-inline" onsubmit="return appConfirmSubmit(event, '¿Eliminar este adelanto?')">
+              <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-trash"></i></button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-3">Sin adelantos en este período</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if total_por_cob %}
+  <div class="px-3 pb-3">
+    <div class="small text-muted mb-1 mt-2">Total por cobrador:</div>
+    <div class="d-flex flex-wrap gap-2">
+      {% for cid, tot in total_por_cob.items() %}
+      <span class="badge bg-light text-dark border">{{ nombres.get(cid, '—') }}: {{ tot | pesos }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
