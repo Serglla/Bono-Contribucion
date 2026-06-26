@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
+import json
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..models import CondicionBoleta
@@ -199,7 +200,17 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ).group_by(models.Planilla.cobrador_id).all()
     )
 
+    # % de cobrado = PROMEDIO de las tasas mes a mes de las liquidaciones.
+    # Para cada mes calendario en que hubo cobranza (registrado en
+    # historial_cuotas de las boletas), la tasa del mes = cuotas cobradas ese mes
+    # ÷ boletas activas del cobrador. El % global del cobrador es el promedio de
+    # esas tasas mensuales. Así el número refleja la gestión mensual y no queda
+    # diluido contra las 12 cuotas de toda la campaña.
+    #   meses_cob[m] = cuotas cobradas en el mes calendario m (de historial_cuotas)
+    #   activas       = boletas emplanilladas activas (denominador por mes)
     _cob_acc: dict = {}
+    _g_meses: dict = {}   # tally global de cuotas cobradas por mes (para el total)
+    _g_activas = 0        # boletas activas globales (denominador del total)
     boletas_con_cob = db.query(models.Boleta).filter(
         models.Boleta.cobrador_id.isnot(None)
     ).all()
@@ -208,6 +219,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         acc = _cob_acc.setdefault(cid, {
             "a_cobrar": 0, "del_mes": 0, "bajas": 0,
             "pactadas": 0, "pagadas": 0, "anticipadas": 0,
+            "meses_cob": {}, "activas": 0,
         })
         if b.condicion == CondicionBoleta.BAJA or b.mes_baja:
             acc["bajas"] += 1
@@ -220,6 +232,19 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             acc["pactadas"]    += (b.cuotas_pactadas or 0)
             acc["pagadas"]     += (b.cuotas_pagadas or 0)
             acc["anticipadas"] += (b.cuotas_anticipadas or 0)
+            # Cuotas cobradas mes a mes (cobranza real; la cuota 1 de venta NO
+            # está en historial_cuotas, es la anticipada). Una boleta activa = un
+            # punto del denominador de cada mes.
+            acc["activas"] += 1
+            _g_activas += 1
+            _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+            for _k, _v in _hist.items():
+                try:
+                    _m = int(_v)
+                except (TypeError, ValueError):
+                    continue
+                acc["meses_cob"][_m] = acc["meses_cob"].get(_m, 0) + 1
+                _g_meses[_m] = _g_meses.get(_m, 0) + 1
         elif no_terminada and b.numero_especial_2 is None:
             acc["del_mes"] += pv               # pendiente de emplanillar
 
@@ -227,11 +252,17 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     _g_pac = _g_pag = _g_ant = 0
     for c in db.query(models.Cobrador).order_by(models.Cobrador.nombre).all():
         acc = _cob_acc.get(c.id, {"a_cobrar": 0, "del_mes": 0, "bajas": 0,
-                                  "pactadas": 0, "pagadas": 0, "anticipadas": 0})
+                                  "pactadas": 0, "pagadas": 0, "anticipadas": 0,
+                                  "meses_cob": {}, "activas": 0})
         pac = acc["pactadas"]; pag = acc["pagadas"]; ant = acc["anticipadas"]
         _g_pac += pac; _g_pag += pag; _g_ant += ant
-        iniciada = pac > 0 and (pag - ant) > 0
-        pct = round(pag / pac * 100, 1) if (iniciada and pac > 0) else None
+        # % = promedio de las tasas mensuales (cuotas cobradas ese mes / activas).
+        _meses = acc["meses_cob"]; _act = acc["activas"]
+        if _meses and _act:
+            _rates = [cnt / _act for cnt in _meses.values()]
+            pct = round(sum(_rates) / len(_rates) * 100, 1)
+        else:
+            pct = None
         cobradores_resumen.append({
             "nombre": c.nombre,
             "planillas": int(planillas_por_cob.get(c.id, 0) or 0),
@@ -242,12 +273,17 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         })
     cobradores_resumen.sort(key=lambda x: (x["a_cobrar"], x["del_mes"]), reverse=True)
 
-    _ini_tot = _g_pac > 0 and (_g_pag - _g_ant) > 0
+    # Total: promedio de las tasas mensuales globales (todas las boletas activas).
+    if _g_meses and _g_activas:
+        _g_rates = [cnt / _g_activas for cnt in _g_meses.values()]
+        _pct_total = round(sum(_g_rates) / len(_g_rates) * 100, 1)
+    else:
+        _pct_total = None
     cobradores_total = {
         "planillas": sum(c["planillas"] for c in cobradores_resumen),
         "a_cobrar":  sum(c["a_cobrar"] for c in cobradores_resumen),
         "del_mes":   sum(c["del_mes"]  for c in cobradores_resumen),
-        "pct":       round(_g_pag / _g_pac * 100, 1) if (_ini_tot and _g_pac > 0) else None,
+        "pct":       _pct_total,
         "bajas":     sum(c["bajas"] for c in cobradores_resumen),
     }
 
