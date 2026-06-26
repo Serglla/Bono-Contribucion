@@ -267,6 +267,10 @@ class Boleta(Base):
     cuotas_anticipadas = Column(Integer, default=1)
     cuotas_pagadas = Column(Integer, default=0)
     historial_cuotas = Column(String, nullable=True)  # JSON: {"cuota_num": mes_pagado}
+    # Mes calendario (1-12) en que el socio se dio de baja durante la cobranza.
+    # Se setea al guardar la liquidación cuando el cobrador marca la baja con clic
+    # derecho. NULL = sin baja. Va de la mano con condicion = BAJA.
+    mes_baja = Column(Integer, nullable=True)
     total_pagado = Column(Float, default=0.0)
     # Talonera especial CONTADO: cuando el socio paga al contado, recibe un
     # número de una talonera tipo CONTADO. numero_especial es el número asignado,

@@ -705,6 +705,29 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         for b in boletas
     }
 
+    # ── Bajas ya guardadas: rango de la línea tachada por boleta ─────────────
+    # La línea va desde la cuota siguiente a la última paga hasta la última
+    # cuota de la talonera (cuotas_pactadas). En el medio se muestra el mes
+    # de baja. Se renderiza en el server para que reabra ya dibujada.
+    baja_info = {}
+    for b in boletas:
+        if not b.mes_baja:
+            continue
+        info = boletas_info[b.id]
+        pact = info["pactadas"] or num_cuotas
+        last_paid = info["anticipadas"]
+        for n in range(1, pact + 1):
+            if n <= info["anticipadas"] or (n in info["historial"]):
+                last_paid = max(last_paid, n)
+        desde = last_paid + 1
+        hasta = pact
+        if desde <= hasta:
+            baja_info[b.id] = {"mes": int(b.mes_baja), "desde": desde,
+                               "hasta": hasta, "mid": (desde + hasta) // 2}
+        else:
+            baja_info[b.id] = {"mes": int(b.mes_baja), "desde": 0,
+                               "hasta": 0, "mid": 0}
+
     return templates.TemplateResponse(request, "cobranza_liquidacion_detalle.html", {
         "user": user,
         "planilla": planilla,
@@ -730,6 +753,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "meses_campana": meses_campana,
         "resumen_otros": resumen_otros,
         "boletas_info": boletas_info,
+        "baja_info": baja_info,
     })
 
 
@@ -737,6 +761,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
 async def liquidacion_guardar(request: Request, planilla_id: int,
                                boleta_ids: List[int] = Form(...),
                                cuotas_json: List[str] = Form(...),
+                               baja_mes: List[str] = Form(default=[]),
                                db: Session = Depends(get_db)):
     _perm_user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(_perm_user, 'cobranza', 'editar'):
@@ -757,11 +782,18 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
 
     total_cuotas = 0
     monto_total  = 0.0
-    for bid, cjson in zip(boleta_ids, cuotas_json):
+    for idx, (bid, cjson) in enumerate(zip(boleta_ids, cuotas_json)):
         cuotas_nuevas = json.loads(cjson)   # lista de enteros, ej: [2, 3, 4]
         boleta = db.query(models.Boleta).get(bid)
         if not boleta:
             continue
+
+        # Mes de baja para esta boleta (vacío = sin baja). Paralelo a boleta_ids.
+        _baja_raw = baja_mes[idx] if idx < len(baja_mes) else ""
+        try:
+            baja_val = int(_baja_raw) if str(_baja_raw).strip() else None
+        except (TypeError, ValueError):
+            baja_val = None
 
         # Actualizar historial_cuotas: quitar entradas del mes actual y reemplazar
         _mes_liq = date.today().month
@@ -777,10 +809,16 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
             boleta.cuotas_pactadas
         )
 
-        # Recalcular condicion después de actualizar cuotas_pagadas:
+        # Baja (clic derecho): es solo un REGISTRO visual. La boleta NO se saca
+        # de las planillas — sigue apareciendo siempre marcada con la línea.
+        # Por eso guardamos/limpiamos mes_baja pero NO tocamos la condicion
+        # (no la pasamos a BAJA, que la quitaría de las planillas futuras).
+        boleta.mes_baja = baja_val if baja_val else None
+
+        # Recalcular condicion según las cuotas, como siempre:
         #   - Si quedó toda paga (o es contado, o no tiene cobrador) → VENDIDO
         #   - Si todavía hay cuotas pendientes con cobrador y no contado → EN_COBRANZA
-        # No tocamos BAJA / SIN_VENDER / CAJA.
+        # No tocamos BAJA / SIN_VENDER / CAJA (bajas reales de Socios).
         from ..models import CondicionBoleta as _CB
         _es_contado = (boleta.numero_especial is not None) or (boleta.numero_especial_2 is not None)
         _cuotas_pendientes = (boleta.cuotas_pagadas or 0) < (boleta.cuotas_pactadas or 0)

@@ -468,6 +468,21 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion modalidad_liquidacion boletas: {e}")
 
+        # Migrar mes_baja en boletas (mes de baja del socio durante la cobranza)
+        try:
+            _dialect = engine.dialect.name
+            if _dialect == "postgresql":
+                db.execute(text("ALTER TABLE boletas ADD COLUMN IF NOT EXISTS mes_baja INTEGER"))
+            else:
+                cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
+                if "mes_baja" not in cols_boletas:
+                    db.execute(text("ALTER TABLE boletas ADD COLUMN mes_baja INTEGER"))
+            db.commit()
+            print("Migracion mes_baja boletas: OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion mes_baja boletas: {e}")
+
         # Migrar num_cuotas en taloneras
         try:
             _dialect = engine.dialect.name

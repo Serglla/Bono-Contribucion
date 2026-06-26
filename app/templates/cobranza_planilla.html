@@ -105,6 +105,17 @@
     .td-q   { font-size: 8pt; }
     .td-q.paid { font-weight: 900; }
 
+    /* Baja (registro): número en rojo tachado + línea con el mes en el medio */
+    .td-num.num-baja { background: #ffd6d6 !important; color: #c00; text-decoration: line-through; }
+    .td-q.td-baja {
+      background-image: linear-gradient(to bottom, transparent calc(50% - 0.4pt),
+        #c00 calc(50% - 0.4pt), #c00 calc(50% + 0.4pt), transparent calc(50% + 0.4pt)) !important;
+    }
+    .td-q.td-baja .baja-num {
+      display: inline-block; background: #fff; color: #c00;
+      font-weight: 900; font-size: 7.5pt; line-height: 1; padding: 0 0.5mm;
+    }
+
     /* Cuota 1: cobrada por el vendedor en el momento de la venta */
     .td-q.cuota-venta {
       background: #333 !important;
@@ -284,10 +295,18 @@
           {% for n in cuota_nums %}<td class="td-q" style="background:{{ b.color }};"></td>{% endfor %}
         {% elif b %}
           {# Boleta normal #}
-          <td class="td-num">{{ "%04d"|format(b.numero_principal) }}</td>
           {% set ant = b.cuotas_anticipadas if b.cuotas_anticipadas else 1 %}
+          {# Baja (registro): línea desde la cuota siguiente a la última paga
+             hasta la última cuota de la talonera, con el mes en el medio. #}
+          {% set _bm  = b.mes_baja %}
+          {% set _bd  = (b.cuotas_pagadas or ant) + 1 %}
+          {% set _bh  = b.cuotas_pactadas or (cuota_nums | length) %}
+          {% set _bmid = ((_bd + _bh) // 2) %}
+          <td class="td-num{% if _bm %} num-baja{% endif %}">{{ "%04d"|format(b.numero_principal) }}</td>
           {% for n in cuota_nums %}
-            {% if n <= ant %}
+            {% if _bm and _bd <= _bh and n >= _bd and n <= _bh %}
+              <td class="td-q td-baja">{% if n == _bmid %}<span class="baja-num">{{ _bm }}</span>{% endif %}</td>
+            {% elif n <= ant %}
               <td class="td-q cuota-venta">X</td>
             {% else %}
               <td class="td-q{% if n <= (b.cuotas_pagadas or 0) %} paid{% endif %}">

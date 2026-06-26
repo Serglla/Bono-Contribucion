@@ -318,8 +318,10 @@ function verContadoSinCargar(btn) {
         {% for c in compradores %}
         {% set b = c.boletas[0] if c.boletas else None %}
         {% set row_color = b.talonera.color if b and b.talonera and b.talonera.color else '#ffffff' %}
+        {% set socio_baja = b and (b.mes_baja or (b.condicion and b.condicion.value == 'BAJA')) %}
         <tr data-comprador-id="{{ c.id }}"
-            style="cursor:pointer; --bs-table-bg: {{ row_color }}40; --bs-table-hover-bg: {{ row_color }}70;"
+            class="{% if socio_baja %}socio-baja{% endif %}"
+            style="cursor:pointer; {% if socio_baja %}--bs-table-bg:#f5c2c7; --bs-table-hover-bg:#f1aeb5;{% else %}--bs-table-bg: {{ row_color }}40; --bs-table-hover-bg: {{ row_color }}70;{% endif %}"
             title="Doble clic para ver detalle completo">
           <td class="text-center" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
             <input type="checkbox" class="form-check-input chk-socio" value="{{ c.id }}">
@@ -368,11 +370,15 @@ function verContadoSinCargar(btn) {
           {% set pagado = _pac and _pag >= _pac %}
           {% set es_contado = b and (b.numero_especial is not none or b.numero_especial_2 is not none) %}
           {% set cob_nombre = b.cobrador.nombre if b and b.cobrador else '' %}
-          <td data-val="{% if cond == 'BAJA' %}baja{% elif es_contado or anticipo_total %}contado{% elif pagado %}pagado {{ cob_nombre }}{% else %}{{ cob_nombre }}{% endif %}"
+          {% set reg_baja = b and b.mes_baja and cond != 'BAJA' %}
+          <td data-val="{% if cond == 'BAJA' or reg_baja %}baja{% elif es_contado or anticipo_total %}contado{% elif pagado %}pagado {{ cob_nombre }}{% else %}{{ cob_nombre }}{% endif %}"
               onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
             {% if cond == 'BAJA' %}
               <span class="badge bg-danger">Baja</span>
               {% if cob_nombre %}<div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">{{ cob_nombre }}</div>{% endif %}
+            {% elif reg_baja %}
+              <span class="badge bg-danger">BAJA</span>
+              <div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">baja mes {{ b.mes_baja }}{% if cob_nombre %} · {{ cob_nombre }}{% endif %}</div>
             {% elif es_contado or anticipo_total %}
               <span class="badge bg-success">CONTADO</span>
             {% elif pagado %}
@@ -391,8 +397,10 @@ function verContadoSinCargar(btn) {
             {% endif %}
           </td>
           <td>{{ c.telefono or "—" }}</td>
-          <td data-val="{% if b and b.cuotas_pactadas %}{{ (b.cuotas_pagadas or 0) }}/{{ b.cuotas_pactadas }}{% endif %}">
-            {% if b and b.cuotas_pactadas %}
+          <td data-val="{% if socio_baja %}baja{% elif b and b.cuotas_pactadas %}{{ (b.cuotas_pagadas or 0) }}/{{ b.cuotas_pactadas }}{% endif %}">
+            {% if socio_baja %}
+              <span class="badge bg-danger" style="font-size:.72rem;">BAJA</span>
+            {% elif b and b.cuotas_pactadas %}
               {% set _pag = b.cuotas_pagadas or 0 %}
               {% set _pac = b.cuotas_pactadas %}
               {% if _pag >= _pac %}
@@ -438,6 +446,9 @@ function verContadoSinCargar(btn) {
   .sortable.desc .sort-icon::after { content: " ▼"; color: #dc3545; }
   .sortable.asc .sort-icon,
   .sortable.desc .sort-icon { display: none; }
+  /* Socio dado de baja: fila distinguida en rojo */
+  #tablaCompradores tbody tr.socio-baja > td:first-child { box-shadow: inset 3px 0 0 #dc3545; }
+  #tablaCompradores tbody tr.socio-baja td { color: #842029; }
 </style>
 
 <script>

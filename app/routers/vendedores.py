@@ -1,7 +1,7 @@
 from fastapi import HTTPException, APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case, and_
+from sqlalchemy import func, case, and_, or_
 from typing import Optional
 import json
 from .. import models, auth as auth_module
@@ -71,8 +71,22 @@ def _stats_bulk(db):
         if cond == CondicionBoleta.CAJA:
             stats[vid]["caja"] = int(sin_liq or 0)             # CAJA sin liquidar (físicas en mano)
             stats[vid]["liq_pendiente"] = int(liq_sin_comp or 0)  # CAJA con liq, sin socio aún
-        elif cond == CondicionBoleta.BAJA:
-            stats[vid]["baja"] = total
+
+    # Baja: cuenta las boletas dadas de baja por el vendedor — tanto la baja real
+    # de Socios (condicion BAJA) como la baja registrada en cobranza (mes_baja,
+    # que deja la boleta en planilla). Cada boleta se cuenta una sola vez.
+    baja_rows = db.query(
+        models.Boleta.vendedor_id,
+        func.count(models.Boleta.id)
+    ).filter(
+        models.Boleta.vendedor_id.isnot(None),
+        or_(models.Boleta.condicion == CondicionBoleta.BAJA,
+            models.Boleta.mes_baja.isnot(None))
+    ).group_by(models.Boleta.vendedor_id).all()
+    for vid, total in baja_rows:
+        if vid not in stats:
+            stats[vid] = _empty()
+        stats[vid]["baja"] = int(total or 0)
 
     # Vendido: query separada para contar boletas con socio cargado,
     # sin importar la condicion (VENDIDO/CAJA-con-socio/EN_COBRANZA/BAJA).

@@ -2,7 +2,7 @@ from fastapi import HTTPException,  APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..models import CondicionBoleta
@@ -107,7 +107,8 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ).scalar()
         baja = db.query(func.count(models.Boleta.id)).filter(
             models.Boleta.talonera_id.in_(ids),
-            models.Boleta.condicion == CondicionBoleta.BAJA
+            or_(models.Boleta.condicion == CondicionBoleta.BAJA,
+                models.Boleta.mes_baja.isnot(None))
         ).scalar()
         en_cobranza = db.query(func.count(models.Boleta.id)).filter(
             models.Boleta.talonera_id.in_(ids),
@@ -208,7 +209,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "a_cobrar": 0, "del_mes": 0, "bajas": 0,
             "pactadas": 0, "pagadas": 0, "anticipadas": 0,
         })
-        if b.condicion == CondicionBoleta.BAJA:
+        if b.condicion == CondicionBoleta.BAJA or b.mes_baja:
             acc["bajas"] += 1
             continue
         no_terminada = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
@@ -281,8 +282,9 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         ),
         # Al contado — tienen número especial Y/O pagaron todas las cuotas anticipadas
         "contado": _sum_mult(_es_contado),
-        # Baja — solo boletas con condición BAJA
-        "baja": _sum_mult(models.Boleta.condicion == CondicionBoleta.BAJA),
+        # Baja — boletas con condición BAJA (Socios) o marcadas de baja en cobranza
+        "baja": _sum_mult(or_(models.Boleta.condicion == CondicionBoleta.BAJA,
+                              models.Boleta.mes_baja.isnot(None))),
         # Liquidados por el vendedor pero SIN socio cargado todavía (pendientes de
         # cargar el comprador). Ponderado por PATA, igual que vendidas.
         "sin_cargar": _sum_mult(
