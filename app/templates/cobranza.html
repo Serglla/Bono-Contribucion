@@ -108,6 +108,17 @@
           <div class="progress-bar {% if r.pct_cobro >= 100 %}bg-success{% elif r.pct_cobro >= 50 %}bg-primary{% else %}bg-warning{% endif %}"
                role="progressbar" style="width:{{ r.pct_cobro }}%;" aria-valuenow="{{ r.pct_cobro }}" aria-valuemin="0" aria-valuemax="100"></div>
         </div>
+        {# Desglose mes a mes: cómo se forma el promedio de % cobrado #}
+        <div class="d-flex flex-wrap gap-1 mb-2" style="font-size:.68rem;">
+          <span class="text-muted">Cobrado por mes:</span>
+          {% for md in r.meses_detalle %}
+          <span class="badge rounded-pill {% if md.pct >= 100 %}bg-success-subtle text-success border border-success{% elif md.pct >= 50 %}bg-primary-subtle text-primary border border-primary{% else %}bg-warning-subtle text-dark border border-warning{% endif %}"
+                title="{{ md.cobradas }} cuotas cobradas de {{ md.activas }} boletas activas en {{ md.mes }}">
+            {{ md.mes[:3] }} {{ md.cobradas }}/{{ md.activas }} · {{ md.pct }}%
+          </span>
+          {% endfor %}
+          <span class="text-muted">→ promedio {{ r.pct_cobro }}%</span>
+        </div>
         {% endif %}
 
         <!-- Pendientes de emplanillar -->

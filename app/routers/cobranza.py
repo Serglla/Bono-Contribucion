@@ -207,11 +207,18 @@ async def index(request: Request, db: Session = Depends(get_db),
         # sobre las boletas emplanilladas. La cobranza se considera "iniciada"
         # solo si se cobró algo MÁS ALLÁ de las cuotas anticipadas (las que cobra
         # el vendedor en la venta); si no, se oculta el porcentaje.
+        # % cobrado = PROMEDIO de las tasas mes a mes (igual que el dashboard de
+        # Reportes): por cada mes con cobranza (historial_cuotas), tasa del mes =
+        # cuotas cobradas ese mes / boletas activas; el % es el promedio de esas
+        # tasas. Refleja la gestión mensual y no queda diluido contra las 12 cuotas
+        # de toda la campaña. Las bajas de registro no cuentan como activas.
         cuotas_cobranza = 0
         pend_emplanillar = 0
         pactadas_tot = 0
         pagadas_tot = 0
         anticipadas_tot = 0
+        meses_cob = {}        # mes calendario -> cuotas cobradas ese mes
+        activas_cob = 0       # boletas activas emplanilladas (denominador por mes)
         for b in boletas:
             no_terminada = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
             pv = _pata_valor(b)
@@ -221,12 +228,32 @@ async def index(request: Request, db: Session = Depends(get_db),
                 pactadas_tot += (b.cuotas_pactadas or 0)
                 pagadas_tot += (b.cuotas_pagadas or 0)
                 anticipadas_tot += (b.cuotas_anticipadas or 0)
+                if not b.mes_baja:
+                    activas_cob += 1
+                    _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+                    for _k, _v in _hist.items():
+                        try:
+                            _m = int(_v)
+                        except (TypeError, ValueError):
+                            continue
+                        meses_cob[_m] = meses_cob.get(_m, 0) + 1
             elif no_terminada and b.numero_especial_2 is None:
                 pend_emplanillar += pv
 
-        cobrado_efectivo = pagadas_tot - anticipadas_tot
-        cobranza_iniciada = pactadas_tot > 0 and cobrado_efectivo > 0
-        pct_cobro = round(pagadas_tot / pactadas_tot * 100) if pactadas_tot > 0 else 0
+        cobranza_iniciada = bool(meses_cob) and activas_cob > 0
+        if cobranza_iniciada:
+            _rates = [cnt / activas_cob for cnt in meses_cob.values()]
+            pct_cobro = round(sum(_rates) / len(_rates) * 100)
+        else:
+            pct_cobro = 0
+
+        # Desglose por mes para mostrar cómo se forma el promedio: cada mes con
+        # cobranza con su tasa (cuotas cobradas / boletas activas).
+        meses_detalle = [
+            {"mes": MESES[m - 1], "num": m, "cobradas": cnt,
+             "activas": activas_cob, "pct": round(cnt / activas_cob * 100)}
+            for m, cnt in sorted(meses_cob.items())
+        ] if cobranza_iniciada else []
 
         # Todas las planillas del cobrador (de la primera a la última), con su
         # número y la fecha en que se entregó (se armó) cada una.
@@ -243,6 +270,7 @@ async def index(request: Request, db: Session = Depends(get_db),
             "pend_emplanillar": int(round(pend_emplanillar)),
             "pct_cobro": pct_cobro,
             "cobranza_iniciada": cobranza_iniciada,
+            "meses_detalle": meses_detalle,
             "planillas": planillas,
         })
 
