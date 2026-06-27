@@ -183,7 +183,7 @@
         vendedor (jefe de equipo que liquida y después pasa caja). Ponderado por PATA. #}
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3 h-100"
-         title="Boletas liquidadas y aún a su nombre (las que se reasignaron a otro vendedor no se cuentan). Ponderado por multiplicador de PATA. {{ total_liquidaciones }} liquidación(es) registrada(s).">
+         title="Total liquidado por este vendedor, ponderado por PATA — mismo criterio que el dashboard. NO incluye los números de sorteo extra (pool CONTADO / CONTADO 2 VECES), que son premios y no ventas. {{ total_liquidaciones }} liquidación(es) registrada(s).">
       <div class="fs-3 fw-bold text-success">{{ total_boletas_liquidadas_eq }}</div>
       <div class="small text-muted">Total liquidados
         <span class="text-muted" style="font-size:.75em;">({{ total_liquidaciones }} liq.)</span>
@@ -202,7 +202,7 @@
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3 h-100"
          title="Boletas con socio cargado en el sistema, ponderadas por multiplicador de PATA (PATA 1 ×1, PATA 2 ×2, ...).">
-      <div class="fs-3 fw-bold" style="color:#6c8ebf;">{{ total_vendidas_pond }}</div>
+      <div class="fs-3 fw-bold" style="color:#6c8ebf;">{{ total_vendidas_pond | round(0) | int }}</div>
       <div class="small text-muted">Total vendidas</div>
     </div>
   </div>

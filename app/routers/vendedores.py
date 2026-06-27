@@ -1003,14 +1003,16 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     total_boletas_liquidadas = sum(
         1 for b in boletas if b.liquidacion_vendedor_id
     ) + _pool_count
-    # Ponderado: cada boleta cuenta como su multiplicador (PATA 1 ×1, PATA 2 ×2, ...)
-    # Las boletas contado-de-boleta (con numero_especial) cuentan como 1 (ya están ponderadas en monto)
-    # Float desde PATA 0 (mult 0.67) — el display lo redondea a entero
-    total_boletas_liquidadas_eq = sum(
-        (1.0 if (b.numero_especial is not None or b.numero_especial_2 is not None)
-         else float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0))
-        for b in boletas if b.liquidacion_vendedor_id
-    ) + _pool_count
+    # Ponderado ("Total liquidados" de la tarjeta): usa EXACTAMENTE el mismo criterio
+    # que el dashboard (_stats_bulk) para que los números coincidan con la pantalla
+    # principal: suma de los snapshots cuotas_equiv + contados_equiv de las
+    # liquidaciones de este vendedor (ponderado por PATA), redondeando cada componente
+    # por separado igual que el dashboard. NO incluye los números de sorteo extra del
+    # pool (CONTADO / CONTADO 2 VECES): son premios, no ventas (regla 21/06). Queda
+    # entero (sin floats feos tipo 180.0000000003).
+    _cuotas_eq_total   = sum(float(liq.cuotas_equiv or 0)   for liq in liquidaciones)
+    _contados_eq_total = sum(float(liq.contados_equiv or 0) for liq in liquidaciones)
+    total_boletas_liquidadas_eq = int(round(_cuotas_eq_total)) + int(round(_contados_eq_total))
     # Ingresos del vendedor: lo que se queda en su bolsillo.
     # = cuota 1 (de boletas TODAVÍA propias) + comisión contado (de boletas TODAVÍA
     #   propias) + comisión cuotas extras (input manual de la liquidación, no se
