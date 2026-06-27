@@ -1,6 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Dashboard – Bonos CDELU{% endblock %}
 {% block content %}
+<style>
+  /* Líneas verticales separando columnas en las tablas del dashboard */
+  .tbl-lined > thead > tr > th + th,
+  .tbl-lined > tbody > tr > td + td,
+  .tbl-lined > tfoot > tr > td + td { border-left: 1px solid #e9ecef; }
+  .tbl-lined th, .tbl-lined td { white-space: nowrap; }
+  /* Mix de PATAs: badges chiquitos */
+  .pata-mix .badge { font-size: .62rem; font-weight: 600; padding: .2em .4em; }
+  .pata-mix { white-space: normal; }
+</style>
 <h4 class="fw-bold mb-4"><i class="bi bi-bar-chart-fill text-danger me-2"></i>Dashboard General</h4>
 
 <!-- Tarjetas resumen -->
@@ -50,13 +60,16 @@
     <span class="text-muted fw-normal ms-2" style="font-size:.8rem;">ponderado por PATA (X1×1, X2×2…)</span>
   </div>
   <div class="table-responsive">
-    <table class="table table-hover table-sm align-middle mb-0 card-table">
+    <table class="table table-hover table-sm align-middle mb-0 card-table tbl-lined">
       <thead>
         <tr>
           <th>Vendedor</th>
-          <th class="text-center text-success">Liq. Cuotas</th>
-          <th class="text-center text-success">Liq. Contados</th>
-          <th class="text-center">Liq. Total</th>
+          <th class="text-center text-success">Cuotas</th>
+          <th class="text-center text-success">Contados</th>
+          <th class="text-center">Total</th>
+          <th class="text-center" title="Qué porcentaje del total liquidado representa este vendedor">% del total</th>
+          <th class="text-center">Por PATA <span class="text-muted fw-normal" style="font-size:.7rem;">(% de sus ventas)</span></th>
+          <th class="text-center" title="Bajas del vendedor y su porcentaje sobre lo que vendió">Bajas</th>
         </tr>
       </thead>
       <tbody>
@@ -72,9 +85,18 @@
           <td class="text-center">
             {% if v.total > 0 %}<span class="badge bg-success">{{ v.total }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
+          <td class="text-center">
+            {% if v.total > 0 %}<span class="badge bg-primary-subtle text-primary border border-primary-subtle">{{ v.share }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-center pata-mix">
+            {% if v.patas %}{% for p in v.patas %}<span class="badge bg-light text-dark border me-1">{{ p.label }} {{ p.pct }}%</span>{% endfor %}{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-center">
+            {% if v.bajas > 0 %}<span class="badge bg-danger">{{ v.bajas }}</span>{% if v.bajas_pct is not none %}<span class="text-danger ms-1" style="font-size:.72rem;">{{ v.bajas_pct }}%</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="text-center text-muted py-3">Sin datos aún</td></tr>
+        <tr><td colspan="7" class="text-center text-muted py-3">Sin datos aún</td></tr>
         {% endfor %}
       </tbody>
       {% if vendedores_liq %}
@@ -84,6 +106,9 @@
           <td class="text-center"><span class="badge bg-success-subtle text-success border border-success-subtle">{{ vendedores_liq_total.cuotas }}</span></td>
           <td class="text-center"><span class="badge" style="background:#fff8e1;color:#856404;border:1px solid #ffc10740;">{{ vendedores_liq_total.contados }}</span></td>
           <td class="text-center"><span class="badge bg-success">{{ vendedores_liq_total.total }}</span></td>
+          <td class="text-center"><span class="badge bg-primary">100%</span></td>
+          <td class="text-center"><span class="text-muted">—</span></td>
+          <td class="text-center"><span class="badge bg-danger">{{ vendedores_liq_total.bajas }}</span>{% if vendedores_liq_total.bajas_pct is not none %}<span class="text-danger ms-1" style="font-size:.72rem;">{{ vendedores_liq_total.bajas_pct }}%</span>{% endif %}</td>
         </tr>
       </tfoot>
       {% endif %}
@@ -97,7 +122,7 @@
     <span class="text-muted fw-normal ms-2" style="font-size:.8rem;">mismo criterio que Cobranza (planillas entregadas)</span>
   </div>
   <div class="table-responsive">
-    <table class="table table-hover table-sm align-middle mb-0 card-table">
+    <table class="table table-hover table-sm align-middle mb-0 card-table tbl-lined">
       <thead>
         <tr>
           <th rowspan="2" class="align-middle">Cobrador</th>
@@ -132,7 +157,7 @@
             {% endif %}
           </td>
           <td class="text-center">
-            {% if c.bajas > 0 %}<span class="badge bg-danger">{{ c.bajas }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+            {% if c.bajas > 0 %}<span class="badge bg-danger">{{ c.bajas }}</span>{% if c.bajas_pct is not none %}<span class="text-danger ms-1" style="font-size:.72rem;">{{ c.bajas_pct }}%</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}
           </td>
         </tr>
         {% else %}
@@ -153,7 +178,7 @@
               <span class="badge {{ _clst }}">{{ cobradores_total.pct }}%</span>
             {% endif %}
           </td>
-          <td class="text-center"><span class="badge bg-danger">{{ cobradores_total.bajas }}</span></td>
+          <td class="text-center"><span class="badge bg-danger">{{ cobradores_total.bajas }}</span>{% if cobradores_total.bajas_pct is not none %}<span class="text-danger ms-1" style="font-size:.72rem;">{{ cobradores_total.bajas_pct }}%</span>{% endif %}</td>
         </tr>
       </tfoot>
       {% endif %}

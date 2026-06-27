@@ -161,22 +161,79 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     # (PATA 1 ×1, PATA 2 ×2, PATA 0 ×0.67) y SIN contar los números de sorteo
     # extra (pool CONTADO / CONTADO 2 VECES) como ventas.
     _stats = _stats_bulk(db)
+
+    # Composición por PATA de cada vendedor (ponderada por Talonera.multiplicador:
+    # X1×1, X2×2, X0×0.67…). Se arma sobre las boletas que liquidó — uniendo por la
+    # liquidación (LiquidacionVendedor) para respetar el criterio "liquidado por
+    # vendedor" aunque la boleta se haya reasignado a otro vendedor después.
+    # Solo taloneras COMUN (las CONTADO son pool de sorteo, no son PATAs).
+    pata_by_vend: dict = {}
+    _pata_rows = db.query(
+        models.LiquidacionVendedor.vendedor_id,
+        models.Talonera.nombre,
+        func.coalesce(func.sum(models.Talonera.multiplicador), 0),
+    ).select_from(models.Boleta).join(
+        models.LiquidacionVendedor,
+        models.LiquidacionVendedor.id == models.Boleta.liquidacion_vendedor_id,
+    ).join(
+        models.Talonera, models.Talonera.id == models.Boleta.talonera_id,
+    ).filter(
+        models.Talonera.tipo == "COMUN",
+    ).group_by(
+        models.LiquidacionVendedor.vendedor_id, models.Talonera.nombre,
+    ).all()
+    for _vid, _nom, _w in _pata_rows:
+        if _vid is None:
+            continue
+        pata_by_vend.setdefault(_vid, {})[_nom] = float(_w or 0)
+
+    def _pata_breakdown(vid):
+        """Lista [{label: 'X1', pct: 70}, …] con el mix de PATAs del vendedor
+        (suma 100%). Ordenada por etiqueta (X0, X1, X2…)."""
+        m = pata_by_vend.get(vid, {})
+        tot = sum(m.values())
+        out = []
+        for nom, w in m.items():
+            out.append({
+                "label": (nom or "").replace("PATA ", "X"),
+                "pct": round(w / tot * 100) if tot else 0,
+            })
+        out.sort(key=lambda p: p["label"])
+        return out
+
     vendedores_liq = []
     for v in db.query(models.Vendedor).order_by(models.Vendedor.nombre).all():
         s = _stats.get(v.id, {})
+        _vend = int(s.get("vendido", 0))
+        _baja = int(s.get("baja", 0))
         vendedores_liq.append({
             "nombre": v.nombre,
             "cuotas": int(s.get("liquidados_cuotas", 0)),
             "contados": int(s.get("liquidados_contados", 0)),
             "total": int(s.get("liquidados", 0)),
+            "vendido": _vend,
+            "bajas": _baja,
+            # % de baja del vendedor = bajas ÷ lo que vendió (su tasa personal)
+            "bajas_pct": (round(_baja / _vend * 100, 1) if _vend else None),
+            "patas": _pata_breakdown(v.id),
         })
     # Ordenar por total liquidado (descendente), los que tienen 0 al final
     vendedores_liq.sort(key=lambda x: x["total"], reverse=True)
+    # % que representa cada vendedor sobre el total liquidado de todos
+    _gtot = sum(v["total"] for v in vendedores_liq) or 0
+    for v in vendedores_liq:
+        v["share"] = round(v["total"] / _gtot * 100, 1) if _gtot else 0
     vendedores_liq_total = {
         "cuotas":   sum(v["cuotas"]   for v in vendedores_liq),
         "contados": sum(v["contados"] for v in vendedores_liq),
         "total":    sum(v["total"]    for v in vendedores_liq),
+        "vendido":  sum(v["vendido"]  for v in vendedores_liq),
+        "bajas":    sum(v["bajas"]    for v in vendedores_liq),
     }
+    _gv = vendedores_liq_total["vendido"]
+    vendedores_liq_total["bajas_pct"] = (
+        round(vendedores_liq_total["bajas"] / _gv * 100, 1) if _gv else None
+    )
 
     # ── Resumen de cobradores ──────────────────────────────────────────────
     # MISMO criterio que el módulo Cobranza (/cobranza/), para que coincida con las
@@ -219,8 +276,9 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         acc = _cob_acc.setdefault(cid, {
             "a_cobrar": 0, "del_mes": 0, "bajas": 0,
             "pactadas": 0, "pagadas": 0, "anticipadas": 0,
-            "meses_cob": {}, "activas": 0,
+            "meses_cob": {}, "activas": 0, "total": 0,
         })
+        acc["total"] += 1   # todas las boletas del cobrador (denominador del % de baja)
         if b.condicion == CondicionBoleta.BAJA or b.mes_baja:
             acc["bajas"] += 1
             continue
@@ -253,7 +311,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     for c in db.query(models.Cobrador).order_by(models.Cobrador.nombre).all():
         acc = _cob_acc.get(c.id, {"a_cobrar": 0, "del_mes": 0, "bajas": 0,
                                   "pactadas": 0, "pagadas": 0, "anticipadas": 0,
-                                  "meses_cob": {}, "activas": 0})
+                                  "meses_cob": {}, "activas": 0, "total": 0})
         pac = acc["pactadas"]; pag = acc["pagadas"]; ant = acc["anticipadas"]
         _g_pac += pac; _g_pag += pag; _g_ant += ant
         # % = promedio de las tasas mensuales (cuotas cobradas ese mes / activas).
@@ -270,6 +328,8 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             "del_mes": int(round(acc["del_mes"])),
             "pct": pct,
             "bajas": int(acc["bajas"]),
+            # % de baja del cobrador = bajas ÷ todas las boletas que tiene asignadas
+            "bajas_pct": (round(acc["bajas"] / acc["total"] * 100, 1) if acc.get("total") else None),
         })
     cobradores_resumen.sort(key=lambda x: (x["a_cobrar"], x["del_mes"]), reverse=True)
 
@@ -279,12 +339,15 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         _pct_total = round(sum(_g_rates) / len(_g_rates) * 100, 1)
     else:
         _pct_total = None
+    _g_total_cob = sum(a.get("total", 0) for a in _cob_acc.values())
+    _g_bajas_cob = sum(c["bajas"] for c in cobradores_resumen)
     cobradores_total = {
         "planillas": sum(c["planillas"] for c in cobradores_resumen),
         "a_cobrar":  sum(c["a_cobrar"] for c in cobradores_resumen),
         "del_mes":   sum(c["del_mes"]  for c in cobradores_resumen),
         "pct":       _pct_total,
-        "bajas":     sum(c["bajas"] for c in cobradores_resumen),
+        "bajas":     _g_bajas_cob,
+        "bajas_pct": (round(_g_bajas_cob / _g_total_cob * 100, 1) if _g_total_cob else None),
     }
 
     # Tarjetas del dashboard — ponderadas por Talonera.multiplicador
