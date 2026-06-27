@@ -637,6 +637,13 @@ document.querySelectorAll('.input-upper').forEach(el => {
           </h5>
           <span id="flashGuardado" class="badge bg-success ms-3 d-none" style="font-size:.85rem;">✓ Guardado</span>
           <span id="contadorGuardados" class="badge bg-secondary ms-2 d-none" style="font-size:.8rem;"></span>
+          <div id="altaNav" class="d-none align-items-center gap-1 ms-2">
+            <button type="button" id="btnNavAtras" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                    title="Editar el socio cargado anterior"><i class="bi bi-chevron-left"></i></button>
+            <button type="button" id="btnNavAdelante" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                    title="Siguiente / volver a cargar uno nuevo"><i class="bi bi-chevron-right"></i></button>
+          </div>
+          <span id="altaEditBadge" class="badge bg-warning text-dark ms-2 d-none" style="font-size:.78rem;"></span>
           <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
         </div>
 
@@ -702,6 +709,13 @@ document.querySelectorAll('.input-upper').forEach(el => {
 
         <!-- Cuerpo: datos por comprador -->
         <div class="modal-body pt-3">
+
+          <!-- Banner modo edición rápida (flechas ◀ ▶) -->
+          <div id="altaEditBanner" class="alert alert-warning py-2 px-3 mb-3 d-none" style="font-size:.82rem;">
+            <i class="bi bi-pencil-fill me-1"></i>
+            Estás <strong>editando un socio ya cargado</strong> (solo datos básicos: nombre, dirección, teléfono, zona y fecha).
+            Para cambiar boleta, cobrador o cuotas usá el editor completo desde la lista.
+          </div>
 
           <!-- Boleta -->
           <div class="card border-danger border-2 rounded-3 p-3 mb-3 bg-light">
@@ -1072,8 +1086,8 @@ document.querySelectorAll('.input-upper').forEach(el => {
   });
 
   // ── Memoria ──────────────────────────────────────────────────────────
+  // Fecha: NO se recuerda entre cargas — siempre arranca en el día de hoy (ver setFechaHoy).
   const MEMORIA = {
-    fecha:       { key: 'bono_fecha',       el: 'fechaInput',       def: '' },
     cuotas:      { key: 'bono_cuotas',      el: 'cuotasInput',      def: '11' },
     // "Cuotas al contado" NO se recuerda: siempre arranca en 1 para cada socio
     // (evita que un valor anterior — p.ej. 12/12 de una boleta contado — quede
@@ -1089,10 +1103,19 @@ document.querySelectorAll('.input-upper').forEach(el => {
     });
   }
 
+  // La fecha por defecto siempre es la del día de la carga (hora local, no UTC).
+  function setFechaHoy() {
+    const hoy = new Date();
+    const local = new Date(hoy.getTime() - hoy.getTimezoneOffset() * 60000);
+    const f = document.getElementById('fechaInput');
+    if (f) f.value = local.toISOString().slice(0, 10);
+  }
+
   function restaurarMemoria() {
     Object.values(MEMORIA).forEach(({ key, el, def }) => {
       document.getElementById(el).value = localStorage.getItem(key) ?? def;
     });
+    setFechaHoy();   // fecha siempre = hoy
     zonaNuevaInput.classList.add('d-none');
     zonaNuevaInput.required = false;
     zonaNuevaInput.value = '';
@@ -1134,7 +1157,123 @@ document.querySelectorAll('.input-upper').forEach(el => {
     setTimeout(() => f.classList.add('d-none'), 1400);
   }
 
+  // ── Navegación por socios cargados en ESTA sesión (flechas ◀ ▶) ─────────
+  const altaHist = [];     // {id, apellido, direccion, telefono, zona_id, fecha, boleta_num, talonera, badges}
+  let altaPos = 0;         // == altaHist.length → modo alta (nuevo). Si < length → editando ese índice.
+  let altaEditId = null;   // id del socio en edición rápida (null = modo alta)
+
+  function actualizarNav() {
+    const nav   = document.getElementById('altaNav');
+    const atras = document.getElementById('btnNavAtras');
+    const adel  = document.getElementById('btnNavAdelante');
+    if (!nav) return;
+    if (altaHist.length === 0) { nav.classList.add('d-none'); nav.classList.remove('d-inline-flex'); return; }
+    nav.classList.remove('d-none'); nav.classList.add('d-inline-flex');
+    if (atras) atras.disabled = (altaPos <= 0);
+    if (adel)  adel.disabled  = (altaPos >= altaHist.length);
+  }
+
+  function setBoletaReadonly(ro) {
+    const inp = document.getElementById('nuevoBoleta_num');
+    const btn = document.getElementById('nuevoBtnBuscar');
+    if (inp) inp.readOnly = ro;
+    if (btn) btn.disabled = ro;
+  }
+
+  function entrarModoEdicion(idx) {
+    const s = altaHist[idx];
+    if (!s) return;
+    altaPos = idx;
+    altaEditId = s.id;
+    document.getElementById('apellidoInput').value  = s.apellido  || '';
+    document.getElementById('direccionInput').value = s.direccion || '';
+    document.getElementById('telefonoInput').value  = s.telefono  || '';
+    document.getElementById('zonaSelect').value     = s.zona_id   || '';
+    document.getElementById('fechaInput').value     = s.fecha     || '';
+    // Boleta: solo lectura (no se cambia en edición rápida)
+    document.getElementById('nuevoBoleta_num').value = s.boleta_num || '';
+    document.getElementById('nuevoBoletaBadges').innerHTML = s.badges || '';
+    document.getElementById('nuevoBoletaTalonera').textContent = s.talonera || '';
+    document.getElementById('nuevoBoletaInfo').classList.remove('d-none');
+    document.getElementById('nuevoBoletaRequerida').classList.add('d-none');
+    document.getElementById('nuevoBoletaError').classList.add('d-none');
+    if (window._resetContadoBlockNuevo) window._resetContadoBlockNuevo();
+    setBoletaReadonly(true);
+    // UI de modo edición
+    document.getElementById('altaEditBanner').classList.remove('d-none');
+    const badge = document.getElementById('altaEditBadge');
+    badge.textContent = `Editando ${idx + 1} de ${altaHist.length}`;
+    badge.classList.remove('d-none');
+    document.getElementById('btnGuardar').innerHTML = '<i class="bi bi-check-lg me-1"></i>Guardar cambios';
+    actualizarNav();
+    irA('apellidoInput');
+  }
+
+  function volverModoAlta() {
+    altaPos = altaHist.length;
+    altaEditId = null;
+    setBoletaReadonly(false);
+    document.getElementById('altaEditBanner').classList.add('d-none');
+    document.getElementById('altaEditBadge').classList.add('d-none');
+    document.getElementById('btnGuardar').innerHTML = '<i class="bi bi-check-lg me-1"></i>Guardar';
+    resetComprador();
+    actualizarNav();
+    irA('nuevoBoleta_num');
+  }
+
+  function irHistorial(delta) {
+    let p = altaPos + delta;
+    if (p < 0) p = 0;
+    if (p > altaHist.length) p = altaHist.length;
+    if (p === altaHist.length) volverModoAlta();
+    else entrarModoEdicion(p);
+  }
+
+  async function guardarEdicionBasica() {
+    const apellido = document.getElementById('apellidoInput').value.trim();
+    if (!apellido) { irA('apellidoInput'); return; }
+    const fd = new FormData();
+    fd.append('apellido_nombre', apellido);
+    fd.append('direccion',  document.getElementById('direccionInput').value);
+    fd.append('telefono',   document.getElementById('telefonoInput').value);
+    fd.append('zona_id',    document.getElementById('zonaSelect').value);
+    fd.append('zona_nueva', document.getElementById('zonaNuevaInput').value || '');
+    fd.append('fecha_compra', document.getElementById('fechaInput').value);
+    try {
+      const resp = await fetch(`/compradores/${altaEditId}/editar-basico`, {
+        method: 'POST', body: fd,
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      if (!resp.ok) { appAlert('Error al guardar los cambios.', 'error'); return; }
+      let data = null; try { data = await resp.json(); } catch (_) {}
+      if (data && data.nueva_zona) {
+        const nz = data.nueva_zona;
+        if (!zonaSelect.querySelector(`option[value="${nz.id}"]`)) {
+          const opt = document.createElement('option');
+          opt.value = String(nz.id); opt.textContent = nz.nombre; opt.dataset.vendedorId = nz.vendedor_id ?? '';
+          const ph = zonaSelect.querySelector('option[value="__nueva__"]');
+          if (ph) zonaSelect.insertBefore(opt, ph); else zonaSelect.appendChild(opt);
+        }
+        zonaSelect.value = String(nz.id);
+        zonaNuevaInput.value = ''; zonaNuevaInput.classList.add('d-none'); zonaNuevaInput.required = false;
+      }
+      // Actualizar el snapshot del historial con los nuevos valores
+      const s = altaHist[altaPos];
+      if (s) {
+        s.apellido  = apellido;
+        s.direccion = document.getElementById('direccionInput').value;
+        s.telefono  = document.getElementById('telefonoInput').value;
+        s.zona_id   = document.getElementById('zonaSelect').value;
+        s.fecha     = document.getElementById('fechaInput').value;
+      }
+      const f = document.getElementById('flashGuardado');
+      f.textContent = '✓ Actualizado'; f.classList.remove('d-none');
+      setTimeout(() => { f.classList.add('d-none'); f.textContent = '✓ Guardado'; }, 1400);
+    } catch { appAlert('Error de conexión.', 'error'); }
+  }
+
   async function guardarComprador() {
+    if (altaEditId) { return guardarEdicionBasica(); }
     if (!document.getElementById('nuevoBoleta_id').value) {
       document.getElementById('nuevoBoletaRequerida').classList.remove('d-none');
       irA('nuevoBoleta_num');
@@ -1179,6 +1318,22 @@ document.querySelectorAll('.input-upper').forEach(el => {
           try { localStorage.setItem(MEMORIA.zona.key, String(nz.id)); } catch (_) {}
           autoFillVendedorDesdeZona();
         }
+        // Guardar en el historial de la sesión (para editarlo con las flechas ◀ ▶)
+        if (data && data.comprador_id) {
+          altaHist.push({
+            id:         data.comprador_id,
+            apellido:   document.getElementById('apellidoInput').value,
+            direccion:  document.getElementById('direccionInput').value,
+            telefono:   document.getElementById('telefonoInput').value,
+            zona_id:    document.getElementById('zonaSelect').value,
+            fecha:      document.getElementById('fechaInput').value,
+            boleta_num: document.getElementById('nuevoBoleta_num').value,
+            talonera:   document.getElementById('nuevoBoletaTalonera').textContent,
+            badges:     document.getElementById('nuevoBoletaBadges').innerHTML,
+          });
+          altaPos = altaHist.length;
+          actualizarNav();
+        }
         flash();
         resetComprador();
         irA('nuevoBoleta_num');
@@ -1189,12 +1344,23 @@ document.querySelectorAll('.input-upper').forEach(el => {
   }
 
   document.getElementById('btnGuardar').addEventListener('click', guardarComprador);
+  document.getElementById('btnNavAtras')?.addEventListener('click', () => irHistorial(-1));
+  document.getElementById('btnNavAdelante')?.addEventListener('click', () => irHistorial(1));
 
   // ── Abrir modal ──────────────────────────────────────────────────────
   document.getElementById('modalNuevo').addEventListener('show.bs.modal', () => {
     restaurarMemoria();
     nGuardados = 0;
     document.getElementById('contadorGuardados').classList.add('d-none');
+    // Reiniciar el historial de navegación de la sesión
+    altaHist.length = 0;
+    altaPos = 0;
+    altaEditId = null;
+    document.getElementById('altaNav').classList.add('d-none');
+    document.getElementById('altaEditBanner').classList.add('d-none');
+    document.getElementById('altaEditBadge').classList.add('d-none');
+    document.getElementById('btnGuardar').innerHTML = '<i class="bi bi-check-lg me-1"></i>Guardar';
+    setBoletaReadonly(false);
     resetComprador();
     setTimeout(() => {
       // Si ya hay fecha, ir directo a boleta; si no, empezar por fecha

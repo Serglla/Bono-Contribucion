@@ -724,6 +724,58 @@ async def crear(
     return RedirectResponse("/compradores/", status_code=302)
 
 
+@router.post("/{comprador_id}/editar-basico")
+async def editar_basico(
+    comprador_id: int,
+    request: Request,
+    apellido_nombre: str = Form(...),
+    direccion: str = Form(""),
+    telefono: str = Form(""),
+    zona_id: Optional[str] = Form(None),
+    zona_nueva: str = Form(""),
+    fecha_compra: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Edición RÁPIDA de un socio desde el modal de alta (flechas ◀ ▶).
+    Solo actualiza datos básicos: apellido/nombre, dirección, teléfono, zona y la
+    fecha de compra de sus boletas. NO toca vendedor, cobrador, condición, cuotas ni
+    los números de boleta — para eso está el editor completo."""
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    c = db.query(models.Comprador).get(comprador_id)
+    if not c:
+        raise HTTPException(404, "Socio no encontrado")
+
+    zona, zona_creada = _resolver_zona_ex(_parse_zona_id(zona_id), zona_nueva, db)
+    c.apellido_nombre = apellido_nombre.strip().upper()
+    c.direccion = direccion.strip().upper() or None
+    c.telefono = telefono.strip() or None
+    c.zona_id = zona
+    if fecha_compra:
+        try:
+            _fv = date.fromisoformat(fecha_compra)
+            for b in c.boletas:
+                b.fecha_venta = _fv
+        except ValueError:
+            pass
+    db.commit()
+
+    nueva_zona_payload = None
+    if zona_creada is not None:
+        nueva_zona_payload = {
+            "id": zona_creada.id,
+            "nombre": zona_creada.nombre,
+            "vendedor_id": zona_creada.vendedor_id,
+        }
+    return JSONResponse({
+        "ok": True,
+        "comprador_id": c.id,
+        "zona_id": zona,
+        "nueva_zona": nueva_zona_payload,
+    })
+
+
 def _derivar_condicion(boleta) -> str:
     """Calcula la condición de una boleta a partir de su estado real.
 

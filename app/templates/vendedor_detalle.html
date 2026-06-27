@@ -522,6 +522,25 @@
                     onclick="setModoLiquidar('contado2')">Contado 2 veces</button>
             <span class="text-muted" style="font-size:.7rem;">Los números que clickeás se marcan con el modo activo</span>
           </div>
+          {# ── Agregar un número que está en la caja de otro vendedor (o sin registrar) ── #}
+          <div class="mb-2 d-flex align-items-center gap-2 flex-wrap">
+            <button type="button" id="btnAgregarNumero" class="btn btn-outline-success btn-sm py-0 px-2">
+              <i class="bi bi-plus-circle me-1"></i>Agregar número de otra caja
+            </button>
+            <div id="agregarNumeroBox" class="d-none d-flex align-items-center gap-1">
+              <input type="number" id="inpAgregarNumero" class="form-control form-control-sm"
+                     style="width:130px;" placeholder="N° boleta">
+              <button type="button" id="btnAgregarNumeroOk" class="btn btn-success btn-sm py-0 px-2">
+                <i class="bi bi-search me-1"></i>Buscar y agregar
+              </button>
+              <button type="button" id="btnAgregarNumeroCancel" class="btn btn-outline-secondary btn-sm py-0 px-2">
+                Cancelar
+              </button>
+            </div>
+          </div>
+          <div id="agregarNumeroStatus" class="small mb-2"></div>
+          {# Hidden inputs pull_ids: boletas traídas de otra caja, se reasignan al confirmar #}
+          <div id="pullIdsContainer"></div>
           <div id="seccionPatas"></div>
 
           {# ── Cuotas extras cobradas ── #}
@@ -1377,6 +1396,96 @@ function toggleTodo(estado) {
   Object.keys(grupos).forEach(pata => togglePata(pata, estado));
 }
 
+// ── Agregar número de otra caja ────────────────────────────────────────────
+// Snapshot de la selección actual (para no perderla al re-renderizar la grilla).
+function snapshotSeleccion() {
+  const snap = {};
+  document.querySelectorAll('.boleta-chk:checked').forEach(c => {
+    snap[c.value] = (c.dataset.pool === '1') ? 'pool' : modalidadBoleta(c.dataset.bid);
+  });
+  return snap;
+}
+function restaurarSeleccion(snap) {
+  document.querySelectorAll('.boleta-chk').forEach(c => {
+    if (snap[c.value] === undefined) return;
+    c.checked = true;
+    const lbl = c.closest('label');
+    const badge = lbl ? lbl.querySelector('.badge') : null;
+    if (c.dataset.pool === '1') {
+      if (badge) { badge.style.background = '#ffe69c'; badge.style.color = '#664d03'; badge.style.border = '1px solid #ffc107'; }
+    } else {
+      const sel = document.querySelector(`.boleta-modalidad[data-bid="${c.dataset.bid}"]`);
+      if (sel) sel.value = (snap[c.value] === 'pool' ? 'cuotas' : snap[c.value]);
+      actualizarEstiloBadge(badge, true, modalidadBoleta(c.dataset.bid));
+    }
+  });
+  new Set([...document.querySelectorAll('.boleta-chk')].map(c => c.dataset.pata))
+    .forEach(p => actualizarContadorPata(p));
+  recalcular();
+}
+async function agregarNumeroExterno() {
+  const inp = document.getElementById('inpAgregarNumero');
+  const status = document.getElementById('agregarNumeroStatus');
+  const num = (inp.value || '').trim();
+  if (!num) { inp.focus(); return; }
+  status.className = 'small mb-2 text-muted';
+  status.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Buscando…';
+  let data;
+  try {
+    const r = await fetch(`/vendedores/${VENDEDOR_ID}/buscar-numero-libre/${encodeURIComponent(num)}`, { credentials: 'include' });
+    data = await r.json();
+  } catch (e) {
+    status.className = 'small mb-2 text-danger';
+    status.innerHTML = '<i class="bi bi-x-circle"></i> Error de red.';
+    return;
+  }
+  if (!data.ok) {
+    status.className = 'small mb-2 text-danger';
+    status.innerHTML = `<i class="bi bi-x-circle"></i> ${data.error || 'No se pudo agregar.'}`;
+    return;
+  }
+  const item = data.item;
+  if (PENDIENTES.some(b => String(b.id) === String(item.id))) {
+    status.className = 'small mb-2 text-warning';
+    status.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Ese número ya está en la lista.';
+    inp.value = '';
+    return;
+  }
+  // Insertar preservando la selección actual
+  const snap = snapshotSeleccion();
+  item._external = true;
+  PENDIENTES.push(item);
+  renderPatas();
+  restaurarSeleccion(snap);
+  // Hidden pull_ids (se reasigna al confirmar)
+  const cont = document.getElementById('pullIdsContainer');
+  const h = document.createElement('input');
+  h.type = 'hidden'; h.name = 'pull_ids'; h.value = item.id; h.dataset.bid = item.id;
+  cont.appendChild(h);
+  // Auto-seleccionar el nuevo con el modo activo
+  const chk = document.querySelector(`.boleta-chk[data-bid="${item.id}"]`);
+  if (chk && !chk.checked) { chk.checked = true; onChkChange(chk); }
+  const origen = data.holder ? `estaba en la caja de <strong>${data.holder}</strong>` : 'no estaba registrado en ninguna caja';
+  status.className = 'small mb-2 text-success';
+  status.innerHTML = `<i class="bi bi-check-circle"></i> Agregado N° ${item.num_str} (${(item.pata || '').replace('PATA ', 'X')}) — ${origen}. Se moverá a esta caja al confirmar.`;
+  inp.value = '';
+  inp.focus();
+}
+// Quita de PENDIENTES los números agregados de otra caja (al cerrar sin confirmar).
+function limpiarExternos() {
+  for (let i = PENDIENTES.length - 1; i >= 0; i--) {
+    if (PENDIENTES[i] && PENDIENTES[i]._external) PENDIENTES.splice(i, 1);
+  }
+  const cont = document.getElementById('pullIdsContainer');
+  if (cont) cont.innerHTML = '';
+  const status = document.getElementById('agregarNumeroStatus');
+  if (status) { status.innerHTML = ''; status.className = 'small mb-2'; }
+  const box = document.getElementById('agregarNumeroBox');
+  if (box) box.classList.add('d-none');
+  const btn = document.getElementById('btnAgregarNumero');
+  if (btn) btn.classList.remove('d-none');
+}
+
 function recalcular() {
   const pctCuotas   = parseFloat(document.getElementById('inp-com-cuotas')?.value)   || 0;
   const pctContados = parseFloat(document.getElementById('inp-com-contados')?.value) || 0;
@@ -1479,6 +1588,27 @@ document.addEventListener('DOMContentLoaded', () => {
   renderPatas();
   setModoLiquidar('cuotas');   // pinta los botones de modo (Cuotas activo por default)
   recalcular();
+  // Botones "Agregar número de otra caja"
+  const btnAgregar = document.getElementById('btnAgregarNumero');
+  const box        = document.getElementById('agregarNumeroBox');
+  const inpAgregar = document.getElementById('inpAgregarNumero');
+  if (btnAgregar && box) {
+    btnAgregar.addEventListener('click', () => {
+      box.classList.remove('d-none');
+      btnAgregar.classList.add('d-none');
+      if (inpAgregar) { inpAgregar.value = ''; inpAgregar.focus(); }
+    });
+  }
+  document.getElementById('btnAgregarNumeroOk')?.addEventListener('click', agregarNumeroExterno);
+  document.getElementById('btnAgregarNumeroCancel')?.addEventListener('click', () => {
+    if (box) box.classList.add('d-none');
+    if (btnAgregar) btnAgregar.classList.remove('d-none');
+    const st = document.getElementById('agregarNumeroStatus');
+    if (st) { st.innerHTML = ''; st.className = 'small mb-2'; }
+  });
+  inpAgregar?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); agregarNumeroExterno(); }
+  });
 });
 document.getElementById('modalLiquidar')?.addEventListener('shown.bs.modal', () => {
   if (!document.getElementById('seccionPatas')?.children.length) {
@@ -1500,6 +1630,10 @@ document.getElementById('modalLiquidar')?.addEventListener('hidden.bs.modal', ()
   // valor PATA 0 se restaura al default (PATA0_VC) en lugar de 0
   const valP0 = document.getElementById('inp-extras-p0-valor');
   if (valP0 && PATA0_VC > 0) valP0.value = PATA0_VC;
+  // Quitar números agregados de otra caja que no se confirmaron y re-renderizar limpio
+  limpiarExternos();
+  renderPatas();
+  recalcular();
 });
 
 // ════════════════ ENTREGA A CAJA — VENDEDOR ════════════════

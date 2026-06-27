@@ -1240,6 +1240,53 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     })
 
 
+@router.get("/{vid}/buscar-numero-libre/{numero}")
+async def buscar_numero_libre(vid: int, numero: int, request: Request, db: Session = Depends(get_db)):
+    """Para el modal de Liquidar: busca un número de boleta para agregarlo a la
+    liquidación de este vendedor aunque hoy esté en la caja de OTRO vendedor (o sin
+    registrar por error). Solo valida; el movimiento real (reasignar la boleta a este
+    vendedor) se hace al CONFIRMAR la liquidación (ver `pull_ids` en `liquidar`).
+    Bloquea si la boleta ya está vendida a un socio o ya fue liquidada por otro.
+    Devuelve el item con la MISMA forma que `pendientes_items` para que el front lo
+    inserte tal cual en la grilla por PATA.
+    """
+    from fastapi.responses import JSONResponse
+    await auth_module.require_user(request, db)
+    v = db.query(models.Vendedor).get(vid)
+    if not v:
+        raise HTTPException(404, "Vendedor no encontrado")
+    b = db.query(models.Boleta).filter(models.Boleta.numero_principal == numero).first()
+    if not b:
+        return JSONResponse({"ok": False, "error": f"No existe ninguna boleta con el número {numero}."})
+    if b.comprador_id is not None:
+        nombre = b.comprador.apellido_nombre if b.comprador else ""
+        return JSONResponse({"ok": False, "error": f"El número {numero} ya está vendido a un socio{(' (' + nombre + ')') if nombre else ''}."})
+    if b.liquidacion_vendedor_id is not None:
+        liqv = (b.liquidacion_vendedor.vendedor.nombre
+                if (b.liquidacion_vendedor and b.liquidacion_vendedor.vendedor) else "otro vendedor")
+        return JSONResponse({"ok": False, "error": f"El número {numero} ya fue liquidado por {liqv}. Sacalo desde su historial primero."})
+    if b.talonera and (b.talonera.tipo or "COMUN") != "COMUN":
+        return JSONResponse({"ok": False, "error": f"El número {numero} es de una talonera CONTADO (pool); no se agrega así."})
+    if b.vendedor_id == vid:
+        return JSONResponse({"ok": False, "error": f"El número {numero} ya está en la caja de este vendedor."})
+
+    nd = (b.talonera.num_digitos or 4) if b.talonera else 4
+    item = {
+        "id": b.id,
+        "num": b.numero_principal,
+        "num_str": ("{:0" + str(nd) + "d}").format(b.numero_principal),
+        "pata": b.talonera.nombre if b.talonera else "?",
+        "color": b.talonera.color if b.talonera else "#cccccc",
+        "valor_cuota": b.talonera.valor_cuota if b.talonera else 0.0,
+        "num_cuotas": (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 12),
+        "multiplicador": float(b.talonera.multiplicador or 1.0) if b.talonera else 1.0,
+        "talonera_id": b.talonera_id if b.talonera else None,
+        "pool": False,
+    }
+    holder = b.vendedor.nombre if (b.vendedor_id and b.vendedor) else None
+    return JSONResponse({"ok": True, "item": item, "holder": holder})
+
+
 @router.post("/{vid}/liquidar")
 async def liquidar(
     vid: int,
@@ -1305,6 +1352,34 @@ async def liquidar(
             models.Boleta.condicion == CondicionBoleta.CAJA,
             models.Boleta.liquidacion_vendedor_id.is_(None),
         ).all()
+
+    # ── Números agregados desde otra caja (botón "Agregar número de otra caja") ──
+    # `pull_ids` son boletas que hoy están en la caja de OTRO vendedor (o sin registrar)
+    # y que el operador eligió traer a esta liquidación. Acá se REASIGNAN a este
+    # vendedor (se "sacan" del que las tenía) y se suman a la selección. Se revalida
+    # server-side: no vendidas, no liquidadas por nadie, y solo taloneras COMUN.
+    pull_ids = []
+    for x in form.getlist("pull_ids"):
+        try:
+            pull_ids.append(int(str(x).strip()))
+        except (ValueError, TypeError):
+            continue
+    pull_ids = [i for i in pull_ids if i in boleta_ids]
+    if pull_ids:
+        _existing = {b.id for b in boletas_sel}
+        _pulled = db.query(models.Boleta).filter(
+            models.Boleta.id.in_(pull_ids),
+            models.Boleta.comprador_id.is_(None),
+            models.Boleta.liquidacion_vendedor_id.is_(None),
+        ).all()
+        for _pb in _pulled:
+            if _pb.id in _existing:
+                continue
+            if _pb.talonera and (_pb.talonera.tipo or "COMUN") != "COMUN":
+                continue  # los pool CONTADO no se agregan por acá
+            _pb.vendedor_id = vid          # se saca del que la tenía
+            _pb.condicion = CondicionBoleta.CAJA
+            boletas_sel.append(_pb)
 
     if (not boletas_sel and not pool_ids
             and cuotas_extras_cantidad == 0 and cuotas_extras_p0_cantidad == 0):
