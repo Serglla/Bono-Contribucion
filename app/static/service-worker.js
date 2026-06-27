@@ -11,7 +11,7 @@
  * Para forzar actualización en clientes: subir CACHE_VERSION.
  */
 
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const STATIC_CACHE  = `bonos-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `bonos-runtime-${CACHE_VERSION}`;
 const SYNC_TAG      = "bonos-offline-queue";
