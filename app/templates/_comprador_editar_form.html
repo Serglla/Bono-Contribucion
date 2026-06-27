@@ -18,7 +18,18 @@
   <div class="mb-3">
     <label class="form-label fw-semibold text-danger mb-1" style="font-size:.8rem;">BOLETAS ASIGNADAS</label>
     {% for b in comprador.boletas %}
-    {% set _mod = '1pago' if (b.numero_especial and b.numero_especial_2) else ('2pagos' if b.numero_especial_2 else 'cuotas') %}
+    {# Modalidad de pago derivada del estado de la boleta.
+       Detección de "contado" (pagó todo de una): por modalidad_liquidacion del
+       vendedor O porque entró con todas las cuotas anticipadas (anticipadas >=
+       pactadas). En ese caso pre-seleccionamos 1pago/2pagos para que los
+       selectores de sorteo especial aparezcan solos (antes solo se activaban si
+       el número ya estaba asignado, y los números llegan después). #}
+    {% set _es_contado_liq = (b.modalidad_liquidacion in ('contado', 'contado2'))
+         or ((b.cuotas_anticipadas or 0) >= (b.cuotas_pactadas or 0) and (b.cuotas_pactadas or 0) > 0) %}
+    {% set _mod = '1pago' if (b.numero_especial and b.numero_especial_2)
+         else ('2pagos' if b.numero_especial_2
+         else ('2pagos' if b.modalidad_liquidacion == 'contado2'
+         else ('1pago' if _es_contado_liq else 'cuotas'))) %}
     <div class="boleta-wrap mb-2 border rounded bg-light">
       <div class="d-flex align-items-center gap-2 px-2 py-1 flex-wrap">
         <span class="badge bg-dark">{{ "%04d" % b.numero_principal }}</span>

@@ -706,10 +706,11 @@ document.querySelectorAll('.input-upper').forEach(el => {
           <!-- Boleta -->
           <div class="card border-danger border-2 rounded-3 p-3 mb-3 bg-light">
             <label class="form-label fw-bold text-danger mb-1">N° de boleta <span class="text-danger">*</span></label>
-            <div class="input-group" style="max-width:280px;">
+            <div class="input-group input-group-lg" style="max-width:380px;">
               <input type="number" id="nuevoBoleta_num" class="form-control form-control-lg fw-bold"
+                     style="font-size:1.4rem; letter-spacing:.05em;"
                      placeholder="ej: 0001">
-              <button class="btn btn-danger" type="button" id="nuevoBtnBuscar">
+              <button class="btn btn-danger px-3" type="button" id="nuevoBtnBuscar">
                 <i class="bi bi-search"></i>
               </button>
             </div>
@@ -725,6 +726,35 @@ document.querySelectorAll('.input-upper').forEach(el => {
               <span id="nuevoBoletaYaTiene" class="text-warning small ms-2 d-none">
                 <i class="bi bi-exclamation-triangle-fill"></i> Ya tiene socio asignado
               </span>
+            </div>
+
+            <!-- Sorteo especial CONTADO / CONTADO 2 VECES (solo si la boleta es al contado) -->
+            <div id="nuevoContadoBlock" class="mt-3 pt-2 border-top d-none">
+              <div class="small fw-semibold text-warning-emphasis mb-1">
+                <i class="bi bi-star-fill text-warning"></i> Números de sorteo especial
+                <span class="text-muted fw-normal">— opcional, cargalos si ya los tenés</span>
+              </div>
+              <div id="nuevoContadoStatus" class="small text-muted mb-1"></div>
+              <div class="row g-2">
+                <div class="col-md-6" id="nuevoSlot1">
+                  <label class="form-label small mb-1 fw-semibold text-warning-emphasis">
+                    <i class="bi bi-star-fill text-warning"></i> CONTADO
+                  </label>
+                  <div class="d-flex gap-1">
+                    <select class="form-select form-select-sm" id="nuevoSel1Tal" name="te1"></select>
+                    <select class="form-select form-select-sm" id="nuevoSel1Num" name="ne1"></select>
+                  </div>
+                </div>
+                <div class="col-md-6" id="nuevoSlot2">
+                  <label class="form-label small mb-1 fw-semibold text-warning-emphasis">
+                    <i class="bi bi-star-fill text-warning"></i><i class="bi bi-star-fill text-warning"></i> CONTADO 2 VECES
+                  </label>
+                  <div class="d-flex gap-1">
+                    <select class="form-select form-select-sm" id="nuevoSel2Tal" name="te2"></select>
+                    <select class="form-select form-select-sm" id="nuevoSel2Num" name="ne2"></select>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -773,12 +803,92 @@ document.querySelectorAll('.input-upper').forEach(el => {
     const yaTiene   = document.getElementById('nuevoBoletaYaTiene');
     const hidden    = document.getElementById('nuevoBoleta_id');
 
+    // ── Sorteo especial CONTADO en el alta (slots opcionales) ──────────────
+    function _fmtN(n, nd) { return String(n).padStart(nd || 3, '0'); }
+    function _fillTal(sel, taloneras) {
+      sel.innerHTML = '';
+      const o0 = document.createElement('option');
+      o0.value = ''; o0.textContent = '— talonera —';
+      sel.appendChild(o0);
+      for (const t of taloneras) {
+        const o = document.createElement('option');
+        o.value = String(t.id);
+        const cnt = (t.numeros_libres || []).length;
+        o.textContent = t.nombre + (cnt ? ` (${cnt} libres)` : ' (sin libres)');
+        o._nums = t.numeros_libres || [];
+        o._nd = t.num_digitos || 3;
+        sel.appendChild(o);
+      }
+    }
+    function _fillNums(selTal, selNum) {
+      selNum.innerHTML = '';
+      const o0 = document.createElement('option');
+      o0.value = ''; o0.textContent = '— número —';
+      selNum.appendChild(o0);
+      const opt = selTal.options[selTal.selectedIndex];
+      if (!opt || !opt._nums) return;
+      const nd = opt._nd;
+      for (const n of opt._nums) {
+        const o = document.createElement('option');
+        o.value = String(n); o.textContent = _fmtN(n, nd);
+        selNum.appendChild(o);
+      }
+    }
+    function resetContadoBlock() {
+      const blk = document.getElementById('nuevoContadoBlock');
+      if (blk) blk.classList.add('d-none');
+      ['nuevoSel1Tal', 'nuevoSel1Num', 'nuevoSel2Tal', 'nuevoSel2Num'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.innerHTML = '';
+      });
+      const st = document.getElementById('nuevoContadoStatus');
+      if (st) st.innerHTML = '';
+    }
+    async function cargarContado(boletaId, modLiq) {
+      const blk   = document.getElementById('nuevoContadoBlock');
+      const slot1 = document.getElementById('nuevoSlot1');
+      const status = document.getElementById('nuevoContadoStatus');
+      const s1t = document.getElementById('nuevoSel1Tal');
+      const s1n = document.getElementById('nuevoSel1Num');
+      const s2t = document.getElementById('nuevoSel2Tal');
+      const s2n = document.getElementById('nuevoSel2Num');
+      if (!blk) return;
+      blk.classList.remove('d-none');
+      // 2 pagos (contado2) → solo el slot CONTADO 2 VECES
+      const solo2 = (modLiq === 'contado2');
+      slot1.classList.toggle('d-none', solo2);
+      status.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Cargando pool del vendedor…';
+      let data;
+      try {
+        const r = await fetch(`/compradores/boleta/${boletaId}/contado-disponibles`, { credentials: 'include' });
+        data = await r.json();
+      } catch (e) {
+        status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error de red cargando pool'; return;
+      }
+      if (!data.ok) {
+        status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> ' + (data.error || ''); return;
+      }
+      if (!data.vendedor_id) {
+        status.innerHTML = '<i class="bi bi-info-circle"></i> Sin vendedor — no se puede asignar número de sorteo.'; return;
+      }
+      status.innerHTML = `<i class="bi bi-person-fill"></i> Pool de <strong>${data.vendedor_nombre || ''}</strong> · elegí el/los número(s) si ya los tenés`;
+      const tCONTADO  = data.taloneras_contado.filter(t => t.rol === 'CONTADO' || t.rol === 'OTRO');
+      const tCONTADO2 = data.taloneras_contado.filter(t => t.rol === 'CONTADO_2');
+      _fillTal(s1t, tCONTADO);
+      _fillTal(s2t, tCONTADO2);
+      s1t.onchange = () => _fillNums(s1t, s1n);
+      s2t.onchange = () => _fillNums(s2t, s2n);
+      _fillNums(s1t, s1n);
+      _fillNums(s2t, s2n);
+    }
+    window._resetContadoBlockNuevo = resetContadoBlock;
+
     function buscar() {
       const num = inputNum.value.trim();
       if (!num) return;
       errorDiv.classList.add('d-none');
       infoDiv.classList.add('d-none');
       hidden.value = '';
+      resetContadoBlock();
       fetch(`/taloneras/buscar-boleta/${num}`)
         .then(r => { if (!r.ok) throw new Error(); return r.json(); })
         .then(b => {
@@ -830,13 +940,19 @@ document.querySelectorAll('.input-upper').forEach(el => {
                   ? 'badge bg-warning text-dark ms-2'
                   : 'badge bg-primary ms-2');
               }
-            } else if (window._prefillContadoPrevio) {
-              // Boleta normal después de una contado: restaurar las cuotas pactadas
-              // del operador y dejar "Cuotas al contado" en 1 (default seguro).
-              cuotasInp.value = window._prefillContadoPrevio.cuotas;
-              cuotasInp.dispatchEvent(new Event('input'));
-              antInp.value = '1';
-              window._prefillContadoPrevio = null;
+              // Mostrar y poblar los selectores de sorteo especial (opcionales)
+              cargarContado(b.id, modLiq);
+            } else {
+              // Boleta en cuotas: ocultar el bloque de sorteo especial
+              resetContadoBlock();
+              if (window._prefillContadoPrevio) {
+                // Boleta normal después de una contado: restaurar las cuotas pactadas
+                // del operador y dejar "Cuotas al contado" en 1 (default seguro).
+                cuotasInp.value = window._prefillContadoPrevio.cuotas;
+                cuotasInp.dispatchEvent(new Event('input'));
+                antInp.value = '1';
+                window._prefillContadoPrevio = null;
+              }
             }
 
             // Auto-completar vendedor desde la liquidación (prioridad máxima, pisa la zona)
@@ -996,6 +1112,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     document.getElementById('nuevoBoletaInfo').classList.add('d-none');
     document.getElementById('nuevoBoletaError').classList.add('d-none');
     document.getElementById('nuevoBoletaRequerida').classList.add('d-none');
+    if (window._resetContadoBlockNuevo) window._resetContadoBlockNuevo();
     // "Cuotas al contado" vuelve siempre a 1 para el próximo socio
     document.getElementById('anticipadasInput').value = '1';
     window._prefillContadoPrevio = null;

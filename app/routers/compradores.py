@@ -570,6 +570,10 @@ async def crear(
     vendedor_id: Optional[int] = Form(None),
     cuotas_pactadas: Optional[int] = Form(None),
     cuotas_anticipadas: Optional[int] = Form(None),
+    te1: Optional[str] = Form(None),   # talonera_especial_id   (CONTADO)
+    ne1: Optional[str] = Form(None),   # numero_especial         (CONTADO)
+    te2: Optional[str] = Form(None),   # talonera_especial_2_id (CONTADO 2 VECES)
+    ne2: Optional[str] = Form(None),   # numero_especial_2       (CONTADO 2 VECES)
     db: Session = Depends(get_db)
 ):
     _perm_user = await auth_module.require_user(request, db)
@@ -631,6 +635,41 @@ async def crear(
                 ant = cuotas_anticipadas if cuotas_anticipadas and cuotas_anticipadas > 0 else 1
             b.cuotas_anticipadas = ant
             b.cuotas_pagadas = ant   # las cuotas anticipadas ya están cobradas
+
+            # ── Números de sorteo especial (CONTADO / CONTADO 2 VECES) ──────
+            # Vienen del modal Nuevo Socio cuando la boleta es al contado. Son
+            # opcionales (los números llegan después, en talonarios de 5). Solo
+            # se asignan si el número está libre (no usado por otra boleta).
+            def _pi(x):
+                try:
+                    v = int(x)
+                    return v if v > 0 else None
+                except (ValueError, TypeError):
+                    return None
+
+            def _esp_libre(num, tal_id):
+                if not num or not tal_id:
+                    return False
+                q = db.query(models.Boleta).filter(
+                    models.Boleta.id != b.id,
+                    (
+                        ((models.Boleta.talonera_especial_id == tal_id) &
+                         (models.Boleta.numero_especial == num)) |
+                        ((models.Boleta.talonera_especial_2_id == tal_id) &
+                         (models.Boleta.numero_especial_2 == num))
+                    ),
+                ).first()
+                return q is None
+
+            _te1, _ne1 = _pi(te1), _pi(ne1)
+            _te2, _ne2 = _pi(te2), _pi(ne2)
+            if _te1 and _ne1 and _esp_libre(_ne1, _te1):
+                b.numero_especial = _ne1
+                b.talonera_especial_id = _te1
+            if _te2 and _ne2 and _esp_libre(_ne2, _te2):
+                b.numero_especial_2 = _ne2
+                b.talonera_especial_2_id = _te2
+
             # Auto-asignar cobrador según la zona del comprador,
             # SOLO si la boleta tiene cuotas pendientes para cobrar.
             # Las "al contado" (cuotas_pagadas >= cuotas_pactadas) NO necesitan
