@@ -408,6 +408,28 @@ class EntregaPremio(Base):
     boleta = relationship("Boleta")
 
 
+class HabilitacionSorteo(Base):
+    """Override manual de habilitacion para cobrar un premio.
+
+    Por defecto la habilitacion se calcula al vuelo: un ganador esta habilitado
+    si pago al menos una cuota en el mes del sorteo, o si la boleta se vendio en
+    ese mismo mes antes del sorteo. Esta tabla permite forzar el resultado por
+    EXCEPCION (ej: habilitar a un socio que pago fuera de termino o por caja).
+
+    Una fila (sorteo_id, boleta_id) reemplaza el calculo automatico:
+      - habilitado = True  -> habilitado manualmente (excepcion)
+      - habilitado = False -> deshabilitado manualmente
+    Si no hay fila, manda el calculo automatico.
+    """
+    __tablename__ = "habilitaciones_sorteo"
+    id          = Column(Integer, primary_key=True, index=True)
+    sorteo_id   = Column(Integer, ForeignKey("sorteos.id"), nullable=False, index=True)
+    boleta_id   = Column(Integer, ForeignKey("boletas.id"), nullable=False, index=True)
+    habilitado  = Column(Boolean, default=True)
+    motivo      = Column(String, nullable=True)
+    created_at  = Column(DateTime, server_default=func.now())
+
+
 class ConfigBono(Base):
     """Par clave/valor para configuracion global del bono (ej: pago_mensual_bomberos)."""
     __tablename__ = "config_bono"
@@ -462,6 +484,11 @@ class EntregaCobrador(Base):
     mes         = Column(Integer, nullable=False)   # período de cobranza al que aplica
     anio        = Column(Integer, nullable=False)
     monto       = Column(Float, default=0.0)
+    # tipo de entrega: "EFECTIVO" (adelanto de plata) o "PREMIO" (premio/gasto que el
+    # cobrador pagó por cuenta de la institución). Ambos bajan el saldo a entregar,
+    # pero se muestran separados. El costo del premio para la ganancia se cuenta en
+    # el módulo Sorteos/Premios, NO acá (para no duplicar).
+    tipo        = Column(String, default="EFECTIVO")
     observacion = Column(String, nullable=True)
     created_at  = Column(DateTime, server_default=func.now())
     cobrador    = relationship("Cobrador")

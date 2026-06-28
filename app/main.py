@@ -420,6 +420,21 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion tipo entregas_caja: {e}")
 
+        # Migrar columna tipo en entregas_cobrador (EFECTIVO | PREMIO)
+        # EFECTIVO = adelanto de plata; PREMIO = premio/gasto pagado por el cobrador
+        # por cuenta de la institución. Ambos bajan el saldo; se muestran separados.
+        try:
+            if "entregas_cobrador" in inspector.get_table_names():
+                cols_ecob = [c["name"] for c in inspector.get_columns("entregas_cobrador")]
+                if "tipo" not in cols_ecob:
+                    db.execute(text("ALTER TABLE entregas_cobrador ADD COLUMN tipo VARCHAR DEFAULT 'EFECTIVO'"))
+                    db.execute(text("UPDATE entregas_cobrador SET tipo = 'EFECTIVO' WHERE tipo IS NULL"))
+                    db.commit()
+                    print("Migracion tipo entregas_cobrador: columna creada OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion tipo entregas_cobrador: {e}")
+
         # Crear tabla liquidaciones_vendedor
         try:
             if "liquidaciones_vendedor" not in inspector.get_table_names():

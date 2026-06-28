@@ -53,7 +53,11 @@
           <td class="text-end">{% if f.monto %}{{ f.monto | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end text-muted">{% if f.comision %}{{ f.comision | pesos }}{% else %}—{% endif %}</td>
           <td class="text-end">{% if f.neto %}{{ f.neto | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-          <td class="text-end text-success">{% if f.total_adelantos %}{{ f.total_adelantos | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end text-success">
+            {% if f.total_adelantos %}{{ f.total_adelantos | pesos }}
+              {% if f.adel_premio %}<div class="text-muted" style="font-size:.72rem;">Efvo {{ f.adel_efectivo | pesos }} · Premios {{ f.adel_premio | pesos }}</div>{% endif %}
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
           <td class="text-end fw-bold {% if f.saldo < 0 %}text-danger{% endif %}">{{ f.saldo | pesos }}</td>
           <td class="text-center">
             {% if f.monto or f.total_adelantos %}
@@ -72,7 +76,9 @@
           <td class="text-end">{{ totales.monto | pesos }}</td>
           <td class="text-end">{{ totales.comision | pesos }}</td>
           <td class="text-end">{{ totales.neto | pesos }}</td>
-          <td class="text-end text-success">{{ totales.total_adelantos | pesos }}</td>
+          <td class="text-end text-success">{{ totales.total_adelantos | pesos }}
+            {% if totales.adel_premio %}<div class="text-muted fw-normal" style="font-size:.72rem;">Efvo {{ totales.adel_efectivo | pesos }} · Premios {{ totales.adel_premio | pesos }}</div>{% endif %}
+          </td>
           <td class="text-end {% if totales.saldo < 0 %}text-danger{% endif %}">{{ totales.saldo | pesos }}</td>
           <td></td>
         </tr>

@@ -52,9 +52,16 @@
       <label class="form-label small mb-0">Monto $</label>
       <input type="number" step="0.01" min="0" name="monto" class="form-control form-control-sm" required>
     </div>
+    <div class="col-md-2">
+      <label class="form-label small mb-0">Tipo</label>
+      <select name="tipo" class="form-select form-select-sm">
+        <option value="EFECTIVO" selected>Efectivo</option>
+        <option value="PREMIO">Premio / gasto x institución</option>
+      </select>
+    </div>
     <div class="col-md-3">
       <label class="form-label small mb-0">Observación</label>
-      <input type="text" name="observacion" class="form-control form-control-sm" placeholder="opcional">
+      <input type="text" name="observacion" class="form-control form-control-sm" placeholder="opcional (ej: Premio 4 cifras a...)">
     </div>
     <input type="hidden" name="mes" value="{{ mes }}">
     <input type="hidden" name="anio" value="{{ anio }}">
@@ -68,21 +75,27 @@
 <div class="sec-card mb-4">
   <div class="sec-header"><i class="bi bi-cash-stack"></i>Adelantos de {{ mes_nombre }} {{ anio }}
     <span class="ms-auto fw-semibold">Total: {{ total_general | pesos }}</span>
+    {% if total_premio %}<span class="ms-2 text-muted fw-normal" style="font-size:.8rem;">(Efectivo {{ total_efectivo | pesos }} · Premios/gastos {{ total_premio | pesos }})</span>{% endif %}
   </div>
   <div class="table-responsive">
     <table class="table table-hover table-sm align-middle mb-0 card-table">
       <thead>
         <tr>
-          <th>Cobrador</th><th>Fecha</th><th class="text-end">Monto</th>
+          <th>Cobrador</th><th>Fecha</th><th>Tipo</th><th class="text-end">Monto</th>
           <th>Observación</th><th class="text-center" style="width:120px">Acciones</th>
         </tr>
       </thead>
       <tbody>
         {% for a in adelantos %}
+        {% set _es_premio = (a.tipo or 'EFECTIVO')|upper == 'PREMIO' %}
         <tr>
           <td class="fw-semibold">{{ nombres.get(a.cobrador_id, '—') }}</td>
           <td>{{ a.fecha.strftime('%d/%m/%Y') }}</td>
-          <td class="text-end fw-semibold text-success">{{ a.monto | pesos }}</td>
+          <td>
+            {% if _es_premio %}<span class="badge bg-warning text-dark"><i class="bi bi-trophy me-1"></i>Premio/Gasto</span>
+            {% else %}<span class="badge bg-success-subtle text-success border border-success-subtle">Efectivo</span>{% endif %}
+          </td>
+          <td class="text-end fw-semibold {% if _es_premio %}text-warning-emphasis{% else %}text-success{% endif %}">{{ a.monto | pesos }}</td>
           <td class="text-muted">{{ a.observacion or '' }}</td>
           <td class="text-center">
             <a href="/cobranza/adelantos/{{ a.id }}/recibo" target="_blank" class="btn btn-sm btn-outline-secondary" title="Recibo"><i class="bi bi-file-earmark-text"></i></a>
@@ -94,17 +107,20 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-center text-muted py-3">Sin adelantos en este período</td></tr>
+        <tr><td colspan="6" class="text-center text-muted py-3">Sin adelantos en este período</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  {% if total_por_cob %}
+  {% if desglose_por_cob %}
   <div class="px-3 pb-3">
     <div class="small text-muted mb-1 mt-2">Total por cobrador:</div>
     <div class="d-flex flex-wrap gap-2">
-      {% for cid, tot in total_por_cob.items() %}
-      <span class="badge bg-light text-dark border">{{ nombres.get(cid, '—') }}: {{ tot | pesos }}</span>
+      {% for cid, d in desglose_por_cob.items() %}
+      <span class="badge bg-light text-dark border">
+        {{ nombres.get(cid, '—') }}: <strong>{{ d.total | pesos }}</strong>
+        {% if d.premio %}<span class="text-muted">· Efvo {{ d.efectivo | pesos }} · Premios {{ d.premio | pesos }}</span>{% endif %}
+      </span>
       {% endfor %}
     </div>
   </div>

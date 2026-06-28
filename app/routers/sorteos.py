@@ -148,6 +148,15 @@ async def extracto_mes(
         models.Boleta.fecha_venta < fecha_max,
     ).all()
 
+    # Overrides manuales de habilitación del mes (clave (sorteo_id, boleta_id))
+    sorteo_ids = [s.id for s in sorteos]
+    overrides = {
+        (h.sorteo_id, h.boleta_id): h
+        for h in db.query(models.HabilitacionSorteo).filter(
+            models.HabilitacionSorteo.sorteo_id.in_(sorteo_ids)
+        ).all()
+    }
+
     # Agrupar sorteos por tipo
     sorteos_por_tipo: dict = {}
     for s in sorteos:
@@ -210,7 +219,7 @@ async def extracto_mes(
                             for n in candidatos:
                                 bol4 = f"{n:04d}"
                                 if bol4[-c:] == sufijo:
-                                    ganadores_dict[b.id] = _build_ganador(b, bol4, c, s.fecha)
+                                    ganadores_dict[b.id] = _build_ganador(b, bol4, c, s, overrides.get((s.id, b.id)))
                                     break
                         else:
                             # Excluir boletas de talonera CONTADO (pool, no son boletas reales)
@@ -222,7 +231,7 @@ async def extracto_mes(
                             for n in _numeros_boleta(b):
                                 bol4 = f"{n:04d}"
                                 if bol4[-c:] == sufijo:
-                                    ganadores_dict[b.id] = _build_ganador(b, bol4, c, s.fecha)
+                                    ganadores_dict[b.id] = _build_ganador(b, bol4, c, s, overrides.get((s.id, b.id)))
                                     break
 
         # Ordenar premios por fecha y posición
@@ -239,6 +248,7 @@ async def extracto_mes(
             "premios": premios,
             "ganadores": ganadores_lista,
             "total_ganadores": len(ganadores_lista),
+            "total_habilitados": sum(1 for g in ganadores_lista if g["habilitado"]),
             "cifras_label": cifras_label,
         })
 
@@ -289,6 +299,7 @@ async def informe_mes(
                 if not f["es_ganador_valido"]:
                     continue
                 ganadores.append({
+                    "boleta_id": f["boleta_id"],
                     "nombre": f["comprador"],
                     "numero": f["num_match"],
                     "cifras": g["cifras"],
@@ -297,6 +308,9 @@ async def informe_mes(
                     "vendedor": f["vendedor"],
                     "cobrador": f["cobrador"],
                     "fecha_venta": f["fecha_venta"],
+                    "habilitado": f["habilitado"],
+                    "habilitado_motivo": f["habilitado_motivo"],
+                    "habilitado_manual": f["habilitado_manual"],
                 })
         # Orden: cifras desc, posición del premio, nombre
         ganadores.sort(key=lambda x: (-x["cifras"], x["posicion"], x["nombre"] or ""))
@@ -317,6 +331,7 @@ async def informe_mes(
             "numeros_ganadores": [str(n).zfill(4) for n in numeros],
             "ganadores": ganadores,
             "total_ganadores": len(ganadores),
+            "total_habilitados": sum(1 for g in ganadores if g["habilitado"]),
         })
         total_ganadores_mes += len(ganadores)
 
@@ -331,6 +346,122 @@ async def informe_mes(
     })
 
 
+def _vista_redirect(vista: str, year: int, month: int) -> str:
+    """Devuelve la URL de la vista desde la que se editó (informe o extracto)."""
+    vista = vista if vista in ("informe", "extracto") else "informe"
+    return f"/sorteos/{vista}/{year}/{month}"
+
+
+@router.post("/habilitar")
+async def habilitar_manual(
+    request: Request,
+    sorteo_id: int = Form(...),
+    boleta_id: int = Form(...),
+    habilitado: int = Form(1),
+    motivo: str = Form(""),
+    year: int = Form(...),
+    month: int = Form(...),
+    vista: str = Form("informe"),
+    db: Session = Depends(get_db),
+):
+    """Crea/actualiza un override manual de habilitación para un ganador (excepción).
+
+    Se usa para habilitar (o deshabilitar) a mano un ganador desde el informe
+    o el extracto.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    over = db.query(models.HabilitacionSorteo).filter(
+        models.HabilitacionSorteo.sorteo_id == sorteo_id,
+        models.HabilitacionSorteo.boleta_id == boleta_id,
+    ).first()
+    if over is None:
+        over = models.HabilitacionSorteo(sorteo_id=sorteo_id, boleta_id=boleta_id)
+        db.add(over)
+    over.habilitado = bool(habilitado)
+    over.motivo = (motivo or "").strip() or None
+    db.commit()
+
+    return RedirectResponse(_vista_redirect(vista, year, month), status_code=302)
+
+
+@router.post("/habilitar/quitar")
+async def habilitar_quitar(
+    request: Request,
+    sorteo_id: int = Form(...),
+    boleta_id: int = Form(...),
+    year: int = Form(...),
+    month: int = Form(...),
+    vista: str = Form("informe"),
+    db: Session = Depends(get_db),
+):
+    """Quita el override manual y vuelve al cálculo automático de habilitación."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    db.query(models.HabilitacionSorteo).filter(
+        models.HabilitacionSorteo.sorteo_id == sorteo_id,
+        models.HabilitacionSorteo.boleta_id == boleta_id,
+    ).delete()
+    db.commit()
+
+    return RedirectResponse(_vista_redirect(vista, year, month), status_code=302)
+
+
+def _habilitacion_boleta(boleta, sorteo, override=None):
+    """Determina si un ganador está HABILITADO para cobrar el premio.
+
+    Regla (definida con Sergio): un número queda habilitado para el sorteo de un
+    mes si se cumple AL MENOS UNA de estas condiciones:
+      1) Pagó al menos una cuota en el mes del sorteo (aunque deba meses
+         anteriores) → figura en `historial_cuotas` un pago con mes == mes sorteo.
+      2) Se vendió en el mismo mes del sorteo, antes de la fecha del sorteo.
+
+    Un `override` (fila HabilitacionSorteo) reemplaza el cálculo automático por
+    excepción manual.
+
+    Devuelve (habilitado: bool, motivo: str, manual: bool).
+    """
+    mes_sorteo = sorteo.fecha.month
+
+    # 1) Pagó alguna cuota en el mes del sorteo
+    pago_mes = False
+    if boleta.historial_cuotas:
+        try:
+            _hist = json.loads(boleta.historial_cuotas)
+            pago_mes = any(int(v) == mes_sorteo for v in _hist.values())
+        except Exception:
+            pago_mes = False
+
+    # 2) Vendida en el mismo mes/año del sorteo, antes de la fecha del sorteo
+    vendida_en_mes = (
+        boleta.fecha_venta is not None
+        and boleta.fecha_venta.year == sorteo.fecha.year
+        and boleta.fecha_venta.month == mes_sorteo
+        and boleta.fecha_venta < sorteo.fecha
+    )
+
+    if pago_mes:
+        auto_ok, auto_motivo = True, "Pagó cuota del mes"
+    elif vendida_en_mes:
+        auto_ok, auto_motivo = True, "Vendida en el mes (antes del sorteo)"
+    else:
+        auto_ok, auto_motivo = False, "No registra pago en el mes del sorteo"
+
+    # Override manual (excepción) tiene prioridad
+    if override is not None:
+        if override.habilitado:
+            motivo = override.motivo or "Habilitado manualmente (excepción)"
+        else:
+            motivo = override.motivo or "Deshabilitado manualmente"
+        return bool(override.habilitado), motivo, True
+
+    return auto_ok, auto_motivo, False
+
+
 def _numeros_boleta(b) -> List[int]:
     """Todos los números jugables de una boleta: el principal + los adicionales."""
     nums = [b.numero_principal]
@@ -342,16 +473,22 @@ def _numeros_boleta(b) -> List[int]:
     return nums
 
 
-def _build_ganador(b, numero_match: str, cifras_match: int, fecha_sorteo: date_type) -> dict:
+def _build_ganador(b, numero_match: str, cifras_match: int, sorteo, override=None) -> dict:
     nombre = (b.comprador.apellido_nombre or "").strip().upper() if b.comprador else ""
     direccion = (b.comprador.direccion or "").strip().upper() if b.comprador else ""
+    # Misma habilitación que el informe (control de pago del mes / venta en el mes)
+    habilitado, hab_motivo, hab_manual = _habilitacion_boleta(b, sorteo, override)
     return {
         "boleta_id": b.id,
+        "sorteo_id": sorteo.id,
         "nombre": nombre,
         "direccion": direccion,
         "numero_match": numero_match,
         "cifras_match": cifras_match,
-        "fecha_sorteo": fecha_sorteo,
+        "fecha_sorteo": sorteo.fecha,
+        "habilitado": habilitado,
+        "habilitado_motivo": hab_motivo,
+        "habilitado_manual": hab_manual,
     }
 
 
@@ -583,6 +720,14 @@ def _calcular_grupos_ganadores(s, db):
         joinedload(models.Boleta.talonera),
     ).all()
 
+    # Overrides manuales de habilitación para este sorteo (excepciones)
+    overrides = {
+        h.boleta_id: h
+        for h in db.query(models.HabilitacionSorteo).filter(
+            models.HabilitacionSorteo.sorteo_id == s.id
+        ).all()
+    }
+
     # Construir índice: suffix_map[n_cifras][sufijo] = [(boleta, numero_entero), ...]
     suffix_map = {n: {} for n in cifras_list}
     for boleta in boletas:
@@ -628,6 +773,14 @@ def _calcular_grupos_ganadores(s, db):
                 # Tiene socio pero comprada el día del sorteo o después (o sin fecha): no cuenta.
                 posterior = tiene_socio and not es_valido
 
+                # Habilitación para cobrar (control de pago del mes / venta en el mes)
+                if es_valido:
+                    habilitado, hab_motivo, hab_manual = _habilitacion_boleta(
+                        boleta, s, overrides.get(boleta.id)
+                    )
+                else:
+                    habilitado, hab_motivo, hab_manual = False, "Comprada el día del sorteo o después", False
+
                 filas.append({
                     "boleta_id": boleta.id,
                     "talonera": boleta.talonera.nombre if boleta.talonera else "—",
@@ -641,6 +794,9 @@ def _calcular_grupos_ganadores(s, db):
                     "fecha_venta": boleta.fecha_venta.strftime("%d/%m/%Y") if boleta.fecha_venta else None,
                     "es_ganador_valido": es_valido,
                     "posterior": posterior,
+                    "habilitado": habilitado,
+                    "habilitado_motivo": hab_motivo,
+                    "habilitado_manual": hab_manual,
                 })
 
             # Marcar estos como adjudicados para que no aparezcan en niveles inferiores

@@ -1036,19 +1036,33 @@ async def adelantos_index(request: Request, db: Session = Depends(get_db),
                            models.EntregaCobrador.id.desc())
                  .all())
     nombres = {c.id: c.nombre for c in cobradores}
-    total_por_cob = {}
+    # Desglose por cobrador con corte por tipo (efectivo vs premio/gasto)
+    desglose_por_cob = {}
     total_general = 0.0
+    total_efectivo = 0.0
+    total_premio = 0.0
     for a in adelantos:
-        total_por_cob[a.cobrador_id] = total_por_cob.get(a.cobrador_id, 0.0) + float(a.monto or 0)
-        total_general += float(a.monto or 0)
+        m = float(a.monto or 0)
+        es_premio = (a.tipo or "EFECTIVO").upper() == "PREMIO"
+        d = desglose_por_cob.setdefault(a.cobrador_id, {"efectivo": 0.0, "premio": 0.0, "total": 0.0})
+        d["total"] += m
+        total_general += m
+        if es_premio:
+            d["premio"] += m
+            total_premio += m
+        else:
+            d["efectivo"] += m
+            total_efectivo += m
 
     return templates.TemplateResponse(request, "cobranza_adelantos.html", {
         "user": user,
         "cobradores": cobradores,
         "adelantos": adelantos,
         "nombres": nombres,
-        "total_por_cob": total_por_cob,
+        "desglose_por_cob": desglose_por_cob,
         "total_general": total_general,
+        "total_efectivo": total_efectivo,
+        "total_premio": total_premio,
         "mes": mes, "anio": anio,
         "mes_nombre": MESES[mes - 1],
         "hoy_iso": hoy.isoformat(),
@@ -1062,6 +1076,7 @@ async def adelantos_crear(request: Request,
                           mes: int = Form(...),
                           anio: int = Form(...),
                           monto: float = Form(...),
+                          tipo: str = Form(default="EFECTIVO"),
                           observacion: str = Form(default=""),
                           db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
@@ -1071,6 +1086,9 @@ async def adelantos_crear(request: Request,
         _fecha = date.fromisoformat(fecha)
     except (ValueError, TypeError):
         _fecha = date.today()
+    _tipo = (tipo or "EFECTIVO").strip().upper()
+    if _tipo not in ("EFECTIVO", "PREMIO"):
+        _tipo = "EFECTIVO"
     if monto and monto > 0:
         db.add(models.EntregaCobrador(
             cobrador_id=cobrador_id,
@@ -1078,6 +1096,7 @@ async def adelantos_crear(request: Request,
             mes=int(mes),
             anio=int(anio),
             monto=float(monto),
+            tipo=_tipo,
             observacion=(observacion or "").strip() or None,
         ))
         db.commit()
@@ -1167,6 +1186,8 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
                  .order_by(models.EntregaCobrador.fecha)
                  .all())
     tot_adel = sum(float(a.monto or 0) for a in adelantos)
+    adel_premio = sum(float(a.monto or 0) for a in adelantos if (a.tipo or "EFECTIVO").upper() == "PREMIO")
+    adel_efectivo = round(tot_adel - adel_premio, 2)
     return {
         "cobrador": cobrador,
         "detalle": detalle,
@@ -1176,6 +1197,8 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
         "comision": round(tot_com, 2),
         "neto": neto,
         "total_adelantos": round(tot_adel, 2),
+        "adel_efectivo": adel_efectivo,
+        "adel_premio": round(adel_premio, 2),
         "saldo": round(neto - tot_adel, 2),
     }
 
@@ -1196,6 +1219,8 @@ async def consolidado_index(request: Request, db: Session = Depends(get_db),
         "comision":         round(sum(f["comision"] for f in filas), 2),
         "neto":             round(sum(f["neto"] for f in filas), 2),
         "total_adelantos":  round(sum(f["total_adelantos"] for f in filas), 2),
+        "adel_efectivo":    round(sum(f["adel_efectivo"] for f in filas), 2),
+        "adel_premio":      round(sum(f["adel_premio"] for f in filas), 2),
         "saldo":            round(sum(f["saldo"] for f in filas), 2),
     }
     return templates.TemplateResponse(request, "cobranza_consolidado.html", {

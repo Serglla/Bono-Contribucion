@@ -59,6 +59,15 @@
   </div>
 {% else %}
 
+<div class="ext-nota-hab d-print-none">
+  <i class="bi bi-shield-check me-1"></i>
+  <strong>Solo se imprimen los ganadores habilitados.</strong>
+  Un ganador queda habilitado cuando pagó al menos una cuota en el mes del sorteo
+  (aunque adeude meses anteriores) o cuando la boleta se vendió en el mismo mes antes
+  del sorteo. Los <span class="badge bg-danger">NO habilitado</span> se muestran acá en
+  gris pero <em>no salen impresos</em>. Usá el lápiz para habilitar una excepción.
+</div>
+
 <!-- Hoja A4 -->
 <div id="hojaExtracto" class="hoja-a4" data-cols="1" data-rows="1" data-size="md">
 
@@ -95,9 +104,12 @@
       {% if bloque.ganadores %}
         <div class="ext-ganadores">
           {% for g in bloque.ganadores %}
-            <div class="ganador-linea">{{ g.nombre }}{% if g.direccion %} - {{ g.direccion }}{% endif %}</div>
+            <div class="ganador-linea {% if not g.habilitado %}ext-no-hab{% endif %}">{{ g.nombre }}{% if g.direccion %} - {{ g.direccion }}{% endif %}<span class="ext-hab-tag d-print-none">{% if g.habilitado %}{% if g.habilitado_manual %}<i class="bi bi-hand-index-thumb text-success" title="Habilitado manualmente"></i>{% endif %}{% else %}<span class="badge bg-danger">NO habilitado</span> <span class="ext-hab-motivo">{{ g.habilitado_motivo }}</span>{% endif %}{% if has_permission(user, 'sorteos', 'editar') %} <button type="button" class="btn btn-link btn-sm p-0 align-baseline ext-hab-btn" onclick="abrirHab({{ g.sorteo_id }}, {{ g.boleta_id }}, '{{ (g.nombre or '')|replace("'", "") }}', '{{ g.numero_match }}', {{ 'true' if g.habilitado else 'false' }}, {{ 'true' if g.habilitado_manual else 'false' }})"><i class="bi bi-pencil-square"></i></button>{% endif %}</span></div>
           {% endfor %}
         </div>
+        {% if bloque.total_habilitados == 0 %}
+          <div class="ext-vacio d-print-none">— Sin ganadores habilitados para imprimir en este bloque —</div>
+        {% endif %}
       {% else %}
         <div class="ext-vacio">— Sin ganadores en este bloque —</div>
       {% endif %}
@@ -106,7 +118,7 @@
       <div class="ext-pie">PEDIDOS Y CONSULTAS AL 3442-484286</div>
 
       <div class="text-muted small text-center mt-2 d-print-none stat-line">
-        {{ bloque.total_ganadores }} ganador{% if bloque.total_ganadores != 1 %}es{% endif %} · {{ bloque.premios|length }} premio{% if bloque.premios|length != 1 %}s{% endif %} cruzado{% if bloque.premios|length != 1 %}s{% endif %}
+        {{ bloque.total_habilitados }} habilitado{% if bloque.total_habilitados != 1 %}s{% endif %} de {{ bloque.total_ganadores }} ganador{% if bloque.total_ganadores != 1 %}es{% endif %} · {{ bloque.premios|length }} premio{% if bloque.premios|length != 1 %}s{% endif %} cruzado{% if bloque.premios|length != 1 %}s{% endif %}
       </div>
     </div>
   </div>
@@ -114,6 +126,54 @@
 
 </div>
 
+{% endif %}
+
+{% if not vacio %}
+<!-- Modal: habilitar / deshabilitar manualmente (excepción) -->
+<div class="modal fade d-print-none" id="modalHab" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="/sorteos/habilitar" id="formHab">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-shield-check me-2"></i>Habilitación manual</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="sorteo_id" id="habSorteoId">
+        <input type="hidden" name="boleta_id" id="habBoletaId">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="month" value="{{ month }}">
+        <input type="hidden" name="vista" value="extracto">
+        <p class="mb-2 small text-muted" id="habGanador"></p>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold mb-1">Estado</label>
+          <select name="habilitado" id="habEstado" class="form-select form-select-sm">
+            <option value="1">Habilitado (excepción)</option>
+            <option value="0">No habilitado</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold mb-1">Motivo (opcional)</label>
+          <input type="text" name="motivo" id="habMotivo" class="form-control form-control-sm"
+                 placeholder="Ej: pagó por caja / fuera de término">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-danger me-auto d-none" id="habQuitar"
+                onclick="quitarHab()">Volver a automático</button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<form method="post" action="/sorteos/habilitar/quitar" id="formQuitarHab" class="d-none">
+  <input type="hidden" name="sorteo_id" id="qSorteoId">
+  <input type="hidden" name="boleta_id" id="qBoletaId">
+  <input type="hidden" name="year" value="{{ year }}">
+  <input type="hidden" name="month" value="{{ month }}">
+  <input type="hidden" name="vista" value="extracto">
+</form>
 {% endif %}
 
 <style>
@@ -241,6 +301,16 @@
   /* La línea de stats sólo tiene sentido en copia única */
   .hoja-a4.multi .stat-line { display: none; }
 
+  /* ─── Habilitación: en pantalla se ven todos; al imprimir solo habilitados ─ */
+  .ext-no-hab { opacity: .5; }
+  .ext-hab-tag { font-family: Arial, Helvetica, sans-serif; font-weight: 400; font-size: .72rem; margin-left: .4rem; white-space: nowrap; }
+  .ext-hab-motivo { color: #888; font-size: .68rem; }
+  .ext-hab-btn { font-size: .72rem; vertical-align: baseline; }
+  .ext-nota-hab {
+    max-width: 210mm; margin: 0 auto .6rem; font-size: .8rem; color: #0c5460;
+    background: #e7f6f8; border: 1px solid #bce0e6; border-radius: 6px; padding: .4rem .7rem;
+  }
+
   /* ─── Print A4 ─────────────────────────────────────────────────── */
   @page {
     size: A4 portrait;
@@ -248,6 +318,9 @@
   }
   @media print {
     .d-print-none { display: none !important; }
+    /* Solo se imprimen los ganadores HABILITADOS */
+    .ext-no-hab { display: none !important; }
+    .ext-hab-tag { display: none !important; }
     /* Ocultar navbar superior (azul) y cualquier barra del layout */
     .topbar, nav.topbar, .navbar.topbar { display: none !important; }
     body { background: #fff !important; padding: 0 !important; margin: 0 !important; }
@@ -350,6 +423,25 @@
       activar('rows', String(filas));
     });
   })();
+
+  // ── Habilitación manual (excepciones) ───────────────────────────
+  function abrirHab(sorteoId, boletaId, nombre, numero, habilitado, manual) {
+    document.getElementById('habSorteoId').value = sorteoId;
+    document.getElementById('habBoletaId').value = boletaId;
+    document.getElementById('habEstado').value = habilitado ? '1' : '0';
+    document.getElementById('habMotivo').value = '';
+    document.getElementById('habGanador').textContent =
+      'Ganador: ' + (nombre || '—') + '  ·  N° ' + numero;
+    var qBtn = document.getElementById('habQuitar');
+    qBtn.classList.toggle('d-none', !manual);
+    document.getElementById('qSorteoId').value = sorteoId;
+    document.getElementById('qBoletaId').value = boletaId;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalHab')).show();
+  }
+
+  function quitarHab() {
+    document.getElementById('formQuitarHab').submit();
+  }
 </script>
 
 {% endblock %}

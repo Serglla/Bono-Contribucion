@@ -85,11 +85,12 @@
             <th>Vendedor</th>
             <th>Cobrador</th>
             <th>Fecha venta</th>
+            <th>Habilitado</th>
           </tr>
         </thead>
         <tbody>
           {% for g in b.ganadores %}
-          <tr>
+          <tr class="{% if not g.habilitado %}inf-no-hab{% endif %}">
             <td class="text-muted">{{ loop.index }}</td>
             <td class="fw-semibold">{{ g.nombre or "—" }}</td>
             <td><span class="badge bg-dark">{{ g.numero }}</span></td>
@@ -99,12 +100,31 @@
             <td>{{ g.vendedor or "—" }}</td>
             <td>{{ g.cobrador or "—" }}</td>
             <td>{{ g.fecha_venta or "—" }}</td>
+            <td class="inf-hab-cell">
+              {% if g.habilitado %}
+                <span class="badge bg-success inf-hab-badge">SÍ{% if g.habilitado_manual %} <i class="bi bi-hand-index-thumb" title="Habilitado manualmente"></i>{% endif %}</span>
+              {% else %}
+                <span class="badge bg-danger inf-hab-badge">NO</span>
+              {% endif %}
+              <span class="inf-hab-motivo">{{ g.habilitado_motivo }}</span>
+              {% if has_permission(user, 'sorteos', 'editar') %}
+              <span class="inf-hab-acciones d-print-none">
+                <button type="button" class="btn btn-link btn-sm p-0 inf-hab-btn"
+                        onclick="abrirHab({{ b.sorteo.id }}, {{ g.boleta_id }}, '{{ (g.nombre or '')|replace("'", "") }}', '{{ g.numero }}', {{ 'true' if g.habilitado else 'false' }}, {{ 'true' if g.habilitado_manual else 'false' }})">
+                  <i class="bi bi-pencil-square"></i>
+                </button>
+              </span>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    <div class="inf-total">{{ b.total_ganadores }} ganador{% if b.total_ganadores != 1 %}es{% endif %} en este sorteo</div>
+    <div class="inf-total">
+      {{ b.total_habilitados }} habilitado{% if b.total_habilitados != 1 %}s{% endif %}
+      de {{ b.total_ganadores }} ganador{% if b.total_ganadores != 1 %}es{% endif %} en este sorteo
+    </div>
     {% else %}
     <div class="inf-vacio">— Sin ganadores válidos en este sorteo —</div>
     {% endif %}
@@ -112,8 +132,67 @@
   </div>
   {% endfor %}
 
+  <!-- Nota al pie: criterio de control de habilitación -->
+  <div class="inf-nota">
+    <i class="bi bi-shield-check me-1"></i>
+    <strong>Control de habilitación:</strong>
+    Los números fueron controlados. Un ganador queda <strong>HABILITADO</strong> para
+    cobrar el premio cuando pagó al menos una cuota en el mes del sorteo (aunque adeude
+    meses anteriores), o cuando la boleta se vendió en el mismo mes antes del sorteo.
+    Los marcados como <span class="badge bg-danger">NO</span> no registran pago del mes
+    y deben revisarse antes de pagar. El ícono
+    <i class="bi bi-hand-index-thumb"></i> indica una habilitación cargada manualmente
+    por excepción.
+  </div>
+
 </div>
 </div>
+
+<!-- Modal: habilitar / deshabilitar manualmente (excepción) -->
+<div class="modal fade d-print-none" id="modalHab" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="/sorteos/habilitar" id="formHab">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-shield-check me-2"></i>Habilitación manual</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="sorteo_id" id="habSorteoId">
+        <input type="hidden" name="boleta_id" id="habBoletaId">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="month" value="{{ month }}">
+        <input type="hidden" name="vista" value="informe">
+        <p class="mb-2 small text-muted" id="habGanador"></p>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold mb-1">Estado</label>
+          <select name="habilitado" id="habEstado" class="form-select form-select-sm">
+            <option value="1">Habilitado (excepción)</option>
+            <option value="0">No habilitado</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold mb-1">Motivo (opcional)</label>
+          <input type="text" name="motivo" id="habMotivo" class="form-control form-control-sm"
+                 placeholder="Ej: pagó por caja / fuera de término">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-danger me-auto d-none" id="habQuitar"
+                onclick="quitarHab()">Volver a automático</button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<form method="post" action="/sorteos/habilitar/quitar" id="formQuitarHab" class="d-none">
+  <input type="hidden" name="sorteo_id" id="qSorteoId">
+  <input type="hidden" name="boleta_id" id="qBoletaId">
+  <input type="hidden" name="year" value="{{ year }}">
+  <input type="hidden" name="month" value="{{ month }}">
+  <input type="hidden" name="vista" value="informe">
+</form>
 
 {% endif %}
 
@@ -157,6 +236,16 @@
   .inf-total { text-align: right; color: #6c757d; font-size: .72rem; margin-top: .15rem; }
   .inf-vacio { text-align: center; font-style: italic; color: #adb5bd; font-size: .8rem; padding: .2rem 0; }
 
+  /* Habilitación */
+  .inf-no-hab td { background: #fff5f5; }
+  .inf-hab-badge { font-size: .68rem; }
+  .inf-hab-motivo { display: block; color: #868e96; font-size: .66rem; line-height: 1.1; margin-top: .05rem; }
+  .inf-hab-btn { font-size: .72rem; vertical-align: middle; }
+  .inf-nota {
+    margin-top: .6rem; font-size: .74rem; color: #343a40;
+    background: #f1f8f4; border: 1px solid #d3e9dc; border-radius: 6px; padding: .4rem .6rem;
+  }
+
   /* ─── Print: todo en una hoja A4 ────────────────────────── */
   @page { size: A4 portrait; margin: 8mm; }
   @media print {
@@ -168,6 +257,8 @@
     #infoPage { overflow: hidden; }
     .inf-sorteo { box-shadow: none; border-color: #ccc; margin-bottom: .35rem; padding: .35rem .5rem; }
     .inf-num-chip { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .inf-no-hab td, .inf-nota { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .inf-hab-acciones { display: none !important; }
   }
 </style>
 
@@ -204,6 +295,26 @@
     window.addEventListener('beforeprint', fit);
     window.addEventListener('afterprint', reset);
   })();
+
+  // ── Habilitación manual (excepciones) ───────────────────────────
+  function abrirHab(sorteoId, boletaId, nombre, numero, habilitado, manual) {
+    document.getElementById('habSorteoId').value = sorteoId;
+    document.getElementById('habBoletaId').value = boletaId;
+    document.getElementById('habEstado').value = habilitado ? '1' : '0';
+    document.getElementById('habMotivo').value = '';
+    document.getElementById('habGanador').textContent =
+      'Ganador: ' + (nombre || '—') + '  ·  N° ' + numero;
+    // El botón "Volver a automático" solo si hay override manual cargado
+    var qBtn = document.getElementById('habQuitar');
+    qBtn.classList.toggle('d-none', !manual);
+    document.getElementById('qSorteoId').value = sorteoId;
+    document.getElementById('qBoletaId').value = boletaId;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalHab')).show();
+  }
+
+  function quitarHab() {
+    document.getElementById('formQuitarHab').submit();
+  }
 </script>
 
 {% endblock %}
