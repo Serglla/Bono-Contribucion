@@ -2121,6 +2121,43 @@ def _recalc_liq_totales(liq):
     )
 
 
+def _quitar_boleta_de_liq(liq, b):
+    """Descuenta de la liquidación TODO lo que aportaba la boleta `b` (snapshots
+    ponderados cuotas_equiv/contados_equiv + montos + comisiones) y recalcula los
+    totales. Se usa cuando una boleta SALE de la liquidación, ya sea por "sacar
+    número" (quitar-boleta) o por "liberar boleta" (desde Socios). Mantener esto
+    en un solo lugar evita el "drift" de los snapshots (que el dashboard usa para
+    el Total liquidados). Espeja la suma que hace agregar-boleta.
+
+    Clasifica contado/cuotas por `modalidad_liquidacion`; para boletas viejas sin
+    modalidad (NULL) infiere CONTADO si tienen numero_especial asignado.
+    """
+    if liq is None or b is None:
+        return
+    m = (b.modalidad_liquidacion or "").strip().lower()
+    es_contado = m in ("contado", "contado2") or (
+        m == "" and ((b.numero_especial is not None) or (b.numero_especial_2 is not None))
+    )
+    mult        = float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
+    valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
+    if es_contado:
+        num_cuotas = int((b.talonera.num_cuotas or 12) if b.talonera else 12)
+        pct        = float(liq.comision_contados_pct or 0) or 30.0
+        monto      = num_cuotas * valor_cuota
+        com        = round(monto * pct / 100, 2)
+        liq.contados_vendidos = max(0, int(liq.contados_vendidos or 0) - 1)
+        liq.contados_equiv    = max(0.0, float(liq.contados_equiv or 0) - mult)
+        liq.monto_contados    = max(0.0, round(float(liq.monto_contados or 0) - monto, 2))
+        liq.comision_contados = max(0.0, round(float(liq.comision_contados or 0) - com, 2))
+    else:
+        liq.cuotas_vendidas = max(0, int(liq.cuotas_vendidas or 0) - 1)
+        liq.cuotas_equiv    = max(0.0, float(liq.cuotas_equiv or 0) - mult)
+        liq.cuota_1_total   = max(0.0, round(float(liq.cuota_1_total or 0) - valor_cuota, 2))
+        liq.monto_cuotas    = max(0.0, round(float(liq.monto_cuotas or 0) - valor_cuota, 2))
+        liq.comision_cuotas = max(0.0, round(float(liq.comision_cuotas or 0) - valor_cuota, 2))
+    _recalc_liq_totales(liq)
+
+
 @router.post("/liquidaciones/{liq_id}/agregar-boleta", response_class=JSONResponse)
 async def liquidacion_agregar_boleta(liq_id: int, request: Request, db: Session = Depends(get_db)):
     """Agrega un número olvidado a una liquidación existente.
@@ -2203,29 +2240,13 @@ async def liquidacion_quitar_boleta(liq_id: int, request: Request, db: Session =
     if b.comprador_id is not None:
         return JSONResponse({"ok": False, "error": "Ya tiene un socio cargado: no se puede sacar."}, status_code=400)
 
-    modalidad   = (b.modalidad_liquidacion or "cuotas").strip().lower()
-    mult        = float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
-    valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
-    if modalidad in ("contado", "contado2"):
-        num_cuotas = int((b.talonera.num_cuotas or 12) if b.talonera else 12)
-        pct        = float(liq.comision_contados_pct or 0) or 30.0
-        monto      = num_cuotas * valor_cuota
-        com        = round(monto * pct / 100, 2)
-        liq.contados_vendidos = max(0, int(liq.contados_vendidos or 0) - 1)
-        liq.contados_equiv    = max(0.0, float(liq.contados_equiv or 0) - mult)
-        liq.monto_contados    = max(0.0, round(float(liq.monto_contados or 0) - monto, 2))
-        liq.comision_contados = max(0.0, round(float(liq.comision_contados or 0) - com, 2))
-    else:
-        liq.cuotas_vendidas = max(0, int(liq.cuotas_vendidas or 0) - 1)
-        liq.cuotas_equiv    = max(0.0, float(liq.cuotas_equiv or 0) - mult)
-        liq.cuota_1_total   = max(0.0, round(float(liq.cuota_1_total or 0) - valor_cuota, 2))
-        liq.monto_cuotas    = max(0.0, round(float(liq.monto_cuotas or 0) - valor_cuota, 2))
-        liq.comision_cuotas = max(0.0, round(float(liq.comision_cuotas or 0) - valor_cuota, 2))
+    # Descontar de la liquidación lo que aportaba esta boleta (snapshots + montos).
+    # Mismo helper que usa "liberar boleta", así no hay drift de cuotas_equiv.
+    _quitar_boleta_de_liq(liq, b)
 
     b.liquidacion_vendedor_id = None
     b.condicion = CondicionBoleta.CAJA
     b.modalidad_liquidacion = None
-    _recalc_liq_totales(liq)
     db.commit()
     return JSONResponse({"ok": True})
 

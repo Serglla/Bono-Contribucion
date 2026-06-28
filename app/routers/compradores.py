@@ -1230,6 +1230,16 @@ async def liberar_boleta(
     talonera_nombre = b.talonera.nombre if b.talonera else ""
     numero_liberado = b.numero_principal
 
+    # ── Descontar la boleta de su liquidación (si estaba liquidada) ─────────
+    # Antes de borrar el vínculo, bajamos los snapshots cuotas_equiv/contados_equiv
+    # y los montos de la liquidación para que el "Total liquidados" del dashboard
+    # no quede inflado (drift). Mismo helper que usa "sacar número".
+    if b.liquidacion_vendedor_id:
+        _liq = db.query(models.LiquidacionVendedor).get(b.liquidacion_vendedor_id)
+        if _liq:
+            from .vendedores import _quitar_boleta_de_liq
+            _quitar_boleta_de_liq(_liq, b)
+
     # ── Reset COMPLETO de la boleta ────────────────────────────────────────
     b.comprador_id          = None
     b.vendedor_id           = None
