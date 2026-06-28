@@ -462,6 +462,18 @@ def _habilitacion_boleta(boleta, sorteo, override=None):
     return auto_ok, auto_motivo, False
 
 
+def _boleta_habilitada(boleta, sorteo, db):
+    """Habilitación de una boleta concreta en un sorteo, cargando su override.
+
+    Devuelve (habilitado: bool, motivo: str, manual: bool).
+    """
+    over = db.query(models.HabilitacionSorteo).filter(
+        models.HabilitacionSorteo.sorteo_id == sorteo.id,
+        models.HabilitacionSorteo.boleta_id == boleta.id,
+    ).first()
+    return _habilitacion_boleta(boleta, sorteo, over)
+
+
 def _numeros_boleta(b) -> List[int]:
     """Todos los números jugables de una boleta: el principal + los adicionales."""
     nums = [b.numero_principal]
@@ -936,7 +948,11 @@ INSTITUCION_NOMBRE = "Asociación de Bomberos Voluntarios de Concepción del Uru
 
 
 def _candidatos_ganadores(s, db):
-    """Lista plana de ganadores VÁLIDOS del sorteo, lista para asignar a premios.
+    """Lista plana de ganadores HABILITADOS del sorteo, lista para asignar a premios.
+
+    Solo incluye ganadores habilitados para cobrar (pagaron la cuota del mes o se
+    vendieron en el mes antes del sorteo, o habilitados a mano por excepción). Los
+    NO habilitados no son candidatos a premio / recibo.
 
     Cada candidato: {boleta_id, numero, socio, talonera, cifras, posicion}.
     """
@@ -946,7 +962,7 @@ def _candidatos_ganadores(s, db):
     cand, vistos = [], set()
     for g in grupos:
         for f in g["filas"]:
-            if not f["es_ganador_valido"]:
+            if not f["habilitado"]:
                 continue
             key = (f["boleta_id"], f["num_match"])
             if key in vistos:
@@ -1020,6 +1036,12 @@ async def premio_asignar(pid: int, request: Request,
         bid = int(bid_str)
     except (ValueError, AttributeError):
         return RedirectResponse(f"/sorteos/{p.sorteo_id}/entregas", status_code=302)
+    # Defensa: no asignar premio a una boleta NO habilitada para cobrar
+    boleta = db.query(models.Boleta).get(bid)
+    if boleta is not None:
+        habilitado, _m, _man = _boleta_habilitada(boleta, p.sorteo, db)
+        if not habilitado:
+            return RedirectResponse(f"/sorteos/{p.sorteo_id}/entregas", status_code=302)
     ya = db.query(models.EntregaPremio).filter_by(
         premio_id=pid, boleta_id=bid, numero_ganador=numero).first()
     if not ya:
@@ -1112,6 +1134,10 @@ async def entrega_recibo(eid: int, request: Request, db: Session = Depends(get_d
     s = p.sorteo
     b = e.boleta
     c = b.comprador if b else None
+    # No se emite recibo de un ganador NO habilitado para cobrar
+    habilitado, hab_motivo, _man = (True, "", False)
+    if b is not None:
+        habilitado, hab_motivo, _man = _boleta_habilitada(b, s, db)
     return templates.TemplateResponse(request, "sorteo_recibo.html", {
         "user": user,
         "institucion": INSTITUCION_NOMBRE,
@@ -1123,4 +1149,6 @@ async def entrega_recibo(eid: int, request: Request, db: Session = Depends(get_d
         "boleta": b,
         "numero": e.numero_ganador or "",
         "fecha_entrega": e.fecha_entrega.strftime("%d/%m/%Y") if e.fecha_entrega else "",
+        "habilitado": habilitado,
+        "habilitado_motivo": hab_motivo,
     })

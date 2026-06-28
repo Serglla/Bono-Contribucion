@@ -54,9 +54,11 @@
       <i class="bi bi-x-lg me-1"></i>Cerrar
     </button>
     <span class="fw-semibold text-secondary">Recibo de entrega de premio</span>
+    {% if habilitado %}
     <button type="button" onclick="window.print()" class="btn btn-sm btn-danger ms-auto">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
+    {% endif %}
   </div>
 
   <script>
@@ -81,6 +83,19 @@
     }
   </script>
 
+  {% if not habilitado %}
+  <div class="recibo-hoja" style="text-align:center;">
+    <h1>RECIBO NO DISPONIBLE</h1>
+    <p style="font-size:11pt; margin-top:6mm;">
+      Este ganador <strong>no está habilitado para cobrar</strong> el premio, por lo que
+      no se puede emitir el recibo.
+    </p>
+    <p style="font-size:11pt;">Motivo: <strong>{{ habilitado_motivo }}</strong></p>
+    <p style="font-size:10pt; margin-top:8mm;">
+      Si corresponde por excepción, habilitalo desde el <em>informe</em> del sorteo y volvé a abrir el recibo.
+    </p>
+  </div>
+  {% else %}
   <div class="recibo-hoja">
     <div class="inst">{{ institucion }}</div>
     <div class="sub">Bono Contribución 2026 – 2027</div>
@@ -116,6 +131,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
 
 </body>
 </html>
