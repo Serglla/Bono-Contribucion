@@ -265,6 +265,8 @@ async def index(request: Request, db: Session = Depends(get_db),
         anticipadas_tot = 0
         meses_cob = {}        # mes calendario -> cuotas cobradas ese mes
         activas_cob = 0       # boletas activas emplanilladas (denominador por mes)
+        meses_baja = {}       # mes calendario -> bajas registradas ese mes
+        bajas_tot = 0         # boletas dadas de baja (emplanilladas, liquidadas)
         for b in boletas:
             no_terminada = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
             pv = _pata_valor(b)
@@ -274,15 +276,24 @@ async def index(request: Request, db: Session = Depends(get_db),
                 pactadas_tot += (b.cuotas_pactadas or 0)
                 pagadas_tot += (b.cuotas_pagadas or 0)
                 anticipadas_tot += (b.cuotas_anticipadas or 0)
-                if not b.mes_baja and b.planilla_id in planillas_liq_ids:
-                    activas_cob += 1
-                    _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
-                    for _k, _v in _hist.items():
+                if b.planilla_id in planillas_liq_ids:
+                    if not b.mes_baja:
+                        activas_cob += 1
+                        _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+                        for _k, _v in _hist.items():
+                            try:
+                                _m = int(_v)
+                            except (TypeError, ValueError):
+                                continue
+                            meses_cob[_m] = meses_cob.get(_m, 0) + 1
+                    else:
+                        # Baja de cobranza: el socio se dio de baja en mes_baja.
+                        bajas_tot += 1
                         try:
-                            _m = int(_v)
+                            _mb = int(b.mes_baja)
+                            meses_baja[_mb] = meses_baja.get(_mb, 0) + 1
                         except (TypeError, ValueError):
-                            continue
-                        meses_cob[_m] = meses_cob.get(_m, 0) + 1
+                            pass
             elif no_terminada and b.numero_especial_2 is None:
                 pend_emplanillar += pv
 
@@ -301,12 +312,28 @@ async def index(request: Request, db: Session = Depends(get_db),
             for m, cnt in sorted(meses_cob.items())
         ] if cobranza_iniciada else []
 
+        # % de baja (TOTAL ACUMULADO, no promedio mes a mes): a diferencia del
+        # cobrado, una baja ocurre una sola vez por boleta (mes_baja), así que el
+        # criterio acordado con Sergio es el porcentaje acumulado de socios dados
+        # de baja sobre el total de boletas emplanilladas-liquidadas (activas +
+        # bajas). El desglose por mes es solo informativo (cuándo se dieron).
+        base_baja = activas_cob + bajas_tot
+        pct_baja = round(bajas_tot / base_baja * 100) if base_baja > 0 else 0
+        bajas_detalle = [
+            {"mes": MESES[m - 1], "num": m, "cant": cnt}
+            for m, cnt in sorted(meses_baja.items())
+        ]
+
         resumen.append({
             "cobrador": co,
             "total": total,
             "cuotas_cobranza": int(round(cuotas_cobranza)),
             "pend_emplanillar": int(round(pend_emplanillar)),
             "pct_cobro": pct_cobro,
+            "pct_baja": pct_baja,
+            "bajas_tot": bajas_tot,
+            "base_baja": base_baja,
+            "bajas_detalle": bajas_detalle,
             "cobranza_iniciada": cobranza_iniciada,
             "meses_detalle": meses_detalle,
             "planillas": planillas,
