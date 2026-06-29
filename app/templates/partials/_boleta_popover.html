@@ -1,0 +1,131 @@
+{# ───────────────────────────────────────────────────────────────────────────
+   Popover flotante con los datos de una boleta.
+   Se dispara con LONG-PRESS (dejar apretado ~0.5s) sobre el número.
+   Funciona en PC (mantener apretado el botón izquierdo) y en celular/tablet,
+   y NO pisa el clic derecho (que en la vista de liquidar marca la Baja).
+
+   Para activarlo en una celda de número agregale:  class="... js-binfo"  data-bid="{{ b.id }}"
+   Incluí este partial una sola vez por página:  {% include 'partials/_boleta_popover.html' %}
+   ─────────────────────────────────────────────────────────────────────────── #}
+<div id="binfoPop"></div>
+<style>
+  .js-binfo { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  #binfoPop {
+    display:none; position:fixed; z-index:20000; min-width:210px; max-width:300px;
+    background:#fff; border:1px solid #cbd5e1; border-radius:10px;
+    box-shadow:0 10px 30px rgba(0,0,0,.18); padding:10px 12px;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; font-size:12.5px;
+    color:#1f2937; line-height:1.3;
+  }
+  #binfoPop .binfo-head { font-weight:800; font-size:13.5px; color:#0f172a; }
+  #binfoPop .binfo-tal  { font-size:11px; color:#64748b; margin-bottom:6px; text-transform:uppercase; letter-spacing:.03em; }
+  #binfoPop .binfo-nums { display:flex; flex-wrap:wrap; gap:4px; margin:2px 0 8px; }
+  #binfoPop .binfo-num  { background:#1a2a4a; color:#fff; font-weight:800; font-size:11.5px;
+                          padding:1px 7px; border-radius:5px; letter-spacing:.02em; }
+  #binfoPop .binfo-row  { display:flex; gap:8px; padding:1.5px 0; }
+  #binfoPop .binfo-k    { color:#64748b; min-width:64px; flex:0 0 auto; }
+  #binfoPop .binfo-v    { color:#111827; font-weight:600; word-break:break-word; }
+  #binfoPop .binfo-load { color:#64748b; font-style:italic; }
+</style>
+<script>
+(function(){
+  const POP = document.getElementById('binfoPop');
+  if (!POP || window.__binfoInit) return;
+  window.__binfoInit = true;
+
+  let timer=null, startX=0, startY=0, longFired=false, ptype='mouse', lastFireAt=0;
+
+  function clearTimer(){ if(timer){ clearTimeout(timer); timer=null; } }
+  function hidePopup(){ POP.style.display='none'; }
+
+  function onDown(e){
+    const cell = e.target.closest('.js-binfo[data-bid]');
+    if(!cell) return;
+    ptype = e.pointerType || 'mouse';
+    // Solo el botón primario (izquierdo) o el toque disparan el long-press.
+    if(e.button !== undefined && e.button !== 0) return;
+    startX = e.clientX; startY = e.clientY;
+    longFired = false;
+    clearTimer();
+    timer = setTimeout(function(){ longFired = true; showPopup(cell, cell.getAttribute('data-bid')); }, 500);
+  }
+  function onMove(e){
+    if(!timer) return;
+    if(Math.abs(e.clientX-startX) > 10 || Math.abs(e.clientY-startY) > 10) clearTimer();
+  }
+  function onUp(){ clearTimer(); }
+
+  document.addEventListener('pointerdown', onDown, true);
+  document.addEventListener('pointermove', onMove, true);
+  document.addEventListener('pointerup', onUp, true);
+  document.addEventListener('pointercancel', onUp, true);
+  document.addEventListener('scroll', function(){ clearTimer(); hidePopup(); }, true);
+
+  // Tras un long-press (o cualquier toque sobre el número) bloqueamos el menú
+  // nativo y evitamos que se dispare la Baja del clic derecho. En PC con clic
+  // derecho real (mouse, sin long-press) lo dejamos pasar para no romper la Baja.
+  document.addEventListener('contextmenu', function(e){
+    const cell = e.target.closest('.js-binfo[data-bid]');
+    if(!cell) return;
+    if(longFired || ptype === 'touch'){
+      e.preventDefault();
+      e.stopPropagation();
+      longFired = false;
+    }
+  }, true);
+
+  document.addEventListener('click', function(e){
+    // Ignorar el "click" que cierra el long-press (sino el popup se cerraría solo).
+    if(Date.now() - lastFireAt < 600) return;
+    if(POP.style.display === 'block' && !POP.contains(e.target)) hidePopup();
+  });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape') hidePopup(); });
+
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+  function row(label, val){
+    if(!val) return '';
+    return '<div class="binfo-row"><span class="binfo-k">'+label+'</span><span class="binfo-v">'+esc(val)+'</span></div>';
+  }
+  function render(d){
+    const nums = (d.numeros||[]).map(function(n){ return '<span class="binfo-num">'+esc(n)+'</span>'; }).join('');
+    return '<div class="binfo-head">'+esc(d.socio || 'Sin socio cargado')+'</div>'
+      + (d.talonera ? '<div class="binfo-tal">'+esc(d.talonera)+'</div>' : '')
+      + (nums ? '<div class="binfo-nums">'+nums+'</div>' : '')
+      + row('Dirección', d.direccion)
+      + row('Zona', d.zona)
+      + row('Teléfono', d.telefono)
+      + row('Compra', d.fecha_compra)
+      + row('Vendedor', d.vendedor);
+  }
+
+  function placePopup(cell){
+    const r = cell.getBoundingClientRect();
+    POP.style.visibility = 'hidden'; POP.style.display = 'block';
+    const pw = POP.offsetWidth, ph = POP.offsetHeight;
+    let x = r.right + 8, y = r.top;
+    if(x + pw > window.innerWidth - 8) x = r.left - pw - 8;
+    if(x < 8) x = 8;
+    if(y + ph > window.innerHeight - 8) y = window.innerHeight - ph - 8;
+    if(y < 8) y = 8;
+    POP.style.left = x + 'px'; POP.style.top = y + 'px';
+    POP.style.visibility = 'visible';
+  }
+
+  async function showPopup(cell, bid){
+    lastFireAt = Date.now();
+    POP.innerHTML = '<div class="binfo-load">Cargando…</div>';
+    placePopup(cell);
+    POP.style.display = 'block';
+    try{
+      const r = await fetch('/cobranza/boleta/' + bid + '/info', {credentials:'same-origin'});
+      if(!r.ok) throw new Error('http');
+      const d = await r.json();
+      POP.innerHTML = render(d);
+      placePopup(cell);
+    }catch(_){
+      POP.innerHTML = '<div class="binfo-load">No se pudo cargar la boleta.</div>';
+    }
+  }
+})();
+</script>

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Request, Query, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from datetime import date
@@ -206,6 +206,45 @@ def _armar_grid_patas(boletas, rows_per_col: int = 40):
         "labels": (_col_header(c1), _col_header(c2), _col_header(c3)),
         "colors": (_col_color(c1), _col_color(c2), _col_color(c3)),
     }
+
+
+@router.get("/boleta/{bid}/info")
+async def boleta_info_popup(bid: int, request: Request, db: Session = Depends(get_db)):
+    """Datos de una boleta para el popover flotante (long-press sobre el N°) en
+    las vistas de cobranza: todos los números de la talonera, socio, dirección,
+    zona, teléfono, fecha de compra y vendedor."""
+    await auth_module.require_user(request, db)
+    b = db.query(models.Boleta).filter(models.Boleta.id == bid).first()
+    if not b:
+        raise HTTPException(404, detail="Boleta no encontrada")
+
+    # Todos los números de la talonera de esta boleta: principal + adicionales.
+    numeros = [f"{b.numero_principal:04d}"]
+    if b.numeros_adicionales:
+        numeros += [n.strip() for n in str(b.numeros_adicionales).split(",") if n.strip()]
+
+    # Vendedor: preferir el de la liquidación; fallback al vendedor_id directo.
+    vendedor = None
+    if b.liquidacion_vendedor_id and b.liquidacion_vendedor and b.liquidacion_vendedor.vendedor:
+        vendedor = b.liquidacion_vendedor.vendedor.nombre
+    elif b.vendedor_id and b.vendedor:
+        vendedor = b.vendedor.nombre
+
+    comp = b.comprador
+    zona = comp.zona.nombre if (comp and comp.zona) else None
+    fecha = b.fecha_venta.strftime("%d/%m/%Y") if b.fecha_venta else None
+
+    return JSONResponse({
+        "id": b.id,
+        "talonera": (b.talonera.nombre if b.talonera else ""),
+        "numeros": numeros,
+        "socio": (comp.apellido_nombre if comp else None),
+        "direccion": (comp.direccion if comp else None),
+        "telefono": (comp.telefono if comp else None),
+        "zona": zona,
+        "fecha_compra": fecha,
+        "vendedor": vendedor,
+    })
 
 
 @router.get("/", response_class=HTMLResponse)

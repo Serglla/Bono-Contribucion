@@ -89,7 +89,7 @@
           {%- set hist = historial_map.get(b.id, {}) -%}
           {%- set ant  = b.cuotas_anticipadas if b.cuotas_anticipadas else 1 -%}
           {%- set bj   = baja_info.get(b.id) -%}
-          <td class="bnum{% if bj %} num-baja{% endif %}" data-bid="{{ b.id }}" title="Clic derecho: dar de baja" style="font-weight:800;letter-spacing:-0.03em;text-align:center;border:1px solid #ccc;padding:0;cursor:context-menu;">{{ "%04d"|format(b.numero_principal) }}</td>
+          <td class="bnum js-binfo{% if bj %} num-baja{% endif %}" data-bid="{{ b.id }}" title="Clic derecho: dar de baja · Dejar apretado: ver datos" style="font-weight:800;letter-spacing:-0.03em;text-align:center;border:1px solid #ccc;padding:0;cursor:context-menu;">{{ "%04d"|format(b.numero_principal) }}</td>
           {%- for n in cuota_nums -%}
             {%- set hmes = hist.get(n|string, 0) -%}
             {%- if bj and bj.desde and n >= bj.desde and n <= bj.hasta -%}
@@ -644,4 +644,5 @@
   });
 
 </script>
+{% include 'partials/_boleta_popover.html' %}
 {% endblock %}

@@ -336,7 +336,7 @@
           {% set _pc  = (_pa.cuota if _pa else 0) %}
           {% set _ph  = b.cuotas_pactadas or (cuota_nums | length) %}
           {% set _pmid = (((_pc + 1) + _ph) // 2) %}
-          <td class="td-num{% if _bm %} num-baja{% endif %}">{{ "%04d"|format(b.numero_principal) }}</td>
+          <td class="td-num js-binfo{% if _bm %} num-baja{% endif %}" data-bid="{{ b.id }}">{{ "%04d"|format(b.numero_principal) }}</td>
           {% for n in cuota_nums %}
             {% set hmes = hist.get(n | string, 0) %}
             {% if _bm and _bd <= _bh and n >= _bd and n <= _bh %}
@@ -402,5 +402,6 @@
   </table>
 
 </div>
+{% if not thumb %}{% include 'partials/_boleta_popover.html' %}{% endif %}
 </body>
 </html>

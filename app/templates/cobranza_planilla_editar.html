@@ -49,7 +49,7 @@
                     X{{ pi.pata }}
                   </span>
                 </td>
-                <td class="fw-bold">{{ '%04d' % b.numero_principal }}</td>
+                <td class="fw-bold js-binfo" data-bid="{{ b.id }}" title="Dejar apretado: ver datos">{{ '%04d' % b.numero_principal }}</td>
                 <td>{{ b.comprador.nombre_completo if b.comprador else '—' }}</td>
               </tr>
               {% endfor %}
@@ -102,7 +102,7 @@
                     X{{ pi.pata }}
                   </span>
                 </td>
-                <td class="fw-bold">{{ '%04d' % b.numero_principal }}</td>
+                <td class="fw-bold js-binfo" data-bid="{{ b.id }}" title="Dejar apretado: ver datos">{{ '%04d' % b.numero_principal }}</td>
                 <td>{{ b.comprador.nombre_completo if b.comprador else '—' }}</td>
               </tr>
               {% endfor %}
@@ -137,4 +137,5 @@ function seleccionarTodasDisponibles() {
     : '<i class="bi bi-x-square me-1"></i>Deseleccionar todas';
 }
 </script>
+{% include 'partials/_boleta_popover.html' %}
 {% endblock %}
