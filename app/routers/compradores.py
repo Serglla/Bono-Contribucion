@@ -1002,6 +1002,22 @@ async def editar(
             b_exist.talonera_especial_id = None
             b_exist.numero_especial_2 = None
             b_exist.talonera_especial_2_id = None
+            # CRÍTICO: limpiar también modalidad_liquidacion. Si queda 'contado'/
+            # 'contado2', la boleta se vuelve a detectar como CONTADO (el modal la
+            # re-muestra como "1 sólo pago" y, al recargar/cargar el socio, la
+            # lógica de _contado_liq la fuerza de nuevo a 12/12 "al contado").
+            # Por eso "se volvía a poner al contado" después de guardar.
+            b_exist.modalidad_liquidacion = "cuotas"
+            # Si venía forzada como contado (cuotas_anticipadas >= pactadas, ej 12/12),
+            # el badge "CONTADO" se dispara por anticipo_total aunque ya no haya
+            # número especial. Al volver a "en cuotas" reseteamos las anticipadas a 1
+            # (cuota de la venta). Las cuotas pagadas reales se ajustan con el campo
+            # "Cuotas pagas".
+            if ((b_exist.cuotas_anticipadas or 0) >= (b_exist.cuotas_pactadas or 0)
+                    and (b_exist.cuotas_pactadas or 0) > 0):
+                b_exist.cuotas_anticipadas = 1
+                if (b_exist.cuotas_pagadas or 0) >= (b_exist.cuotas_pactadas or 0):
+                    b_exist.cuotas_pagadas = 1
         elif modal == "1pago":
             # slot 1
             if te1 and ne1 and _esta_libre(ne1, te1, b_exist.id):
@@ -1011,6 +1027,7 @@ async def editar(
             if te2 and ne2 and _esta_libre(ne2, te2, b_exist.id):
                 b_exist.numero_especial_2 = ne2
                 b_exist.talonera_especial_2_id = te2
+            b_exist.modalidad_liquidacion = "contado"
         elif modal == "2pagos":
             # solo slot 2
             b_exist.numero_especial = None
@@ -1018,6 +1035,7 @@ async def editar(
             if te2 and ne2 and _esta_libre(ne2, te2, b_exist.id):
                 b_exist.numero_especial_2 = ne2
                 b_exist.talonera_especial_2_id = te2
+            b_exist.modalidad_liquidacion = "contado2"
 
     # Agregar nueva boleta si se buscó una
     if boleta_id:
