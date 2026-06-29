@@ -70,6 +70,22 @@ def _get_pata_boleta(b) -> str:
     return "?"
 
 
+def _build_paso_map(boletas, planilla_id) -> dict:
+    """Para las boletas que SALIERON de esta planilla (paso_origen_planilla_id ==
+    planilla_id y ya no la tienen como planilla_id actual), devuelve
+    {boleta_id: {"label": <texto>, "cuota": <cuotas pagadas al pasar>}}.
+    El template dibuja sobre esas boletas la línea "PASÓ A <label>"."""
+    out = {}
+    for b in boletas:
+        if (getattr(b, "paso_origen_planilla_id", None) == planilla_id
+                and b.planilla_id != planilla_id):
+            out[b.id] = {
+                "label": (b.paso_a or "OTRA PLANILLA"),
+                "cuota": int(b.paso_cuota or 0),
+            }
+    return out
+
+
 def _get_color_boleta(b) -> str:
     """Color de la PATA de una boleta; '#cccccc' por defecto / si es blanco."""
     if b and b.talonera and b.talonera.color:
@@ -123,8 +139,14 @@ def _armar_grid_patas(boletas, rows_per_col: int = 40):
             # PATA y su importe por columna queda bien calculado.
             cur_is_p0  = _get_pata_boleta(grupo[0]) == "0"
             prev_is_p0 = _get_pata_boleta(pata_grupos[i - 1][0]) == "0"
-            if cur_is_p0 or prev_is_p0:
-                new_block = pos if pos % ROWS_PER_COL == 0 else ((pos // ROWS_PER_COL) + 1) * ROWS_PER_COL
+            _col_block = pos if pos % ROWS_PER_COL == 0 else ((pos // ROWS_PER_COL) + 1) * ROWS_PER_COL
+            # Solo se fuerza la columna nueva si el grupo ENTRA en una columna
+            # fresca de esta hoja. Si no hay columna libre (planilla con muchas
+            # PATAs), NO se fuerza: el grupo se apila normalmente (queda VISIBLE,
+            # compartiendo columna) en vez de quedar empujado fuera de la hoja.
+            # El caso ideal "columna aparte / otra hoja" requiere multi-página.
+            if (cur_is_p0 or prev_is_p0) and _col_block < TOTAL and (_col_block + len(grupo)) <= TOTAL:
+                new_block = _col_block
             else:
                 new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
             # Si el nuevo bloque arranca al inicio de una columna, la etiqueta
@@ -481,9 +503,27 @@ async def emplanillado(request: Request, db: Session = Depends(get_db),
                 "planillas": planillas,
             })
 
+    # Números (boletas) que están actualmente en cada planilla — para el modal de
+    # "pasar números". Excluye las que ya salieron (pasaron a otro lado).
+    planilla_numeros = {}
+    for r in resumen:
+        for pl in r["planillas"]:
+            bs = (db.query(models.Boleta)
+                  .filter(models.Boleta.planilla_id == pl.id)
+                  .order_by(models.Boleta.numero_principal)
+                  .all())
+            planilla_numeros[pl.id] = [
+                {"id": b.id, "numero": "%04d" % b.numero_principal} for b in bs
+            ]
+
+    # Todos los cobradores activos (para elegir destino al pasar números).
+    cobradores_todos = db.query(models.Cobrador).filter_by(activo=True).order_by(models.Cobrador.nombre).all()
+
     return templates.TemplateResponse(request, "cobranza_emplanillado.html", {
         "user": user,
         "resumen": resumen,
+        "planilla_numeros": planilla_numeros,
+        "cobradores_todos": cobradores_todos,
         "mes": mes, "anio": anio,
         "mes_nombre": MESES[mes - 1],
         "meses": MESES,
@@ -628,6 +668,99 @@ async def planilla_eliminar(request: Request, planilla_id: int,
     db.commit()
     return RedirectResponse(
         f"/cobranza/emplanillado?mes={mes}&anio={anio}",
+        status_code=302
+    )
+
+
+@router.post("/planilla/{planilla_id}/pasar-numeros")
+async def pasar_numeros(request: Request, planilla_id: int,
+                        db: Session = Depends(get_db)):
+    """El cobrador dejó de cobrar ciertos números de esta planilla.
+
+    Los números seleccionados PASAN a un destino (otro cobrador, o una planilla
+    nueva del mismo cobrador) conservando cuotas pagadas e historial de meses.
+    En la planilla ORIGEN el número NO desaparece: queda con una línea tipo baja
+    que dice "PASÓ A <label>" (nombre del cobrador, o "P<numero>" de la planilla).
+    La liquidación vieja de la planilla origen NO se toca (es un registro).
+    """
+    _perm_user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(_perm_user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    planilla = db.query(models.Planilla).get(planilla_id)
+    if not planilla:
+        raise HTTPException(404)
+
+    form = await request.form()
+    destino = (form.get("destino") or "").strip()  # "cobrador" | "planilla"
+
+    ids = set()
+    for x in form.getlist("boleta_ids"):
+        try:
+            ids.add(int(x))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return RedirectResponse(
+            f"/cobranza/emplanillado?mes={planilla.mes}&anio={planilla.anio}",
+            status_code=302)
+
+    # Solo boletas que efectivamente están en ESTA planilla.
+    boletas = (db.query(models.Boleta)
+               .filter(models.Boleta.planilla_id == planilla_id,
+                       models.Boleta.id.in_(ids))
+               .all())
+    if not boletas:
+        return RedirectResponse(
+            f"/cobranza/emplanillado?mes={planilla.mes}&anio={planilla.anio}",
+            status_code=302)
+
+    # ── Determinar cobrador y etiqueta destino ──────────────────────────────
+    if destino == "cobrador":
+        try:
+            dest_cobrador_id = int(form.get("cobrador_destino_id") or 0)
+        except (TypeError, ValueError):
+            dest_cobrador_id = 0
+        dest_cobrador = db.query(models.Cobrador).get(dest_cobrador_id)
+        if not dest_cobrador or dest_cobrador.id == planilla.cobrador_id:
+            # destino inválido o el mismo cobrador → no hacer nada
+            return RedirectResponse(
+                f"/cobranza/emplanillado?mes={planilla.mes}&anio={planilla.anio}",
+                status_code=302)
+        label = dest_cobrador.nombre
+    else:
+        # Planilla nueva del MISMO cobrador (caso PATA 0).
+        dest_cobrador = db.query(models.Cobrador).get(planilla.cobrador_id)
+        label = None  # se completa con "P<numero>" al crear la planilla
+
+    # ── Crear la planilla destino (mismo mes/anio que la origen) ─────────────
+    siguiente_numero = (db.query(func.count(models.Planilla.id))
+                        .filter_by(cobrador_id=dest_cobrador.id)
+                        .scalar() or 0) + 1
+    dest_planilla = models.Planilla(
+        cobrador_id=dest_cobrador.id,
+        numero=siguiente_numero,
+        mes=planilla.mes,
+        anio=planilla.anio,
+        comision_pct=planilla.comision_pct,
+    )
+    db.add(dest_planilla)
+    db.flush()
+    if label is None:
+        label = f"P{dest_planilla.numero}"
+
+    # ── Mover cada boleta dejando el rastro en la planilla origen ────────────
+    for b in boletas:
+        b.paso_origen_planilla_id = planilla_id
+        b.paso_cuota = b.cuotas_pagadas or 0
+        b.paso_a = label
+        b.planilla_id = dest_planilla.id
+        b.cobrador_id = dest_cobrador.id
+        # cuotas_pagadas, historial_cuotas, condicion, liquidacion: SIN TOCAR.
+
+    db.commit()
+    return RedirectResponse(
+        f"/cobranza/emplanillado?mes={planilla.mes}&anio={planilla.anio}",
         status_code=302
     )
 
@@ -917,8 +1050,12 @@ async def planilla_ver(request: Request, planilla_id: int,
     mes  = planilla_obj.mes
     anio = planilla_obj.anio
 
+    # Incluye las boletas que ESTÁN en esta planilla, MÁS las que salieron de
+    # esta planilla ("pasaron a otro cobrador/planilla"): esas se siguen
+    # mostrando acá con la línea "PASÓ A ...".
     boletas = (db.query(models.Boleta)
-               .filter(models.Boleta.planilla_id == planilla_id)
+               .filter(or_(models.Boleta.planilla_id == planilla_id,
+                           models.Boleta.paso_origen_planilla_id == planilla_id))
                .join(models.Comprador, isouter=True)
                .order_by(models.Boleta.numero_principal)
                .all())
@@ -934,6 +1071,7 @@ async def planilla_ver(request: Request, planilla_id: int,
     for b in boletas:
         historial_map[b.id] = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
     mes_actual = date.today().month
+    paso_map = _build_paso_map(boletas, planilla_id)
 
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
     num_cuotas = max(num_cuotas, 10)
@@ -947,6 +1085,7 @@ async def planilla_ver(request: Request, planilla_id: int,
         "planilla_label": f"P{planilla_obj.numero}",
         "historial_map": historial_map,
         "mes_actual": mes_actual,
+        "paso_map": paso_map,
         "boletas": boletas,
         "rows": rows,
         "col1_label": col1_label,
@@ -984,9 +1123,10 @@ async def planilla(request: Request, cobrador_id: int,
     planilla_obj = db.query(models.Planilla).filter_by(cobrador_id=cobrador_id, mes=mes, anio=anio).first()
 
     if planilla_obj:
-        # Mostrar las boletas fijas de esta planilla
+        # Boletas de esta planilla + las que salieron de ella (pasaron a otro lado)
         boletas = (db.query(models.Boleta)
-                   .filter(models.Boleta.planilla_id == planilla_obj.id)
+                   .filter(or_(models.Boleta.planilla_id == planilla_obj.id,
+                               models.Boleta.paso_origen_planilla_id == planilla_obj.id))
                    .join(models.Comprador, isouter=True)
                    .order_by(models.Boleta.numero_principal)
                    .all())
@@ -1012,6 +1152,7 @@ async def planilla(request: Request, cobrador_id: int,
     for b in boletas:
         historial_map[b.id] = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
     mes_actual = date.today().month
+    paso_map = _build_paso_map(boletas, planilla_obj.id) if planilla_obj else {}
 
     # Cantidad de cuotas (máximo entre todas las boletas, mínimo 10)
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
@@ -1030,6 +1171,7 @@ async def planilla(request: Request, cobrador_id: int,
         "planilla_label": planilla_label,
         "historial_map": historial_map,
         "mes_actual": mes_actual,
+        "paso_map": paso_map,
         "boletas": boletas,
         "rows": rows,
         "col1_label": col1_label,

@@ -87,6 +87,13 @@
                class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:.75rem;">
               <i class="bi bi-pencil"></i>
             </a>
+            <button class="btn btn-sm btn-outline-primary py-0 px-2"
+                    style="font-size:.75rem;"
+                    title="El cobrador dejó de cobrar números de P{{ pl.numero }} → pasarlos a otro lado"
+                    data-bs-toggle="modal"
+                    data-bs-target="#modalPasar{{ pl.id }}">
+              <i class="bi bi-arrow-left-right"></i>
+            </button>
             <button class="btn btn-sm btn-outline-danger py-0 px-2"
                     style="font-size:.75rem;"
                     title="Eliminar P{{ pl.numero }}"
@@ -113,6 +120,73 @@
       </div>
     </div>
   </div>
+
+  <!-- Modales para PASAR números a otro cobrador / planilla nueva -->
+  {% for pl in r.planillas %}
+  <div class="modal fade" id="modalPasar{{ pl.id }}" tabindex="-1">
+    <div class="modal-dialog modal-dialog-scrollable">
+      <div class="modal-content">
+        <form method="post" action="/cobranza/planilla/{{ pl.id }}/pasar-numeros">
+          <div class="modal-header">
+            <h6 class="modal-title text-primary"><i class="bi bi-arrow-left-right me-1"></i>Pasar números — P{{ pl.numero }} de {{ r.cobrador.nombre }}</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted">
+              Usá esto cuando el cobrador <strong>deja de cobrar</strong> algunos números.
+              Los elegidos pasan al destino conservando las cuotas pagadas y el mes de cada pago.
+              En esta planilla quedan marcados con la línea <strong>"PASÓ A …"</strong> (la liquidación ya hecha no se toca).
+            </p>
+
+            <label class="fw-semibold small mb-1">Destino</label>
+            <div class="d-flex flex-column gap-2 mb-3">
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="destino" value="cobrador"
+                       id="destCob{{ pl.id }}" checked
+                       onchange="document.getElementById('selCob{{ pl.id }}').disabled=false;">
+                <label class="form-check-label small" for="destCob{{ pl.id }}">A otro cobrador:</label>
+                <select name="cobrador_destino_id" id="selCob{{ pl.id }}" class="form-select form-select-sm mt-1">
+                  {% for co in cobradores_todos %}
+                    {% if co.id != r.cobrador.id %}
+                    <option value="{{ co.id }}">{{ co.nombre }}</option>
+                    {% endif %}
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="destino" value="planilla"
+                       id="destPl{{ pl.id }}"
+                       onchange="document.getElementById('selCob{{ pl.id }}').disabled=true;">
+                <label class="form-check-label small" for="destPl{{ pl.id }}">A una planilla nueva del mismo cobrador (caso PATA 0)</label>
+              </div>
+            </div>
+
+            <label class="fw-semibold small mb-1">Números a pasar</label>
+            <div class="border rounded p-2" style="max-height:240px;overflow:auto;">
+              {% set nums = planilla_numeros.get(pl.id, []) %}
+              {% if nums %}
+                <div class="d-flex flex-wrap gap-2">
+                  {% for b in nums %}
+                  <label class="form-check d-flex align-items-center gap-1 mb-0" style="width:auto;">
+                    <input class="form-check-input mt-0" type="checkbox" name="boleta_ids" value="{{ b.id }}">
+                    <span class="small">{{ b.numero }}</span>
+                  </label>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <span class="text-muted small">No quedan números activos en esta planilla.</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-arrow-left-right me-1"></i>Pasar números</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
 
   <!-- Modales para eliminar cada planilla -->
   {% for pl in r.planillas %}

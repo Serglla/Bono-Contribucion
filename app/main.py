@@ -498,6 +498,30 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion mes_baja boletas: {e}")
 
+        # Migrar paso_* en boletas ("el cobrador dejó de cobrar este número →
+        # pasó a otro cobrador / planilla nueva"). paso_origen_planilla_id = de
+        # qué planilla salió (donde se dibuja la línea "PASÓ A ..."); paso_a =
+        # etiqueta (texto, registro); paso_cuota = cuotas_pagadas al pasar.
+        try:
+            _dialect = engine.dialect.name
+            if _dialect == "postgresql":
+                db.execute(text("ALTER TABLE boletas ADD COLUMN IF NOT EXISTS paso_origen_planilla_id INTEGER"))
+                db.execute(text("ALTER TABLE boletas ADD COLUMN IF NOT EXISTS paso_a VARCHAR"))
+                db.execute(text("ALTER TABLE boletas ADD COLUMN IF NOT EXISTS paso_cuota INTEGER"))
+            else:
+                cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
+                if "paso_origen_planilla_id" not in cols_boletas:
+                    db.execute(text("ALTER TABLE boletas ADD COLUMN paso_origen_planilla_id INTEGER"))
+                if "paso_a" not in cols_boletas:
+                    db.execute(text("ALTER TABLE boletas ADD COLUMN paso_a VARCHAR"))
+                if "paso_cuota" not in cols_boletas:
+                    db.execute(text("ALTER TABLE boletas ADD COLUMN paso_cuota INTEGER"))
+            db.commit()
+            print("Migracion paso_* boletas: OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion paso_* boletas: {e}")
+
         # Migrar num_cuotas en taloneras
         try:
             _dialect = engine.dialect.name

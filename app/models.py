@@ -290,6 +290,19 @@ class Boleta(Base):
     # recalcular correctamente el rinde al editar una liquidación desde el historial.
     # Null en boletas previas a esta migración (se asume 'cuotas' al editarlas).
     modalidad_liquidacion = deferred(Column(String, nullable=True))
+    # ── "Pasó a..." : el cobrador dejó de cobrar este número y pasó a otro
+    # cobrador o a una planilla nueva propia. El número NO desaparece de la
+    # planilla original: se sigue mostrando ahí con una línea tipo baja que dice
+    # "PASÓ A <label>". El número continúa su cobranza en el destino conservando
+    # cuotas_pagadas e historial_cuotas. La liquidación vieja NO se toca.
+    #   - paso_origen_planilla_id: planilla DESDE la que salió (donde se dibuja la línea).
+    #   - paso_a: etiqueta a mostrar ("ROBERTO" si fue a otro cobrador, "P3" si fue
+    #     a otra planilla del mismo cobrador). Se guarda como texto = registro.
+    #   - paso_cuota: cuotas_pagadas al momento de pasar (la línea arranca en paso_cuota+1).
+    # Sin ForeignKey a propósito (evita ambigüedad con la relación planilla existente).
+    paso_origen_planilla_id = deferred(Column(Integer, nullable=True, index=True))
+    paso_a = deferred(Column(String, nullable=True))
+    paso_cuota = deferred(Column(Integer, nullable=True))
     created_at = Column(DateTime, server_default=func.now())
 
     talonera = relationship("Talonera", back_populates="boletas",
