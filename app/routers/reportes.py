@@ -268,6 +268,14 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     _cob_acc: dict = {}
     _g_meses: dict = {}   # tally global de cuotas cobradas por mes (para el total)
     _g_activas = 0        # boletas activas globales (denominador del total)
+    # Solo las planillas YA liquidadas entran en el % de cobrado (igual criterio
+    # que las tarjetas de /cobranza/): una planilla recién armada todavía no tiene
+    # cobranza y, si se contara, sumaría al denominador sin aportar cuotas cobradas
+    # y diluiría el promedio (era el bug: el dashboard daba ~40% vs ~97% real).
+    _liq_planilla_ids = {
+        pid for (pid,) in db.query(models.Liquidacion.planilla_id)
+                            .filter(models.Liquidacion.planilla_id.isnot(None)).all()
+    }
     boletas_con_cob = db.query(models.Boleta).filter(
         models.Boleta.cobrador_id.isnot(None)
     ).all()
@@ -292,17 +300,20 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             acc["anticipadas"] += (b.cuotas_anticipadas or 0)
             # Cuotas cobradas mes a mes (cobranza real; la cuota 1 de venta NO
             # está en historial_cuotas, es la anticipada). Una boleta activa = un
-            # punto del denominador de cada mes.
-            acc["activas"] += 1
-            _g_activas += 1
-            _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
-            for _k, _v in _hist.items():
-                try:
-                    _m = int(_v)
-                except (TypeError, ValueError):
-                    continue
-                acc["meses_cob"][_m] = acc["meses_cob"].get(_m, 0) + 1
-                _g_meses[_m] = _g_meses.get(_m, 0) + 1
+            # punto del denominador de cada mes. Solo cuentan las boletas en
+            # planillas YA liquidadas (las recién armadas no tienen cobranza aún
+            # y diluirían el promedio).
+            if b.planilla_id in _liq_planilla_ids:
+                acc["activas"] += 1
+                _g_activas += 1
+                _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+                for _k, _v in _hist.items():
+                    try:
+                        _m = int(_v)
+                    except (TypeError, ValueError):
+                        continue
+                    acc["meses_cob"][_m] = acc["meses_cob"].get(_m, 0) + 1
+                    _g_meses[_m] = _g_meses.get(_m, 0) + 1
         elif no_terminada and b.numero_especial_2 is None:
             acc["del_mes"] += pv               # pendiente de emplanillar
 
