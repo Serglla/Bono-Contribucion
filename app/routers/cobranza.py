@@ -197,6 +197,19 @@ async def index(request: Request, db: Session = Depends(get_db),
                    .all())
         total = len(boletas)
 
+        # Todas las planillas del cobrador (de la primera a la última), con su
+        # número y la fecha en que se entregó (se armó) cada una.
+        planillas = (db.query(models.Planilla)
+                     .filter_by(cobrador_id=co.id)
+                     .order_by(models.Planilla.anio,
+                               models.Planilla.mes,
+                               models.Planilla.numero)
+                     .all())
+        # Solo las planillas YA liquidadas entran en el cálculo del % cobrado.
+        # Una planilla recién armada todavía no tiene cobranza y, si se contara,
+        # diluiría el promedio (sumaría al denominador sin aportar cuotas cobradas).
+        planillas_liq_ids = {p.id for p in planillas if p.liquidacion}
+
         # Métricas en CUOTAS (ponderadas por PATA: una boleta PATA 2 = 2 cuotas).
         #   - cuotas_cobranza: cuotas a cobrar de las boletas YA emplanilladas y
         #     no terminadas → "lo que el cobrador tiene en cobranza" (suma de
@@ -228,7 +241,7 @@ async def index(request: Request, db: Session = Depends(get_db),
                 pactadas_tot += (b.cuotas_pactadas or 0)
                 pagadas_tot += (b.cuotas_pagadas or 0)
                 anticipadas_tot += (b.cuotas_anticipadas or 0)
-                if not b.mes_baja:
+                if not b.mes_baja and b.planilla_id in planillas_liq_ids:
                     activas_cob += 1
                     _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
                     for _k, _v in _hist.items():
@@ -255,14 +268,6 @@ async def index(request: Request, db: Session = Depends(get_db),
             for m, cnt in sorted(meses_cob.items())
         ] if cobranza_iniciada else []
 
-        # Todas las planillas del cobrador (de la primera a la última), con su
-        # número y la fecha en que se entregó (se armó) cada una.
-        planillas = (db.query(models.Planilla)
-                     .filter_by(cobrador_id=co.id)
-                     .order_by(models.Planilla.anio,
-                               models.Planilla.mes,
-                               models.Planilla.numero)
-                     .all())
         resumen.append({
             "cobrador": co,
             "total": total,
