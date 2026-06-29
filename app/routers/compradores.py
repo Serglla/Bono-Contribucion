@@ -623,11 +623,26 @@ async def crear(
             #   - numero_especial / numero_especial_2 asignado: contados de data vieja
             #     o rearmada por script, que NO setearon modalidad_liquidacion.
             _mod_liq = (b.modalidad_liquidacion or "").strip().lower()
-            _contado_liq = (
-                _mod_liq in ("contado", "contado2")
-                or b.numero_especial is not None
-                or b.numero_especial_2 is not None
-            )
+            # Si el vendedor la liquidó EXPLÍCITAMENTE en cuotas, eso manda: NO se
+            # fuerza a contado aunque haya quedado un número especial colgado por
+            # error (dato viejo, o liquidación que después se corrigió a cuotas).
+            # Se limpia ese número espurio para que la boleta quede coherente como
+            # "en cuotas" y no se la marque "12/12 al contado". Antes alcanzaba con
+            # un numero_especial para forzar el contado, lo que dejaba boletas en
+            # cuotas atascadas como contado/emplanillables-no.
+            if _mod_liq == "cuotas":
+                if b.numero_especial is not None or b.numero_especial_2 is not None:
+                    b.numero_especial = None
+                    b.talonera_especial_id = None
+                    b.numero_especial_2 = None
+                    b.talonera_especial_2_id = None
+                _contado_liq = False
+            else:
+                _contado_liq = (
+                    _mod_liq in ("contado", "contado2")
+                    or b.numero_especial is not None
+                    or b.numero_especial_2 is not None
+                )
             if _contado_liq:
                 _nc_tal = (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0) \
                           or (cuotas_pactadas if cuotas_pactadas and cuotas_pactadas > 0 else 0) or 12
