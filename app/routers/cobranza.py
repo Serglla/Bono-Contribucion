@@ -115,7 +115,18 @@ def _armar_grid_patas(boletas, rows_per_col: int = 40):
     pos = 0
     for i, grupo in enumerate(pata_grupos):
         if i > 0:
-            new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
+            # PATA 0 no es proporcional al resto (valor uniforme $10.000, no se
+            # pondera), así que NUNCA comparte columna con otra PATA: si este
+            # grupo es PATA 0, o el grupo anterior lo era, se arranca al inicio
+            # de la próxima columna FÍSICA (bloque de ROWS_PER_COL) en vez del
+            # próximo bloque de 10. Así cada columna del resumen es de una sola
+            # PATA y su importe por columna queda bien calculado.
+            cur_is_p0  = _get_pata_boleta(grupo[0]) == "0"
+            prev_is_p0 = _get_pata_boleta(pata_grupos[i - 1][0]) == "0"
+            if cur_is_p0 or prev_is_p0:
+                new_block = pos if pos % ROWS_PER_COL == 0 else ((pos // ROWS_PER_COL) + 1) * ROWS_PER_COL
+            else:
+                new_block = pos if pos % 10 == 0 else ((pos // 10) + 1) * 10
             # Si el nuevo bloque arranca al inicio de una columna, la etiqueta
             # va ARRIBA de esa columna (el header ya queda pintado), no huérfana
             # al final de la columna previa.

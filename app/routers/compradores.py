@@ -39,73 +39,77 @@ async def listar(request: Request, db: Session = Depends(get_db),
     query = db.query(models.Comprador).join(models.Zona, isouter=True)
     if q:
         query = query.filter(models.Comprador.apellido_nombre.ilike(f"%{q}%"))
+
+    # ── Filtros que dependen de la tabla Boleta ──────────────────────────────
+    # IMPORTANTE: la tabla Boleta se JOINea UNA SOLA VEZ. Si se combinaban dos
+    # filtros que la requerían (p. ej. vendedor + cuotas/contado), antes se hacía
+    # un segundo .join(Boleta) y SQL fallaba con "table name specified more than
+    # once" → Internal Server Error. Ahora se joinea una vez y se acumulan los
+    # filtros sobre ese mismo join.
+    _cob_id = None
+    if cob:
+        try:
+            _cob_id = int(cob)
+        except (TypeError, ValueError):
+            _cob_id = None
+    _vend_id = None
+    if vend:
+        try:
+            _vend_id = int(vend)
+        except (TypeError, ValueError):
+            _vend_id = None
+
+    needs_boleta = bool(pata) or sin_cob in ("1", "true", "yes") or \
+        _cob_id is not None or _vend_id is not None or cont in ("contado", "cuotas")
+
+    if needs_boleta:
+        query = query.join(models.Boleta,
+                           models.Boleta.comprador_id == models.Comprador.id)
+
     if pata:
         query = (query
-                 .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
                  .join(models.Talonera, models.Talonera.id == models.Boleta.talonera_id)
-                 .filter(models.Talonera.nombre == pata)
-                 .distinct())
-    # Filtro: solo socios sin cobrador en alguna boleta
-    # Se excluyen las boletas con todas las cuotas pagas (al contado / finalizadas):
-    # esas no necesitan cobrador.
+                 .filter(models.Talonera.nombre == pata))
+    # Filtro: solo socios sin cobrador en alguna boleta. Se excluyen las boletas
+    # con todas las cuotas pagas (al contado / finalizadas): no necesitan cobrador.
     if sin_cob in ("1", "true", "yes"):
-        query = (query
-                 .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
-                 .filter(
-                     models.Boleta.cobrador_id.is_(None),
-                     models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas,
-                 )
-                 .distinct())
+        query = query.filter(
+            models.Boleta.cobrador_id.is_(None),
+            models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas,
+        )
     # Filtro: socios cuyo cobrador actual es X.
     # Excluye contados: aunque la boleta conserve cobrador_id (bug viejo de
     # auto-asignación), un contado no lo cobra el cobrador y no debe aparecer
     # en su listado. Mismo criterio que el badge CONTADO del template:
     # numero_especial / numero_especial_2 asignado, o anticipo_total
     # (cuotas_pactadas>0 y cuotas_anticipadas >= cuotas_pactadas).
-    if cob:
-        try:
-            cob_id = int(cob)
-            query = (query
-                     .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
-                     .filter(
-                         models.Boleta.cobrador_id == cob_id,
-                         models.Boleta.numero_especial.is_(None),
-                         models.Boleta.numero_especial_2.is_(None),
-                         sql_or(
-                             func_count.coalesce(models.Boleta.cuotas_pactadas, 0) == 0,
-                             func_count.coalesce(models.Boleta.cuotas_anticipadas, 0)
-                                 < func_count.coalesce(models.Boleta.cuotas_pactadas, 0),
-                         ),
-                     )
-                     .distinct())
-        except (TypeError, ValueError):
-            pass
+    if _cob_id is not None:
+        query = query.filter(
+            models.Boleta.cobrador_id == _cob_id,
+            models.Boleta.numero_especial.is_(None),
+            models.Boleta.numero_especial_2.is_(None),
+            sql_or(
+                func_count.coalesce(models.Boleta.cuotas_pactadas, 0) == 0,
+                func_count.coalesce(models.Boleta.cuotas_anticipadas, 0)
+                    < func_count.coalesce(models.Boleta.cuotas_pactadas, 0),
+            ),
+        )
     # Filtro: socios cuyo vendedor (en alguna boleta) es X
-    if vend:
-        try:
-            vend_id = int(vend)
-            query = (query
-                     .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
-                     .filter(models.Boleta.vendedor_id == vend_id)
-                     .distinct())
-        except (TypeError, ValueError):
-            pass
+    if _vend_id is not None:
+        query = query.filter(models.Boleta.vendedor_id == _vend_id)
     # Filtro: modalidad cuotas vs contado.
     # contado = boleta con numero_especial(_2) asignado.
     # cuotas  = boleta en curso (cuotas_pagadas < cuotas_pactadas).
     if cont == "contado":
-        query = (query
-                 .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
-                 .filter(sql_or(
-                     models.Boleta.numero_especial.isnot(None),
-                     models.Boleta.numero_especial_2.isnot(None),
-                 ))
-                 .distinct())
+        query = query.filter(sql_or(
+            models.Boleta.numero_especial.isnot(None),
+            models.Boleta.numero_especial_2.isnot(None),
+        ))
     elif cont == "cuotas":
-        query = (query
-                 .join(models.Boleta, models.Boleta.comprador_id == models.Comprador.id)
-                 .filter(models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
-                 .distinct())
+        query = query.filter(models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
+
+    if needs_boleta:
+        query = query.distinct()
     if zona:
         # Filtro por zona — acepta id numérico o nombre exacto
         try:
