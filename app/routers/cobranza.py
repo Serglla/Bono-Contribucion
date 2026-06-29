@@ -312,6 +312,38 @@ async def index(request: Request, db: Session = Depends(get_db),
             "planillas": planillas,
         })
 
+    # --- Alineación de "Planillas entregadas" entre todas las tarjetas ---
+    # Todas las tarjetas comparten la misma grilla de meses: una fila por cada
+    # (anio, mes) en que ALGÚN cobrador entregó planillas, ordenadas por fecha.
+    # Cada mes reserva tantas celdas como el máximo de planillas que cualquier
+    # cobrador entregó ese mes, así la fila de (p. ej.) Mayo arranca a la misma
+    # altura en TODAS las tarjetas, dejando huecos vacíos donde un cobrador no
+    # tiene planilla ese mes. Si un mes tiene más de 3 planillas, el flex-wrap
+    # las baja a una fila debajo (igual en todas las tarjetas por el padding).
+    meses_keys = []           # orden (anio, mes)
+    max_por_mes = {}          # (anio, mes) -> máx de planillas de un cobrador ese mes
+    for r in resumen:
+        cnt = {}
+        for pl in r["planillas"]:
+            k = (pl.anio, pl.mes)
+            cnt[k] = cnt.get(k, 0) + 1
+        for k, c in cnt.items():
+            if k not in max_por_mes:
+                meses_keys.append(k)
+            max_por_mes[k] = max(max_por_mes.get(k, 0), c)
+    meses_keys.sort()
+
+    for r in resumen:
+        por_mes = {}
+        for pl in r["planillas"]:
+            por_mes.setdefault((pl.anio, pl.mes), []).append(pl)
+        grid = []
+        for k in meses_keys:
+            cells = list(por_mes.get(k, []))
+            cells += [None] * (max_por_mes[k] - len(cells))   # padding -> alineación
+            grid.append({"anio": k[0], "mes": k[1], "cells": cells})
+        r["planillas_grid"] = grid
+
     return templates.TemplateResponse(request, "cobranza.html", {
         "user": user,
         "resumen": resumen,
