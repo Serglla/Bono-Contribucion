@@ -887,6 +887,7 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
 @router.get("/planilla/{planilla_id}/ver", response_class=HTMLResponse)
 async def planilla_ver(request: Request, planilla_id: int,
                        thumb: int = Query(default=0),
+                       embed: int = Query(default=0),
                        db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
@@ -911,6 +912,13 @@ async def planilla_ver(request: Request, planilla_id: int,
     col1_label, col2_label, col3_label = _grid["labels"]
     col1_color, col2_color, col3_color = _grid["colors"]
 
+    # Historial de cuotas cobradas por boleta: {boleta_id: {cuota_str: mes}}.
+    # Permite mostrar en la planilla el mes en que se liquidó cada cuota.
+    historial_map = {}
+    for b in boletas:
+        historial_map[b.id] = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+    mes_actual = date.today().month
+
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
     num_cuotas = max(num_cuotas, 10)
     cuota_nums = list(range(1, num_cuotas + 1))
@@ -921,6 +929,8 @@ async def planilla_ver(request: Request, planilla_id: int,
         "cobrador": cobrador,
         "planilla": planilla_obj,
         "planilla_label": f"P{planilla_obj.numero}",
+        "historial_map": historial_map,
+        "mes_actual": mes_actual,
         "boletas": boletas,
         "rows": rows,
         "col1_label": col1_label,
@@ -935,6 +945,7 @@ async def planilla_ver(request: Request, planilla_id: int,
         "mes": mes, "anio": anio,
         "mes_nombre": MESES[mes - 1],
         "thumb": bool(thumb),
+        "embed": bool(embed),
     })
 
 
@@ -979,6 +990,13 @@ async def planilla(request: Request, cobrador_id: int,
     col1_label, col2_label, col3_label = _grid["labels"]
     col1_color, col2_color, col3_color = _grid["colors"]
 
+    # Historial de cuotas cobradas por boleta: {boleta_id: {cuota_str: mes}}.
+    # Permite mostrar en la planilla (y su preview) el mes de liquidación.
+    historial_map = {}
+    for b in boletas:
+        historial_map[b.id] = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+    mes_actual = date.today().month
+
     # Cantidad de cuotas (máximo entre todas las boletas, mínimo 10)
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
     num_cuotas = max(num_cuotas, 10)
@@ -994,6 +1012,8 @@ async def planilla(request: Request, cobrador_id: int,
         "cobrador": cobrador,
         "planilla": planilla_obj,
         "planilla_label": planilla_label,
+        "historial_map": historial_map,
+        "mes_actual": mes_actual,
         "boletas": boletas,
         "rows": rows,
         "col1_label": col1_label,
@@ -1255,3 +1275,4 @@ async def consolidado_comprobante(request: Request, cobrador_id: int,
         "institucion": INSTITUCION_NOMBRE,
         "hoy": hoy.strftime("%d/%m/%Y"),
     })
+# fin cobranza.py

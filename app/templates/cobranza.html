@@ -137,8 +137,8 @@
           <div class="d-flex flex-wrap gap-3">
             {% for pl in r.planillas %}
             <div class="pl-item">
-              <div class="pl-thumb" ondblclick="window.open('/cobranza/planilla/{{ pl.id }}/ver','_blank')"
-                   title="Doble clic para ver / imprimir">
+              <div class="pl-thumb" ondblclick="abrirPlanilla({{ pl.id }}, 'P{{ pl.numero }} — {{ meses[pl.mes - 1] }} {{ pl.anio }}')"
+                   title="Doble clic para ver / imprimir / liquidar">
                 <iframe src="/cobranza/planilla/{{ pl.id }}/ver?thumb=1" loading="lazy" scrolling="no" tabindex="-1"></iframe>
                 <span class="pl-thumb-tag">P{{ pl.numero }}</span>
               </div>
@@ -146,15 +146,6 @@
                 <span class="fw-semibold">{{ meses[pl.mes - 1] }} {{ pl.anio }}</span><br>
                 <span class="text-muted"><i class="bi bi-calendar-check me-1"></i>{% if pl.fecha_creacion %}{{ pl.fecha_creacion.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</span>
               </div>
-              {% if pl.liquidacion %}
-              <a href="/cobranza/liquidacion/{{ pl.id }}" class="btn btn-sm btn-outline-success w-100">
-                <i class="bi bi-check2-circle me-1"></i>Ver liquidación
-              </a>
-              {% else %}
-              <a href="/cobranza/liquidacion/{{ pl.id }}" class="btn btn-sm btn-success w-100">
-                <i class="bi bi-cash-coin me-1"></i>Liquidar
-              </a>
-              {% endif %}
             </div>
             {% endfor %}
           </div>
@@ -172,4 +163,31 @@
 {% else %}
 <div class="text-center text-muted py-5">No hay cobradores con boletas activas.</div>
 {% endif %}
+
+<!-- Modal: vista de planilla (incluye su propia barra con Imprimir / Liquidar) -->
+<div class="modal fade" id="modalPlanilla" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" style="height:92vh;">
+      <div class="modal-header py-2">
+        <h6 class="modal-title mb-0"><i class="bi bi-file-earmark-text text-danger me-1"></i><span id="modalPlanillaTitulo">Planilla</span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-0" style="overflow:hidden;background:#aaa;">
+        <iframe id="planillaFrame" src="" style="width:100%;height:100%;border:0;"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function abrirPlanilla(id, titulo) {
+    document.getElementById('modalPlanillaTitulo').textContent = titulo || 'Planilla';
+    document.getElementById('planillaFrame').src = '/cobranza/planilla/' + id + '/ver?embed=1';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPlanilla')).show();
+  }
+  // Detener la carga del iframe al cerrar el modal.
+  document.getElementById('modalPlanilla').addEventListener('hidden.bs.modal', function () {
+    document.getElementById('planillaFrame').src = '';
+  });
+</script>
 {% endblock %}
