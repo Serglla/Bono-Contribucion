@@ -1100,6 +1100,23 @@ async def actualizar_cuotas(
         from fastapi.responses import JSONResponse
         return JSONResponse({"ok": False, "error": f"boleta {boleta_id} no encontrada"}, status_code=404)
     b.cuotas_pagadas = cuotas_pagadas
+    # Mantener consistencia con la planilla y la liquidación de cobranza:
+    # las marcas de la planilla salen de cuotas_anticipadas (X negra) +
+    # historial_cuotas (mes), y al liquidar una planilla se recalcula
+    # cuotas_pagadas = anticipadas + len(historial). Una carga manual
+    # (cuota cobrada FUERA de la cobranza, ej. por la institución) debe
+    # reflejarse en anticipadas para que se dibuje la X y no se pierda
+    # en la próxima liquidación.
+    import json as _json
+    _hist_len = 0
+    if b.historial_cuotas:
+        try:
+            _hist_len = len(_json.loads(b.historial_cuotas))
+        except Exception:
+            _hist_len = 0
+    _ant_consistente = max(1, (cuotas_pagadas or 0) - _hist_len)
+    if (b.cuotas_anticipadas or 1) != _ant_consistente:
+        b.cuotas_anticipadas = _ant_consistente
     db.commit()
     from fastapi.responses import JSONResponse
     return JSONResponse({"ok": True, "cuotas_pagadas": b.cuotas_pagadas})
