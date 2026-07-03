@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
+from ..tiempo import ahora_ar
 
 router = APIRouter(prefix="/cobradores", tags=["cobradores"])
 
@@ -51,7 +52,7 @@ def _actualizar_zonas(cobrador_id: int, zona_ids: List[int], db: Session):
         db.add(models.ZonaCobrador(
             zona_id=zona_id,
             cobrador_id=cobrador_id,
-            asignado_en=datetime.utcnow()
+            asignado_en=ahora_ar()   # hora AR, no UTC (fix A-2b)
         ))
 
 

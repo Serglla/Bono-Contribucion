@@ -382,6 +382,30 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion historial anio (C-1): {e}")
 
+        # ── Migracion de DATOS (A-2b): timestamps guardados con utcnow() → hora
+        # argentina. LiquidacionVendedor.fecha y EntregaCaja.fecha se generaban
+        # en UTC: el historial semanal/mensual de vendedores corria 3 hs (una
+        # liquidacion del domingo 22:00 caia en la semana/mes siguiente). Los
+        # defaults nuevos usan ahora_ar(); aca se corrigen -3 hs los datos ya
+        # guardados, UNA sola vez (flag en config_bono para no repetir).
+        try:
+            _flag = db.execute(text(
+                "SELECT valor_float FROM config_bono WHERE clave = 'fechas_utc_a_ar_v1'"
+            )).fetchone()
+            if not _flag:
+                if engine.dialect.name == "postgresql":
+                    db.execute(text("UPDATE liquidaciones_vendedor SET fecha = fecha - interval '3 hours' WHERE fecha IS NOT NULL"))
+                    db.execute(text("UPDATE entregas_caja SET fecha = fecha - interval '3 hours' WHERE fecha IS NOT NULL"))
+                else:
+                    db.execute(text("UPDATE liquidaciones_vendedor SET fecha = datetime(fecha, '-3 hours') WHERE fecha IS NOT NULL"))
+                    db.execute(text("UPDATE entregas_caja SET fecha = datetime(fecha, '-3 hours') WHERE fecha IS NOT NULL"))
+                db.execute(text("INSERT INTO config_bono (clave, valor_float) VALUES ('fechas_utc_a_ar_v1', 1)"))
+                db.commit()
+                print("Migracion fechas UTC->AR (A-2b): timestamps corridos -3 hs (una sola vez)")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion fechas UTC->AR (A-2b): {e}")
+
         # Migrar enum tiposorteo en PostgreSQL para agregar valor CONTADO
         try:
             dialect = engine.dialect.name

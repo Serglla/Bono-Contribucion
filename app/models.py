@@ -4,6 +4,10 @@ from sqlalchemy.sql import func
 import enum
 from datetime import datetime as _datetime
 from .database import Base
+# Hora ARGENTINA para defaults de timestamps (fix A-2b): el server corre en UTC
+# y utcnow() corria 3 hs las fechas (una liquidacion de las 22:00 caia al dia
+# siguiente, y en el borde, a la semana/mes siguiente del historial).
+from .tiempo import ahora_ar
 
 
 class TipoSorteo(str, enum.Enum):
@@ -42,7 +46,7 @@ class ZonaCobrador(Base):
     __tablename__ = "zona_cobradores"
     zona_id = Column(Integer, ForeignKey("zonas.id"), primary_key=True)
     cobrador_id = Column(Integer, ForeignKey("cobradores.id"), primary_key=True)
-    asignado_en = Column(DateTime, default=_datetime.utcnow)
+    asignado_en = Column(DateTime, default=ahora_ar)
     zona = relationship("Zona", back_populates="zona_cobradores")
     cobrador = relationship("Cobrador", back_populates="zona_cobradores")
 
@@ -103,7 +107,7 @@ class LiquidacionVendedor(Base):
     __tablename__ = "liquidaciones_vendedor"
     id = Column(Integer, primary_key=True, index=True)
     vendedor_id = Column(Integer, ForeignKey("vendedores.id"), nullable=False)
-    fecha = Column(DateTime, default=_datetime.utcnow)
+    fecha = Column(DateTime, default=ahora_ar)
     # Cuotas
     cuotas_vendidas    = Column(Integer, default=0)
     # Ponderado por multiplicador de PATA: 17 PATA1 + 7 PATA2 + 1 PATA3 = 17 + 14 + 3 = 34
@@ -325,7 +329,7 @@ class EntregaCaja(Base):
     boletas_afectadas = Column(Integer, default=0)
     observacion      = Column(String, nullable=True)
     tipo             = Column(String, default="ENTREGA")  # ENTREGA | RETIRO
-    fecha            = Column(DateTime, default=_datetime.utcnow)
+    fecha            = Column(DateTime, default=ahora_ar)
     usuario_id       = Column(Integer, ForeignKey("users.id"), nullable=True)
     vendedor_id      = Column(Integer, ForeignKey("vendedores.id"), nullable=True)
     usuario          = relationship("User")
@@ -346,7 +350,7 @@ class BonoAnterior(Base):
     condicion       = Column(String)
     vendedor        = Column(String)
     multiplicador   = Column(Float, default=1.0)           # de la PATA (PATA 2 = 2.0, etc.)
-    importado_en    = Column(DateTime, default=_datetime.utcnow)
+    importado_en    = Column(DateTime, default=ahora_ar)
 
 
 class Sorteo(Base):
@@ -475,11 +479,9 @@ class GeocodeCache(Base):
     """
     __tablename__ = "geocode_cache"
     direccion = Column(String, primary_key=True)  # direccion normalizada (UPPER trim)
-    lat       = Column(Float, nullable=True)
-    lng       = Column(Float, nullable=True)
-    intentos  = Column(Integer, default=1)
-    last_try  = Column(DateTime, server_default=func.now())
-
+    # (fix B-1: estas columnas estaban definidas DOS veces con defaults
+    # distintos; se conserva la definicion que venia ganando -la segunda-
+    # para no cambiar el comportamiento efectivo.)
     lat       = Column(Float, nullable=True)
     lng       = Column(Float, nullable=True)
     intentos  = Column(Integer, default=0)

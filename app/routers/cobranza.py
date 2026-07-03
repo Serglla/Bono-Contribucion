@@ -510,9 +510,11 @@ async def armar_planilla_form(request: Request, cobrador_id: int,
             pata, color = "?", "#cccccc"
         pata_info[b.id] = {"pata": pata, "color": color}
 
-    planillas_existentes = (db.query(func.count(models.Planilla.id))
-                            .filter_by(cobrador_id=cobrador_id)
-                            .scalar() or 0)
+    # MAX(numero)+1 y no COUNT+1: si se elimino una planilla intermedia,
+    # COUNT+1 repetia un numero ya usado (fix A-4).
+    ultimo_numero = (db.query(func.max(models.Planilla.numero))
+                     .filter_by(cobrador_id=cobrador_id)
+                     .scalar() or 0)
 
     return templates.TemplateResponse(request, "cobranza_planilla_armar.html", {
         "user": user,
@@ -521,7 +523,7 @@ async def armar_planilla_form(request: Request, cobrador_id: int,
         "mes_nombre": MESES[mes - 1],
         "disponibles": disponibles,
         "pata_info": pata_info,
-        "siguiente_numero": planillas_existentes + 1,
+        "siguiente_numero": ultimo_numero + 1,
     })
 
 
@@ -582,7 +584,9 @@ async def armar_planilla(request: Request, cobrador_id: int,
     else:
         boletas_q = base_q
 
-    siguiente_numero = (db.query(func.count(models.Planilla.id))
+    # MAX(numero)+1 y no COUNT+1 (fix A-4: COUNT+1 duplicaba numeros si se
+    # habia eliminado una planilla intermedia).
+    siguiente_numero = (db.query(func.max(models.Planilla.numero))
                         .filter_by(cobrador_id=cobrador_id)
                         .scalar() or 0) + 1
     planilla = models.Planilla(
@@ -898,7 +902,8 @@ async def pasar_numeros(request: Request, planilla_id: int,
         label = None  # se completa con "P<numero>" al crear la planilla
 
     # ── Crear la planilla destino (mismo mes/anio que la origen) ─────────────
-    siguiente_numero = (db.query(func.count(models.Planilla.id))
+    # MAX(numero)+1 y no COUNT+1 (fix A-4, mismo criterio que armar_planilla).
+    siguiente_numero = (db.query(func.max(models.Planilla.numero))
                         .filter_by(cobrador_id=dest_cobrador.id)
                         .scalar() or 0) + 1
     dest_planilla = models.Planilla(

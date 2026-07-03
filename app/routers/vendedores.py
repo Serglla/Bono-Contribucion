@@ -8,6 +8,9 @@ from .. import models, auth as auth_module
 from ..models import CondicionBoleta
 from ..templates_config import templates
 from ..database import get_db
+# Fecha argentina (fix A-2b): el server corre en UTC; utcnow() corria de
+# semana/mes las liquidaciones guardadas de noche.
+from ..tiempo import hoy_ar
 
 router = APIRouter(prefix="/vendedores", tags=["vendedores"])
 
@@ -480,11 +483,11 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     # Historial de liquidaciones (mismo dataset que la página dedicada) para
     # embeberlo al pie de la página de Vendedores. Usa nombres hl_* para no
     # chocar con `historial_mensual` (que acá es el histórico de entregas a caja).
-    from datetime import datetime as _dt_hl, timedelta as _td_hl
+    from datetime import timedelta as _td_hl
     _nombres_hl = {v.id: v.nombre for v in vendedores}
     _liqs_hl = db.query(models.LiquidacionVendedor).all()
     hl_meses = _build_meses(_liqs_hl, _nombres_hl)
-    _hoy_hl = _dt_hl.utcnow().date()
+    _hoy_hl = hoy_ar()
     _lunes_hl = _hoy_hl - _td_hl(days=_hoy_hl.weekday())
     _domingo_hl = _lunes_hl + _td_hl(days=6)
     hl_semana_key = _lunes_hl.isoformat()
@@ -616,12 +619,12 @@ async def historial_liquidaciones(request: Request, db: Session = Depends(get_db
     if not auth_module.has_permission(user, "vendedores", "ver"):
         raise HTTPException(403, "Sin permiso")
 
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import timedelta as _td
     nombres_vendedores = {v.id: v.nombre for v in db.query(models.Vendedor).all()}
     liquidaciones = db.query(models.LiquidacionVendedor).all()
     historial_mensual = _build_meses(liquidaciones, nombres_vendedores)
 
-    _hoy = _dt.utcnow().date()
+    _hoy = hoy_ar()
     _lunes_hoy = _hoy - _td(days=_hoy.weekday())
     _domingo_hoy = _lunes_hoy + _td(days=6)
     semana_actual_key = _lunes_hoy.isoformat()
@@ -1075,8 +1078,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     # ── Agrupación de liquidaciones por mes (para acordeón) ──────────────
     _MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
                  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
-    from datetime import datetime as _dt
-    _hoy = _dt.utcnow()
+    _hoy = hoy_ar()
     mes_actual_key = f"{_hoy.year:04d}-{_hoy.month:02d}"
 
     # Items pool CONTADO por liquidación de este vendedor (números entregados a

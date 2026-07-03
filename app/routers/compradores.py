@@ -1231,6 +1231,45 @@ async def reasignar_talonera(
     })
 
 
+def _reset_boleta_a_stock(db: Session, b) -> None:
+    """Devuelve una boleta al stock de la institucion, LIMPIA (fix A-3).
+
+    Se usa al "liberar" una boleta y al ELIMINAR un socio. Antes, eliminar
+    un socio solo borraba comprador_id/fecha/condicion y dejaba una boleta
+    fantasma: seguia en su planilla (sumando en el consolidado), conservaba
+    historial, numeros especiales y liquidacion_vendedor_id (inflando el
+    "Total liquidados" del dashboard) y no se podia volver a entregar limpia.
+
+    Pasos:
+      1. Descuenta la boleta de su LiquidacionVendedor (snapshots + montos),
+         mismo helper que usa "sacar numero" - evita el drift del dashboard.
+      2. Resetea TODOS los campos de venta/cobranza al estado de fabrica.
+    """
+    if b.liquidacion_vendedor_id:
+        _liq = db.query(models.LiquidacionVendedor).get(b.liquidacion_vendedor_id)
+        if _liq:
+            from .vendedores import _quitar_boleta_de_liq
+            _quitar_boleta_de_liq(_liq, b)
+
+    b.comprador_id          = None
+    b.vendedor_id           = None
+    b.cobrador_id           = None
+    b.planilla_id           = None
+    b.fecha_venta           = None
+    b.condicion             = CondicionBoleta.SIN_VENDER
+    b.cuotas_pagadas        = 0
+    b.cuotas_anticipadas    = 1
+    b.total_pagado          = 0.0
+    b.historial_cuotas      = None
+    b.mes_baja              = None
+    b.numero_especial       = None
+    b.talonera_especial_id  = None
+    b.numero_especial_2     = None
+    b.talonera_especial_2_id = None
+    b.liquidacion_vendedor_id = None
+    b.modalidad_liquidacion = None
+
+
 @router.post("/{comprador_id}/boleta/{boleta_id}/liberar")
 async def liberar_boleta(
     comprador_id: int, boleta_id: int, request: Request,
@@ -1284,32 +1323,8 @@ async def liberar_boleta(
     talonera_nombre = b.talonera.nombre if b.talonera else ""
     numero_liberado = b.numero_principal
 
-    # ── Descontar la boleta de su liquidación (si estaba liquidada) ─────────
-    # Antes de borrar el vínculo, bajamos los snapshots cuotas_equiv/contados_equiv
-    # y los montos de la liquidación para que el "Total liquidados" del dashboard
-    # no quede inflado (drift). Mismo helper que usa "sacar número".
-    if b.liquidacion_vendedor_id:
-        _liq = db.query(models.LiquidacionVendedor).get(b.liquidacion_vendedor_id)
-        if _liq:
-            from .vendedores import _quitar_boleta_de_liq
-            _quitar_boleta_de_liq(_liq, b)
-
-    # ── Reset COMPLETO de la boleta ────────────────────────────────────────
-    b.comprador_id          = None
-    b.vendedor_id           = None
-    b.cobrador_id           = None
-    b.planilla_id           = None
-    b.fecha_venta           = None
-    b.condicion             = CondicionBoleta.SIN_VENDER
-    b.cuotas_pagadas        = 0
-    b.cuotas_anticipadas    = 1
-    b.total_pagado          = 0.0
-    b.historial_cuotas      = None
-    b.numero_especial       = None
-    b.talonera_especial_id  = None
-    b.numero_especial_2     = None
-    b.talonera_especial_2_id = None
-    b.liquidacion_vendedor_id = None
+    # ── Descuento de liquidacion + reset COMPLETO (helper compartido) ──────
+    _reset_boleta_a_stock(db, b)
 
     # ── Si el socio queda sin boletas, eliminarlo ─────────────────────────
     db.flush()
@@ -1341,10 +1356,10 @@ async def eliminar(comprador_id: int, request: Request, db: Session = Depends(ge
         raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     c = db.query(models.Comprador).get(comprador_id)
     if c:
+        # Reset COMPLETO de cada boleta (fix A-3): antes quedaban "fantasma"
+        # (en planilla, con historial y liquidacion colgando). Ver helper.
         for b in c.boletas:
-            b.comprador_id = None
-            b.condicion = CondicionBoleta.SIN_VENDER
-            b.fecha_venta = None
+            _reset_boleta_a_stock(db, b)
         db.delete(c)
         db.commit()
     return RedirectResponse("/compradores/", status_code=302)
