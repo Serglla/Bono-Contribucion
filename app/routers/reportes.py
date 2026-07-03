@@ -8,6 +8,7 @@ from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..models import CondicionBoleta
 from ..database import get_db
+from ..tiempo import parse_periodo
 from .vendedores import _stats_bulk
 
 router = APIRouter(prefix="/reportes", tags=["reportes"])
@@ -306,14 +307,19 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             if b.planilla_id in _liq_planilla_ids:
                 acc["activas"] += 1
                 _g_activas += 1
-                _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+                try:
+                    _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+                except (ValueError, TypeError):
+                    _hist = {}
                 for _k, _v in _hist.items():
-                    try:
-                        _m = int(_v)
-                    except (TypeError, ValueError):
+                    # Valores "YYYY-MM" (nuevo) o int 1-12 (legacy). Agrupar por
+                    # (anio, mes) para no mezclar julio 2026 con julio 2027 (C-1).
+                    _p = parse_periodo(_v)
+                    if _p is None:
                         continue
-                    acc["meses_cob"][_m] = acc["meses_cob"].get(_m, 0) + 1
-                    _g_meses[_m] = _g_meses.get(_m, 0) + 1
+                    _pk = (_p[0] or 0, _p[1])
+                    acc["meses_cob"][_pk] = acc["meses_cob"].get(_pk, 0) + 1
+                    _g_meses[_pk] = _g_meses.get(_pk, 0) + 1
         elif no_terminada and b.numero_especial_2 is None:
             acc["del_mes"] += pv               # pendiente de emplanillar
 

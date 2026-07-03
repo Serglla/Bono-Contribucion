@@ -348,8 +348,10 @@
               {# A partir de donde dejó de cobrar: línea "PASÓ A X" #}
               <td class="td-q td-paso">{% if n == _pmid %}<span class="paso-num">PASÓ A {{ _pa.label }}</span>{% endif %}</td>
             {% elif hmes %}
-              {# Cobrada en cobranza: mostrar el MES en que se liquidó #}
-              <td class="td-q {% if hmes == mes_actual %}mes-actual{% else %}mes-otro{% endif %}">{{ hmes }}</td>
+              {# Cobrada en cobranza: mostrar el MES en que se liquido.
+                 "mes actual" se decide por PERIODO real (anio+mes, hist_act):
+                 julio 2026 no es "actual" en julio 2027 (fix C-1). #}
+              <td class="td-q {% if n in hist_act.get(b.id, []) %}mes-actual{% else %}mes-otro{% endif %}">{{ hmes }}</td>
             {% else %}
               <td class="td-q"></td>
             {% endif %}

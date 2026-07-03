@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
+from ..tiempo import match_periodo
 from ..scraper import buscar_resultado_tombola
 
 router = APIRouter(prefix="/sorteos", tags=["sorteos"])
@@ -427,12 +428,17 @@ def _habilitacion_boleta(boleta, sorteo, override=None):
     """
     mes_sorteo = sorteo.fecha.month
 
-    # 1) Pagó alguna cuota en el mes del sorteo
+    # 1) Pago alguna cuota en el mes/ANIO del sorteo. match_periodo entiende el
+    # formato nuevo "YYYY-MM" y el legacy (mes suelto); con el legacy matchea
+    # solo por mes, igual que antes (fix C-1: julio 2026 != julio 2027).
     pago_mes = False
     if boleta.historial_cuotas:
         try:
             _hist = json.loads(boleta.historial_cuotas)
-            pago_mes = any(int(v) == mes_sorteo for v in _hist.values())
+            pago_mes = any(
+                match_periodo(v, sorteo.fecha.year, mes_sorteo)
+                for v in _hist.values()
+            )
         except Exception:
             pago_mes = False
 

@@ -27,6 +27,9 @@ def _extraer_pata(nombre: str) -> str:
 from ..templates_config import templates
 from ..models import CondicionBoleta
 from ..database import get_db
+# Fecha argentina + periodos anio-mes del historial (auditoria A-2 / C-1):
+# NUNCA usar date.today() aca - el server corre en UTC y de noche corre el mes.
+from ..tiempo import hoy_ar, periodo_actual, parse_periodo, mes_de, match_periodo
 
 router = APIRouter(prefix="/cobranza", tags=["cobranza"])
 
@@ -84,6 +87,38 @@ def _build_paso_map(boletas, planilla_id) -> dict:
                 "cuota": int(b.paso_cuota or 0),
             }
     return out
+
+
+def _hist_maps_display(boletas):
+    """Mapas de historial para las vistas de planilla (formato display).
+
+    Devuelve (historial_map, hist_act):
+      - historial_map[bid] = {cuota_str: mes_int} - TODAS las cuotas cobradas,
+        con el mes ya parseado (acepta "YYYY-MM" nuevo e int legacy).
+      - hist_act[bid] = [cuotas cobradas en el PERIODO actual (anio+mes AR)] -
+        para pintar "mes actual" sin confundir julio 2026 con julio 2027.
+    """
+    _hoy = hoy_ar()
+    historial_map, hist_act = {}, {}
+    for b in boletas:
+        try:
+            h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+        except (ValueError, TypeError):
+            h = {}
+        disp, act = {}, []
+        for k, v in h.items():
+            _m = mes_de(v)
+            if not _m:
+                continue
+            disp[str(k)] = _m
+            if match_periodo(v, _hoy.year, _hoy.month):
+                try:
+                    act.append(int(k))
+                except (TypeError, ValueError):
+                    pass
+        historial_map[b.id] = disp
+        hist_act[b.id] = act
+    return historial_map, hist_act
 
 
 def _get_color_boleta(b) -> str:
@@ -254,7 +289,7 @@ async def index(request: Request, db: Session = Depends(get_db),
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
 
-    hoy = date.today()
+    hoy = hoy_ar()
     if not mes:  mes  = hoy.month
     if not anio: anio = hoy.year
 
@@ -302,7 +337,7 @@ async def index(request: Request, db: Session = Depends(get_db),
         pactadas_tot = 0
         pagadas_tot = 0
         anticipadas_tot = 0
-        meses_cob = {}        # mes calendario -> cuotas cobradas ese mes
+        meses_cob = {}        # (anio, mes) -> cuotas cobradas ese periodo
         activas_cob = 0       # boletas activas emplanilladas (denominador por mes)
         meses_baja = {}       # mes calendario -> bajas registradas ese mes
         bajas_tot = 0         # boletas dadas de baja (emplanilladas, liquidadas)
@@ -318,13 +353,18 @@ async def index(request: Request, db: Session = Depends(get_db),
                 if b.planilla_id in planillas_liq_ids:
                     if not b.mes_baja:
                         activas_cob += 1
-                        _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+                        # Un historial corrupto no debe tumbar TODO el dashboard.
+                        try:
+                            _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+                        except (ValueError, TypeError):
+                            _hist = {}
                         for _k, _v in _hist.items():
-                            try:
-                                _m = int(_v)
-                            except (TypeError, ValueError):
+                            # Valores "YYYY-MM" (nuevo) o int 1-12 (legacy, anio 0).
+                            _p = parse_periodo(_v)
+                            if _p is None:
                                 continue
-                            meses_cob[_m] = meses_cob.get(_m, 0) + 1
+                            _key = (_p[0] or 0, _p[1])   # (anio, mes)
+                            meses_cob[_key] = meses_cob.get(_key, 0) + 1
                     else:
                         # Baja de cobranza: el socio se dio de baja en mes_baja.
                         bajas_tot += 1
@@ -346,9 +386,10 @@ async def index(request: Request, db: Session = Depends(get_db),
         # Desglose por mes para mostrar cómo se forma el promedio: cada mes con
         # cobranza con su tasa (cuotas cobradas / boletas activas).
         meses_detalle = [
-            {"mes": MESES[m - 1], "num": m, "cobradas": cnt,
+            {"mes": (MESES[m - 1] + (f" {y}" if y else "")), "num": m,
+             "cobradas": cnt,
              "activas": activas_cob, "pct": round(cnt / activas_cob * 100)}
-            for m, cnt in sorted(meses_cob.items())
+            for (y, m), cnt in sorted(meses_cob.items())
         ] if cobranza_iniciada else []
 
         # % de baja (TOTAL ACUMULADO, no promedio mes a mes): a diferencia del
@@ -441,7 +482,7 @@ async def armar_planilla_form(request: Request, cobrador_id: int,
     if not cobrador:
         return RedirectResponse("/cobranza/emplanillado", status_code=302)
 
-    hoy = date.today()
+    hoy = hoy_ar()
     if not mes:  mes  = hoy.month
     if not anio: anio = hoy.year
 
@@ -504,10 +545,10 @@ async def armar_planilla(request: Request, cobrador_id: int,
 
     form_data = await request.form()
     try:
-        mes = int(form_data.get("mes") or date.today().month)
-        anio = int(form_data.get("anio") or date.today().year)
+        mes = int(form_data.get("mes") or hoy_ar().month)
+        anio = int(form_data.get("anio") or hoy_ar().year)
     except (TypeError, ValueError):
-        mes, anio = date.today().month, date.today().year
+        mes, anio = hoy_ar().month, hoy_ar().year
     try:
         comision_pct = float(form_data.get("comision_pct") or 10.0)
     except (TypeError, ValueError):
@@ -568,7 +609,7 @@ async def emplanillado(request: Request, db: Session = Depends(get_db),
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    hoy = date.today()
+    hoy = hoy_ar()
     if not mes:  mes  = hoy.month
     if not anio: anio = hoy.year
 
@@ -634,7 +675,12 @@ async def emplanillado(request: Request, db: Session = Depends(get_db),
 @router.get("/planilla/{planilla_id}/editar", response_class=HTMLResponse)
 async def planilla_editar_form(request: Request, planilla_id: int,
                                db: Session = Depends(get_db)):
+    # Este form muta datos (limpieza de abajo) y es la puerta de edicion:
+    # exige permiso de EDITAR, igual que el armado de planillas (fix C-2:
+    # antes cualquier usuario logueado podia dispararlo).
     user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     planilla = db.query(models.Planilla).get(planilla_id)
     if not planilla:
         raise HTTPException(404)
@@ -645,10 +691,18 @@ async def planilla_editar_form(request: Request, planilla_id: int,
     # "en cuotas" con cuotas_anticipadas = num_cuotas), las descontamos de la
     # planilla antes de mostrarla. Evita que queden huérfanas por data antigua
     # o por una baja anterior, o que el cobrador las vea con las 12 cuotas en X.
+    #
+    # IMPORTANTE (fix C-2): SOLO se limpian boletas SIN historial de cobranza.
+    # El consolidado del cobrador suma las cuotas cobradas recorriendo las
+    # boletas por planilla_id: sacar de la planilla una boleta que termino de
+    # pagar EN cobranza (tiene historial_cuotas) hacia desaparecer esa plata
+    # del consolidado del mes con solo abrir esta pantalla.
     limpiadas = (db.query(models.Boleta)
                  .filter(models.Boleta.planilla_id == planilla_id,
                          or_(models.Boleta.numero_especial_2.isnot(None),
-                             models.Boleta.cuotas_pagadas >= models.Boleta.cuotas_pactadas))
+                             models.Boleta.cuotas_pagadas >= models.Boleta.cuotas_pactadas),
+                         or_(models.Boleta.historial_cuotas.is_(None),
+                             models.Boleta.historial_cuotas.in_(("", "{}"))))
                  .update({"planilla_id": None}, synchronize_session=False))
     if limpiadas:
         db.commit()
@@ -709,12 +763,24 @@ async def planilla_editar_guardar(request: Request, planilla_id: int,
         raise HTTPException(404)
 
     form_data = await request.form()
-    ids_seleccionados = set(int(x) for x in form_data.getlist("boleta_ids"))
+    ids_seleccionados = set()
+    for x in form_data.getlist("boleta_ids"):
+        try:
+            ids_seleccionados.add(int(x))
+        except (TypeError, ValueError):
+            continue
 
-    # Quitar de planilla las que ya no están seleccionadas
+    # Quitar de planilla las que ya no estan seleccionadas.
+    # PROTECCION (fix C-2): nunca sacar de la planilla una boleta CON historial
+    # de cobranza - el consolidado suma lo cobrado recorriendo las boletas por
+    # planilla_id, asi que sacarla haria desaparecer esa plata del consolidado.
+    # Para mover un numero cobrado a otro lado esta "Pasar numeros" (que
+    # conserva el rastro y el destino sigue contando).
     (db.query(models.Boleta)
        .filter(models.Boleta.planilla_id == planilla_id,
-               models.Boleta.id.notin_(ids_seleccionados))
+               models.Boleta.id.notin_(ids_seleccionados),
+               or_(models.Boleta.historial_cuotas.is_(None),
+                   models.Boleta.historial_cuotas.in_(("", "{}"))))
        .update({"planilla_id": None}, synchronize_session=False))
 
     # Agregar a la planilla las nuevas seleccionadas. Solo toma boletas
@@ -883,19 +949,42 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
 
     liq = planilla.liquidacion
 
-    # El mes que se está liquidando = mes CALENDARIO real de hoy (el mes en que el
-    # cobrador está cobrando). planilla.mes es el mes de VENTA/entrega (Mayo), no el
-    # de cobranza, por eso NO se usa como "mes actual".
-    mes_liq = date.today().month
-    anio_liq = date.today().year
+    # El PERIODO que se esta liquidando = mes/anio CALENDARIO real de hoy (el
+    # mes en que el cobrador esta cobrando). planilla.mes es el mes de VENTA/
+    # entrega (Mayo), no el de cobranza, por eso NO se usa como "mes actual".
+    _hoy = hoy_ar()
+    mes_liq = _hoy.month
+    anio_liq = _hoy.year
 
-    # Construir historial y selección actual por boleta
+    # Construir historial y seleccion actual por boleta.
+    # historial_map (para el template) lleva SOLO las cuotas de OTROS periodos,
+    # como {cuota_str: mes_int} (el mes se muestra en la celda azul). Las del
+    # periodo ACTUAL van en cuotas_mes_actual (celdas rojas editables).
+    # historial_full guarda todas las cuotas pagas (para calcular la baja).
     historial_map = {}
     cuotas_mes_actual = {}
+    historial_full = {}
     for b in boletas:
-        h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
-        historial_map[b.id] = h
-        cuotas_mes_actual[b.id] = [int(k) for k, v in h.items() if v == mes_liq]
+        try:
+            h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+        except (ValueError, TypeError):
+            h = {}
+        _otros, _actual, _full = {}, [], set()
+        for k, v in h.items():
+            try:
+                _cn = int(k)
+            except (TypeError, ValueError):
+                continue
+            _full.add(_cn)
+            if match_periodo(v, anio_liq, mes_liq):
+                _actual.append(_cn)
+            else:
+                _m = mes_de(v)
+                if _m:
+                    _otros[str(_cn)] = _m
+        historial_map[b.id] = _otros
+        cuotas_mes_actual[b.id] = _actual
+        historial_full[b.id] = _full
 
     # ── Mismo grid 3 columnas que la planilla ──────────────────────────────
     _grid = _armar_grid_patas(boletas)
@@ -953,29 +1042,25 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     # las cuotas. El mes actual lo recalcula el JS desde la selección.
     # resumen_otros[mes_calendario] = {1: count, 2: count, 3: count} — solo
     # cuotas cobradas en meses DISTINTOS al de la planilla.
+    # historial_map ya viene filtrado a OTROS periodos y con el mes parseado.
     resumen_otros = {m: {1: 0, 2: 0, 3: 0} for m in range(1, 13)}
     for b in boletas:
         col = columna_de_boleta.get(b.id)
         if not col:
             continue
         mult = multiplicador_de_boleta.get(b.id, 1)
-        for k, v in historial_map[b.id].items():
-            try:
-                mes_pago = int(v)
-            except (TypeError, ValueError):
-                continue
-            if mes_pago == mes_liq:
-                continue  # el JS lo maneja en la fila del mes actual
+        for k, mes_pago in historial_map[b.id].items():
             if 1 <= mes_pago <= 12:
                 resumen_otros[mes_pago][col] += mult
 
-    # ── Info por boleta para validación secuencial en JS ────────────────────
+    # ── Info por boleta para validacion secuencial en JS ────────────────────
+    # `historial` = cuotas pagas en OTROS periodos (cuota -> mes). Las del
+    # periodo actual viajan en cuotas_mes_actual (fix C-1).
     boletas_info = {
         b.id: {
             "anticipadas": int(b.cuotas_anticipadas or 0),
             "pactadas": int(b.cuotas_pactadas or 0),
-            "historial": {int(k): int(v) for k, v in historial_map[b.id].items()
-                          if str(k).isdigit() and str(v).lstrip('-').isdigit()},
+            "historial": {int(k): v for k, v in historial_map[b.id].items()},
         }
         for b in boletas
     }
@@ -991,8 +1076,11 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         info = boletas_info[b.id]
         pact = info["pactadas"] or num_cuotas
         last_paid = info["anticipadas"]
+        # historial_full incluye TODAS las cuotas pagas (otros periodos + el
+        # actual), igual que el historial crudo que se usaba antes aca.
+        _pagas = historial_full.get(b.id, set())
         for n in range(1, pact + 1):
-            if n <= info["anticipadas"] or (n in info["historial"]):
+            if n <= info["anticipadas"] or (n in _pagas):
                 last_paid = max(last_paid, n)
         desde = last_paid + 1
         hasta = pact
@@ -1048,40 +1136,56 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     # Crear o actualizar liquidación
     liq = planilla.liquidacion
     if not liq:
-        liq = models.Liquidacion(planilla_id=planilla_id, fecha=date.today())
+        liq = models.Liquidacion(planilla_id=planilla_id, fecha=hoy_ar())
         db.add(liq)
         db.flush()
 
     # Eliminar detalles anteriores y recrear
     db.query(models.LiquidacionDetalle).filter_by(liquidacion_id=liq.id).delete()
 
+    # Periodo que se esta liquidando (fecha ARGENTINA, no UTC del server).
+    _hoy_liq = hoy_ar()
+    _per_liq = periodo_actual()          # ej. "2026-07" - formato nuevo con anio
+    _mes_liq, _anio_liq = _hoy_liq.month, _hoy_liq.year
+
     total_cuotas = 0
     monto_total  = 0.0
     for idx, (bid, cjson) in enumerate(zip(boleta_ids, cuotas_json)):
-        cuotas_nuevas = json.loads(cjson)   # lista de enteros, ej: [2, 3, 4]
+        try:
+            cuotas_nuevas = json.loads(cjson)   # lista de enteros, ej: [2, 3, 4]
+        except (ValueError, TypeError):
+            cuotas_nuevas = []
+        # Solo boletas de ESTA planilla: un form manipulado/desfasado no debe
+        # poder tocar el historial de boletas de otra planilla (fix A-1).
         boleta = db.query(models.Boleta).get(bid)
-        if not boleta:
+        if not boleta or boleta.planilla_id != planilla_id:
             continue
 
-        # Mes de baja para esta boleta (vacío = sin baja). Paralelo a boleta_ids.
+        # Mes de baja para esta boleta (vacio = sin baja). Paralelo a boleta_ids.
         _baja_raw = baja_mes[idx] if idx < len(baja_mes) else ""
         try:
             baja_val = int(_baja_raw) if str(_baja_raw).strip() else None
         except (TypeError, ValueError):
             baja_val = None
 
-        # Actualizar historial_cuotas: quitar entradas del mes actual y reemplazar
-        _mes_liq = date.today().month
-        historial = json.loads(boleta.historial_cuotas) if boleta.historial_cuotas else {}
-        historial = {k: v for k, v in historial.items() if v != _mes_liq}
+        # Actualizar historial_cuotas: quitar SOLO las entradas del PERIODO
+        # actual (anio+mes) y reemplazarlas por la seleccion nueva. Con el
+        # formato viejo (mes sin anio) esto borraba tambien las cuotas del
+        # mismo mes de OTRO anio (fix C-1). Se guarda "YYYY-MM".
+        try:
+            historial = json.loads(boleta.historial_cuotas) if boleta.historial_cuotas else {}
+        except (ValueError, TypeError):
+            historial = {}
+        historial = {k: v for k, v in historial.items()
+                     if not match_periodo(v, _anio_liq, _mes_liq)}
         for cn in cuotas_nuevas:
-            historial[str(cn)] = _mes_liq
+            historial[str(cn)] = _per_liq
         boleta.historial_cuotas = json.dumps(historial)
 
         # cuotas_pagadas = anticipadas + todas las del historial
         boleta.cuotas_pagadas = min(
-            boleta.cuotas_anticipadas + len(historial),
-            boleta.cuotas_pactadas
+            (boleta.cuotas_anticipadas or 0) + len(historial),
+            boleta.cuotas_pactadas or ((boleta.cuotas_anticipadas or 0) + len(historial))
         )
 
         # Baja (clic derecho): es solo un REGISTRO visual. La boleta NO se saca
@@ -1125,7 +1229,7 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     liq.monto_total  = round(monto_total, 2)
     liq.comision     = comision
     liq.neto         = neto
-    liq.fecha = date.today()
+    liq.fecha = hoy_ar()
     db.commit()
 
     return RedirectResponse(f"/cobranza/liquidacion/{planilla_id}", status_code=302)
@@ -1164,11 +1268,10 @@ async def planilla_ver(request: Request, planilla_id: int,
     col1_color, col2_color, col3_color = _grid["colors"]
 
     # Historial de cuotas cobradas por boleta: {boleta_id: {cuota_str: mes}}.
-    # Permite mostrar en la planilla el mes en que se liquidó cada cuota.
-    historial_map = {}
-    for b in boletas:
-        historial_map[b.id] = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
-    mes_actual = date.today().month
+    # Permite mostrar en la planilla el mes en que se liquido cada cuota.
+    # hist_act marca cuales son del periodo actual (anio+mes), ver fix C-1.
+    historial_map, hist_act = _hist_maps_display(boletas)
+    mes_actual = hoy_ar().month
     paso_map = _build_paso_map(boletas, planilla_id)
 
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
@@ -1182,6 +1285,7 @@ async def planilla_ver(request: Request, planilla_id: int,
         "planilla": planilla_obj,
         "planilla_label": f"P{planilla_obj.numero}",
         "historial_map": historial_map,
+        "hist_act": hist_act,
         "mes_actual": mes_actual,
         "paso_map": paso_map,
         "boletas": boletas,
@@ -1210,7 +1314,7 @@ async def planilla(request: Request, cobrador_id: int,
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
 
-    hoy = date.today()
+    hoy = hoy_ar()
     if not mes:  mes  = hoy.month
     if not anio: anio = hoy.year
 
@@ -1245,11 +1349,10 @@ async def planilla(request: Request, cobrador_id: int,
     col1_color, col2_color, col3_color = _grid["colors"]
 
     # Historial de cuotas cobradas por boleta: {boleta_id: {cuota_str: mes}}.
-    # Permite mostrar en la planilla (y su preview) el mes de liquidación.
-    historial_map = {}
-    for b in boletas:
-        historial_map[b.id] = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
-    mes_actual = date.today().month
+    # Permite mostrar en la planilla (y su preview) el mes de liquidacion.
+    # hist_act marca cuales son del periodo actual (anio+mes), ver fix C-1.
+    historial_map, hist_act = _hist_maps_display(boletas)
+    mes_actual = hoy_ar().month
     paso_map = _build_paso_map(boletas, planilla_obj.id) if planilla_obj else {}
 
     # Cantidad de cuotas (máximo entre todas las boletas, mínimo 10)
@@ -1268,6 +1371,7 @@ async def planilla(request: Request, cobrador_id: int,
         "planilla": planilla_obj,
         "planilla_label": planilla_label,
         "historial_map": historial_map,
+        "hist_act": hist_act,
         "mes_actual": mes_actual,
         "paso_map": paso_map,
         "boletas": boletas,
@@ -1300,7 +1404,7 @@ async def adelantos_index(request: Request, db: Session = Depends(get_db),
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    hoy = date.today()
+    hoy = hoy_ar()
     if not mes:  mes = hoy.month
     if not anio: anio = hoy.year
 
@@ -1361,7 +1465,7 @@ async def adelantos_crear(request: Request,
     try:
         _fecha = date.fromisoformat(fecha)
     except (ValueError, TypeError):
-        _fecha = date.today()
+        _fecha = hoy_ar()
     _tipo = (tipo or "EFECTIVO").strip().upper()
     if _tipo not in ("EFECTIVO", "PREMIO"):
         _tipo = "EFECTIVO"
@@ -1386,8 +1490,8 @@ async def adelantos_eliminar(request: Request, adelanto_id: int,
     if not auth_module.has_permission(user, 'cobranza', 'editar'):
         raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     e = db.query(models.EntregaCobrador).get(adelanto_id)
-    mes = e.mes if e else date.today().month
-    anio = e.anio if e else date.today().year
+    mes = e.mes if e else hoy_ar().month
+    anio = e.anio if e else hoy_ar().year
     if e:
         db.delete(e)
         db.commit()
@@ -1440,8 +1544,9 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
                 h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
             except (ValueError, TypeError):
                 h = {}
-            # cuotas cobradas en ESTE mes calendario (historial[cuota] == mes)
-            cM = sum(1 for v in h.values() if str(v) == str(mes))
+            # Cuotas cobradas en ESTE periodo (anio+mes). Antes comparaba solo
+            # el mes y mezclaba julio 2026 con julio 2027 (fix C-1).
+            cM = sum(1 for v in h.values() if match_periodo(v, anio, mes))
             if cM:
                 vc = float(b.talonera.valor_cuota) if (b.talonera and b.talonera.valor_cuota) else 0.0
                 m_pl += cM * vc
@@ -1485,7 +1590,7 @@ async def consolidado_index(request: Request, db: Session = Depends(get_db),
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    hoy = date.today()
+    hoy = hoy_ar()
     if not mes:  mes = hoy.month
     if not anio: anio = hoy.year
     cobradores = db.query(models.Cobrador).order_by(models.Cobrador.nombre).all()
@@ -1515,7 +1620,7 @@ async def consolidado_comprobante(request: Request, cobrador_id: int,
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    hoy = date.today()
+    hoy = hoy_ar()
     if not mes:  mes = hoy.month
     if not anio: anio = hoy.year
     cobrador = db.query(models.Cobrador).get(cobrador_id)

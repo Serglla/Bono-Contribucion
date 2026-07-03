@@ -96,7 +96,9 @@
               <td class="cq cq-baja" data-bid="{{ b.id }}" data-cuota="{{ n }}" style="border:1px solid #ccc;text-align:center;padding:0;height:19px;background-image:linear-gradient(to bottom,transparent calc(50% - 1px),#c00 calc(50% - 1px),#c00 calc(50% + 1px),transparent calc(50% + 1px));">{% if n == bj.mid %}<span class="cq-baja-num">{{ bj.mes }}</span>{% endif %}</td>
             {%- elif n <= ant -%}
               <td class="cq cq-venta" data-bid="{{ b.id }}" data-cuota="{{ n }}" style="background:#222;color:#fff;font-weight:900;border:1px solid #ccc;text-align:center;padding:0;height:19px;">×</td>
-            {%- elif hmes > 0 and hmes != mes_actual -%}
+            {# historial_map ya trae SOLO cuotas de OTROS periodos (anio+mes);
+               las del periodo actual vienen en cuotas_mes_actual (fix C-1) #}
+            {%- elif hmes > 0 -%}
               <td class="cq cq-hist" data-bid="{{ b.id }}" data-cuota="{{ n }}" style="background:#0d6efd18;color:#0d6efd;font-weight:700;border:1px solid #ccc;text-align:center;padding:0;height:19px;" title="Mes {{ hmes }}">{{ hmes }}</td>
             {%- elif n in cuotas_mes_actual.get(b.id, []) -%}
               <td class="cq cq-mes" data-bid="{{ b.id }}" data-cuota="{{ n }}" style="background:#dc354550;color:#c00;font-weight:900;border:1px solid #ccc;text-align:center;padding:0;height:19px;cursor:pointer;">{{ mes_actual }}</td>
@@ -309,8 +311,10 @@
     const info = BOLETAS_INFO[bid];
     if (!info) return false;
     if (n <= info.anticipadas) return true;
+    // info.historial trae SOLO cuotas de OTROS periodos (el server ya filtro
+    // por anio+mes); las del periodo actual estan en sel[bid] (fix C-1).
     const h = info.historial[n];
-    if (h && h !== MES_ACTUAL) return true;
+    if (h) return true;
     if (sel[bid] && sel[bid].has(n)) return true;
     return false;
   }

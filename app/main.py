@@ -333,6 +333,55 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion historial_cuotas: {e}")
 
+        # ── Migracion de DATOS: historial_cuotas de {"cuota": mes} a
+        # {"cuota": "YYYY-MM"} (fix C-1, auditoria 03/07/2026). El formato viejo
+        # guardaba solo el mes (1-12): con la campania 2026-2027, julio 2026 y
+        # julio 2027 colisionaban (se borraban/mezclaban cuotas entre anios).
+        # Todos los valores legacy existentes son de 2026: la app cobra desde
+        # abril 2026 y esta migracion corre al deploy (2026), asi que se les
+        # asigna anio 2026. Es idempotente: los valores ya migrados ("YYYY-MM")
+        # no se tocan; si no queda ninguno legacy, no escribe nada.
+        try:
+            import json as _json
+            _ANIO_LEGACY = 2026   # anio de campania de todos los datos pre-migracion
+            _rows = db.execute(text(
+                "SELECT id, historial_cuotas FROM boletas "
+                "WHERE historial_cuotas IS NOT NULL AND historial_cuotas NOT IN ('', '{}')"
+            )).fetchall()
+            _migradas = 0
+            for _bid, _raw in _rows:
+                try:
+                    _h = _json.loads(_raw)
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(_h, dict):
+                    continue
+                _cambio = False
+                for _k, _v in list(_h.items()):
+                    # legacy = int 1-12 (o string de digitos); nuevo = "YYYY-MM"
+                    _mes = None
+                    if isinstance(_v, int) and 1 <= _v <= 12:
+                        _mes = _v
+                    elif isinstance(_v, str) and _v.strip().isdigit():
+                        _n = int(_v.strip())
+                        if 1 <= _n <= 12:
+                            _mes = _n
+                    if _mes is not None:
+                        _h[_k] = f"{_ANIO_LEGACY:04d}-{_mes:02d}"
+                        _cambio = True
+                if _cambio:
+                    db.execute(
+                        text("UPDATE boletas SET historial_cuotas = :h WHERE id = :i"),
+                        {"h": _json.dumps(_h), "i": _bid},
+                    )
+                    _migradas += 1
+            if _migradas:
+                db.commit()
+                print(f"Migracion historial anio (C-1): {_migradas} boletas convertidas a YYYY-MM")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion historial anio (C-1): {e}")
+
         # Migrar enum tiposorteo en PostgreSQL para agregar valor CONTADO
         try:
             dialect = engine.dialect.name
