@@ -12,9 +12,48 @@ from ..database import get_db
 router = APIRouter(prefix="/taloneras", tags=["taloneras"])
 
 
+# ---------------------------------------------------------------------------
+# Validación de solapamiento de números entre taloneras
+# ---------------------------------------------------------------------------
+def _intervalos_talonera(numero_inicio, numero_fin, num_series, offset_series, tipo="COMUN"):
+    """Devuelve la lista de bloques (lo, hi) de números que ocupa una talonera.
+
+    Cada talonera COMUN usa `num_series` bloques desplazados por `offset_series`
+    (serie i ocupa [ini + off*i, fin + off*i]). CONTADO usa un solo bloque.
+    """
+    if numero_inicio is None or numero_fin is None:
+        return []
+    ini, fin = int(numero_inicio), int(numero_fin)
+    if fin < ini:
+        ini, fin = fin, ini
+    ns = int(num_series or 1)
+    off = int(offset_series or 0)
+    if (tipo or "COMUN") == "CONTADO" or ns <= 1 or off == 0:
+        return [(ini, fin)]
+    return [(ini + off * i, fin + off * i) for i in range(ns)]
+
+
+def _buscar_solapamiento(db, intervalos_nuevos, exclude_id=None):
+    """Busca si `intervalos_nuevos` pisa números de alguna talonera existente.
+
+    Devuelve (nombre_talonera, numero_conflictivo) del primer choque, o None.
+    """
+    for t in db.query(models.Talonera).all():
+        if exclude_id is not None and t.id == exclude_id:
+            continue
+        ivs = _intervalos_talonera(
+            t.numero_inicio, t.numero_fin, t.num_series, t.offset_series, t.tipo
+        )
+        for (alo, ahi) in intervalos_nuevos:
+            for (blo, bhi) in ivs:
+                lo, hi = max(alo, blo), min(ahi, bhi)
+                if lo <= hi:
+                    return (t.nombre, lo)
+    return None
+
 
 @router.get("/", response_class=HTMLResponse)
-async def listar(request: Request, db: Session = Depends(get_db), error: str = "", nombre: str = ""):
+async def listar(request: Request, db: Session = Depends(get_db), error: str = "", nombre: str = "", num: str = ""):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'taloneras', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
@@ -42,7 +81,7 @@ async def listar(request: Request, db: Session = Depends(get_db), error: str = "
     return templates.TemplateResponse(request, "taloneras.html", {
         "user": user, "taloneras": taloneras, "grupos": list(grupos.values()),
         "grupos_contado": grupos_contado,
-        "error": error, "error_nombre": nombre
+        "error": error, "error_nombre": nombre, "error_num": num
     })
 
 
@@ -79,6 +118,14 @@ async def crear(
     offset = (serie_inicio[1] - serie_inicio[0]) if len(serie_inicio) >= 2 else 0
     numero_inicio = serie_inicio[0] if serie_inicio else None
     numero_fin = serie_fin[0] if serie_fin else None
+    # Validar que ningún número se pise con las taloneras ya cargadas
+    intervalos = _intervalos_talonera(numero_inicio, numero_fin, num_series, offset, "COMUN")
+    choque = _buscar_solapamiento(db, intervalos)
+    if choque:
+        otra, num = choque
+        return RedirectResponse(
+            f"/taloneras/?error=solapamiento&nombre={otra}&num={num}", status_code=302
+        )
     t = models.Talonera(
         nombre=nombre,
         multiplicador=multiplicador,
@@ -117,6 +164,12 @@ async def crear_contado(
     await auth_module.require_admin(request, db)
     if numero_fin < numero_inicio:
         return RedirectResponse("/taloneras/?error=rango_invalido", status_code=302)
+    choque = _buscar_solapamiento(db, [(numero_inicio, numero_fin)])
+    if choque:
+        otra, num = choque
+        return RedirectResponse(
+            f"/taloneras/?error=solapamiento&nombre={otra}&num={num}", status_code=302
+        )
     nd = max(1, min(int(num_digitos or 3), 6))
     t = models.Talonera(
         nombre=nombre.strip() or "CONTADO",
@@ -299,6 +352,14 @@ async def editar_talonera(
     t = db.query(models.Talonera).get(talonera_id)
     if not t:
         raise HTTPException(404)
+    # Validar solapamiento con las demás taloneras (excluyendo esta misma)
+    intervalos = _intervalos_talonera(numero_inicio, numero_fin, num_series, offset_series, "COMUN")
+    choque = _buscar_solapamiento(db, intervalos, exclude_id=t.id)
+    if choque:
+        otra, num = choque
+        return RedirectResponse(
+            f"/taloneras/?error=solapamiento&nombre={otra}&num={num}", status_code=302
+        )
     t.nombre = nombre
     t.num_series = num_series
     # Float nativo (sin round) — 2/3 exacto en aritmética Float Python para producto × 15000
@@ -330,6 +391,12 @@ async def editar_talonera_contado(
         raise HTTPException(404)
     if numero_fin < numero_inicio:
         return RedirectResponse("/taloneras/?error=rango_invalido", status_code=302)
+    choque = _buscar_solapamiento(db, [(numero_inicio, numero_fin)], exclude_id=t.id)
+    if choque:
+        otra, num = choque
+        return RedirectResponse(
+            f"/taloneras/?error=solapamiento&nombre={otra}&num={num}", status_code=302
+        )
     t.nombre = nombre
     t.numero_inicio = numero_inicio
     t.numero_fin = numero_fin

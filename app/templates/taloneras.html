@@ -43,6 +43,16 @@
 </div>
 {% endif %}
 
+{% if error == 'solapamiento' %}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  No se pudo guardar: los números se pisan con la talonera <strong>{{ error_nombre }}</strong>
+  (conflicto en el N° <strong>{{ error_num }}</strong>). Recordá que cada boleta ocupa
+  todas sus series (según el offset), así que elegí un rango que no invada esos números.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
 {% if grupos_contado %}
 <div class="mb-4">
   <h6 class="text-warning fw-bold mb-2">

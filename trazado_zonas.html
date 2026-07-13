@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trazado de zonas — Bono Bomberos CdelU</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@geoman-io/leaflet-geoman-free@2.16.0/dist/leaflet-geoman.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@geoman-io/leaflet-geoman-free@2.16.0/dist/leaflet-geoman.min.js"></script>
+
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #wrap { display: flex; height: 100vh; }
+  #map { flex: 1 1 auto; height: 100%; }
+  #side {
+    width: 340px; flex: 0 0 340px; height: 100%; overflow-y: auto;
+    background: #f6f8fb; border-left: 1px solid #d9e0ea; padding: 16px;
+  }
+  #side h1 { font-size: 1.05rem; margin: 0 0 4px; color: #1a2a4a; }
+  #side .sub { font-size: .78rem; color: #607089; margin: 0 0 14px; }
+  .card { background: #fff; border: 1px solid #e2e8f2; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .card h2 { font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: #607089; margin: 0 0 8px; }
+  .btn {
+    display: inline-block; border: none; border-radius: 6px; padding: 8px 12px;
+    font-size: .85rem; cursor: pointer; font-weight: 600; margin: 3px 3px 0 0;
+  }
+  .btn-primary { background: #1a2a4a; color: #fff; }
+  .btn-red { background: #e63946; color: #fff; }
+  .btn-ghost { background: #e9eef6; color: #1a2a4a; }
+  .btn:hover { filter: brightness(1.08); }
+  ol.help { font-size: .8rem; color: #33425a; padding-left: 18px; margin: 6px 0 0; line-height: 1.5; }
+  ol.help li { margin-bottom: 6px; }
+  textarea {
+    width: 100%; height: 150px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .72rem; border: 1px solid #cdd6e4; border-radius: 6px; padding: 8px; resize: vertical;
+  }
+  .hint { font-size: .74rem; color: #8593a8; margin-top: 6px; }
+  .flag { background: #fff8e1; border: 1px solid #f3e0a3; color: #7a5b00; font-size: .76rem;
+          border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; line-height: 1.45; }
+  .count { font-weight: 700; color: #1a2a4a; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="map"></div>
+  <div id="side">
+    <h1>Trazado de zonas</h1>
+    <p class="sub">Bono Contribución · Concepción del Uruguay</p>
+
+    <div class="flag">
+      <b>Progreso guardado automáticamente.</b> Cada cambio se guarda solo en este navegador.
+      La zona 100 ya confirmada aparece cargada. Podés cerrar y retomar.
+    </div>
+
+    <div class="card">
+      <h2>Trazar zonas</h2>
+      <div>
+        <button class="btn btn-primary" id="btnDraw">✏️ Dibujar nueva zona</button>
+        <button class="btn btn-red" id="btnDel">🗑️ Borrar seleccionada</button>
+      </div>
+      <p class="hint">Para <b>renombrar</b> una zona, hacé clic sobre ella. Para <b>mover vértices</b>,
+      arrastrá los puntos. Para <b>agregar</b> un vértice, arrastrá el punto intermedio del borde.</p>
+    </div>
+
+    <div class="card">
+      <h2>Cómo trazar cada zona</h2>
+      <ol class="help">
+        <li>Tocá <b>Dibujar nueva zona</b> y hacé clic en cada esquina del sector; doble clic para cerrar.</li>
+        <li>Al cerrar te pide el <b>número de zona</b> (el del mapa de papel).</li>
+        <li>Ajustá los vértices sobre las esquinas de calle reales.</li>
+        <li>Cuando tengas varias (o todas), tocá <b>Copiar GeoJSON</b> y pegámelo en el chat.</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>Salida — GeoJSON</h2>
+      <p class="hint" style="margin-top:0">Zonas trazadas: <span class="count" id="cnt">0</span></p>
+      <textarea id="out" readonly></textarea>
+      <div style="margin-top:8px">
+        <button class="btn btn-primary" id="btnCopy">📋 Copiar GeoJSON</button>
+        <button class="btn btn-red" id="btnReset">Empezar de cero</button>
+      </div>
+      <p class="hint">Copiá esto y pegámelo en el chat para que lo guarde y lo use en la detección.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- Mapa centrado en Concepción del Uruguay ---
+const CENTRO = [-32.4847, -58.2347];
+const map = L.map('map').setView(CENTRO, 15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+// --- Controles Geoman (edición de vértices) ---
+map.pm.addControls({
+  position: 'topleft',
+  drawMarker: false, drawCircle: false, drawCircleMarker: false,
+  drawPolyline: false, drawRectangle: true, drawText: false,
+  drawPolygon: true, editMode: true, dragMode: true,
+  cutPolygon: false, rotateMode: false, removalMode: true
+});
+map.pm.setLang('es');
+
+const style = { color: '#e63946', weight: 2, fillColor: '#f4a261', fillOpacity: 0.35 };
+const STORE_KEY = 'trazado_zonas_cdelu';
+
+// --- Zonas ya confirmadas (horneadas). Solo se usan si no hay progreso guardado. ---
+const CONFIRMADAS = {
+  "type": "FeatureCollection",
+  "features": [
+    {"type":"Feature","properties":{"zona":"100"},"geometry":{"type":"Polygon","coordinates":[[
+      [-58.268481,-32.487993],[-58.26891,-32.481764],[-58.274444,-32.481293],
+      [-58.274326,-32.483946],[-58.274637,-32.48745],[-58.268481,-32.487993]]]}}
+  ]
+};
+
+// --- Registro de zonas trazadas ---
+const zones = [];
+
+function addZonePolygon(latlngs, name) {
+  const poly = L.polygon(latlngs, style).addTo(map);
+  poly.zoneName = name || '?';
+  poly.bindTooltip('Zona ' + poly.zoneName, { permanent: true, direction: 'center' });
+  poly.on('pm:edit', save);
+  poly.on('click', () => {
+    const n = prompt('Renombrar zona:', poly.zoneName);
+    if (n !== null) { poly.zoneName = n || '?'; poly.setTooltipContent('Zona ' + poly.zoneName); save(); }
+  });
+  zones.push(poly);
+  return poly;
+}
+
+function loadFeatureCollection(fc) {
+  (fc.features || []).forEach(f => {
+    if (!f.geometry || f.geometry.type !== 'Polygon') return;
+    const ring = f.geometry.coordinates[0].map(function(c) { return [c[1], c[0]]; });
+    addZonePolygon(ring, (f.properties && f.properties.zona) || '?');
+  });
+}
+
+function collect() {
+  const feats = zones
+    .filter(function(l) { return map.hasLayer(l); })
+    .map(function(l) {
+      const gj = l.toGeoJSON();
+      gj.properties = { zona: l.zoneName || '?' };
+      return gj;
+    });
+  return { type: 'FeatureCollection', features: feats };
+}
+
+function refresh() {
+  const fc = collect();
+  document.getElementById('out').value = JSON.stringify(fc, null, 2);
+  document.getElementById('cnt').textContent = fc.features.length;
+}
+
+function save() {
+  refresh();
+  try { localStorage.setItem(STORE_KEY, document.getElementById('out').value); } catch (e) {}
+}
+
+// nuevas zonas dibujadas por el usuario
+map.on('pm:create', function(e) {
+  const ring = e.layer.getLatLngs()[0].map(function(ll) { return [ll.lat, ll.lng]; });
+  map.removeLayer(e.layer);              // quitamos la capa cruda de geoman
+  const name = prompt('Número / nombre de la zona:', '');
+  addZonePolygon(ring, name);
+  save();
+});
+map.on('pm:remove', save);
+
+// botones
+document.getElementById('btnDraw').onclick = function() { map.pm.enableDraw('Polygon'); };
+document.getElementById('btnDel').onclick  = function() { map.pm.enableGlobalRemovalMode(); };
+document.getElementById('btnReset').onclick = function() {
+  if (confirm('¿Borrar TODO el progreso guardado y empezar de cero?')) {
+    localStorage.removeItem(STORE_KEY); location.reload();
+  }
+};
+document.getElementById('btnCopy').onclick = function() {
+  refresh();
+  const ta = document.getElementById('out');
+  ta.select();
+  navigator.clipboard.writeText(ta.value).then(
+    function() { const b = document.getElementById('btnCopy'); b.textContent = '✓ Copiado'; setTimeout(function(){ b.textContent = '📋 Copiar GeoJSON'; }, 1500); },
+    function() { document.execCommand('copy'); }
+  );
+};
+
+// --- Carga inicial: progreso guardado tiene prioridad sobre las confirmadas ---
+var saved = null;
+try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) {}
+loadFeatureCollection(saved && saved.features && saved.features.length ? saved : CONFIRMADAS);
+refresh();
+</script>
+</body>
+</html>

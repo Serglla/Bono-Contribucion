@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alinear mapa de zonas — CdelU</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-distortableimage@0.21.9/dist/vendor.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-distortableimage@0.21.9/dist/leaflet.distortableimage.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet-distortableimage@0.21.9/dist/vendor.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet-distortableimage@0.21.9/dist/leaflet.distortableimage.js"></script>
+
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #wrap { display: flex; height: 100vh; }
+  #map { flex: 1 1 auto; height: 100%; }
+  #side { width: 340px; flex: 0 0 340px; height: 100%; overflow-y: auto;
+    background: #f6f8fb; border-left: 1px solid #d9e0ea; padding: 16px; }
+  #side h1 { font-size: 1.05rem; margin: 0 0 4px; color: #1a2a4a; }
+  #side .sub { font-size: .78rem; color: #607089; margin: 0 0 14px; }
+  .card { background: #fff; border: 1px solid #e2e8f2; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .card h2 { font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: #607089; margin: 0 0 8px; }
+  .btn { display: inline-block; border: none; border-radius: 6px; padding: 8px 12px;
+    font-size: .85rem; cursor: pointer; font-weight: 600; margin: 3px 3px 0 0; }
+  .btn-primary { background: #1a2a4a; color: #fff; }
+  .btn-ghost { background: #e9eef6; color: #1a2a4a; }
+  .btn:hover { filter: brightness(1.08); }
+  input[type=file] { font-size: .82rem; width: 100%; }
+  ol.help { font-size: .8rem; color: #33425a; padding-left: 18px; margin: 6px 0 0; line-height: 1.5; }
+  ol.help li { margin-bottom: 6px; }
+  textarea { width: 100%; height: 130px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .72rem; border: 1px solid #cdd6e4; border-radius: 6px; padding: 8px; resize: vertical; }
+  .hint { font-size: .74rem; color: #8593a8; margin-top: 6px; }
+  .flag { background: #fff8e1; border: 1px solid #f3e0a3; color: #7a5b00; font-size: .76rem;
+    border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; line-height: 1.45; }
+  label.rng { font-size: .8rem; color: #33425a; display: block; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="map"></div>
+  <div id="side">
+    <h1>Alinear mapa de zonas</h1>
+    <p class="sub">Concepción del Uruguay</p>
+
+    <div class="flag">
+      Cargá tu foto del mapa, hacé clic sobre ella para que aparezcan las 4 esquinas,
+      y arrastrá cada esquina sobre un cruce de calles que reconozcas. Cuando la foto
+      calce con las calles reales, copiame las esquinas.
+    </div>
+
+    <div class="card">
+      <h2>1 · Cargar foto</h2>
+      <input type="file" id="file" accept="image/*">
+      <p class="hint">Podés cargar una foto por vez (oeste o este). Se guarda sola en este navegador.</p>
+    </div>
+
+    <div class="card">
+      <h2>2 · Opacidad</h2>
+      <label class="rng">Transparencia de la foto: <span id="opv">70</span>%</label>
+      <input type="range" id="op" min="10" max="100" value="70" style="width:100%">
+      <p class="hint">Bajala para ver mejor las calles debajo mientras alineás.</p>
+    </div>
+
+    <div class="card">
+      <h2>3 · Esquinas (para mí)</h2>
+      <button class="btn btn-primary" id="btnRead">📍 Leer esquinas</button>
+      <button class="btn btn-ghost" id="btnCopy">📋 Copiar</button>
+      <textarea id="out" readonly placeholder="Alineá la foto y tocá 'Leer esquinas'..."></textarea>
+      <p class="hint">Copiá esto y pegámelo en el chat. Con eso georreferencio y trazo las zonas.</p>
+    </div>
+
+    <div class="card">
+      <h2>Ayuda</h2>
+      <ol class="help">
+        <li>Buenos puntos de anclaje: cruces de avenidas, la costanera, plazas, esquinas marcadas.</li>
+        <li>Alineá primero las 4 esquinas grandes; después verificá que las calles del medio también coincidan.</li>
+        <li>Si no calza en el centro, movés un poco las esquinas hasta que cierre.</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<script>
+var KEY = 'alinear_mapa_cdelu';
+var CENTRO = [-32.4847, -58.2347];
+var map = L.map('map', { zoomAnimation: false }).setView(CENTRO, 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+var img = null;
+var imgData = null;
+var imgW = 0, imgH = 0;
+
+function defaultCorners() {
+  var b = map.getBounds();
+  var n = b.getNorth(), s = b.getSouth(), w = b.getWest(), e = b.getEast();
+  var dx = (e - w) * 0.22, dy = (n - s) * 0.22;
+  return [
+    L.latLng(n - dy, w + dx),
+    L.latLng(n - dy, e - dx),
+    L.latLng(s + dy, w + dx),
+    L.latLng(s + dy, e - dx)
+  ];
+}
+
+function makeOverlay(dataUrl, corners) {
+  if (img) { try { map.removeLayer(img); } catch (e) {} img = null; }
+  imgData = dataUrl;
+  try {
+    img = L.distortableImageOverlay(dataUrl, {
+      corners: corners || defaultCorners(),
+      mode: 'distort',
+      selected: true,
+      actions: [L.DistortAction, L.LockAction, L.OpacityAction, L.DeleteAction]
+    }).addTo(map);
+    img.on('load', function () {
+      try { imgW = img._image.naturalWidth; imgH = img._image.naturalHeight; } catch (e) {}
+      applyOpacity();
+    });
+    img.on('update', saveState);
+    img.on('edit', saveState);
+  } catch (err) {
+    alert('No se pudo cargar la capa de imagen: ' + err.message);
+  }
+}
+
+function cornersArray() {
+  if (!img || typeof img.getCorners !== 'function') return null;
+  try {
+    return img.getCorners().map(function (p) { return [p.lat, p.lng]; });
+  } catch (e) { return null; }
+}
+
+function saveState() {
+  var arr = cornersArray();
+  if (!arr || !imgData) return;
+  try {
+    localStorage.setItem(KEY, JSON.stringify({ img: imgData, corners: arr, w: imgW, h: imgH }));
+  } catch (e) {}
+}
+
+function readout() {
+  var arr = cornersArray();
+  if (!arr) { document.getElementById('out').value = 'Cargá una foto y hacé clic sobre ella primero.'; return; }
+  var labels = ['sup_izq', 'sup_der', 'inf_izq', 'inf_der'];
+  var obj = { imagen: { ancho_px: imgW, alto_px: imgH }, esquinas: {} };
+  for (var i = 0; i < arr.length; i++) obj.esquinas[labels[i]] = { lat: arr[i][0], lng: arr[i][1] };
+  document.getElementById('out').value = JSON.stringify(obj, null, 2);
+}
+
+function applyOpacity() {
+  var v = parseInt(document.getElementById('op').value, 10) / 100;
+  if (img && typeof img.setOpacity === 'function') { try { img.setOpacity(v); } catch (e) {} }
+}
+
+document.getElementById('file').addEventListener('change', function (e) {
+  var f = e.target.files && e.target.files[0];
+  if (!f) return;
+  var r = new FileReader();
+  r.onload = function (ev) {
+    var url = ev.target.result;
+    var probe = new Image();
+    probe.onload = function () { imgW = probe.naturalWidth; imgH = probe.naturalHeight; makeOverlay(url, null); };
+    probe.src = url;
+  };
+  r.readAsDataURL(f);
+});
+
+document.getElementById('op').addEventListener('input', function () {
+  document.getElementById('opv').textContent = this.value;
+  applyOpacity();
+});
+document.getElementById('btnRead').onclick = readout;
+document.getElementById('btnCopy').onclick = function () {
+  readout();
+  var ta = document.getElementById('out');
+  ta.select();
+  navigator.clipboard.writeText(ta.value).then(
+    function () { var b = document.getElementById('btnCopy'); b.textContent = '✓ Copiado'; setTimeout(function () { b.textContent = '📋 Copiar'; }, 1500); },
+    function () { document.execCommand('copy'); }
+  );
+};
+
+map.whenReady(function () {
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+  if (saved && saved.img) {
+    imgW = saved.w || 0; imgH = saved.h || 0;
+    var corners = (saved.corners || []).map(function (c) { return L.latLng(c[0], c[1]); });
+    makeOverlay(saved.img, corners.length === 4 ? corners : null);
+    readout();
+  }
+});
+</script>
+</body>
+</html>
