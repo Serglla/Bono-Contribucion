@@ -33,13 +33,22 @@ def _intervalos_talonera(numero_inicio, numero_fin, num_series, offset_series, t
     return [(ini + off * i, fin + off * i) for i in range(ns)]
 
 
-def _buscar_solapamiento(db, intervalos_nuevos, exclude_id=None):
+def _buscar_solapamiento(db, intervalos_nuevos, exclude_id=None, tipo="COMUN"):
     """Busca si `intervalos_nuevos` pisa números de alguna talonera existente.
 
     Devuelve (nombre_talonera, numero_conflictivo) del primer choque, o None.
+
+    IMPORTANTE: las taloneras CONTADO tienen una numeración propia e independiente
+    de las taloneras COMUN (sus números van a `numero_especial`, no a los números
+    de boleta de los socios). Por eso el chequeo solo compara taloneras del MISMO
+    tipo: COMUN choca con COMUN, CONTADO choca con CONTADO. Un N° 601 de una
+    talonera CONTADO y un N° 601 de PATA 1 NO se pisan.
     """
+    tipo_nuevo = (tipo or "COMUN")
     for t in db.query(models.Talonera).all():
         if exclude_id is not None and t.id == exclude_id:
+            continue
+        if (t.tipo or "COMUN") != tipo_nuevo:
             continue
         ivs = _intervalos_talonera(
             t.numero_inicio, t.numero_fin, t.num_series, t.offset_series, t.tipo
@@ -50,6 +59,40 @@ def _buscar_solapamiento(db, intervalos_nuevos, exclude_id=None):
                 if lo <= hi:
                     return (t.nombre, lo)
     return None
+
+
+def _generar_boletas_rango(db, talonera, desde, hasta, cuotas_pactadas=None):
+    """Crea las boletas SIN_VENDER del rango [desde, hasta] para una talonera.
+
+    No duplica las que ya existen. Devuelve la cantidad creada.
+    """
+    if desde is None or hasta is None or hasta < desde:
+        return 0
+    if cuotas_pactadas is None:
+        cuotas_pactadas = int(talonera.num_cuotas or 12)
+    existentes = {
+        b.numero_principal
+        for b in db.query(models.Boleta.numero_principal)
+                   .filter(models.Boleta.talonera_id == talonera.id)
+                   .all()
+    }
+    nuevas = []
+    for n in range(int(desde), int(hasta) + 1):
+        if n in existentes:
+            continue
+        adicionales = calcular_numeros(n, talonera.num_series, talonera.offset_series)
+        nuevas.append(models.Boleta(
+            talonera_id=talonera.id,
+            numero_principal=n,
+            numeros_adicionales=adicionales or None,
+            condicion=CondicionBoleta.SIN_VENDER,
+            cuotas_pactadas=cuotas_pactadas,
+            cuotas_pagadas=0,
+            total_pagado=0.0,
+        ))
+    if nuevas:
+        db.bulk_save_objects(nuevas)
+    return len(nuevas)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -140,6 +183,11 @@ async def crear(
     )
     db.add(t)
     db.commit()
+    db.refresh(t)
+    # Auto-generar las boletas del rango — evita tener que entrar al ojito y
+    # generarlas a mano. Usa num_cuotas de la talonera (no se re-pregunta).
+    _generar_boletas_rango(db, t, numero_inicio, numero_fin)
+    db.commit()
     return RedirectResponse("/taloneras/", status_code=302)
 
 
@@ -164,7 +212,7 @@ async def crear_contado(
     await auth_module.require_admin(request, db)
     if numero_fin < numero_inicio:
         return RedirectResponse("/taloneras/?error=rango_invalido", status_code=302)
-    choque = _buscar_solapamiento(db, [(numero_inicio, numero_fin)])
+    choque = _buscar_solapamiento(db, [(numero_inicio, numero_fin)], tipo="CONTADO")
     if choque:
         otra, num = choque
         return RedirectResponse(
@@ -391,7 +439,7 @@ async def editar_talonera_contado(
         raise HTTPException(404)
     if numero_fin < numero_inicio:
         return RedirectResponse("/taloneras/?error=rango_invalido", status_code=302)
-    choque = _buscar_solapamiento(db, [(numero_inicio, numero_fin)], exclude_id=t.id)
+    choque = _buscar_solapamiento(db, [(numero_inicio, numero_fin)], exclude_id=t.id, tipo="CONTADO")
     if choque:
         otra, num = choque
         return RedirectResponse(
@@ -545,7 +593,7 @@ async def generar_boletas(
     talonera_id: int, request: Request,
     numero_inicio: int = Form(...),
     numero_fin: int = Form(...),
-    cuotas_pactadas: int = Form(11),
+    cuotas_pactadas: Optional[int] = Form(None),
     db: Session = Depends(get_db)
 ):
     await auth_module.require_admin(request, db)
@@ -553,30 +601,8 @@ async def generar_boletas(
     if not talonera:
         raise HTTPException(404)
 
-    # Números ya existentes para no duplicar
-    existentes = {
-        b.numero_principal
-        for b in db.query(models.Boleta.numero_principal)
-                   .filter(models.Boleta.talonera_id == talonera_id)
-                   .all()
-    }
-
-    nuevas = []
-    for n in range(numero_inicio, numero_fin + 1):
-        if n in existentes:
-            continue
-        adicionales = calcular_numeros(n, talonera.num_series, talonera.offset_series)
-        nuevas.append(models.Boleta(
-            talonera_id=talonera_id,
-            numero_principal=n,
-            numeros_adicionales=adicionales or None,
-            condicion=CondicionBoleta.SIN_VENDER,
-            cuotas_pactadas=cuotas_pactadas,
-            cuotas_pagadas=0,
-            total_pagado=0.0,
-        ))
-
-    db.bulk_save_objects(nuevas)
+    # Las cuotas ya se definieron al crear la talonera (num_cuotas); no se re-preguntan.
+    _generar_boletas_rango(db, talonera, numero_inicio, numero_fin, cuotas_pactadas)
     db.commit()
     return RedirectResponse(f"/taloneras/{talonera_id}/boletas", status_code=302)
 
