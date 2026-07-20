@@ -384,6 +384,90 @@ async def enumeracion(request: Request, db: Session = Depends(get_db)):
     })
 
 
+@router.get("/enumeracion-contado", response_class=HTMLResponse)
+async def enumeracion_contado(request: Request, db: Session = Depends(get_db)):
+    """Vista de enumeración para las taloneras CONTADO (números especiales).
+
+    A diferencia de la enumeración común (0001-9999), cada talonera CONTADO tiene
+    su propio rango independiente. Muestra, por talonera, la grilla de números con
+    su estado:
+      - ASIGNADO  → número cargado a un socio (numero_especial slot 1 o 2).
+      - RESERVADO → declarado vendido al contado en una liquidación, aún sin cargar
+                    a un socio (liquidacion_contado_items).
+      - DISPONIBLE → número libre del rango.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'taloneras', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+
+    taloneras_contado = (
+        db.query(models.Talonera)
+        .filter(models.Talonera.tipo == "CONTADO")
+        .order_by(models.Talonera.numero_inicio)
+        .all()
+    )
+
+    grupos = []
+    for t in taloneras_contado:
+        # Números ASIGNADOS a un socio: slot 1 y slot 2 apuntando a esta talonera.
+        asignados = set()
+        for (n,) in (
+            db.query(models.Boleta.numero_especial)
+            .filter(models.Boleta.talonera_especial_id == t.id,
+                    models.Boleta.numero_especial.isnot(None))
+            .all()
+        ):
+            asignados.add(int(n))
+        for (n,) in (
+            db.query(models.Boleta.numero_especial_2)
+            .filter(models.Boleta.talonera_especial_2_id == t.id,
+                    models.Boleta.numero_especial_2.isnot(None))
+            .all()
+        ):
+            asignados.add(int(n))
+
+        # Números RESERVADOS: declarados en una liquidación al contado, sin cargar aún.
+        reservados = set()
+        for (n,) in (
+            db.query(models.LiquidacionContadoItem.numero)
+            .filter(models.LiquidacionContadoItem.talonera_id == t.id)
+            .all()
+        ):
+            ni = int(n)
+            if ni not in asignados:
+                reservados.add(ni)
+
+        nd = t.num_digitos or 3
+        ini = int(t.numero_inicio or 0)
+        fin = int(t.numero_fin or 0)
+        numeros = []
+        for n in range(ini, fin + 1):
+            if n in asignados:
+                estado = "ASIGNADO"
+            elif n in reservados:
+                estado = "RESERVADO"
+            else:
+                estado = "DISPONIBLE"
+            numeros.append({"numero": n, "estado": estado, "fmt": f"%0{nd}d" % n})
+
+        grupos.append({
+            "talonera": t,
+            "numeros": numeros,
+            "num_digitos": nd,
+            "stats": {
+                "ASIGNADO": len(asignados),
+                "RESERVADO": len(reservados),
+                "DISPONIBLE": (fin - ini + 1) - len(asignados) - len(reservados),
+                "TOTAL": (fin - ini + 1) if fin >= ini else 0,
+            },
+        })
+
+    return templates.TemplateResponse(request, "enumeracion_contado.html", {
+        "user": user,
+        "grupos": grupos,
+    })
+
+
 @router.post("/{talonera_id}/editar")
 async def editar_talonera(
     talonera_id: int, request: Request,

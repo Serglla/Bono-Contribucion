@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Enumeración Contado — Números Especiales{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+  <a href="/taloneras/" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-star-fill text-warning me-2"></i>Enumeración Contado
+    <span class="text-muted fw-normal fs-5">— Números Especiales</span>
+  </h4>
+</div>
+
+<!-- Leyenda -->
+<div class="d-flex flex-wrap gap-3 mb-4" style="font-size:.72rem;">
+  <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#fd7e14;"></span> Asignado</span>
+  <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#198754;"></span> Reservado (en liquidación)</span>
+  <span class="d-flex align-items-center gap-1"><span class="enum-dot" style="background:#f8f9fa; border:1px dashed #adb5bd;"></span> Disponible</span>
+</div>
+
+{% if not grupos %}
+<div class="alert alert-warning">No hay taloneras especiales de contado cargadas.</div>
+{% endif %}
+
+{% for g in grupos %}
+{% set t = g.talonera %}
+<div class="card border-0 shadow-sm mb-4" style="border-left: 5px solid #ffc107 !important; background:#fffdf5;">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+      <div>
+        <span class="badge bg-warning text-dark mb-1" style="font-size:.65rem;">ESPECIAL CONTADO</span>
+        <h5 class="fw-bold text-warning-emphasis mb-0">{{ t.nombre }}</h5>
+        <span class="text-muted small">
+          Rango: <strong>{{ '%0{}d'.format(g.num_digitos) % t.numero_inicio }}
+          → {{ '%0{}d'.format(g.num_digitos) % t.numero_fin }}</strong>
+        </span>
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <div class="enum-stat" style="--clr:#fd7e14; --txt:#fff;">
+          <span class="enum-stat-label">ASIGNADOS</span>
+          <span class="enum-stat-val">{{ g.stats.ASIGNADO }}</span>
+        </div>
+        <div class="enum-stat" style="--clr:#198754; --txt:#fff;">
+          <span class="enum-stat-label">RESERVADOS</span>
+          <span class="enum-stat-val">{{ g.stats.RESERVADO }}</span>
+        </div>
+        <div class="enum-stat" style="--clr:#dee2e6; --txt:#666; border:1px solid #adb5bd;">
+          <span class="enum-stat-label">DISPONIBLES</span>
+          <span class="enum-stat-val">{{ g.stats.DISPONIBLE }}</span>
+        </div>
+        <div class="enum-stat" style="--clr:#495057; --txt:#fff;">
+          <span class="enum-stat-label">TOTAL</span>
+          <span class="enum-stat-val">{{ g.stats.TOTAL }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filtro rápido por estado -->
+    <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+      <span class="text-muted small">Filtrar:</span>
+      <button class="btn btn-sm btn-outline-secondary enum-filter active" data-filter="ALL" data-grid="grid-{{ t.id }}">Todos</button>
+      <button class="btn btn-sm btn-outline-warning enum-filter" data-filter="ASIGNADO" data-grid="grid-{{ t.id }}">Asignados</button>
+      <button class="btn btn-sm btn-outline-success enum-filter" data-filter="RESERVADO" data-grid="grid-{{ t.id }}">Reservados</button>
+      <button class="btn btn-sm enum-filter" data-filter="DISPONIBLE" data-grid="grid-{{ t.id }}"
+              style="border:1px dashed #adb5bd; color:#999;">Disponibles</button>
+    </div>
+
+    <!-- Cuadrícula de números -->
+    <div class="enum-grid" id="grid-{{ t.id }}">
+      {% for item in g.numeros %}
+      <span class="enum-cell est-{{ item.estado }}"
+            title="{{ item.fmt }} — {{ item.estado|capitalize }}"
+            data-est="{{ item.estado }}">
+        {{ item.fmt }}
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<style>
+.enum-stat {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--clr); color: var(--txt);
+  border-radius: 6px; padding: 4px 10px;
+  font-size: .72rem; font-weight: 600; white-space: nowrap;
+}
+.enum-stat-label { opacity: .85; font-weight: 500; }
+.enum-stat-val { font-size: .95rem; font-weight: 700; }
+
+.enum-dot { display: inline-block; width: 12px; height: 12px; border-radius: 2px; }
+
+.enum-grid {
+  display: flex; flex-wrap: wrap; gap: 2px;
+  font-family: monospace; user-select: none;
+}
+.enum-cell {
+  min-width: 44px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.6rem; border-radius: 2px; cursor: default; padding: 0 4px;
+  transition: transform .1s, box-shadow .1s;
+}
+.enum-cell:hover {
+  transform: scale(1.3);
+  box-shadow: 0 2px 6px rgba(0,0,0,.3);
+  z-index: 10; position: relative;
+}
+.est-ASIGNADO   { background: #fd7e14; color: #fff; }
+.est-RESERVADO  { background: #198754; color: #fff; }
+.est-DISPONIBLE { background: #f8f9fa; color: #bbb; border: 1px dashed #ced4da; }
+.enum-cell.hidden { display: none; }
+</style>
+
+<script>
+document.querySelectorAll('.enum-filter').forEach(btn => {
+  btn.addEventListener('click', function () {
+    const gridId = this.dataset.grid;
+    // Solo desactivar los botones de esta misma grilla
+    document.querySelectorAll('.enum-filter[data-grid="' + gridId + '"]')
+            .forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    const filter = this.dataset.filter;
+    document.querySelectorAll('#' + gridId + ' .enum-cell').forEach(cell => {
+      if (filter === 'ALL' || cell.dataset.est === filter) {
+        cell.classList.remove('hidden');
+      } else {
+        cell.classList.add('hidden');
+      }
+    });
+  });
+});
+</script>
+
+{% endblock %}
