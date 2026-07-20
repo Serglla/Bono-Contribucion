@@ -390,11 +390,13 @@ async def enumeracion_contado(request: Request, db: Session = Depends(get_db)):
 
     A diferencia de la enumeración común (0001-9999), cada talonera CONTADO tiene
     su propio rango independiente. Muestra, por talonera, la grilla de números con
-    su estado:
-      - ASIGNADO  → número cargado a un socio (numero_especial slot 1 o 2).
-      - RESERVADO → declarado vendido al contado en una liquidación, aún sin cargar
-                    a un socio (liquidacion_contado_items).
-      - DISPONIBLE → número libre del rango.
+    su estado — mismo modelo que el detalle del vendedor:
+      - EN_SISTEMA → número cargado a un socio (numero_especial slot 1 o 2). Vendido.
+      - LIQUIDADO  → declarado vendido al contado en una liquidación, aún sin cargar
+                     a un socio (liquidacion_contado_items). Pendiente de comprador.
+      - EN_CAJA    → entregado a un vendedor (EntregaCaja) y todavía en su mano: sin
+                     asignar y sin liquidar. Se indica qué vendedor lo tiene.
+      - DISPONIBLE → número libre del rango, sin entregar a ningún vendedor.
     """
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'taloneras', 'ver'):
@@ -407,9 +409,26 @@ async def enumeracion_contado(request: Request, db: Session = Depends(get_db)):
         .all()
     )
 
+    # Nombres de vendedores para atribuir los números "en caja".
+    nombres_vendedores = {
+        v.id: v.nombre for v in db.query(models.Vendedor.id, models.Vendedor.nombre).all()
+    }
+
+    # Entregas a caja (solo ENTREGA; los RETIRO no suman al pool del vendedor —
+    # mismo criterio que el detalle del vendedor). Agrupadas por nombre normalizado
+    # de la talonera CONTADO para hacer el match case-insensitive.
+    entregas = db.query(models.EntregaCaja).filter(
+        (models.EntregaCaja.tipo == "ENTREGA") | (models.EntregaCaja.tipo.is_(None))
+    ).all()
+
     grupos = []
     for t in taloneras_contado:
-        # Números ASIGNADOS a un socio: slot 1 y slot 2 apuntando a esta talonera.
+        nd = t.num_digitos or 3
+        ini = int(t.numero_inicio or 0)
+        fin = int(t.numero_fin or 0)
+        nombre_norm = (t.nombre or "").strip().lower()
+
+        # 1) EN_SISTEMA (vendidos): asignados a un socio en slot 1 o slot 2.
         asignados = set()
         for (n,) in (
             db.query(models.Boleta.numero_especial)
@@ -426,8 +445,8 @@ async def enumeracion_contado(request: Request, db: Session = Depends(get_db)):
         ):
             asignados.add(int(n))
 
-        # Números RESERVADOS: declarados en una liquidación al contado, sin cargar aún.
-        reservados = set()
+        # 2) LIQUIDADO: declarados en una liquidación al contado, sin cargar aún a socio.
+        liquidados = set()
         for (n,) in (
             db.query(models.LiquidacionContadoItem.numero)
             .filter(models.LiquidacionContadoItem.talonera_id == t.id)
@@ -435,30 +454,49 @@ async def enumeracion_contado(request: Request, db: Session = Depends(get_db)):
         ):
             ni = int(n)
             if ni not in asignados:
-                reservados.add(ni)
+                liquidados.add(ni)
 
-        nd = t.num_digitos or 3
-        ini = int(t.numero_inicio or 0)
-        fin = int(t.numero_fin or 0)
+        # 3) EN_CAJA: entregados a un vendedor, aún en su mano (ni asignados ni liquidados).
+        #    Mapa numero -> vendedor que lo tiene.
+        en_caja = {}
+        for e in entregas:
+            if (e.talonera_nombre or "").strip().lower() != nombre_norm:
+                continue
+            d, h = int(e.desde), int(e.hasta)
+            if h < d:
+                d, h = h, d
+            vend = nombres_vendedores.get(e.vendedor_id, "?")
+            for n in range(d, h + 1):
+                if n in asignados or n in liquidados:
+                    continue
+                en_caja[n] = vend  # última entrega gana si hubiera solapamiento
+
         numeros = []
         for n in range(ini, fin + 1):
             if n in asignados:
-                estado = "ASIGNADO"
-            elif n in reservados:
-                estado = "RESERVADO"
+                estado, quien = "EN_SISTEMA", None
+            elif n in liquidados:
+                estado, quien = "LIQUIDADO", None
+            elif n in en_caja:
+                estado, quien = "EN_CAJA", en_caja[n]
             else:
-                estado = "DISPONIBLE"
-            numeros.append({"numero": n, "estado": estado, "fmt": f"%0{nd}d" % n})
+                estado, quien = "DISPONIBLE", None
+            numeros.append({
+                "numero": n, "estado": estado,
+                "fmt": f"%0{nd}d" % n, "vendedor": quien,
+            })
 
+        total = (fin - ini + 1) if fin >= ini else 0
         grupos.append({
             "talonera": t,
             "numeros": numeros,
             "num_digitos": nd,
             "stats": {
-                "ASIGNADO": len(asignados),
-                "RESERVADO": len(reservados),
-                "DISPONIBLE": (fin - ini + 1) - len(asignados) - len(reservados),
-                "TOTAL": (fin - ini + 1) if fin >= ini else 0,
+                "EN_SISTEMA": len(asignados),
+                "LIQUIDADO": len(liquidados),
+                "EN_CAJA": len(en_caja),
+                "DISPONIBLE": total - len(asignados) - len(liquidados) - len(en_caja),
+                "TOTAL": total,
             },
         })
 
