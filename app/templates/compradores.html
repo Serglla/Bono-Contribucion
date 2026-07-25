@@ -233,6 +233,9 @@ function verContadoSinCargar(btn) {
     <span class="badge bg-secondary" style="font-size:.8rem;">
       <i class="bi bi-list-check me-1"></i>{{ total_filtrado }} boleta{% if total_filtrado != 1 %}s{% endif %} coincide{% if total_filtrado != 1 %}n{% endif %}
     </span>
+    <span class="badge bg-dark" style="font-size:.8rem;" title="Contabilizado por número: X1×1, X2×2, X0×0.67, etc.">
+      <i class="bi bi-calculator me-1"></i>{{ total_filtrado_pond }} número{% if total_filtrado_pond != 1 %}s{% endif %} coincide{% if total_filtrado_pond != 1 %}n{% endif %}
+    </span>
     {% if _any_filtro %}
     <a href="/compradores/" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-x-lg me-1"></i>Quitar filtros

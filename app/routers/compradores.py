@@ -286,6 +286,13 @@ async def listar(request: Request, db: Session = Depends(get_db),
 
     # Contador de boletas/socios que coinciden con el filtro actual
     total_filtrado = len(compradores)
+    # Contador ponderado por número (X1×1, X2×2, X0×0.67, ...) — redondeado a entero
+    total_filtrado_pond = round(sum(
+        (c.boletas[0].talonera.multiplicador
+         if c.boletas and c.boletas[0].talonera and c.boletas[0].talonera.multiplicador
+         else 1.0)
+        for c in compradores
+    ))
 
     return templates.TemplateResponse(request, "compradores.html", {
         "user": user,
@@ -309,6 +316,7 @@ async def listar(request: Request, db: Session = Depends(get_db),
         "filtro_anio": str(_anio) if _anio is not None else "",
         "anios": anios,
         "total_filtrado": total_filtrado,
+        "total_filtrado_pond": total_filtrado_pond,
     })
 
 
