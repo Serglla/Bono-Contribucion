@@ -28,7 +28,8 @@ router = APIRouter(prefix="/compradores", tags=["compradores"])
 async def listar(request: Request, db: Session = Depends(get_db),
                  q: str = "", pata: str = "", zona: str = "",
                  sin_cob: str = "", cob: str = "",
-                 vend: str = "", cont: str = ""):
+                 vend: str = "", cont: str = "",
+                 mes: str = "", anio: str = ""):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'compradores', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
@@ -59,8 +60,26 @@ async def listar(request: Request, db: Session = Depends(get_db),
         except (TypeError, ValueError):
             _vend_id = None
 
+    _mes = None
+    if mes:
+        try:
+            _mes = int(mes)
+            if not (1 <= _mes <= 12):
+                _mes = None
+        except (TypeError, ValueError):
+            _mes = None
+    _anio = None
+    if anio:
+        try:
+            _anio = int(anio)
+        except (TypeError, ValueError):
+            _anio = None
+
+    from sqlalchemy import func as sqlfunc
+
     needs_boleta = bool(pata) or sin_cob in ("1", "true", "yes") or \
-        _cob_id is not None or _vend_id is not None or cont in ("contado", "cuotas")
+        _cob_id is not None or _vend_id is not None or cont in ("contado", "cuotas") or \
+        _mes is not None or _anio is not None
 
     if needs_boleta:
         query = query.join(models.Boleta,
@@ -107,6 +126,11 @@ async def listar(request: Request, db: Session = Depends(get_db),
         ))
     elif cont == "cuotas":
         query = query.filter(models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
+    # Filtro por mes / año de la fecha de compra (fecha_venta)
+    if _mes is not None:
+        query = query.filter(sqlfunc.extract('month', models.Boleta.fecha_venta) == _mes)
+    if _anio is not None:
+        query = query.filter(sqlfunc.extract('year', models.Boleta.fecha_venta) == _anio)
 
     if needs_boleta:
         query = query.distinct()
@@ -134,7 +158,6 @@ async def listar(request: Request, db: Session = Depends(get_db),
     # pestañas individuales siguen mostrando el conteo literal de socios.
     # Los tabs reflejan el subset filtrado por cob/vend/zona/cont/q/sin_cob
     # (excepto pata — porque las pestañas SON el selector de PATA).
-    from sqlalchemy import func as sqlfunc
     tabs_query = (
         db.query(
             models.Talonera.nombre,
@@ -170,6 +193,10 @@ async def listar(request: Request, db: Session = Depends(get_db),
         tabs_query = tabs_query.filter(
             models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas,
         )
+    if _mes is not None:
+        tabs_query = tabs_query.filter(sqlfunc.extract('month', models.Boleta.fecha_venta) == _mes)
+    if _anio is not None:
+        tabs_query = tabs_query.filter(sqlfunc.extract('year', models.Boleta.fecha_venta) == _anio)
     if zona:
         try:
             zid = int(zona)
@@ -247,6 +274,19 @@ async def listar(request: Request, db: Session = Depends(get_db),
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
     cobradores = db.query(models.Cobrador).filter(models.Cobrador.activo == True).order_by(models.Cobrador.nombre).all()
+
+    # Años disponibles según fecha de compra (para el filtro Año)
+    anios_raw = (
+        db.query(sqlfunc.extract('year', models.Boleta.fecha_venta))
+        .filter(models.Boleta.fecha_venta.isnot(None))
+        .distinct()
+        .all()
+    )
+    anios = sorted({int(a[0]) for a in anios_raw if a[0] is not None}, reverse=True)
+
+    # Contador de boletas/socios que coinciden con el filtro actual
+    total_filtrado = len(compradores)
+
     return templates.TemplateResponse(request, "compradores.html", {
         "user": user,
         "compradores": compradores,
@@ -265,6 +305,10 @@ async def listar(request: Request, db: Session = Depends(get_db),
         "filtro_vend": vend,
         "filtro_zona": zona,
         "filtro_cont": cont if cont in ("cuotas", "contado") else "",
+        "filtro_mes": str(_mes) if _mes is not None else "",
+        "filtro_anio": str(_anio) if _anio is not None else "",
+        "anios": anios,
+        "total_filtrado": total_filtrado,
     })
 
 

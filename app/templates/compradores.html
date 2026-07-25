@@ -53,7 +53,7 @@
       <strong>{{ contado_sin_cargar }}</strong> número{% if contado_sin_cargar != 1 %}s{% endif %} liquidado{% if contado_sin_cargar != 1 %}s{% endif %} por vendedor sin cargar en sistema.
     </span>
     <button class="btn btn-sm btn-info fw-semibold text-white" onclick="verContadoSinCargar(this)">
-      <i class="bi bi-eye me-1"></i>Ver cuáles son
+      <i class="bi bi-eye"></i>
     </button>
   </div>
   {% endif %}
@@ -149,8 +149,8 @@ function verContadoSinCargar(btn) {
 
 <!-- Querystring base con todos los filtros activos (excepto pata) — se usa
      para que las pestañas X0/X1/X2 preserven los filtros de cob/vend/zona/cont -->
-{% set _qs_base %}{% if q %}&q={{ q }}{% endif %}{% if filtro_cob %}&cob={{ filtro_cob }}{% endif %}{% if filtro_vend %}&vend={{ filtro_vend }}{% endif %}{% if filtro_zona %}&zona={{ filtro_zona }}{% endif %}{% if filtro_cont %}&cont={{ filtro_cont }}{% endif %}{% endset %}
-{% set _any_filtro = filtro_cob or filtro_vend or filtro_zona or filtro_cont %}
+{% set _qs_base %}{% if q %}&q={{ q }}{% endif %}{% if filtro_cob %}&cob={{ filtro_cob }}{% endif %}{% if filtro_vend %}&vend={{ filtro_vend }}{% endif %}{% if filtro_zona %}&zona={{ filtro_zona }}{% endif %}{% if filtro_mes %}&mes={{ filtro_mes }}{% endif %}{% if filtro_anio %}&anio={{ filtro_anio }}{% endif %}{% if filtro_cont %}&cont={{ filtro_cont }}{% endif %}{% endset %}
+{% set _any_filtro = filtro_cob or filtro_vend or filtro_zona or filtro_mes or filtro_anio or filtro_cont %}
 
 <!-- Tabs por talonera + Sin cobrador -->
 <div class="mb-3">
@@ -179,24 +179,9 @@ function verContadoSinCargar(btn) {
   <label class="form-label mb-1 small fw-semibold text-muted d-block">
     <i class="bi bi-funnel-fill me-1"></i>Filtros:
   </label>
+  {% set _meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] %}
   <div class="row g-2 align-items-end">
-    <div class="col-6 col-lg-3">
-      <select id="filtroCobradorActual" class="form-select form-select-sm w-100" data-param="cob" title="Cobrador actual">
-        <option value="">— Cobrador —</option>
-        {% for c in cobradores %}
-        <option value="{{ c.id }}" {% if filtro_cob == c.id|string %}selected{% endif %}>{{ c.nombre }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-6 col-lg-3">
-      <select id="filtroZona" class="form-select form-select-sm w-100" data-param="zona" title="Zona">
-        <option value="">— Zona —</option>
-        {% for z in zonas %}
-        <option value="{{ z.id }}" {% if filtro_zona == z.id|string %}selected{% endif %}>{{ z.nombre }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-6 col-lg-3">
+    <div class="col-6 col-lg-2">
       <select id="filtroVendedor" class="form-select form-select-sm w-100" data-param="vend" title="Vendedor">
         <option value="">— Vendedor —</option>
         {% for v in vendedores %}
@@ -204,19 +189,54 @@ function verContadoSinCargar(btn) {
         {% endfor %}
       </select>
     </div>
-    <div class="col-6 col-lg-3">
+    <div class="col-6 col-lg-2">
+      <select id="filtroCobradorActual" class="form-select form-select-sm w-100" data-param="cob" title="Cobrador actual">
+        <option value="">— Cobrador —</option>
+        {% for c in cobradores %}
+        <option value="{{ c.id }}" {% if filtro_cob == c.id|string %}selected{% endif %}>{{ c.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-lg-2">
+      <select id="filtroZona" class="form-select form-select-sm w-100" data-param="zona" title="Zona">
+        <option value="">— Zona —</option>
+        {% for z in zonas %}
+        <option value="{{ z.id }}" {% if filtro_zona == z.id|string %}selected{% endif %}>{{ z.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-lg-2">
+      <select id="filtroMes" class="form-select form-select-sm w-100" data-param="mes" title="Mes de compra">
+        <option value="">— Mes —</option>
+        {% for m in range(1, 13) %}
+        <option value="{{ m }}" {% if filtro_mes == m|string %}selected{% endif %}>{{ _meses[m-1] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-lg-2">
+      <select id="filtroAnio" class="form-select form-select-sm w-100" data-param="anio" title="Año de compra">
+        <option value="">— Año —</option>
+        {% for a in anios %}
+        <option value="{{ a }}" {% if filtro_anio == a|string %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-lg-2">
       <select id="filtroCont" class="form-select form-select-sm w-100" data-param="cont" title="Cuotas / Contado">
         <option value="">— Cu/Cont —</option>
         <option value="cuotas" {% if filtro_cont == 'cuotas' %}selected{% endif %}>En cuotas</option>
         <option value="contado" {% if filtro_cont == 'contado' %}selected{% endif %}>Al contado</option>
       </select>
     </div>
+  </div>
+  <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+    <span class="badge bg-secondary" style="font-size:.8rem;">
+      <i class="bi bi-list-check me-1"></i>{{ total_filtrado }} boleta{% if total_filtrado != 1 %}s{% endif %} coincide{% if total_filtrado != 1 %}n{% endif %}
+    </span>
     {% if _any_filtro %}
-    <div class="col-12 col-lg-auto">
-      <a href="/compradores/" class="btn btn-sm btn-outline-secondary w-100">
-        <i class="bi bi-x-lg me-1"></i>Quitar filtros
-      </a>
-    </div>
+    <a href="/compradores/" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-x-lg me-1"></i>Quitar filtros
+    </a>
     {% endif %}
   </div>
 </div>
@@ -236,7 +256,7 @@ function verContadoSinCargar(btn) {
       window.location.href = url.toString();
     });
   }
-  ['filtroCobradorActual','filtroVendedor','filtroZona','filtroCont'].forEach(bindFiltro);
+  ['filtroCobradorActual','filtroVendedor','filtroZona','filtroMes','filtroAnio','filtroCont'].forEach(bindFiltro);
 })();
 </script>
 
