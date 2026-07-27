@@ -138,26 +138,26 @@
               En esta planilla quedan marcados con la línea <strong>"PASÓ A …"</strong> (la liquidación ya hecha no se toca).
             </p>
 
-            <label class="fw-semibold small mb-1">Destino</label>
-            <div class="d-flex flex-column gap-2 mb-3">
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="destino" value="cobrador"
-                       id="destCob{{ pl.id }}" checked
-                       onchange="document.getElementById('selCob{{ pl.id }}').disabled=false;">
-                <label class="form-check-label small" for="destCob{{ pl.id }}">A otro cobrador:</label>
-                <select name="cobrador_destino_id" id="selCob{{ pl.id }}" class="form-select form-select-sm mt-1">
+            <input type="hidden" name="destino" value="cobrador">
+            <div class="row g-2 mb-3">
+              <div class="col-12">
+                <label class="fw-semibold small mb-1">Cobrador destino</label>
+                <select name="cobrador_destino_id" id="selCob{{ pl.id }}"
+                        class="form-select form-select-sm"
+                        data-origen-planilla="{{ pl.id }}"
+                        onchange="poblarPlanillasDestino({{ pl.id }})">
                   {% for co in cobradores_todos %}
-                    {% if co.id != r.cobrador.id %}
-                    <option value="{{ co.id }}">{{ co.nombre }}</option>
-                    {% endif %}
+                  <option value="{{ co.id }}" {% if co.id == r.cobrador.id %}selected{% endif %}>{{ co.nombre }}{% if co.id == r.cobrador.id %} (mismo cobrador){% endif %}</option>
                   {% endfor %}
                 </select>
               </div>
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="destino" value="planilla"
-                       id="destPl{{ pl.id }}"
-                       onchange="document.getElementById('selCob{{ pl.id }}').disabled=true;">
-                <label class="form-check-label small" for="destPl{{ pl.id }}">A una planilla nueva del mismo cobrador (caso PATA 0)</label>
+              <div class="col-12">
+                <label class="fw-semibold small mb-1">Planilla destino</label>
+                <select name="planilla_destino_id" id="selPlan{{ pl.id }}"
+                        class="form-select form-select-sm">
+                  {# Se puebla por JS según el cobrador elegido. #}
+                </select>
+                <div class="form-text small">Se preselecciona la que más lugar tiene. Si no entra, se crea una nueva.</div>
               </div>
             </div>
 
@@ -219,4 +219,52 @@
 {% else %}
 <div class="text-center text-muted py-5">No hay cobradores con boletas activas.</div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Planillas del mes por cobrador, con su lugar libre. { cobrador_id: [{id, numero, libres, capacidad}] }
+window.PLAN_CAP = {{ planillas_por_cobrador | tojson }};
+
+// Puebla el select de planilla destino según el cobrador elegido en ese modal.
+// Excluye la planilla origen. Preselecciona la que más lugar tiene; si ninguna
+// tiene lugar, deja "Planilla nueva".
+function poblarPlanillasDestino(origenPlanillaId) {
+  var selCob  = document.getElementById('selCob'  + origenPlanillaId);
+  var selPlan = document.getElementById('selPlan' + origenPlanillaId);
+  if (!selCob || !selPlan) return;
+  var cobId = parseInt(selCob.value, 10);
+  var lista = (window.PLAN_CAP[cobId] || []).filter(function(p){ return p.id !== origenPlanillaId; });
+
+  selPlan.innerHTML = '';
+  var preseleccionada = null;
+  lista.forEach(function(p){
+    var opt = document.createElement('option');
+    opt.value = p.id;
+    var estado = p.libres > 0 ? (p.libres + ' libres') : 'llena';
+    opt.textContent = 'P' + p.numero + ' — ' + estado + ' (' + (p.capacidad - p.libres) + '/' + p.capacidad + ')';
+    if (p.libres <= 0) opt.disabled = true;
+    else if (preseleccionada === null) preseleccionada = p.id;  // 1° con lugar (lista viene ordenada por libres desc)
+    selPlan.appendChild(opt);
+  });
+
+  // Opción "Planilla nueva" siempre disponible.
+  var optNueva = document.createElement('option');
+  optNueva.value = 'nueva';
+  optNueva.textContent = '➕ Planilla nueva';
+  selPlan.appendChild(optNueva);
+
+  selPlan.value = (preseleccionada !== null) ? String(preseleccionada) : 'nueva';
+}
+
+// Inicializar cada modal cuando se abre.
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('[id^="modalPasar"]').forEach(function(modal){
+    modal.addEventListener('show.bs.modal', function(){
+      var sel = modal.querySelector('[id^="selCob"]');
+      if (sel) poblarPlanillasDestino(parseInt(sel.dataset.origenPlanilla, 10));
+    });
+  });
+});
+</script>
 {% endblock %}

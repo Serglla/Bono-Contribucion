@@ -243,6 +243,44 @@ def _armar_grid_patas(boletas, rows_per_col: int = 40):
     }
 
 
+# Capacidad física de una planilla (hoja A4): 3 columnas × 40 filas.
+CAP_PLANILLA = 40 * 3  # 120 casilleros
+
+
+def _boletas_ordenadas(boletas):
+    """Ordena por numero_principal (el grid las espera así)."""
+    return sorted(boletas, key=lambda b: (b.numero_principal or 0))
+
+
+def _boletas_caben(boletas) -> bool:
+    """True si TODAS las boletas entran en una planilla sin desbordar la hoja.
+
+    Simula el layout real (`_armar_grid_patas`, que descarta lo que no entra) y
+    verifica que cada boleta haya quedado ubicada en el grid."""
+    lst = _boletas_ordenadas(boletas)
+    grid = _armar_grid_patas(lst)
+    ubicadas = 0
+    for col in grid["cols"]:
+        for cell in col:
+            if cell is not None and not isinstance(cell, dict):
+                ubicadas += 1
+    return ubicadas >= len(lst)
+
+
+def _libres_planilla(boletas) -> int:
+    """Casilleros libres en la planilla = 120 menos boletas menos separadores
+    de PATA (filas-etiqueta X0/X1/X2…). Refleja el layout real, sin contar los
+    huecos de alineación de bloque como ocupados (esos siguen siendo usables)."""
+    lst = _boletas_ordenadas(boletas)
+    grid = _armar_grid_patas(lst)
+    ocupados = 0
+    for col in grid["cols"]:
+        for cell in col:
+            if cell is not None:  # boleta o etiqueta de PATA
+                ocupados += 1
+    return max(0, CAP_PLANILLA - ocupados)
+
+
 @router.get("/boleta/{bid}/info")
 async def boleta_info_popup(bid: int, request: Request, db: Session = Depends(get_db)):
     """Datos de una boleta para el popover flotante (long-press sobre el N°) en
@@ -662,11 +700,36 @@ async def emplanillado(request: Request, db: Session = Depends(get_db),
     # Todos los cobradores activos (para elegir destino al pasar números).
     cobradores_todos = db.query(models.Cobrador).filter_by(activo=True).order_by(models.Cobrador.nombre).all()
 
+    # Planillas del mes por cobrador CON su lugar libre — para el modal "pasar
+    # números": permite agregar el número a una planilla existente con lugar en
+    # vez de crear siempre una planilla nueva y solitaria.
+    # {cobrador_id: [{"id", "numero", "libres", "capacidad"}], ...} ordenado por
+    # lugar libre descendente (para preseleccionar la que más lugar tiene).
+    planillas_por_cobrador = {}
+    todas_planillas = (db.query(models.Planilla)
+                       .filter_by(mes=mes, anio=anio)
+                       .order_by(models.Planilla.numero)
+                       .all())
+    for pl in todas_planillas:
+        bs = (db.query(models.Boleta)
+              .filter(models.Boleta.planilla_id == pl.id)
+              .order_by(models.Boleta.numero_principal)
+              .all())
+        planillas_por_cobrador.setdefault(pl.cobrador_id, []).append({
+            "id": pl.id,
+            "numero": pl.numero,
+            "libres": _libres_planilla(bs),
+            "capacidad": CAP_PLANILLA,
+        })
+    for cid in planillas_por_cobrador:
+        planillas_por_cobrador[cid].sort(key=lambda d: d["libres"], reverse=True)
+
     return templates.TemplateResponse(request, "cobranza_emplanillado.html", {
         "user": user,
         "resumen": resumen,
         "planilla_numeros": planilla_numeros,
         "cobradores_todos": cobradores_todos,
+        "planillas_por_cobrador": planillas_por_cobrador,
         "mes": mes, "anio": anio,
         "mes_nombre": MESES[mes - 1],
         "meses": MESES,
@@ -883,39 +946,66 @@ async def pasar_numeros(request: Request, planilla_id: int,
             f"/cobranza/emplanillado?mes={planilla.mes}&anio={planilla.anio}",
             status_code=302)
 
-    # ── Determinar cobrador y etiqueta destino ──────────────────────────────
+    # ── Determinar cobrador destino ─────────────────────────────────────────
     if destino == "cobrador":
         try:
             dest_cobrador_id = int(form.get("cobrador_destino_id") or 0)
         except (TypeError, ValueError):
             dest_cobrador_id = 0
         dest_cobrador = db.query(models.Cobrador).get(dest_cobrador_id)
-        if not dest_cobrador or dest_cobrador.id == planilla.cobrador_id:
-            # destino inválido o el mismo cobrador → no hacer nada
+        if not dest_cobrador:
+            # destino inválido → no hacer nada
             return RedirectResponse(
                 f"/cobranza/emplanillado?mes={planilla.mes}&anio={planilla.anio}",
                 status_code=302)
+    else:
+        # Compat con el flujo viejo: planilla nueva del MISMO cobrador (PATA 0).
+        dest_cobrador = db.query(models.Cobrador).get(planilla.cobrador_id)
+
+    # ── Determinar planilla destino: existente (con lugar) o nueva ───────────
+    # planilla_destino_id: id de una planilla existente del cobrador destino, o
+    # 0 / vacío / "nueva" para crear una planilla nueva.
+    try:
+        planilla_destino_id = int(form.get("planilla_destino_id") or 0)
+    except (TypeError, ValueError):
+        planilla_destino_id = 0
+
+    dest_planilla = None
+    if planilla_destino_id:
+        cand = db.query(models.Planilla).get(planilla_destino_id)
+        # Válida solo si es del cobrador destino, mismo mes/anio, y NO es la
+        # planilla origen. Además las boletas a mover deben ENTRAR sin desbordar.
+        if (cand and cand.id != planilla_id
+                and cand.cobrador_id == dest_cobrador.id
+                and cand.mes == planilla.mes and cand.anio == planilla.anio):
+            existentes = (db.query(models.Boleta)
+                          .filter(models.Boleta.planilla_id == cand.id)
+                          .all())
+            if _boletas_caben(list(existentes) + list(boletas)):
+                dest_planilla = cand
+        # Si no entra o no es válida → dest_planilla queda None y se crea una nueva.
+
+    if dest_planilla is None:
+        # ── Crear la planilla destino (mismo mes/anio que la origen) ─────────
+        # MAX(numero)+1 y no COUNT+1 (fix A-4, mismo criterio que armar_planilla).
+        siguiente_numero = (db.query(func.max(models.Planilla.numero))
+                            .filter_by(cobrador_id=dest_cobrador.id)
+                            .scalar() or 0) + 1
+        dest_planilla = models.Planilla(
+            cobrador_id=dest_cobrador.id,
+            numero=siguiente_numero,
+            mes=planilla.mes,
+            anio=planilla.anio,
+            comision_pct=planilla.comision_pct,
+        )
+        db.add(dest_planilla)
+        db.flush()
+
+    # ── Etiqueta del rastro "PASÓ A …" en la planilla origen ─────────────────
+    # Otro cobrador → su nombre; mismo cobrador → "P<numero>" de la planilla.
+    if dest_cobrador.id != planilla.cobrador_id:
         label = dest_cobrador.nombre
     else:
-        # Planilla nueva del MISMO cobrador (caso PATA 0).
-        dest_cobrador = db.query(models.Cobrador).get(planilla.cobrador_id)
-        label = None  # se completa con "P<numero>" al crear la planilla
-
-    # ── Crear la planilla destino (mismo mes/anio que la origen) ─────────────
-    # MAX(numero)+1 y no COUNT+1 (fix A-4, mismo criterio que armar_planilla).
-    siguiente_numero = (db.query(func.max(models.Planilla.numero))
-                        .filter_by(cobrador_id=dest_cobrador.id)
-                        .scalar() or 0) + 1
-    dest_planilla = models.Planilla(
-        cobrador_id=dest_cobrador.id,
-        numero=siguiente_numero,
-        mes=planilla.mes,
-        anio=planilla.anio,
-        comision_pct=planilla.comision_pct,
-    )
-    db.add(dest_planilla)
-    db.flush()
-    if label is None:
         label = f"P{dest_planilla.numero}"
 
     # ── Mover cada boleta dejando el rastro en la planilla origen ────────────
