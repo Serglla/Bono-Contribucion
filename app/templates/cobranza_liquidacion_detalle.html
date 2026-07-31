@@ -2,20 +2,66 @@
 {% block title %}Liquidar Planilla{% endblock %}
 {% block content %}
 
-<div class="d-flex align-items-center gap-2 mb-2">
+<div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
   <a href="/cobranza/"
      class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
   <h5 class="fw-bold mb-0">
     Liquidación — {{ planilla.cobrador.nombre }}
     <span class="badge bg-secondary ms-1">P{{ planilla.numero }}</span>
-    <span class="text-muted fw-normal fs-6 ms-1">Liquidando: {{ mes_nombre }} {{ anio_actual }}</span>
   </h5>
+
+  {# Selector del período a liquidar. Solo lista meses hasta el actual:
+     el futuro NO se puede liquidar (el server igual lo recorta). #}
+  <div class="d-flex align-items-center gap-1 ms-auto">
+    <label for="periodoLiq" class="text-muted small mb-0">Liquidando:</label>
+    <select id="periodoLiq" class="form-select form-select-sm fw-semibold"
+            style="width:auto;{% if periodo_es_pasado %}border-color:#fd7e14;background:#fff8f0;{% endif %}"
+            onchange="cambiarPeriodo(this.value)">
+      {% for p in periodos_disponibles %}
+      <option value="{{ p.anio }}-{{ p.mes }}" {% if p.anio == anio_actual and p.mes == mes_actual %}selected{% endif %}>
+        {{ p.label }}{% if not p.es_pasado %} (mes actual){% endif %}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
 </div>
 
-{% if liquidacion %}
+{% if periodo_ajustado %}
+<div class="alert alert-danger d-flex align-items-center gap-2 mb-2 py-2" style="font-size:.82rem;">
+  <i class="bi bi-shield-exclamation"></i>
+  <span>No se puede liquidar un mes que todavía no pasó. Se te puso el <strong>mes actual ({{ mes_nombre }} {{ anio_actual }})</strong>.</span>
+</div>
+{% endif %}
+
+{% if periodo_es_pasado %}
+<div class="alert alert-warning d-flex align-items-start gap-2 mb-2 py-2" style="font-size:.82rem;">
+  <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+  <span>
+    <strong>Estás editando un mes pasado: {{ mes_nombre }} {{ anio_actual }}.</strong>
+    {% if periodo_stats.ya_liquidado %}
+      Ese mes ya tiene <strong>{{ periodo_stats.cuotas }} cuota{% if periodo_stats.cuotas != 1 %}s{% endif %}</strong>
+      cargada{% if periodo_stats.cuotas != 1 %}s{% endif %} en {{ periodo_stats.boletas }} boleta{% if periodo_stats.boletas != 1 %}s{% endif %}:
+      lo que guardes <strong>reemplaza</strong> esa liquidación, no se suma a la del mes en curso.
+    {% else %}
+      Ese mes no tiene cuotas cargadas todavía: lo que marques se va a registrar como cobrado en {{ mes_nombre }}, no en el mes actual.
+    {% endif %}
+  </span>
+</div>
+{% elif liquidacion %}
 <div class="alert alert-success d-flex align-items-center gap-2 mb-2 py-2" style="font-size:.82rem;">
   <i class="bi bi-check-circle-fill"></i>
   Planilla ya liquidada — {{ liquidacion.total_cuotas }} cuotas cobradas. Podés modificar y guardar de nuevo.
+</div>
+{% endif %}
+
+{% if cadena and cadena.total %}
+<div class="alert alert-info d-flex align-items-center gap-2 mb-2 py-2" style="font-size:.82rem;">
+  <i class="bi bi-arrow-repeat"></i>
+  <span>
+    Liquidando todas las planillas de <strong>{{ mes_nombre }} {{ anio_actual }}</strong> —
+    {% if cadena.posicion %}<strong>planilla {{ cadena.posicion }} de {{ cadena.total }}</strong> pendientes.{% else %}esta planilla ya no tiene pendientes en ese mes (la estás revisando de nuevo).{% endif %}
+    {% if cadena.restantes %}Queda{% if cadena.restantes != 1 %}n{% endif %} <strong>{{ cadena.restantes }}</strong> más después de esta.{% else %}Es la última pendiente.{% endif %}
+  </span>
 </div>
 {% endif %}
 
@@ -33,6 +79,11 @@
 
   <!-- Inputs ocultos (uno por boleta real) -->
   <div id="hiddenInputs">
+    <input type="hidden" name="modo" id="modoInput" value="quedarse">
+    {# Período que se está liquidando: viaja con el form para que el guardado
+       impacte en el mes elegido (y no siempre en el mes en curso). #}
+    <input type="hidden" name="mes" value="{{ mes_actual }}">
+    <input type="hidden" name="anio" value="{{ anio_actual }}">
     {% for b in boletas %}
     <input type="hidden" name="boleta_ids" value="{{ b.id }}">
     <input type="hidden" name="cuotas_json" id="cj_{{ b.id }}"
@@ -203,14 +254,18 @@
 
   </div><!-- /scrollWrapper -->
 
-  <div class="d-flex justify-content-end gap-2 mt-3">
+  <div class="d-flex justify-content-end gap-2 mt-3 flex-wrap">
     <a href="/cobranza/"
        class="btn btn-secondary">Cancelar</a>
     <button type="button" class="btn btn-outline-secondary" onclick="imprimirLiquidacion()">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
-    <button type="submit" class="btn btn-danger">
-      <i class="bi bi-save me-1"></i>Guardar liquidación
+    <button type="button" class="btn btn-outline-danger btn-guardar-liq" onclick="guardarLiquidacion('salir')">
+      <i class="bi bi-save me-1"></i>Guardar y salir
+    </button>
+    <button type="button" class="btn btn-danger btn-guardar-liq" id="btnGuardarSiguiente" onclick="guardarLiquidacion('siguiente')">
+      <i class="bi bi-save me-1"></i>
+      {% if cadena and cadena.restantes %}Guardar y seguir ({{ cadena.restantes }} más){% else %}Guardar liquidación{% endif %}
     </button>
   </div>
   {% else %}
@@ -267,6 +322,8 @@
 
 <script>
   const MES_ACTUAL    = {{ mes_actual }};
+  const ANIO_ACTUAL   = {{ anio_actual }};
+  const PLANILLA_ID_PERIODO = {{ planilla.id }};
   const VALOR_CUOTA   = {{ valor_cuota|default(0) }};
   const COMISION_PCT  = {{ planilla.comision_pct|default(0) }};
   const NUM_CUOTAS    = {{ num_cuotas }};
@@ -280,6 +337,10 @@
   {% for b in boletas %}
   sel[{{ b.id }}] = new Set({{ cuotas_mes_actual.get(b.id, []) | tojson }});
   {% endfor %}
+
+  // Cuántas cuotas venían marcadas al abrir: sirve para detectar cambios sin
+  // guardar cuando el usuario cambia de período.
+  const MARCADAS_INICIALES = Object.values(sel).reduce((n, s) => n + s.size, 0);
 
   // Bajas marcadas: bid -> mes de baja. Inicializa desde el servidor.
   const bajaSel = {};
@@ -513,6 +574,46 @@
 
   function imprimirLiquidacion() { window.print(); }
 
+  // ─── Cambio de período a liquidar ──────────────────────────────────────
+  // Recarga la pantalla con el mes elegido. Si hay cuotas marcadas sin
+  // guardar, avisa antes de perderlas.
+  function cambiarPeriodo(valor) {
+    const [anio, mes] = valor.split('-');
+    let marcadas = 0;
+    for (const s of Object.values(sel)) marcadas += s.size;
+    const hayCambios = marcadas !== MARCADAS_INICIALES;
+    if (hayCambios && !confirm(
+        'Tenés cambios sin guardar en esta planilla. Si cambiás de mes se pierden.\n\n¿Cambiar igual?')) {
+      // Volver el select al período que está abierto.
+      document.getElementById('periodoLiq').value = ANIO_ACTUAL + '-' + MES_ACTUAL;
+      return;
+    }
+    window.location.href = '/cobranza/liquidacion/' + PLANILLA_ID_PERIODO +
+      '?mes=' + mes + '&anio=' + anio;
+  }
+
+  // ─── Guardar (con dos modos: seguir a la siguiente pendiente / salir) ───
+  function setGuardando(on) {
+    document.querySelectorAll('.btn-guardar-liq').forEach(b => {
+      b.disabled = on;
+      if (on) {
+        if (!b.dataset.origHtml) b.dataset.origHtml = b.innerHTML;
+        b.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Guardando...';
+      } else if (b.dataset.origHtml) {
+        b.innerHTML = b.dataset.origHtml;
+      }
+    });
+  }
+
+  function guardarLiquidacion(modo) {
+    const modoInput = document.getElementById('modoInput');
+    if (modoInput) modoInput.value = modo;
+    const form = document.getElementById('formLiq');
+    if (!form) return;
+    if (form.requestSubmit) form.requestSubmit();
+    else form.dispatchEvent(new Event('submit', { cancelable: true }));
+  }
+
   
 
     // Cola offline para la planilla de cobranza
@@ -520,7 +621,12 @@
   // y se reenvan automaticamente al reconectarse.
 
   const PLANILLA_ID   = {{ planilla.id }};
-  const DRAFT_KEY     = `bono_draft_liq_${PLANILLA_ID}`;
+  // La clave incluye el PERIODO: un borrador de Junio no debe aparecer (ni
+  // pisarse) cuando se abre la planilla en Julio.
+  const DRAFT_KEY     = `bono_draft_liq_${PLANILLA_ID}_${ANIO_ACTUAL}-${MES_ACTUAL}`;
+  // Clave vieja (sin período): se sigue leyendo para no perder borradores
+  // offline que hayan quedado guardados antes de este cambio.
+  const DRAFT_KEY_LEGACY = `bono_draft_liq_${PLANILLA_ID}`;
   const DRAFT_TIMEOUT = 24 * 60 * 60 * 1000;
 
   function serializeForm(form) {
@@ -541,11 +647,17 @@
     catch (e) { console.warn("No se pudo guardar draft:", e); }
   }
 
-  function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch {} }
+  function clearDraft() {
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(DRAFT_KEY_LEGACY);
+    } catch {}
+  }
 
   function getDraft() {
     try {
-      const raw = localStorage.getItem(DRAFT_KEY);
+      // Borrador de ESTE período; si no hay, el de la clave vieja (pre-período).
+      const raw = localStorage.getItem(DRAFT_KEY) || localStorage.getItem(DRAFT_KEY_LEGACY);
       if (!raw) return null;
       const d = JSON.parse(raw);
       if (Date.now() - d.timestamp > DRAFT_TIMEOUT) { clearDraft(); return null; }
@@ -606,12 +718,11 @@
   document.getElementById("formLiq") && document.getElementById("formLiq").addEventListener("submit", async function(e) {
     e.preventDefault();
     const form = this;
-    const btn  = form.querySelector('[type="submit"]');
-    if (btn) { btn.disabled = true; btn.textContent = "Guardando..."; }
+    setGuardando(true);
 
     if (!navigator.onLine) {
       saveDraft(form);
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-save me-1"></i>Guardar liquidacion'; }
+      setGuardando(false);
       showOfflineToast("Sin conexion - cambios guardados localmente. Se enviaran al reconectarse.");
       return;
     }
@@ -623,7 +734,7 @@
         const json = await resp.json();
         if (json && json.queued) {
           saveDraft(form);
-          if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-save me-1"></i>Guardar liquidacion'; }
+          setGuardando(false);
           showOfflineToast("Sin conexion - cambios guardados. Se enviaran al reconectarse.");
           return;
         }
@@ -631,10 +742,12 @@
       clearDraft();
       if (resp.redirected || resp.ok) {
         location.href = resp.url || "/cobranza/";
+      } else {
+        setGuardando(false);
       }
     } catch (err) {
       saveDraft(form);
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-save me-1"></i>Guardar liquidacion'; }
+      setGuardando(false);
       showOfflineToast("Sin conexion - cambios guardados. Se enviaran al reconectarse.");
     }
   });

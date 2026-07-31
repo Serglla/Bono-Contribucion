@@ -1,9 +1,30 @@
 {% extends "base.html" %}
 {% block title %}Cobranza{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h4 class="page-title"><i class="bi bi-wallet2 text-danger"></i>Cobranza</h4>
+<div class="page-header d-flex align-items-center flex-wrap gap-2">
+  <h4 class="page-title mb-0"><i class="bi bi-wallet2 text-danger"></i>Cobranza</h4>
+  <a href="/cobranza/liquidacion/siguiente" class="btn btn-sm {% if pendientes_liquidar %}btn-danger{% else %}btn-outline-secondary disabled{% endif %} ms-auto">
+    <i class="bi bi-arrow-repeat me-1"></i>
+    {% if pendientes_liquidar %}Liquidar todas las pendientes ({{ pendientes_liquidar }}){% else %}No hay planillas pendientes{% endif %}
+  </a>
 </div>
+
+{% if request.query_params.get('cadena_completa') %}
+<div class="alert alert-success alert-dismissible fade show d-flex align-items-center gap-2 py-2" role="alert">
+  <i class="bi bi-check-circle-fill"></i> ¡Listo! Liquidaste todas las planillas pendientes de este mes.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% elif request.query_params.get('sin_pendientes') %}
+<div class="alert alert-info alert-dismissible fade show d-flex align-items-center gap-2 py-2" role="alert">
+  <i class="bi bi-info-circle-fill"></i> No hay ninguna planilla pendiente de liquidar este mes.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% elif request.query_params.get('liquidado') %}
+<div class="alert alert-success alert-dismissible fade show d-flex align-items-center gap-2 py-2" role="alert">
+  <i class="bi bi-check-circle-fill"></i> Liquidación guardada.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
 
 <style>
   /* Miniatura de planilla: hoja A4 real escalada (vista ?thumb=1) */
@@ -42,6 +63,9 @@
     font-size: .7rem; color: #cbd5e1; font-weight: 600;
     text-transform: uppercase; letter-spacing: .04em;
   }
+  /* Miniatura del resumen/comprobante mensual (mismo mecanismo que .pl-thumb,
+     tag verde en vez de rojo para distinguirla de las planillas). */
+  .res-thumb-tag { background: var(--bs-success, #198754); }
 </style>
 
 <!-- Tabs de navegación -->
@@ -201,6 +225,31 @@
           </a>
         {% endif %}
       </div>
+
+      <!-- Resumen de cobranza del mes: miniatura del comprobante consolidado,
+           con acceso directo a imprimir / descargar PDF / compartir. -->
+      {% if r.consolidado %}
+      <div class="p-3 pt-0">
+        <div class="text-muted mb-2" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;">Resumen de cobranza — {{ mes_nombre }} {{ anio }}</div>
+        <div class="d-flex align-items-center gap-3">
+          <div class="pl-item">
+            <div class="pl-thumb res-thumb" ondblclick="abrirResumen({{ r.cobrador.id }}, {{ mes }}, {{ anio }}, 'Resumen — {{ r.cobrador.nombre }} — {{ mes_nombre }} {{ anio }}')"
+                 title="Doble clic para ver / imprimir / exportar / compartir">
+              <iframe src="/cobranza/consolidado/{{ r.cobrador.id }}/comprobante?mes={{ mes }}&anio={{ anio }}&thumb=1" loading="lazy" scrolling="no" tabindex="-1"></iframe>
+              <span class="pl-thumb-tag res-thumb-tag">$</span>
+            </div>
+            <div class="pl-meta">
+              <span class="fw-semibold">Ver / exportar</span>
+            </div>
+          </div>
+          <div class="small" style="font-size:.76rem;">
+            <div>Cobrado: <strong>{{ r.consolidado.monto | pesos }}</strong></div>
+            <div class="text-muted">Comisión: {{ r.consolidado.comision | pesos }} · Neto: {{ r.consolidado.neto | pesos }}</div>
+            <div class="fw-semibold {% if r.consolidado.saldo < 0 %}text-danger{% else %}text-success{% endif %}">Saldo a entregar: {{ r.consolidado.saldo | pesos }}</div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </div>
   {% endif %}
@@ -225,6 +274,22 @@
   </div>
 </div>
 
+<!-- Modal: resumen de cobranza del mes (comprobante consolidado del cobrador,
+     con su propia barra de Imprimir / Descargar PDF / Compartir). -->
+<div class="modal fade" id="modalResumen" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" style="height:92vh;">
+      <div class="modal-header py-2">
+        <h6 class="modal-title mb-0"><i class="bi bi-cash-coin text-success me-1"></i><span id="modalResumenTitulo">Resumen de cobranza</span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-0" style="overflow:hidden;background:#aaa;">
+        <iframe id="resumenFrame" src="" style="width:100%;height:100%;border:0;"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   function abrirPlanilla(id, titulo) {
     document.getElementById('modalPlanillaTitulo').textContent = titulo || 'Planilla';
@@ -234,6 +299,16 @@
   // Detener la carga del iframe al cerrar el modal.
   document.getElementById('modalPlanilla').addEventListener('hidden.bs.modal', function () {
     document.getElementById('planillaFrame').src = '';
+  });
+
+  function abrirResumen(cobradorId, mes, anio, titulo) {
+    document.getElementById('modalResumenTitulo').textContent = titulo || 'Resumen de cobranza';
+    document.getElementById('resumenFrame').src =
+      '/cobranza/consolidado/' + cobradorId + '/comprobante?mes=' + mes + '&anio=' + anio + '&embed=1';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
+  }
+  document.getElementById('modalResumen').addEventListener('hidden.bs.modal', function () {
+    document.getElementById('resumenFrame').src = '';
   });
 </script>
 {% endblock %}

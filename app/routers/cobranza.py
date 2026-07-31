@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, Request, Query, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from datetime import date
+from io import BytesIO
 from typing import List, Optional
 import json
 import re
+from xhtml2pdf import pisa
 from .. import models, auth as auth_module
 
 # Regex para extraer el número de PATA. Acepta "PATA 0", "PATA 12", "X4", etc.
@@ -29,7 +31,8 @@ from ..models import CondicionBoleta
 from ..database import get_db
 # Fecha argentina + periodos anio-mes del historial (auditoria A-2 / C-1):
 # NUNCA usar date.today() aca - el server corre en UTC y de noche corre el mes.
-from ..tiempo import hoy_ar, periodo_actual, parse_periodo, mes_de, match_periodo
+from ..tiempo import (hoy_ar, periodo_actual, periodo_str, parse_periodo,
+                      mes_de, match_periodo)
 
 router = APIRouter(prefix="/cobranza", tags=["cobranza"])
 
@@ -64,6 +67,208 @@ def _planilla_todo_pata0(boletas) -> bool:
     uniforme real ($10.000), sin aplicar el 0.67 (no hay PATA 1 con que comparar)."""
     bs = [b for b in boletas if b.talonera]
     return bool(bs) and all((b.talonera.multiplicador or 1.0) < 1.0 for b in bs)
+
+
+def _columna_mult_valor(boletas, grid):
+    """A partir del grid de 3 columnas físicas, devuelve:
+      - columna_de_boleta: {boleta_id: 1|2|3} según en qué columna física cayó.
+      - multiplicador_de_boleta: {boleta_id: ponderación por PATA} (ver _pata_valor).
+      - valor_cuota: importe base de una cuota (uniforme si la planilla es
+        TODA PATA 0, sino el valor base PATA 1).
+    Compartido entre la vista de liquidación (interactiva) y el preview de
+    solo lectura de la planilla, para que ambos calculen exactamente lo mismo."""
+    c1, c2, c3 = grid["cols"]
+    columna_de_boleta = {}
+    for col_num, col in ((1, c1), (2, c2), (3, c3)):
+        for cell in col:
+            if cell and not isinstance(cell, dict):
+                columna_de_boleta[cell.id] = col_num
+
+    todo_pata0 = _planilla_todo_pata0(boletas)
+    multiplicador_de_boleta = {b.id: (1.0 if todo_pata0 else _pata_valor(b)) for b in boletas}
+
+    valor_cuota = 0.0
+    for b in boletas:
+        if b.talonera and b.talonera.valor_cuota:
+            vc = float(b.talonera.valor_cuota)
+            if todo_pata0:
+                valor_cuota = vc
+            else:
+                m = float(b.talonera.multiplicador or 1.0) or 1.0
+                valor_cuota = round(vc / m)
+            break
+    return columna_de_boleta, multiplicador_de_boleta, valor_cuota
+
+
+def _resumen_mensual_rows(boletas, grid, meses_campana, comision_pct):
+    """Arma las filas de la tabla 'MES / COL1 / COL2 / COL3 / TOTAL / DINERO /
+    COMISIÓN / NETO' con datos REALES (todo lo que ya está en historial_cuotas),
+    pensadas para el preview de SOLO LECTURA de la planilla (a diferencia de la
+    grilla interactiva de liquidación, acá se incluye también el mes actual,
+    porque no hay nada más que seguir marcando: es una foto de lo ya cobrado).
+    Devuelve (rows, totales, valor_cuota)."""
+    columna_de_boleta, multiplicador_de_boleta, valor_cuota = _columna_mult_valor(boletas, grid)
+
+    counts = {m: {1: 0.0, 2: 0.0, 3: 0.0} for m in range(1, 13)}
+    for b in boletas:
+        col = columna_de_boleta.get(b.id)
+        if not col:
+            continue
+        mult = multiplicador_de_boleta.get(b.id, 1.0)
+        try:
+            hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+        except (ValueError, TypeError):
+            hist = {}
+        for v in hist.values():
+            m = mes_de(v)
+            if m and 1 <= m <= 12:
+                counts[m][col] += mult
+
+    rows = []
+    tot = {"c1": 0.0, "c2": 0.0, "c3": 0.0, "tot": 0.0, "dinero": 0.0, "comision": 0.0, "neto": 0.0}
+    for nombre_mes, num_mes in meses_campana:
+        c1 = counts[num_mes][1]
+        c2 = counts[num_mes][2]
+        c3 = counts[num_mes][3]
+        t = c1 + c2 + c3
+        dinero = t * valor_cuota
+        comision = round(dinero * (comision_pct / 100.0), 2)
+        neto = round(dinero - comision, 2)
+        rows.append({
+            "nombre": nombre_mes, "num": num_mes,
+            "c1": c1, "c2": c2, "c3": c3, "tot": t,
+            "dinero": round(dinero, 2), "comision": comision, "neto": neto,
+        })
+        tot["c1"] += c1; tot["c2"] += c2; tot["c3"] += c3; tot["tot"] += t
+        tot["dinero"] += dinero; tot["comision"] += comision; tot["neto"] += neto
+    for k in ("dinero", "comision", "neto"):
+        tot[k] = round(tot[k], 2)
+    return rows, tot, valor_cuota
+
+
+def _resolver_periodo_liq(mes: int = 0, anio: int = 0):
+    """Resuelve el período (año, mes) que se va a liquidar a partir de lo que
+    pidió el usuario, con dos reglas duras:
+
+      - Por defecto se liquida el mes calendario ACTUAL (hora argentina).
+      - NUNCA se puede liquidar un período FUTURO. Si piden uno (por URL
+        manipulada o por un selector desactualizado), se cae al actual y se
+        avisa con la bandera `ajustado`.
+
+    Un período PASADO sí se permite: es la corrección/edición de una cobranza
+    que ya se liquidó (o que quedó sin liquidar) en ese mes.
+
+    Devuelve (anio, mes, es_pasado, ajustado)."""
+    hoy = hoy_ar()
+    if not mes:  mes = hoy.month
+    if not anio: anio = hoy.year
+    try:
+        mes, anio = int(mes), int(anio)
+    except (TypeError, ValueError):
+        return hoy.year, hoy.month, False, True
+    if not (1 <= mes <= 12):
+        return hoy.year, hoy.month, False, True
+    # Comparación por período (año, mes): cualquier cosa posterior al mes en
+    # curso es futuro y se rechaza.
+    if (anio, mes) > (hoy.year, hoy.month):
+        return hoy.year, hoy.month, False, True
+    es_pasado = (anio, mes) < (hoy.year, hoy.month)
+    return anio, mes, es_pasado, False
+
+
+def _periodos_liquidables(planilla):
+    """Períodos que se pueden elegir para liquidar una planilla: desde el mes
+    en que se entregó la planilla hasta el mes ACTUAL inclusive (nunca hacia
+    adelante). Alimenta el selector de mes de la pantalla de liquidación."""
+    hoy = hoy_ar()
+    ini_anio = int(planilla.anio or hoy.year)
+    ini_mes = int(planilla.mes or hoy.month)
+    if (ini_anio, ini_mes) > (hoy.year, hoy.month):
+        ini_anio, ini_mes = hoy.year, hoy.month
+    periodos = []
+    a, m = ini_anio, ini_mes
+    # Tope de seguridad: 60 meses, por si una planilla tiene un año raro
+    # cargado y el bucle se iría a las nubes.
+    for _ in range(60):
+        periodos.append({
+            "anio": a, "mes": m,
+            "label": f"{MESES[m - 1]} {a}",
+            "es_pasado": (a, m) < (hoy.year, hoy.month),
+        })
+        if (a, m) >= (hoy.year, hoy.month):
+            break
+        m += 1
+        if m > 12:
+            m, a = 1, a + 1
+    return periodos
+
+
+def _liquidacion_periodo_stats(planilla, anio_liq: int, mes_liq: int):
+    """Cuántas cuotas de esta planilla ya están cargadas en el período que se
+    está liquidando. Sirve para avisar 'esto ya se liquidó, lo estás editando'
+    cuando se elige un mes pasado (o uno actual ya cargado)."""
+    cuotas = 0
+    boletas_con_cuotas = 0
+    for b in planilla.boletas:
+        try:
+            hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+        except (ValueError, TypeError):
+            hist = {}
+        n = sum(1 for v in hist.values() if match_periodo(v, anio_liq, mes_liq))
+        if n:
+            cuotas += n
+            boletas_con_cuotas += 1
+    return {"cuotas": cuotas, "boletas": boletas_con_cuotas, "ya_liquidado": cuotas > 0}
+
+
+def _planilla_tiene_pendientes(planilla, anio_liq: int, mes_liq: int) -> bool:
+    """True si la planilla tiene al menos una boleta viva a la que le falten
+    cuotas y que TODAVÍA no tenga ninguna cuota marcada en el período
+    (anio_liq/mes_liq) que se está liquidando. Se usa para armar la cola de
+    'Liquidar todas las planillas, una a una': una planilla sale de la cola
+    en cuanto se guardó algo para ella en esta ronda (aunque no haya quedado
+    100% al día — eso se puede seguir corrigiendo abriéndola de nuevo)."""
+    for b in planilla.boletas:
+        if b.condicion == CondicionBoleta.BAJA:
+            continue
+        pactadas = b.cuotas_pactadas or 0
+        pagadas = b.cuotas_pagadas or 0
+        if pactadas and pagadas >= pactadas:
+            continue
+        try:
+            hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+        except (ValueError, TypeError):
+            hist = {}
+        if not any(match_periodo(v, anio_liq, mes_liq) for v in hist.values()):
+            return True
+    return False
+
+
+def _cola_liquidacion(db, anio_liq: int = None, mes_liq: int = None):
+    """Cola GLOBAL de todas las planillas (de todos los cobradores), ordenada
+    por nombre de cobrador y número de planilla — el orden en que se recorren
+    al 'Liquidar todas'. Cada item indica si todavía tiene pendientes en el
+    período que se está liquidando (por defecto, el mes calendario de HOY,
+    igual que la propia pantalla de liquidación)."""
+    if anio_liq is None or mes_liq is None:
+        _hoy = hoy_ar()
+        anio_liq, mes_liq = _hoy.year, _hoy.month
+    planillas = (db.query(models.Planilla)
+                 .join(models.Cobrador)
+                 .order_by(models.Cobrador.nombre, models.Planilla.anio,
+                           models.Planilla.mes, models.Planilla.numero)
+                 .all())
+    return [
+        {
+            "id": p.id,
+            "cobrador_nombre": p.cobrador.nombre,
+            "numero": p.numero,
+            "mes": p.mes,
+            "anio": p.anio,
+            "pendiente": _planilla_tiene_pendientes(p, anio_liq, mes_liq),
+        }
+        for p in planillas
+    ]
 
 
 def _get_pata_boleta(b) -> str:
@@ -442,6 +647,12 @@ async def index(request: Request, db: Session = Depends(get_db),
             for m, cnt in sorted(meses_baja.items())
         ]
 
+        # Resumen de cobranza del mes/año SELECCIONADO (mismos datos que la
+        # pestaña Consolidado) — se usa para la miniatura "Resumen del mes"
+        # de esta tarjeta, con acceso rápido a exportar/compartir/imprimir.
+        _cons = _consolidado_cobrador(db, co, mes, anio)
+        consolidado = _cons if (_cons["monto"] or _cons["total_adelantos"]) else None
+
         resumen.append({
             "cobrador": co,
             "total": total,
@@ -455,6 +666,7 @@ async def index(request: Request, db: Session = Depends(get_db),
             "cobranza_iniciada": cobranza_iniciada,
             "meses_detalle": meses_detalle,
             "planillas": planillas,
+            "consolidado": consolidado,
         })
 
     # --- Alineación de "Planillas entregadas" entre todas las tarjetas ---
@@ -489,6 +701,10 @@ async def index(request: Request, db: Session = Depends(get_db),
             grid.append({"anio": k[0], "mes": k[1], "cells": cells})
         r["planillas_grid"] = grid
 
+    # Cantidad de planillas (de cualquier cobrador) pendientes de liquidar
+    # este mes calendario — alimenta el botón "Liquidar todas las pendientes".
+    pendientes_liquidar = sum(1 for c in _cola_liquidacion(db) if c["pendiente"])
+
     return templates.TemplateResponse(request, "cobranza.html", {
         "user": user,
         "resumen": resumen,
@@ -496,6 +712,7 @@ async def index(request: Request, db: Session = Depends(get_db),
         "mes_nombre": MESES[mes - 1],
         "meses": MESES,
         "anios": list(range(hoy.year - 1, hoy.year + 2)),
+        "pendientes_liquidar": pendientes_liquidar,
     })
 
 
@@ -1026,8 +1243,9 @@ async def pasar_numeros(request: Request, planilla_id: int,
 
 # ── LIQUIDACIÓN ────────────────────────────────────────────────────────────────
 
-@router.get("/liquidacion/{planilla_id}", response_class=HTMLResponse)
+@router.get("/liquidacion/{planilla_id:int}", response_class=HTMLResponse)
 async def liquidacion_detalle(request: Request, planilla_id: int,
+                               mes: int = Query(default=0), anio: int = Query(default=0),
                                db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
@@ -1044,12 +1262,14 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
 
     liq = planilla.liquidacion
 
-    # El PERIODO que se esta liquidando = mes/anio CALENDARIO real de hoy (el
-    # mes en que el cobrador esta cobrando). planilla.mes es el mes de VENTA/
-    # entrega (Mayo), no el de cobranza, por eso NO se usa como "mes actual".
-    _hoy = hoy_ar()
-    mes_liq = _hoy.month
-    anio_liq = _hoy.year
+    # El PERIODO que se esta liquidando: por DEFECTO el mes/anio CALENDARIO
+    # real de hoy (el mes en que el cobrador esta cobrando). planilla.mes es el
+    # mes de VENTA/entrega (Mayo), no el de cobranza, por eso NO se usa aca.
+    # Se puede elegir un mes PASADO (= editar esa liquidacion); un mes FUTURO
+    # nunca (el helper lo devuelve ajustado al actual).
+    anio_liq, mes_liq, periodo_es_pasado, periodo_ajustado = _resolver_periodo_liq(mes, anio)
+    periodos_disponibles = _periodos_liquidables(planilla)
+    periodo_stats = _liquidacion_periodo_stats(planilla, anio_liq, mes_liq)
 
     # Construir historial y seleccion actual por boleta.
     # historial_map (para el template) lleva SOLO las cuotas de OTROS periodos,
@@ -1092,42 +1312,15 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     num_cuotas = max(num_cuotas, 10)
     cuota_nums = list(range(1, num_cuotas + 1))
 
-    # ── Mapa boleta_id → columna (1, 2 o 3) según el grid FÍSICO ────────────
+    # ── Mapa boleta_id → columna (1, 2 o 3) + ponderación + valor de cuota ──
     # COL. 1/2/3 del resumen = las 3 secciones verticales de la planilla.
     # El cobrador suma por columna física al recorrer la planilla.
-    columna_de_boleta = {}
-    for cell in c1:
-        if cell and not isinstance(cell, dict):
-            columna_de_boleta[cell.id] = 1
-    for cell in c2:
-        if cell and not isinstance(cell, dict):
-            columna_de_boleta[cell.id] = 2
-    for cell in c3:
-        if cell and not isinstance(cell, dict):
-            columna_de_boleta[cell.id] = 3
-
-    # ── Ponderación por PATA + valor de cuota base ──────────────────────────
-    # El resumen calcula: dinero = cuotas_ponderadas × valor_cuota_base.
     #   - Planilla MIXTA: valor base = PATA 1 (= valor_cuota / multiplicador) y cada
     #     boleta pondera por su multiplicador (PATA 0 = 0.67, PATA 2 = 2, ...).
     #     Así PATA 0 da 0.67 × $15.000 = $10.000 y PATA 2 da 2 × $15.000 = $30.000.
     #   - Planilla ÚNICAMENTE PATA 0: cada cuota cuenta ×1 y el valor es el uniforme
     #     real ($10.000). No se aplica el 0.67 (regla pedida por el negocio).
-    _todo_pata0 = _planilla_todo_pata0(boletas)
-    multiplicador_de_boleta = {}
-    for b in boletas:
-        multiplicador_de_boleta[b.id] = 1.0 if _todo_pata0 else _pata_valor(b)
-
-    valor_cuota = 0.0
-    for b in boletas:
-        if b.talonera and b.talonera.valor_cuota:
-            vc = float(b.talonera.valor_cuota)
-            if _todo_pata0:
-                valor_cuota = vc                      # importe uniforme real ($10.000)
-            else:
-                m = float(b.talonera.multiplicador or 1.0) or 1.0
-                valor_cuota = round(vc / m)           # base PATA 1 ($15.000)
-            break
+    columna_de_boleta, multiplicador_de_boleta, valor_cuota = _columna_mult_valor(boletas, _grid)
 
     # ── Meses de la campaña (cuota 1 = mes siguiente al mes de la planilla) ──
     meses_campana = _meses_campana_desde(planilla.mes, num_cuotas)
@@ -1186,6 +1379,29 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
             baja_info[b.id] = {"mes": int(b.mes_baja), "desde": 0,
                                "hasta": 0, "mid": 0}
 
+    # ── Cadena de liquidación: "Liquidar todas, una a una" ──────────────────
+    # Cola GLOBAL (todos los cobradores) de planillas con pendientes en este
+    # período. Si la planilla actual ya no tiene pendientes (se está
+    # revisando/corrigiendo), no cuenta posición pero igual se calcula a dónde
+    # mandar "Siguiente" (la próxima pendiente real, salteándola).
+    cola = _cola_liquidacion(db, anio_liq, mes_liq)
+    pendientes_ids = [c["id"] for c in cola if c["pendiente"]]
+    total_cola = len(pendientes_ids)
+    if planilla_id in pendientes_ids:
+        idx = pendientes_ids.index(planilla_id)
+        posicion = idx + 1
+        resto = pendientes_ids[idx + 1:]
+    else:
+        posicion = None
+        resto = [pid for pid in pendientes_ids if pid != planilla_id]
+    siguiente_id = resto[0] if resto else None
+    cadena = {
+        "total": total_cola,
+        "posicion": posicion,
+        "restantes": len(resto),
+        "siguiente_id": siguiente_id,
+    }
+
     return templates.TemplateResponse(request, "cobranza_liquidacion_detalle.html", {
         "user": user,
         "planilla": planilla,
@@ -1212,14 +1428,22 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "resumen_otros": resumen_otros,
         "boletas_info": boletas_info,
         "baja_info": baja_info,
+        "cadena": cadena,
+        "periodos_disponibles": periodos_disponibles,
+        "periodo_es_pasado": periodo_es_pasado,
+        "periodo_ajustado": periodo_ajustado,
+        "periodo_stats": periodo_stats,
     })
 
 
-@router.post("/liquidacion/{planilla_id}/guardar")
+@router.post("/liquidacion/{planilla_id:int}/guardar")
 async def liquidacion_guardar(request: Request, planilla_id: int,
                                boleta_ids: List[int] = Form(...),
                                cuotas_json: List[str] = Form(...),
                                baja_mes: List[str] = Form(default=[]),
+                               modo: str = Form(default="quedarse"),
+                               mes: int = Form(default=0),
+                               anio: int = Form(default=0),
                                db: Session = Depends(get_db)):
     _perm_user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(_perm_user, 'cobranza', 'editar'):
@@ -1239,9 +1463,11 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     db.query(models.LiquidacionDetalle).filter_by(liquidacion_id=liq.id).delete()
 
     # Periodo que se esta liquidando (fecha ARGENTINA, no UTC del server).
-    _hoy_liq = hoy_ar()
-    _per_liq = periodo_actual()          # ej. "2026-07" - formato nuevo con anio
-    _mes_liq, _anio_liq = _hoy_liq.month, _hoy_liq.year
+    # Por defecto el mes en curso; el form puede mandar uno PASADO (edicion de
+    # esa liquidacion). Uno FUTURO nunca: el helper lo recorta al actual, asi
+    # que un form manipulado no puede cargar cuotas adelantadas.
+    _anio_liq, _mes_liq, _es_pasado, _ = _resolver_periodo_liq(mes, anio)
+    _per_liq = periodo_str(_anio_liq, _mes_liq)   # ej. "2026-07"
 
     total_cuotas = 0
     monto_total  = 0.0
@@ -1327,7 +1553,47 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     liq.fecha = hoy_ar()
     db.commit()
 
-    return RedirectResponse(f"/cobranza/liquidacion/{planilla_id}", status_code=302)
+    # El período elegido viaja en la URL de todos los saltos, así una ronda de
+    # liquidación de (por ejemplo) Junio sigue siendo de Junio planilla a planilla.
+    _qs_periodo = f"?mes={_mes_liq}&anio={_anio_liq}"
+
+    # ── "Guardar y seguir con la siguiente" (liquidación en cadena) ─────────
+    # Recalcula la cola YA con los cambios recién guardados (esta planilla
+    # sale de "pendientes" en cuanto tiene algo marcado en el período) y salta
+    # a la próxima planilla pendiente de CUALQUIER cobrador. Si no queda
+    # ninguna, vuelve a Planillas avisando que se terminó la ronda.
+    if modo == "siguiente":
+        cola = _cola_liquidacion(db, _anio_liq, _mes_liq)
+        resto = [c["id"] for c in cola if c["pendiente"] and c["id"] != planilla_id]
+        if resto:
+            return RedirectResponse(f"/cobranza/liquidacion/{resto[0]}{_qs_periodo}", status_code=302)
+        return RedirectResponse("/cobranza/?cadena_completa=1", status_code=302)
+
+    if modo == "salir":
+        return RedirectResponse("/cobranza/?liquidado=1", status_code=302)
+
+    return RedirectResponse(f"/cobranza/liquidacion/{planilla_id}{_qs_periodo}", status_code=302)
+
+
+@router.get("/liquidacion/siguiente")
+async def liquidacion_siguiente(request: Request,
+                                mes: int = Query(default=0), anio: int = Query(default=0),
+                                db: Session = Depends(get_db)):
+    """Punto de entrada de 'Liquidar todas las planillas pendientes': salta a
+    la primera planilla pendiente de la cola global (cualquier cobrador). Si
+    no queda ninguna, vuelve a Planillas. Acepta mes/anio para arrancar una
+    ronda de un período pasado (nunca futuro)."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    anio_liq, mes_liq, _, _ = _resolver_periodo_liq(mes, anio)
+    cola = _cola_liquidacion(db, anio_liq, mes_liq)
+    pendientes = [c for c in cola if c["pendiente"]]
+    if not pendientes:
+        return RedirectResponse("/cobranza/?sin_pendientes=1", status_code=302)
+    return RedirectResponse(
+        f"/cobranza/liquidacion/{pendientes[0]['id']}?mes={mes_liq}&anio={anio_liq}",
+        status_code=302)
 
 
 @router.get("/planilla/{planilla_id}/ver", response_class=HTMLResponse)
@@ -1374,6 +1640,11 @@ async def planilla_ver(request: Request, planilla_id: int,
     cuota_nums = list(range(1, num_cuotas + 1))
     meses_campana = _meses_campana_desde(mes, num_cuotas)
 
+    # Resumen mensual REAL (cuotas liquidadas + informe de dinero/comisión/neto
+    # mes a mes), para que el preview no muestre la tabla en blanco.
+    comision_pct = float(planilla_obj.comision_pct or (cobrador.comision_pct if cobrador else 0) or 0)
+    resumen_rows, resumen_totales, valor_cuota = _resumen_mensual_rows(boletas, _grid, meses_campana, comision_pct)
+
     return templates.TemplateResponse(request, "cobranza_planilla.html", {
         "user": user,
         "cobrador": cobrador,
@@ -1394,6 +1665,10 @@ async def planilla_ver(request: Request, planilla_id: int,
         "num_cuotas": num_cuotas,
         "cuota_nums": cuota_nums,
         "meses_campana": meses_campana,
+        "resumen_rows": resumen_rows,
+        "resumen_totales": resumen_totales,
+        "valor_cuota": valor_cuota,
+        "comision_pct": comision_pct,
         "mes": mes, "anio": anio,
         "mes_nombre": MESES[mes - 1],
         "thumb": bool(thumb),
@@ -1460,6 +1735,12 @@ async def planilla(request: Request, cobrador_id: int,
 
     planilla_label = f"P{planilla_obj.numero}" if planilla_obj else None
 
+    # Resumen mensual REAL (cuotas liquidadas + informe de dinero/comisión/neto
+    # mes a mes), para que el preview no muestre la tabla en blanco.
+    comision_pct = float((planilla_obj.comision_pct if planilla_obj else None)
+                          or (cobrador.comision_pct if cobrador else 0) or 0)
+    resumen_rows, resumen_totales, valor_cuota = _resumen_mensual_rows(boletas, _grid, meses_campana, comision_pct)
+
     return templates.TemplateResponse(request, "cobranza_planilla.html", {
         "user": user,
         "cobrador": cobrador,
@@ -1480,6 +1761,10 @@ async def planilla(request: Request, cobrador_id: int,
         "num_cuotas": num_cuotas,
         "cuota_nums": cuota_nums,
         "meses_campana": meses_campana,
+        "resumen_rows": resumen_rows,
+        "resumen_totales": resumen_totales,
+        "valor_cuota": valor_cuota,
+        "comision_pct": comision_pct,
         "mes": mes, "anio": anio,
         "mes_nombre": MESES[mes - 1],
     })
@@ -1711,7 +1996,8 @@ async def consolidado_index(request: Request, db: Session = Depends(get_db),
 @router.get("/consolidado/{cobrador_id}/comprobante", response_class=HTMLResponse)
 async def consolidado_comprobante(request: Request, cobrador_id: int,
                                   db: Session = Depends(get_db),
-                                  mes: int = Query(default=0), anio: int = Query(default=0)):
+                                  mes: int = Query(default=0), anio: int = Query(default=0),
+                                  thumb: int = Query(default=0), embed: int = Query(default=0)):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
@@ -1730,5 +2016,55 @@ async def consolidado_comprobante(request: Request, cobrador_id: int,
         "mes_nombre": MESES[mes - 1],
         "institucion": INSTITUCION_NOMBRE,
         "hoy": hoy.strftime("%d/%m/%Y"),
+        "thumb": bool(thumb),
+        "embed": bool(embed),
     })
+
+
+def _render_comprobante_pdf(request, data, cobrador, mes, anio) -> bytes:
+    """Genera el PDF del comprobante de liquidación consolidada de un cobrador
+    (mismos datos que la pantalla /comprobante), con xhtml2pdf: pura Python,
+    sin dependencias de sistema (Cairo/Pango), para no complicar el Dockerfile
+    de Railway. Usa una plantilla aparte (solo tablas, sin flex) porque el
+    motor de xhtml2pdf soporta un subconjunto chico de CSS."""
+    hoy_str = hoy_ar().strftime("%d/%m/%Y")
+    html = templates.get_template("cobranza_consolidado_comprobante_pdf.html").render(
+        request=request,
+        d=data,
+        cobrador=cobrador,
+        mes=mes, anio=anio,
+        mes_nombre=MESES[mes - 1],
+        institucion=INSTITUCION_NOMBRE,
+        hoy=hoy_str,
+    )
+    buf = BytesIO()
+    result = pisa.CreatePDF(html, dest=buf, encoding="utf-8")
+    if result.err:
+        raise HTTPException(500, "No se pudo generar el PDF del comprobante")
+    return buf.getvalue()
+
+
+@router.get("/consolidado/{cobrador_id}/comprobante.pdf")
+async def consolidado_comprobante_pdf(request: Request, cobrador_id: int,
+                                      db: Session = Depends(get_db),
+                                      mes: int = Query(default=0), anio: int = Query(default=0)):
+    """Descarga el comprobante de liquidación consolidada en PDF (mismos datos
+    que la pantalla, listo para guardar, mandar por WhatsApp o imprimir)."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    hoy = hoy_ar()
+    if not mes:  mes = hoy.month
+    if not anio: anio = hoy.year
+    cobrador = db.query(models.Cobrador).get(cobrador_id)
+    if not cobrador:
+        raise HTTPException(404)
+    data = _consolidado_cobrador(db, cobrador, mes, anio)
+    pdf_bytes = _render_comprobante_pdf(request, data, cobrador, mes, anio)
+    nombre_archivo = f"liquidacion_{cobrador.nombre}_{mes:02d}-{anio}.pdf".replace(" ", "_")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
+    )
 # fin cobranza.py

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Liquidación consolidada — {{ cobrador.nombre }}</title>
+<style>
+  @page { size: A4 portrait; margin: 16mm 14mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 11pt; color: #000; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid #000; padding: 4pt 6pt; }
+  th { text-align: center; background: #eee; }
+  .num { text-align: right; }
+  .center { text-align: center; }
+  .titulo { text-align: center; margin-bottom: 8mm; }
+  .titulo .inst { font-size: 12pt; font-weight: bold; }
+  .titulo .doc { font-size: 15pt; font-weight: bold; margin-top: 4mm; }
+  .titulo .per { font-size: 11pt; margin-top: 2mm; }
+  .datos { font-size: 11pt; margin-bottom: 5mm; line-height: 1.7; }
+  .seccion-tot table { margin-top: 4mm; }
+  .totfoot td { font-weight: bold; }
+  .saldo-box { width: 92mm; margin-left: auto; margin-top: 6mm; }
+  .saldo-box .saldo-final td { font-weight: bold; font-size: 13pt; }
+  .firmas { width: 100%; margin-top: 18mm; }
+  .firmas td { border: none; border-top: 1px solid #000; text-align: center;
+               padding-top: 2mm; font-size: 10pt; }
+  .firmas .sep { border: none; width: 20mm; }
+</style>
+</head>
+<body>
+
+<div class="titulo">
+  <div class="inst">{{ institucion }}</div>
+  <div class="doc">LIQUIDACIÓN DE COBRANZA</div>
+  <div class="per">{{ mes_nombre }} {{ anio }}</div>
+</div>
+
+<div class="datos">
+  <strong>Cobrador/a:</strong> {{ cobrador.nombre }}<br>
+  <strong>Fecha de liquidación:</strong> {{ hoy }}
+</div>
+
+<table>
+  <tr>
+    <th>Planilla</th><th>Cuotas</th><th>Cobrado</th><th>Comisión</th><th>Neto</th>
+  </tr>
+  {% for p in d.detalle %}
+  <tr>
+    <td class="center">P{{ p.numero }}</td>
+    <td class="center">{{ p.cuotas | round(0) | int }}</td>
+    <td class="num">{{ p.monto | pesos }}</td>
+    <td class="num">{{ p.comision | pesos }} ({{ p.pct | round(0) | int }}%)</td>
+    <td class="num">{{ p.neto | pesos }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="center">Sin cobranza registrada este mes</td></tr>
+  {% endfor %}
+  <tr class="totfoot">
+    <td colspan="2" style="text-align:right;">TOTALES</td>
+    <td class="num">{{ d.monto | pesos }}</td>
+    <td class="num">{{ d.comision | pesos }}</td>
+    <td class="num">{{ d.neto | pesos }}</td>
+  </tr>
+</table>
+
+{% if d.adelantos %}
+<div style="margin-top:6mm;">
+  <strong>Adelantos entregados en el mes:</strong>
+  <table style="margin-top:2mm;">
+    <tr><th>Fecha</th><th>Monto</th><th>Observación</th></tr>
+    {% for a in d.adelantos %}
+    <tr>
+      <td class="center">{{ a.fecha.strftime('%d/%m/%Y') }}</td>
+      <td class="num">{{ a.monto | pesos }}</td>
+      <td>{{ a.observacion or '' }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="totfoot">
+      <td style="text-align:right;">TOTAL ADELANTOS</td>
+      <td class="num">{{ d.total_adelantos | pesos }}</td>
+      <td></td>
+    </tr>
+  </table>
+</div>
+{% endif %}
+
+<table class="saldo-box">
+  <tr><td>Neto a rendir</td><td class="num">{{ d.neto | pesos }}</td></tr>
+  <tr><td>(−) Adelantos entregados</td><td class="num">{{ d.total_adelantos | pesos }}</td></tr>
+  <tr class="saldo-final"><td>SALDO A ENTREGAR</td><td class="num">{{ d.saldo | pesos }}</td></tr>
+</table>
+
+<table class="firmas">
+  <tr>
+    <td>Firma del cobrador</td>
+    <td class="sep"></td>
+    <td>Firma por la institución</td>
+  </tr>
+</table>
+
+</body>
+</html>

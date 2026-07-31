@@ -6,8 +6,11 @@
 <meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
 <title>Liquidación consolidada — {{ cobrador.nombre }}</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 <style>
   body { background:#e9ecef; }
+  body.thumb { background:#fff; }
+  body.thumb .hoja { margin:0; box-shadow:none; width:794px; height:1123px; overflow:hidden; }
   .hoja, .hoja * { color:#000 !important; -webkit-text-fill-color:#000 !important; }
   .hoja a { text-decoration:none !important; pointer-events:none; }
   .hoja {
@@ -22,11 +25,17 @@
   @media print { body{background:#fff;} .toolbar{display:none;} .hoja{box-shadow:none;margin:0;width:auto;min-height:auto;} }
 </style>
 </head>
-<body>
+<body{% if thumb %} class="thumb"{% endif %}>
+{% if not thumb %}
 <div class="toolbar">
-  <button class="btn btn-danger" onclick="window.print()">Imprimir</button>
-  <button class="btn btn-outline-secondary" onclick="window.close()">Cerrar</button>
+  {% if not embed %}<button class="btn btn-outline-secondary" onclick="window.close()">← Cerrar</button>{% endif %}
+  <button class="btn btn-danger" onclick="window.print()"><i class="bi bi-printer"></i> Imprimir</button>
+  <a class="btn btn-success" href="/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf?mes={{ mes }}&anio={{ anio }}">
+    <i class="bi bi-file-earmark-pdf"></i> Descargar PDF
+  </a>
+  <button class="btn btn-outline-primary" onclick="compartirComprobante()"><i class="bi bi-share"></i> Compartir</button>
 </div>
+{% endif %}
 <div class="hoja">
   <div style="text-align:center; margin-bottom:8mm;">
     <div style="font-size:13pt; font-weight:bold;">{{ institucion }}</div>
@@ -95,5 +104,36 @@
     <div style="text-align:center; flex:1; border-top:1px solid #000; padding-top:2mm;">Firma por la institución</div>
   </div>
 </div>
+{% if not thumb %}
+<script>
+  // "Compartir": intenta mandar el PDF ya generado con la Web Share API
+  // (funciona en la mayoría de los navegadores mobile — WhatsApp incluido).
+  // Si el navegador no soporta compartir archivos, cae a un texto-resumen
+  // por WhatsApp Web con el saldo a entregar.
+  async function compartirComprobante() {
+    const pdfUrl = "/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf?mes={{ mes }}&anio={{ anio }}";
+    const nombreArchivo = "liquidacion_{{ cobrador.nombre }}_{{ '%02d'|format(mes) }}-{{ anio }}.pdf".replace(/ /g, "_");
+    const textoResumen = "Liquidación de cobranza — {{ cobrador.nombre }} — {{ mes_nombre }} {{ anio }}\n" +
+      "Cobrado: {{ d.monto | pesos }} · Comisión: {{ d.comision | pesos }} · Neto: {{ d.neto | pesos }}\n" +
+      "Adelantos: {{ d.total_adelantos | pesos }} · Saldo a entregar: {{ d.saldo | pesos }}";
+    try {
+      const resp = await fetch(pdfUrl);
+      const blob = await resp.blob();
+      const file = new File([blob], nombreArchivo, { type: "application/pdf" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: "Liquidación — {{ cobrador.nombre }}",
+          text: textoResumen,
+        });
+        return;
+      }
+    } catch (e) { /* seguimos con el fallback de abajo */ }
+    // Fallback: WhatsApp Web con el resumen en texto (no soporta adjuntar
+    // el PDF automáticamente — el usuario lo adjunta a mano si hace falta).
+    window.open("https://wa.me/?text=" + encodeURIComponent(textoResumen), "_blank");
+  }
+</script>
+{% endif %}
 </body>
 </html>

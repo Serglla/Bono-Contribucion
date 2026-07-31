@@ -19,6 +19,18 @@ def _pesos(v):
         return "$0"
 _env.filters["pesos"] = _pesos
 
+def _fmtcuota(v):
+    """Formatea una cantidad de cuotas ponderadas: entero si es entero,
+    si no 1 decimal redondeado (ej. 17.3333 -> 17.3). Espejo del helper JS
+    fmtCuota() usado en la grilla interactiva de liquidación."""
+    try:
+        n = float(v or 0)
+    except (TypeError, ValueError):
+        return ""
+    r = round(n * 10) / 10
+    return str(int(r)) if r == int(r) else f"{r:.1f}"
+_env.filters["fmtcuota"] = _fmtcuota
+
 # Helper de permisos disponible en todos los templates como has_permission(user, seccion, accion)
 def _has_permission(user, section: str, action: str = "ver") -> bool:
     import json

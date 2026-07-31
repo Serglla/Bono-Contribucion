@@ -394,14 +394,38 @@
       </tr>
     </thead>
     <tbody>
-      {% for mes_nom, mes_num in meses_campana %}
+      {% for r in resumen_rows %}
       <tr>
-        <td class="td-mes">{{ mes_nom }} ({{ mes_num }})</td>
-        <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+        <td class="td-mes">{{ r.nombre }} ({{ r.num }})</td>
+        <td>{{ r.c1 | fmtcuota if r.c1 else '' }}</td>
+        <td>{{ r.c2 | fmtcuota if r.c2 else '' }}</td>
+        <td>{{ r.c3 | fmtcuota if r.c3 else '' }}</td>
+        <td style="font-weight:800;">{{ r.tot | fmtcuota if r.tot else '' }}</td>
+        <td>{{ (valor_cuota | pesos) if r.tot else '' }}</td>
+        <td style="text-align:right;">{{ (r.dinero | pesos) if r.tot else '' }}</td>
+        <td style="text-align:right;">{{ (r.comision | pesos) if r.tot else '' }}</td>
+        <td style="text-align:right; font-weight:800;">{{ (r.neto | pesos) if r.tot else '' }}</td>
       </tr>
       {% endfor %}
+      {% if resumen_totales and resumen_totales.tot %}
+      <tr style="background:#222; color:#fff; font-weight:800;">
+        <td class="td-mes" style="background:#222;">TOTAL</td>
+        <td>{{ resumen_totales.c1 | fmtcuota }}</td>
+        <td>{{ resumen_totales.c2 | fmtcuota }}</td>
+        <td>{{ resumen_totales.c3 | fmtcuota }}</td>
+        <td>{{ resumen_totales.tot | fmtcuota }}</td>
+        <td></td>
+        <td style="text-align:right;">{{ resumen_totales.dinero | pesos }}</td>
+        <td style="text-align:right;">{{ resumen_totales.comision | pesos }}</td>
+        <td style="text-align:right;">{{ resumen_totales.neto | pesos }}</td>
+      </tr>
+      {% endif %}
     </tbody>
   </table>
+  <div style="font-size:6.5pt; color:#666; margin-top:0.5mm;">
+    Comisión cobrador: <strong>{{ (comision_pct or 0) | round(1) }}%</strong>
+    &middot; Valor cuota: <strong>{{ valor_cuota | pesos }}</strong>
+  </div>
 
 </div>
 {% if not thumb %}{% include 'partials/_boleta_popover.html' %}{% endif %}
