@@ -362,12 +362,12 @@
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
   }
 
-  // Resumen del mes para la institución (todos los cobradores juntos).
+  // Resumen del mes para la institución (todos los cobradores juntos). Abre en
+  // el último mes con cobranza y adentro tiene su propio navegador ← →.
   function abrirResumenMes() {
     document.getElementById('modalResumenTitulo').textContent =
-      'Cobranza {{ mes_nombre }} {{ anio }} — todos los cobradores';
-    document.getElementById('resumenFrame').src =
-      '/cobranza/resumen-mes?mes={{ mes }}&anio={{ anio }}&embed=1';
+      'Cobranza del mes — todos los cobradores';
+    document.getElementById('resumenFrame').src = '/cobranza/resumen-mes?embed=1';
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
   }
 

@@ -345,10 +345,12 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             acc["del_mes"] += pv               # pendiente de emplanillar
 
     # ── Denominador MES A MES ───────────────────────────────────────────────
-    # No todas las boletas estuvieron en cobranza todos los meses: una planilla
-    # entregada en julio no puede figurar en el denominador de junio, ni una
-    # boleta que ya había terminado de pagar. Antes se dividía siempre por el
-    # total de activas y eso hundía el % de los meses viejos.
+    # No todas las boletas estuvieron en cobranza todos los meses. La cobranza
+    # de una planilla arranca EL MES SIGUIENTE al de entrega (planilla de mayo
+    # → cuota 1 en junio), así que una planilla entregada en junio recién suma
+    # al denominador de julio. Tampoco cuentan las boletas que ya habían
+    # terminado de pagar. Antes se dividía siempre por el total de activas y
+    # eso hundía el % de los meses viejos.
     _anio_ref = min(_anios_vistos) if _anios_vistos else hoy_ar().year
 
     def _ordp(anio_p, mes_p):
@@ -358,7 +360,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         _o = _ordp(anio_p, mes_p)
         n = 0
         for bi in infos:
-            if _ordp(*bi["desde"]) > _o:
+            if _ordp(*bi["desde"]) >= _o:
                 continue
             pagadas_antes = bi["ant"] + sum(1 for k in bi["pagos"] if _ordp(*k) < _o)
             if bi["pact"] and pagadas_antes >= bi["pact"]:

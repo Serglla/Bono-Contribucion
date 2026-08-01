@@ -655,11 +655,13 @@ async def index(request: Request, db: Session = Depends(get_db),
 
         # ── Denominador MES A MES (no uno solo para todos los meses) ─────────
         # Bug viejo: la tasa de cada mes se dividía por TODAS las boletas
-        # emplanilladas-liquidadas, incluidas las de planillas entregadas
-        # DESPUÉS de ese mes. Un P4 entregado en julio hundía el % de junio,
-        # porque esos números todavía no estaban en cobranza. Ahora, para cada
-        # mes, cuentan solo las boletas cuya planilla ya estaba entregada y a
-        # las que todavía les faltaban cuotas por pagar en ese momento.
+        # emplanilladas-liquidadas, sin importar cuándo entró su planilla. Los
+        # números de un P3 entregado en junio hundían el % de junio, cuando
+        # todavía no estaban en cobranza.
+        # La cobranza de una planilla ARRANCA EL MES SIGUIENTE al de entrega
+        # (mismo criterio que _meses_campana_desde: planilla de mayo → cuota 1
+        # en junio), así que la comparación es ESTRICTA: una planilla entregada
+        # en junio recién suma al denominador de julio.
         _anio_ref = min(_anios_vistos) if _anios_vistos else hoy.year
 
         def _ordp(anio_p, mes_p):
@@ -669,8 +671,8 @@ async def index(request: Request, db: Session = Depends(get_db),
             _o = _ordp(anio_p, mes_p)
             n = 0
             for bi in infos_pct:
-                if _ordp(*bi["desde"]) > _o:
-                    continue                      # planilla aún no entregada
+                if _ordp(*bi["desde"]) >= _o:
+                    continue                      # entregada este mes o después
                 pagadas_antes = bi["ant"] + sum(1 for k in bi["pagos"] if _ordp(*k) < _o)
                 if bi["pact"] and pagadas_antes >= bi["pact"]:
                     continue                      # ya había terminado de pagar
@@ -2250,8 +2252,10 @@ def _resumen_meses_cobrador(db, cobrador, solo_anio: int = 0, solo_mes: int = 0)
         fila_ord = _ord(anio_p, mes_p)
         sin_cobrar = 0.0
         for bi in infos:
-            # La planilla todavía no estaba entregada.
-            if _ord(*bi["desde"]) > fila_ord:
+            # La cobranza de una planilla arranca el MES SIGUIENTE al de
+            # entrega (planilla de mayo → cuota 1 en junio), así que una
+            # entregada en este mes todavía no se le puede exigir.
+            if _ord(*bi["desde"]) >= fila_ord:
                 continue
             # Dada de baja en ese mes o antes → ya no se le espera cobranza.
             if bi["mes_baja"] and baja_ord_de_mes.get(bi["mes_baja"], 0) <= fila_ord:
@@ -2440,6 +2444,34 @@ def _resumen_institucion(db, mes: int, anio: int):
     return {"filas": filas, "totales": totales}
 
 
+def _periodos_cobranza(db):
+    """Meses (anio, mes) en los que la institución tuvo movimiento de cobranza:
+    cuotas cobradas en cualquier planilla o entregas de cualquier cobrador.
+    Ordenados de más viejo a más nuevo. Alimenta el navegador ← → del resumen
+    del mes y define cuál se abre por defecto (el último)."""
+    per = set()
+    for (h,) in (db.query(models.Boleta.historial_cuotas)
+                 .filter(models.Boleta.historial_cuotas.isnot(None)).all()):
+        try:
+            hist = json.loads(h) if h else {}
+        except (ValueError, TypeError):
+            continue
+        for v in hist.values():
+            p = parse_periodo(v)
+            if p:
+                per.add((p[0] or 0, p[1]))
+    for a, m in db.query(models.EntregaCobrador.anio, models.EntregaCobrador.mes).all():
+        if a and m and 1 <= int(m) <= 12:
+            per.add((int(a), int(m)))
+    # Los datos legacy no guardan año: se les asigna el año más viejo visto,
+    # sino ordenarían antes de todo (0*12+mes).
+    _anios = {a for (a, _m) in per if a}
+    _ref = min(_anios) if _anios else hoy_ar().year
+    norm = sorted({(a or _ref, m) for (a, m) in per})
+    return [{"anio": a, "mes": m, "label": f"{MESES[m - 1]} {a}", "key": f"{a}-{m}"}
+            for (a, m) in norm]
+
+
 @router.get("/resumen-mes", response_class=HTMLResponse)
 async def resumen_mes_institucion(request: Request, db: Session = Depends(get_db),
                                   mes: int = Query(default=0), anio: int = Query(default=0),
@@ -2450,8 +2482,29 @@ async def resumen_mes_institucion(request: Request, db: Session = Depends(get_db
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
     hoy = hoy_ar()
-    if not mes:  mes = hoy.month
-    if not anio: anio = hoy.year
+
+    periodos = _periodos_cobranza(db)
+    # Sin mes explícito se abre el ÚLTIMO mes con cobranza, no el mes en curso:
+    # el actual puede no estar liquidado todavía y el resumen saldría en cero.
+    if not mes:
+        if periodos:
+            anio, mes = periodos[-1]["anio"], periodos[-1]["mes"]
+        else:
+            anio, mes = hoy.year, hoy.month
+    if not anio:
+        anio = hoy.year
+
+    _o = anio * 12 + mes
+    _antes = [p for p in periodos if p["anio"] * 12 + p["mes"] < _o]
+    _despues = [p for p in periodos if p["anio"] * 12 + p["mes"] > _o]
+    nav_meses = {
+        "periodos": periodos,
+        "actual_key": f"{anio}-{mes}",
+        "anterior": _antes[-1] if _antes else None,
+        "siguiente": _despues[0] if _despues else None,
+        "liquidado": any(p["anio"] == anio and p["mes"] == mes for p in periodos),
+    }
+
     data = _resumen_institucion(db, mes, anio)
     return templates.TemplateResponse(request, "cobranza_resumen_mes.html", {
         "user": user,
@@ -2462,6 +2515,7 @@ async def resumen_mes_institucion(request: Request, db: Session = Depends(get_db
         "hoy": hoy.strftime("%d/%m/%Y"),
         "thumb": bool(thumb),
         "embed": bool(embed),
+        "nav_meses": nav_meses,
     })
 
 
