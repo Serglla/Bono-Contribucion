@@ -1450,15 +1450,33 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     # P1, P2, P3: es la plata que ya entregó por ese mes. `cob_mes` trae el
     # cobrado/comisión/neto de TODAS sus planillas en el mes, para mostrar el
     # saldo que le queda por entregar mientras se liquida.
-    # El panel se muestra SOLO en la ÚLTIMA planilla del cobrador: la entrega
-    # es una sola por mes para toda su cobranza, así que repetirla en P1, P2,
-    # P3… sería redundante. La cadena "Guardar y seguir" termina justo ahí.
-    _ultima = (db.query(models.Planilla.id)
-               .filter_by(cobrador_id=planilla.cobrador_id)
-               .order_by(models.Planilla.anio.desc(), models.Planilla.mes.desc(),
-                         models.Planilla.numero.desc())
-               .first())
-    es_ultima_planilla = bool(_ultima) and _ultima[0] == planilla_id
+    # ── Navegación con flechas: las hojas del cobrador, en orden ─────────────
+    # P1 → P2 → P3 … → HOJA RESUMEN (siempre la última). Se recorre con las
+    # flechas de la botonera, que guardan antes de moverse.
+    planillas_cob = (db.query(models.Planilla)
+                     .filter_by(cobrador_id=planilla.cobrador_id)
+                     .order_by(models.Planilla.anio, models.Planilla.mes,
+                               models.Planilla.numero)
+                     .all())
+    _ids = [p.id for p in planillas_cob]
+    _idx = _ids.index(planilla_id) if planilla_id in _ids else 0
+    es_ultima_planilla = bool(_ids) and _ids[-1] == planilla_id
+
+    def _hoja_planilla(p):
+        return {"tipo": "planilla", "destino": str(p.id), "label": f"P{p.numero}"}
+
+    _anterior = _hoja_planilla(planillas_cob[_idx - 1]) if _idx > 0 else None
+    if _idx < len(_ids) - 1:
+        _siguiente = _hoja_planilla(planillas_cob[_idx + 1])
+    else:
+        # Después de la última planilla viene la hoja resumen del mes.
+        _siguiente = {"tipo": "resumen", "destino": "resumen", "label": "Hoja resumen"}
+    nav_hojas = {
+        "pos": _idx + 1,
+        "total": len(_ids) + 1,          # +1 por la hoja resumen
+        "anterior": _anterior,
+        "siguiente": _siguiente,
+    }
 
     entregas_mes = []
     cob_mes = None
@@ -1506,6 +1524,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "periodo_stats": periodo_stats,
         "entregas_mes": entregas_mes,
         "cob_mes": cob_mes,
+        "nav_hojas": nav_hojas,
         "hoy_iso": hoy_ar().isoformat(),
     })
 
@@ -1516,6 +1535,7 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
                                cuotas_json: List[str] = Form(...),
                                baja_mes: List[str] = Form(default=[]),
                                modo: str = Form(default="quedarse"),
+                               destino: str = Form(default=""),
                                mes: int = Form(default=0),
                                anio: int = Form(default=0),
                                db: Session = Depends(get_db)):
@@ -1630,6 +1650,27 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     # El período elegido viaja en la URL de todos los saltos, así una ronda de
     # liquidación de (por ejemplo) Junio sigue siendo de Junio planilla a planilla.
     _qs_periodo = f"?mes={_mes_liq}&anio={_anio_liq}"
+
+    # ── Flechas: guarda y se mueve a la hoja pedida ─────────────────────────
+    # `destino` es el id de otra planilla del mismo cobrador, o "resumen" para
+    # la hoja de liquidación del mes (la última del recorrido). Se valida que
+    # sea del MISMO cobrador: un form manipulado no debe saltar a otro.
+    if modo == "ir":
+        if destino == "resumen":
+            return RedirectResponse(
+                f"/cobranza/consolidado/{planilla.cobrador_id}/hoja"
+                f"?mes={_mes_liq}&anio={_anio_liq}&volver={planilla_id}",
+                status_code=302)
+        try:
+            _dest_id = int(destino)
+        except (TypeError, ValueError):
+            _dest_id = 0
+        _dest = db.query(models.Planilla).get(_dest_id) if _dest_id else None
+        if _dest and _dest.cobrador_id == planilla.cobrador_id:
+            return RedirectResponse(
+                f"/cobranza/liquidacion/{_dest.id}{_qs_periodo}", status_code=302)
+        return RedirectResponse(
+            f"/cobranza/liquidacion/{planilla_id}{_qs_periodo}", status_code=302)
 
     # ── "Guardar y seguir con la siguiente" (liquidación en cadena) ─────────
     # Recalcula la cola YA con los cambios recién guardados (esta planilla
@@ -2331,7 +2372,8 @@ async def consolidado_index(request: Request, db: Session = Depends(get_db),
 async def consolidado_hoja(request: Request, cobrador_id: int,
                            db: Session = Depends(get_db),
                            mes: int = Query(default=0), anio: int = Query(default=0),
-                           thumb: int = Query(default=0), embed: int = Query(default=0)):
+                           thumb: int = Query(default=0), embed: int = Query(default=0),
+                           volver: int = Query(default=0)):
     """Hoja A4 de la liquidación de UN mes: un renglón por planilla (P1, P2, P3…)
     con cuotas cobradas, monto, comisión y neto; abajo el detalle de entregas
     del mes y el saldo a entregar. Es la hoja que acompaña el cierre mensual,
@@ -2356,6 +2398,7 @@ async def consolidado_hoja(request: Request, cobrador_id: int,
         "hoy": hoy.strftime("%d/%m/%Y"),
         "thumb": bool(thumb),
         "embed": bool(embed),
+        "volver": volver or 0,
     })
 
 

@@ -81,6 +81,7 @@
   <!-- Inputs ocultos (uno por boleta real) -->
   <div id="hiddenInputs">
     <input type="hidden" name="modo" id="modoInput" value="quedarse">
+    <input type="hidden" name="destino" id="destinoInput" value="">
     {# Período que se está liquidando: viaja con el form para que el guardado
        impacte en el mes elegido (y no siempre en el mes en curso). #}
     <input type="hidden" name="mes" value="{{ mes_actual }}">
@@ -270,19 +271,47 @@
   </div><!-- /lqCentro -->
   </div><!-- /scrollWrapper -->
 
-  <div class="d-flex justify-content-center gap-2 mt-3 flex-wrap">
-    <a href="/cobranza/"
-       class="btn btn-secondary">Cancelar</a>
+  {# Botonera: un solo Guardar, con flechas a los costados para recorrer las
+     hojas del cobrador (P1 → P2 → … → hoja resumen). Las flechas GUARDAN
+     antes de moverse, así no se pierde lo marcado al navegar. #}
+  <div class="d-flex justify-content-center align-items-center gap-2 mt-3 flex-wrap">
+    <a href="/cobranza/" class="btn btn-secondary">Cancelar</a>
     <button type="button" class="btn btn-outline-secondary" onclick="imprimirLiquidacion()">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
-    <button type="button" class="btn btn-outline-danger btn-guardar-liq" onclick="guardarLiquidacion('salir')">
-      <i class="bi bi-save me-1"></i>Guardar y salir
-    </button>
-    <button type="button" class="btn btn-danger btn-guardar-liq" id="btnGuardarSiguiente" onclick="guardarLiquidacion('siguiente')">
-      <i class="bi bi-save me-1"></i>
-      {% if cadena and cadena.restantes %}Guardar y seguir ({{ cadena.restantes }} más){% else %}Guardar liquidación{% endif %}
-    </button>
+
+    <div class="d-flex align-items-center gap-2 ms-2">
+      {% if nav_hojas and nav_hojas.anterior %}
+      <button type="button" class="btn btn-outline-danger btn-guardar-liq px-3"
+              onclick="guardarLiquidacion('ir', '{{ nav_hojas.anterior.destino }}')"
+              title="Guardar y volver a {{ nav_hojas.anterior.label }}">
+        <i class="bi bi-arrow-left"></i>
+      </button>
+      {% else %}
+      <button type="button" class="btn btn-outline-secondary px-3" disabled title="Es la primera hoja">
+        <i class="bi bi-arrow-left"></i>
+      </button>
+      {% endif %}
+
+      <button type="button" class="btn btn-danger btn-guardar-liq px-4" onclick="guardarLiquidacion('quedarse')">
+        <i class="bi bi-save me-1"></i>Guardar
+      </button>
+
+      {% if nav_hojas and nav_hojas.siguiente %}
+      <button type="button" class="btn btn-outline-danger btn-guardar-liq px-3"
+              onclick="guardarLiquidacion('ir', '{{ nav_hojas.siguiente.destino }}')"
+              title="Guardar y pasar a {{ nav_hojas.siguiente.label }}">
+        <i class="bi bi-arrow-right"></i>
+      </button>
+      {% endif %}
+    </div>
+
+    {% if nav_hojas %}
+    <span class="text-muted small ms-2">
+      Hoja <strong>{{ nav_hojas.pos }}</strong> de {{ nav_hojas.total }}
+      {% if nav_hojas.siguiente %}· sigue <strong>{{ nav_hojas.siguiente.label }}</strong>{% endif %}
+    </span>
+    {% endif %}
   </div>
   {% else %}
   </div><!-- /lqCentro -->
@@ -724,22 +753,28 @@
       '?mes=' + mes + '&anio=' + anio;
   }
 
-  // ─── Guardar (con dos modos: seguir a la siguiente pendiente / salir) ───
+  // ─── Guardar (modos: quedarse / ir a otra hoja / salir) ─────────────────
   function setGuardando(on) {
     document.querySelectorAll('.btn-guardar-liq').forEach(b => {
       b.disabled = on;
       if (on) {
         if (!b.dataset.origHtml) b.dataset.origHtml = b.innerHTML;
-        b.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Guardando...';
+        // Las flechas son angostas: ahí solo el spinner, sin la palabra.
+        b.innerHTML = '<span class="spinner-border spinner-border-sm"></span>' +
+                      (b.classList.contains('px-4') ? ' Guardando...' : '');
       } else if (b.dataset.origHtml) {
         b.innerHTML = b.dataset.origHtml;
       }
     });
   }
 
-  function guardarLiquidacion(modo) {
+  // `destino` solo se usa con modo="ir" (las flechas): es el id de otra
+  // planilla del cobrador, o "resumen" para la hoja del mes.
+  function guardarLiquidacion(modo, destino) {
     const modoInput = document.getElementById('modoInput');
     if (modoInput) modoInput.value = modo;
+    const destInput = document.getElementById('destinoInput');
+    if (destInput) destInput.value = destino || '';
     const form = document.getElementById('formLiq');
     if (!form) return;
     if (form.requestSubmit) form.requestSubmit();

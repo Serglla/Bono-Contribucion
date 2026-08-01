@@ -36,7 +36,13 @@
 {% set _qs = '?mes=' ~ mes ~ '&anio=' ~ anio %}
 {% if not thumb %}
 <div class="toolbar">
-  {% if not embed %}<button class="btn btn-outline-secondary" onclick="window.close()">← Cerrar</button>{% endif %}
+  {# `volver` llega cuando se entró con la flecha desde la última planilla:
+     cierra el circuito P1 → P2 → … → hoja resumen → (atrás) última planilla. #}
+  {% if volver %}
+  <a class="btn btn-outline-danger" href="/cobranza/liquidacion/{{ volver }}?mes={{ mes }}&anio={{ anio }}">
+    <i class="bi bi-arrow-left"></i> Volver a la planilla
+  </a>
+  {% elif not embed %}<button class="btn btn-outline-secondary" onclick="window.close()">← Cerrar</button>{% endif %}
   <button class="btn btn-danger" onclick="window.print()"><i class="bi bi-printer"></i> Imprimir</button>
   <a class="btn btn-success" href="/cobranza/consolidado/{{ cobrador.id }}/hoja.pdf{{ _qs }}">
     <i class="bi bi-file-earmark-pdf"></i> Descargar PDF

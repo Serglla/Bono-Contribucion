@@ -229,6 +229,23 @@
             {% endfor %}
           </div>
           {% endfor %}
+
+          {# La hoja resumen cierra el recorrido: va después de las planillas,
+             en su propia fila para no romper la alineación por mes de la
+             grilla de arriba (que se comparte entre todas las tarjetas). #}
+          <div class="d-flex flex-wrap gap-3 mb-2 pt-2" style="border-top:1px dashed #dee2e6;">
+            <div class="pl-item">
+              <div class="pl-thumb res-thumb" ondblclick="abrirHoja({{ r.cobrador.id }}, 'Liquidación {{ mes_nombre }} {{ anio }} — {{ r.cobrador.nombre }}')"
+                   title="Hoja resumen de la liquidación de {{ mes_nombre }} {{ anio }} — doble clic para ver / imprimir / exportar">
+                <iframe src="/cobranza/consolidado/{{ r.cobrador.id }}/hoja?mes={{ mes }}&anio={{ anio }}&thumb=1" loading="lazy" scrolling="no" tabindex="-1"></iframe>
+                <span class="pl-thumb-tag res-thumb-tag"><i class="bi bi-receipt"></i></span>
+              </div>
+              <div class="pl-meta">
+                <span class="fw-semibold">Hoja resumen</span><br>
+                <span class="text-muted">{{ mes_nombre }} {{ anio }}</span>
+              </div>
+            </div>
+          </div>
         {% else %}
           <a href="/cobranza/{{ r.cobrador.id }}/planilla?mes={{ mes }}&anio={{ anio }}" class="btn btn-sm btn-outline-secondary w-100">
             <i class="bi bi-eye me-1"></i>Vista previa
@@ -292,6 +309,8 @@
       <div class="modal-header py-2">
         <h6 class="modal-title mb-0"><i class="bi bi-cash-coin text-success me-1"></i><span id="modalResumenTitulo">Resumen de cobranza</span></h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        {# El mismo modal sirve para el resumen histórico y para la hoja del mes:
+           lo único que cambia es la URL que se le carga al iframe. #}
       </div>
       <div class="modal-body p-0" style="overflow:hidden;background:#aaa;">
         <iframe id="resumenFrame" src="" style="width:100%;height:100%;border:0;"></iframe>
@@ -330,6 +349,14 @@
     document.getElementById('modalResumenTitulo').textContent = titulo || 'Resumen de cobranza';
     document.getElementById('resumenFrame').src =
       '/cobranza/consolidado/' + cobradorId + '/comprobante?embed=1';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
+  }
+
+  // Hoja de liquidación del mes que está elegido arriba en el selector.
+  function abrirHoja(cobradorId, titulo) {
+    document.getElementById('modalResumenTitulo').textContent = titulo || 'Liquidación del mes';
+    document.getElementById('resumenFrame').src =
+      '/cobranza/consolidado/' + cobradorId + '/hoja?mes={{ mes }}&anio={{ anio }}&embed=1';
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
   }
   document.getElementById('modalResumen').addEventListener('hidden.bs.modal', function () {
