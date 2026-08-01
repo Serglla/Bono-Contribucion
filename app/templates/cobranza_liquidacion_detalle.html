@@ -96,6 +96,11 @@
 
   <!-- Tabla grilla -->
   <div id="scrollWrapper" style="overflow-x:auto;">
+  {# Bloque centrado: grilla + resumen. width:fit-content + margin auto centra
+     sin romper el scroll horizontal — cuando la grilla es más ancha que la
+     pantalla los márgenes automáticos valen 0 y no se corta nada por izquierda
+     (que es lo que pasaría con text-align:center o flex justify-content). #}
+  <div id="lqCentro">
   <div style="background:#fff; border:1.5px solid #888; border-radius:4px; display:inline-block;">
     <table id="tablaLiq" style="border-collapse:collapse; table-layout:fixed; font-size: 7.5pt; font-family:Arial,sans-serif;">
       <colgroup>
@@ -262,6 +267,7 @@
     </small>
   </div>
 
+  </div><!-- /lqCentro -->
   </div><!-- /scrollWrapper -->
 
   <div class="d-flex justify-content-end gap-2 mt-3 flex-wrap">
@@ -279,6 +285,7 @@
     </button>
   </div>
   {% else %}
+  </div><!-- /lqCentro -->
   </div><!-- /scrollWrapper sin resumen -->
   {% endif %}
 
@@ -288,13 +295,13 @@
    Van FUERA del form de la grilla (no se pueden anidar forms). Son por
    cobrador + período, no por planilla: se ven iguales desde P1, P2 o P3. #}
 {% if cob_mes %}
-<div class="card mt-3 d-print-none" style="max-width:920px;">
+<div class="card mt-3 d-print-none" style="max-width:920px; margin-left:auto; margin-right:auto;">
   <div class="card-header d-flex align-items-center gap-2 py-2"
        style="background:#f1f3f5; font-size:.85rem; font-weight:700;">
     <i class="bi bi-cash-coin"></i>
     Entregas de {{ planilla.cobrador.nombre }} — {{ mes_nombre }} {{ anio_actual }}
     <span class="ms-auto fw-normal text-muted" style="font-size:.78rem;">
-      Todas las planillas del cobrador en el mes
+      Cierre del mes — cubre todas las planillas del cobrador
     </span>
   </div>
   <div class="card-body py-2">
@@ -409,6 +416,11 @@
   .lq-mes   { background:#dc354550; color:#c00; }
   .lq-libre { background:#fff; }
   .lq-baja  { background:#fff; background-image:linear-gradient(to bottom,transparent calc(50% - 1px),#c00 calc(50% - 1px),#c00 calc(50% + 1px),transparent calc(50% + 1px)); }
+
+  /* Grilla + resumen centrados en la pantalla. Con width:fit-content los
+     márgenes auto centran mientras entre, y valen 0 cuando la grilla es más
+     ancha que el viewport (así el scroll horizontal no corta la izquierda). */
+  #lqCentro { width: fit-content; margin-left: auto; margin-right: auto; }
 
   #tablaLiq .blk-end td { border-bottom: 2px solid #555 !important; }
   #tablaLiq .cq-libre:hover { background:#dc354520 !important; }

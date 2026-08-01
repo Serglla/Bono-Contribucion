@@ -1450,14 +1450,27 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     # P1, P2, P3: es la plata que ya entregó por ese mes. `cob_mes` trae el
     # cobrado/comisión/neto de TODAS sus planillas en el mes, para mostrar el
     # saldo que le queda por entregar mientras se liquida.
-    cobrador_obj = db.query(models.Cobrador).get(planilla.cobrador_id)
-    entregas_mes = (db.query(models.EntregaCobrador)
-                    .filter_by(cobrador_id=planilla.cobrador_id,
-                               mes=mes_liq, anio=anio_liq)
-                    .order_by(models.EntregaCobrador.fecha,
-                              models.EntregaCobrador.id)
-                    .all())
-    cob_mes = _consolidado_cobrador(db, cobrador_obj, mes_liq, anio_liq) if cobrador_obj else None
+    # El panel se muestra SOLO en la ÚLTIMA planilla del cobrador: la entrega
+    # es una sola por mes para toda su cobranza, así que repetirla en P1, P2,
+    # P3… sería redundante. La cadena "Guardar y seguir" termina justo ahí.
+    _ultima = (db.query(models.Planilla.id)
+               .filter_by(cobrador_id=planilla.cobrador_id)
+               .order_by(models.Planilla.anio.desc(), models.Planilla.mes.desc(),
+                         models.Planilla.numero.desc())
+               .first())
+    es_ultima_planilla = bool(_ultima) and _ultima[0] == planilla_id
+
+    entregas_mes = []
+    cob_mes = None
+    if es_ultima_planilla:
+        cobrador_obj = db.query(models.Cobrador).get(planilla.cobrador_id)
+        entregas_mes = (db.query(models.EntregaCobrador)
+                        .filter_by(cobrador_id=planilla.cobrador_id,
+                                   mes=mes_liq, anio=anio_liq)
+                        .order_by(models.EntregaCobrador.fecha,
+                                  models.EntregaCobrador.id)
+                        .all())
+        cob_mes = _consolidado_cobrador(db, cobrador_obj, mes_liq, anio_liq) if cobrador_obj else None
 
     return templates.TemplateResponse(request, "cobranza_liquidacion_detalle.html", {
         "user": user,
