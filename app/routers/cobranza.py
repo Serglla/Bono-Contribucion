@@ -1930,6 +1930,12 @@ def _resumen_meses_cobrador(db, cobrador):
       - bajas: socios dados de baja ese mes.
       - saldo: saldo a entregar = cobrado − comisión − adelantos del mes.
 
+    Además, por cada mes se calcula lo que se ESPERABA cobrar: las boletas
+    vivas emplanilladas (no dadas de baja hasta ese mes, y que todavía tenían
+    cuotas por pagar) de las planillas entregadas hasta ese mes, ponderadas por
+    PATA. Las que no registraron ningún pago en el mes suman a `sin_cobrar`, y
+    el `pct` del renglón es cobradas / (cobradas + sin cobrar).
+
     Solo aparecen los meses con movimiento (cuotas, bajas o adelantos)."""
     planillas = (db.query(models.Planilla)
                  .filter_by(cobrador_id=cobrador.id)
@@ -1939,16 +1945,24 @@ def _resumen_meses_cobrador(db, cobrador):
 
     por_periodo = {}          # (anio, mes) -> {cuotas, monto, comision}
     bajas_por_mes = {}        # mes (1-12) -> cantidad de socios dados de baja
+    infos = []                # una entrada por boleta, para el cálculo de esperado
+    anios_vistos = set()
     for p in planillas:
         pct = float(p.comision_pct or 0)
         boletas = db.query(models.Boleta).filter_by(planilla_id=p.id).all()
         todo0 = _planilla_todo_pata0(boletas)
+        p_anio = int(p.anio or 0)
+        p_mes = int(p.mes or 0)
+        if p_anio:
+            anios_vistos.add(p_anio)
         for b in boletas:
             # Baja: mes_baja es un registro único por boleta (sin año).
+            mes_baja = 0
             if b.mes_baja:
                 try:
                     _mb = int(b.mes_baja)
                     if 1 <= _mb <= 12:
+                        mes_baja = _mb
                         bajas_por_mes[_mb] = bajas_por_mes.get(_mb, 0) + 1
                 except (TypeError, ValueError):
                     pass
@@ -1956,20 +1970,30 @@ def _resumen_meses_cobrador(db, cobrador):
                 hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
             except (ValueError, TypeError):
                 hist = {}
-            if not hist:
-                continue
             vc = float(b.talonera.valor_cuota) if (b.talonera and b.talonera.valor_cuota) else 0.0
             peso = 1.0 if todo0 else _pata_valor(b)
+            pagos = []            # períodos (anio|0, mes) en que pagó
             for v in hist.values():
                 per = parse_periodo(v)
                 if per is None:
                     continue
                 anio_p, mes_p = per
                 key = (anio_p or 0, mes_p)      # legacy sin año -> 0
+                if anio_p:
+                    anios_vistos.add(anio_p)
+                pagos.append(key)
                 d = por_periodo.setdefault(key, {"cuotas": 0.0, "monto": 0.0, "comision": 0.0})
                 d["cuotas"] += peso
                 d["monto"] += vc
                 d["comision"] += vc * pct / 100.0
+            infos.append({
+                "peso": peso,
+                "desde": (p_anio, p_mes),
+                "mes_baja": mes_baja,
+                "pactadas": int(b.cuotas_pactadas or 0),
+                "anticipadas": int(b.cuotas_anticipadas or 0),
+                "pagos": pagos,
+            })
 
     # Adelantos entregados por el cobrador, agrupados por período.
     adel_por_periodo = {}
@@ -1977,12 +2001,29 @@ def _resumen_meses_cobrador(db, cobrador):
               .filter_by(cobrador_id=cobrador.id).all()):
         key = (int(a.anio or 0), int(a.mes or 0))
         adel_por_periodo[key] = adel_por_periodo.get(key, 0.0) + float(a.monto or 0)
+        if a.anio:
+            anios_vistos.add(int(a.anio))
 
     # Un renglón por mes con movimiento (cuotas cobradas o adelantos).
-    claves = set(por_periodo) | set(k for k in adel_por_periodo if 1 <= k[1] <= 12)
+    claves = sorted(set(por_periodo) | set(k for k in adel_por_periodo if 1 <= k[1] <= 12))
+
+    # Los datos legacy no guardan año: para poder ORDENAR períodos entre sí les
+    # asignamos el año de referencia de la campaña (el más chico que se haya
+    # visto), así "mes 7 sin año" no se compara contra 0*12+7 y rompe todo.
+    anio_ref = min(anios_vistos) if anios_vistos else hoy_ar().year
+
+    def _ord(anio, mes):
+        return (anio or anio_ref) * 12 + (mes or 1)
+
+    # Primer renglón (cronológico) que tiene cada mes: ahí se cuelgan las bajas,
+    # que no guardan año.
+    baja_ord_de_mes = {}
+    for (a_k, m_k) in claves:
+        baja_ord_de_mes.setdefault(m_k, _ord(a_k, m_k))
+
     filas = []
     bajas_asignadas = set()
-    for (anio_p, mes_p) in sorted(claves):
+    for (anio_p, mes_p) in claves:
         d = por_periodo.get((anio_p, mes_p), {"cuotas": 0.0, "monto": 0.0, "comision": 0.0})
         adel = adel_por_periodo.get((anio_p, mes_p), 0.0)
         # Las bajas no guardan año: se cuelgan del primer renglón con ese mes.
@@ -1991,24 +2032,58 @@ def _resumen_meses_cobrador(db, cobrador):
         else:
             bajas = bajas_por_mes.get(mes_p, 0)
             bajas_asignadas.add(mes_p)
+
+        # ── Cuotas del mes que quedaron SIN COBRAR ──────────────────────────
+        # Boletas vivas emplanilladas ese mes que no registraron ningún pago.
+        fila_ord = _ord(anio_p, mes_p)
+        sin_cobrar = 0.0
+        for bi in infos:
+            # La planilla todavía no estaba entregada.
+            if _ord(*bi["desde"]) > fila_ord:
+                continue
+            # Dada de baja en ese mes o antes → ya no se le espera cobranza.
+            if bi["mes_baja"] and baja_ord_de_mes.get(bi["mes_baja"], 0) <= fila_ord:
+                continue
+            # Ya había terminado de pagar sus cuotas antes de este mes.
+            pagadas_antes = bi["anticipadas"] + sum(
+                1 for k in bi["pagos"] if _ord(*k) < fila_ord)
+            if bi["pactadas"] and pagadas_antes >= bi["pactadas"]:
+                continue
+            # Viva y sin ningún pago registrado en el mes.
+            if not any(_ord(*k) == fila_ord for k in bi["pagos"]):
+                sin_cobrar += bi["peso"]
+
+        cobradas = d["cuotas"]
+        base_pct = cobradas + sin_cobrar
+        pct_cobrado = round(cobradas / base_pct * 100) if base_pct > 0 else 0
+
         monto = round(d["monto"], 2)
         comision = round(d["comision"], 2)
         filas.append({
             "anio": anio_p, "mes": mes_p,
             "label": f"{MESES[mes_p - 1]}" + (f" {anio_p}" if anio_p else ""),
-            "cuotas": d["cuotas"],
+            "cuotas": cobradas,
+            "sin_cobrar": round(sin_cobrar, 2),
+            "pct": pct_cobrado,
             "bajas": bajas,
             "monto": monto,
             "comision": comision,
+            "neto": round(monto - comision, 2),
             "adelantos": round(adel, 2),
             "saldo": round(monto - comision - adel, 2),
         })
 
+    tot_cuotas = sum(f["cuotas"] for f in filas)
+    tot_sin = round(sum(f["sin_cobrar"] for f in filas), 2)
+    base_tot = tot_cuotas + tot_sin
     totales = {
-        "cuotas": sum(f["cuotas"] for f in filas),
+        "cuotas": tot_cuotas,
+        "sin_cobrar": tot_sin,
+        "pct": round(tot_cuotas / base_tot * 100) if base_tot > 0 else 0,
         "bajas": sum(f["bajas"] for f in filas),
         "monto": round(sum(f["monto"] for f in filas), 2),
         "comision": round(sum(f["comision"] for f in filas), 2),
+        "neto": round(sum(f["neto"] for f in filas), 2),
         "adelantos": round(sum(f["adelantos"] for f in filas), 2),
         "saldo": round(sum(f["saldo"] for f in filas), 2),
     }

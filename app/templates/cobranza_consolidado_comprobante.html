@@ -17,8 +17,9 @@
     width:210mm; min-height:160mm; margin:1rem auto; background:#fff; padding:14mm 16mm;
     font-family:'Times New Roman', Times, serif; box-shadow:0 0 8px rgba(0,0,0,.25);
   }
-  .hoja table { width:100%; border-collapse:collapse; font-size:11.5pt; }
-  .hoja th, .hoja td { border:1px solid #000; padding:2mm 3mm; }
+  /* 8 columnas en A4: tipografía y padding más chicos para que entre todo. */
+  .hoja table { width:100%; border-collapse:collapse; font-size:9.5pt; }
+  .hoja th, .hoja td { border:1px solid #000; padding:1.5mm 1.8mm; }
   .hoja th { text-align:center; }
   .num { text-align:right; }
   .toolbar { text-align:center; margin:1rem; }
@@ -52,8 +53,12 @@
       <tr>
         <th style="text-align:left;">Mes</th>
         <th>Cuotas cobradas</th>
+        <th>Sin cobrar</th>
         <th>Bajas</th>
-        <th>Saldo a entregar</th>
+        <th>Monto de cobranza</th>
+        <th>Comisión</th>
+        <th>Neto</th>
+        <th>% cobrado</th>
       </tr>
     </thead>
     <tbody>
@@ -61,19 +66,27 @@
       <tr>
         <td>{{ f.label }}</td>
         <td style="text-align:center;">{{ f.cuotas | fmtcuota }}</td>
+        <td style="text-align:center;">{% if f.sin_cobrar %}{{ f.sin_cobrar | fmtcuota }}{% else %}—{% endif %}</td>
         <td style="text-align:center;">{% if f.bajas %}{{ f.bajas }}{% else %}—{% endif %}</td>
-        <td class="num">{{ f.saldo | pesos }}</td>
+        <td class="num">{{ f.monto | pesos }}</td>
+        <td class="num">{{ f.comision | pesos }}</td>
+        <td class="num">{{ f.neto | pesos }}</td>
+        <td style="text-align:center;">{{ f.pct }}%</td>
       </tr>
       {% else %}
-      <tr><td colspan="4" style="text-align:center;">Sin cobranza liquidada todavía</td></tr>
+      <tr><td colspan="8" style="text-align:center;">Sin cobranza liquidada todavía</td></tr>
       {% endfor %}
     </tbody>
     <tfoot>
       <tr style="font-weight:bold;">
         <td>TOTAL</td>
         <td style="text-align:center;">{{ d.totales.cuotas | fmtcuota }}</td>
+        <td style="text-align:center;">{% if d.totales.sin_cobrar %}{{ d.totales.sin_cobrar | fmtcuota }}{% else %}—{% endif %}</td>
         <td style="text-align:center;">{% if d.totales.bajas %}{{ d.totales.bajas }}{% else %}—{% endif %}</td>
-        <td class="num">{{ d.totales.saldo | pesos }}</td>
+        <td class="num">{{ d.totales.monto | pesos }}</td>
+        <td class="num">{{ d.totales.comision | pesos }}</td>
+        <td class="num">{{ d.totales.neto | pesos }}</td>
+        <td style="text-align:center;">{{ d.totales.pct }}%</td>
       </tr>
     </tfoot>
   </table>
@@ -93,8 +106,8 @@
     const pdfUrl = "/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf";
     const nombreArchivo = "resumen_cobranza_{{ cobrador.nombre }}.pdf".replace(/ /g, "_");
     const textoResumen = "Resumen de cobranza — {{ cobrador.nombre }}\n" +
-      {% for f in d.filas %}"{{ f.label }}: {{ f.cuotas | fmtcuota }} cuotas · {{ f.bajas }} baja(s) · {{ f.saldo | pesos }}\n" +
-      {% endfor %}"TOTAL: {{ d.totales.cuotas | fmtcuota }} cuotas · {{ d.totales.bajas }} baja(s) · saldo a entregar {{ d.totales.saldo | pesos }}";
+      {% for f in d.filas %}"{{ f.label }}: {{ f.cuotas | fmtcuota }} cobradas · {{ f.sin_cobrar | fmtcuota }} sin cobrar ({{ f.pct }}%) · {{ f.bajas }} baja(s) · cobranza {{ f.monto | pesos }} · comisión {{ f.comision | pesos }} · neto {{ f.neto | pesos }}\n" +
+      {% endfor %}"TOTAL: {{ d.totales.cuotas | fmtcuota }} cobradas · {{ d.totales.sin_cobrar | fmtcuota }} sin cobrar ({{ d.totales.pct }}%) · {{ d.totales.bajas }} baja(s) · cobranza {{ d.totales.monto | pesos }} · comisión {{ d.totales.comision | pesos }} · neto {{ d.totales.neto | pesos }}";
     try {
       const resp = await fetch(pdfUrl);
       const blob = await resp.blob();
