@@ -238,7 +238,10 @@
   {% if not embed %}<a href="/cobranza/?mes={{ mes }}&anio={{ anio }}" class="btn-back">← Volver</a>{% endif %}
   <button onclick="window.print()" class="btn-print">🖨 Imprimir</button>
   {% if planilla %}
-  <a href="/cobranza/liquidacion/{{ planilla.id }}" class="btn-liq">💲 Liquidar planilla</a>
+  {# target="_top": liquidar es una pantalla completa del sistema. Si se abre
+     dentro del iframe del modal queda la app anidada y al cerrar el modal la
+     página de atrás no refleja lo liquidado. #}
+  <a href="/cobranza/liquidacion/{{ planilla.id }}" class="btn-liq" target="_top">💲 Liquidar planilla</a>
   {% endif %}
   <span class="toolbar-info">
     {% if planilla_label %}<strong style="color:#f88;">{{ planilla_label }}</strong> — {% endif %}{{ cobrador.nombre | upper }} — {{ mes_nombre | upper }} {{ anio }}

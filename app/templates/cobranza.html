@@ -301,14 +301,29 @@
 </div>
 
 <script>
+  // URL con la que se abrió el modal, para detectar si adentro se navegó a otra
+  // pantalla (ahí lo que se ve atrás quedó viejo y hay que refrescar).
+  let _planillaSrc = '';
+
   function abrirPlanilla(id, titulo) {
     document.getElementById('modalPlanillaTitulo').textContent = titulo || 'Planilla';
-    document.getElementById('planillaFrame').src = '/cobranza/planilla/' + id + '/ver?embed=1';
+    _planillaSrc = '/cobranza/planilla/' + id + '/ver?embed=1';
+    document.getElementById('planillaFrame').src = _planillaSrc;
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPlanilla')).show();
   }
-  // Detener la carga del iframe al cerrar el modal.
+
+  // Al cerrar: detener la carga del iframe y, si adentro se navegó a otra
+  // pantalla, recargar el panel para que muestre los datos actualizados.
   document.getElementById('modalPlanilla').addEventListener('hidden.bs.modal', function () {
-    document.getElementById('planillaFrame').src = '';
+    const fr = document.getElementById('planillaFrame');
+    let navego = false;
+    try {
+      const actual = fr.contentWindow.location.pathname + fr.contentWindow.location.search;
+      navego = !!_planillaSrc && actual !== _planillaSrc;
+    } catch (e) { /* sin acceso al iframe: no forzamos nada */ }
+    fr.src = '';
+    _planillaSrc = '';
+    if (navego) window.location.reload();
   });
 
   function abrirResumen(cobradorId, titulo) {

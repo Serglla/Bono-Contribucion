@@ -134,6 +134,17 @@
       .page-actions { flex-wrap: wrap; }
     }
   </style>
+  <script>
+    // Ninguna pantalla del sistema (las que usan esta base) va adentro de un
+    // iframe: los únicos embebidos son las vistas standalone de planilla y
+    // comprobante. Si igual se cuela una (ej. "Liquidar planilla" desde el
+    // modal de la planilla), se sale del marco y se carga a pantalla completa,
+    // así no queda la app anidada dentro del modal.
+    if (window.top !== window.self) {
+      try { window.top.location.replace(window.location.href); }
+      catch (e) { window.location.replace(window.location.href); }
+    }
+  </script>
 </head>
 <body>
 <!-- Topbar -->
