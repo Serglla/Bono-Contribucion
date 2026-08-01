@@ -72,6 +72,7 @@
   <span><span class="lq-demo lq-mes">{{ mes_actual }}</span> Este mes <small class="text-muted">(click quita)</small></span>
   <span><span class="lq-demo lq-libre"></span> Pendiente <small class="text-muted">(click marca)</small></span>
   <span><span class="lq-demo lq-baja"></span> Baja <small class="text-muted">(clic derecho sobre el N°)</small></span>
+  {% if paso_map %}<span><span class="lq-demo lq-paso"></span> Pasó a otro <small class="text-muted">(solo lectura)</small></span>{% endif %}
   <span class="ms-auto fw-semibold text-danger">Cuotas marcadas: <span id="totalMarcadas">0</span></span>
 </div>
 
@@ -140,13 +141,22 @@
           {%- set hist = historial_map.get(b.id, {}) -%}
           {%- set ant  = b.cuotas_anticipadas if b.cuotas_anticipadas else 1 -%}
           {%- set bj   = baja_info.get(b.id) -%}
-          <td class="bnum js-binfo{% if bj %} num-baja{% endif %}" data-bid="{{ b.id }}" title="Clic derecho: dar de baja · Dejar apretado: ver datos" style="font-weight:800;letter-spacing:-0.03em;text-align:center;border:1px solid #ccc;padding:0;cursor:context-menu;">{{ "%04d"|format(b.numero_principal) }}</td>
+          {# "Pasó a…": la boleta salió de esta planilla. Se sigue mostrando en
+             su renglón (para que coincida con la planilla impresa) pero con la
+             línea azul "PASÓ A X" y sin celdas clickeables. #}
+          {%- set _pa  = paso_map.get(b.id) if paso_map else None -%}
+          {%- set _pc  = (_pa.cuota if _pa else 0) -%}
+          {%- set _ph  = b.cuotas_pactadas or (cuota_nums | length) -%}
+          {%- set _pmid = (((_pc + 1) + _ph) // 2) -%}
+          <td class="bnum js-binfo{% if bj %} num-baja{% endif %}{% if _pa %} num-paso{% endif %}" data-bid="{{ b.id }}" title="{% if _pa %}Pasó a {{ _pa.label }} — ya no se cobra en esta planilla{% else %}Clic derecho: dar de baja · Dejar apretado: ver datos{% endif %}" style="font-weight:800;letter-spacing:-0.03em;text-align:center;border:1px solid #ccc;padding:0;cursor:context-menu;">{{ "%04d"|format(b.numero_principal) }}</td>
           {%- for n in cuota_nums -%}
             {%- set hmes = hist.get(n|string, 0) -%}
             {%- if bj and bj.desde and n >= bj.desde and n <= bj.hasta -%}
               <td class="cq cq-baja" data-bid="{{ b.id }}" data-cuota="{{ n }}" style="border:1px solid #ccc;text-align:center;padding:0;height:19px;background-image:linear-gradient(to bottom,transparent calc(50% - 1px),#c00 calc(50% - 1px),#c00 calc(50% + 1px),transparent calc(50% + 1px));">{% if n == bj.mid %}<span class="cq-baja-num">{{ bj.mes }}</span>{% endif %}</td>
             {%- elif n <= ant -%}
               <td class="cq cq-venta" data-bid="{{ b.id }}" data-cuota="{{ n }}" style="background:#222;color:#fff;font-weight:900;border:1px solid #ccc;text-align:center;padding:0;height:19px;">×</td>
+            {%- elif _pa and n > _pc and n <= _ph -%}
+              <td class="cq cq-paso" style="border:1px solid #ccc;text-align:center;padding:0;height:19px;overflow:visible;position:relative;background-image:linear-gradient(to bottom,transparent calc(50% - 1px),#0d6efd calc(50% - 1px),#0d6efd calc(50% + 1px),transparent calc(50% + 1px));">{% if n == _pmid %}<span class="cq-paso-num">PASÓ A {{ _pa.label }}</span>{% endif %}</td>
             {# historial_map ya trae SOLO cuotas de OTROS periodos (anio+mes);
                las del periodo actual vienen en cuotas_mes_actual (fix C-1) #}
             {%- elif hmes > 0 -%}
@@ -318,6 +328,16 @@
   /* Baja: línea tachada con el mes en el medio */
   #tablaLiq td.num-baja { background:#ffd6d6 !important; color:#c00 !important; text-decoration:line-through; }
   #tablaLiq .cq-baja-num { display:inline-block; background:#fff; color:#c00; font-weight:900; font-size:7pt; line-height:1; padding:0 1px; border-radius:2px; }
+  /* "Pasó a…": el número dejó de cobrarse en esta planilla pero se mantiene el
+     renglón para que la grilla coincida con la planilla impresa del cobrador. */
+  #tablaLiq td.num-paso { background:#dbe7ff !important; color:#0d6efd !important; }
+  #tablaLiq .cq-paso { cursor:default; }
+  #tablaLiq .cq-paso-num {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    white-space:nowrap; background:#fff; color:#0d6efd;
+    font-weight:900; font-size:6.5pt; line-height:1; padding:0 1px; border-radius:2px;
+  }
+  .lq-paso { background:#fff; background-image:linear-gradient(to bottom,transparent calc(50% - 1px),#0d6efd calc(50% - 1px),#0d6efd calc(50% + 1px),transparent calc(50% + 1px)); }
 </style>
 
 <script>
@@ -331,6 +351,9 @@
   const MULT_DE_BOLETA = {{ multiplicador_de_boleta | tojson }};
   const BOLETAS_INFO  = {{ boletas_info | tojson }};
   const BAJA_INFO     = {{ baja_info | tojson }};
+  // Boletas que PASARON a otro cobrador/planilla: siguen ocupando su renglón
+  // (para que coincida con la planilla impresa) pero son de solo lectura.
+  const PASO_IDS      = new Set({{ (paso_map.keys() | list) | tojson }});
 
   // Inicializar selección desde el servidor
   const sel = {};
@@ -518,13 +541,16 @@
     const td = e.target.closest('td[data-bid]');
     if (!td) return;
     e.preventDefault();
-    toggleBaja(parseInt(td.dataset.bid));
+    const _bid = parseInt(td.dataset.bid);
+    if (PASO_IDS.has(_bid)) return;   // pasó a otro: no se le puede dar de baja acá
+    toggleBaja(_bid);
   });
 
   document.getElementById('tablaLiq').addEventListener('click', function(e) {
     const td = e.target.closest('td.cq-libre, td.cq-mes');
     if (!td) return;
     const bid   = parseInt(td.dataset.bid);
+    if (PASO_IDS.has(bid)) return;    // pasó a otro: no se cobra más en esta planilla
     const cuota = parseInt(td.dataset.cuota);
     const info  = BOLETAS_INFO[bid] || {anticipadas: 0, pactadas: NUM_CUOTAS, historial: {}};
 

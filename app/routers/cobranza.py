@@ -100,7 +100,7 @@ def _columna_mult_valor(boletas, grid):
     return columna_de_boleta, multiplicador_de_boleta, valor_cuota
 
 
-def _resumen_mensual_rows(boletas, grid, meses_campana, comision_pct):
+def _resumen_mensual_rows(boletas, grid, meses_campana, comision_pct, paso_map=None):
     """Arma las filas de la tabla 'MES / COL1 / COL2 / COL3 / TOTAL / DINERO /
     COMISIÓN / NETO' con datos REALES (todo lo que ya está en historial_cuotas),
     pensadas para el preview de SOLO LECTURA de la planilla (a diferencia de la
@@ -119,7 +119,20 @@ def _resumen_mensual_rows(boletas, grid, meses_campana, comision_pct):
             hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
         except (ValueError, TypeError):
             hist = {}
-        for v in hist.values():
+        # Boleta que PASÓ a otro cobrador/planilla: se sigue mostrando en esta
+        # planilla, pero al resumen solo aportan las cuotas que se cobraron ACÁ
+        # (hasta paso_cuota). Las posteriores las cobra el destino y contarlas
+        # sería duplicarlas entre las dos planillas.
+        _corte = None
+        if paso_map and b.id in paso_map:
+            _corte = int(paso_map[b.id].get("cuota") or 0)
+        for k, v in hist.items():
+            if _corte is not None:
+                try:
+                    if int(k) > _corte:
+                        continue
+                except (TypeError, ValueError):
+                    continue
             m = mes_de(v)
             if m and 1 <= m <= 12:
                 counts[m][col] += mult
@@ -1267,11 +1280,18 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     if not planilla:
         raise HTTPException(404)
 
+    # Igual que el preview/impresión de la planilla: además de las boletas que
+    # ESTÁN en esta planilla, se traen las que SALIERON de ella ("pasó a otro
+    # cobrador / a otra planilla"). Se muestran con la línea "PASÓ A ..." y NO
+    # son editables, pero tienen que seguir ocupando su renglón para que la
+    # grilla coincida con la planilla impresa que tiene el cobrador en la mano.
     boletas = (db.query(models.Boleta)
-               .filter(models.Boleta.planilla_id == planilla_id)
+               .filter(or_(models.Boleta.planilla_id == planilla_id,
+                           models.Boleta.paso_origen_planilla_id == planilla_id))
                .join(models.Comprador, isouter=True)
                .order_by(models.Boleta.numero_principal)
                .all())
+    paso_map = _build_paso_map(boletas, planilla_id)
 
     liq = planilla.liquidacion
 
@@ -1350,7 +1370,17 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         if not col:
             continue
         mult = multiplicador_de_boleta.get(b.id, 1)
+        # De una boleta que PASÓ a otro cobrador/planilla solo cuentan las
+        # cuotas cobradas ACÁ (hasta paso_cuota); las de después las cobra el
+        # destino y aparecerían duplicadas en las dos liquidaciones.
+        _corte = int(paso_map[b.id].get("cuota") or 0) if b.id in paso_map else None
         for k, mes_pago in historial_map[b.id].items():
+            if _corte is not None:
+                try:
+                    if int(k) > _corte:
+                        continue
+                except (TypeError, ValueError):
+                    continue
             if 1 <= mes_pago <= 12:
                 resumen_otros[mes_pago][col] += mult
 
@@ -1428,6 +1458,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "col3_color": col3_color,
         "historial_map": historial_map,
         "cuotas_mes_actual": cuotas_mes_actual,
+        "paso_map": paso_map,
         "liquidacion": liq,
         "mes_nombre": MESES[mes_liq - 1],
         "mes_actual": mes_liq,
@@ -1659,7 +1690,8 @@ async def planilla_ver(request: Request, planilla_id: int,
     # Resumen mensual REAL (cuotas liquidadas + informe de dinero/comisión/neto
     # mes a mes), para que el preview no muestre la tabla en blanco.
     comision_pct = float(planilla_obj.comision_pct or (cobrador.comision_pct if cobrador else 0) or 0)
-    resumen_rows, resumen_totales, valor_cuota = _resumen_mensual_rows(boletas, _grid, meses_campana, comision_pct)
+    resumen_rows, resumen_totales, valor_cuota = _resumen_mensual_rows(
+        boletas, _grid, meses_campana, comision_pct, paso_map)
 
     return templates.TemplateResponse(request, "cobranza_planilla.html", {
         "user": user,
@@ -1755,7 +1787,8 @@ async def planilla(request: Request, cobrador_id: int,
     # mes a mes), para que el preview no muestre la tabla en blanco.
     comision_pct = float((planilla_obj.comision_pct if planilla_obj else None)
                           or (cobrador.comision_pct if cobrador else 0) or 0)
-    resumen_rows, resumen_totales, valor_cuota = _resumen_mensual_rows(boletas, _grid, meses_campana, comision_pct)
+    resumen_rows, resumen_totales, valor_cuota = _resumen_mensual_rows(
+        boletas, _grid, meses_campana, comision_pct, paso_map)
 
     return templates.TemplateResponse(request, "cobranza_planilla.html", {
         "user": user,

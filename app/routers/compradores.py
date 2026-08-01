@@ -1019,6 +1019,24 @@ async def editar(
                 nuevas = int(form_data[key])
                 if 0 <= nuevas <= (b_exist.cuotas_pactadas or 99):
                     b_exist.cuotas_pagadas = nuevas
+                    # Mantener consistencia con la planilla/liquidación: las X
+                    # negras de la planilla salen de cuotas_anticipadas, y las
+                    # celdas con mes salen de historial_cuotas. Si acá se cargan
+                    # 2 cuotas pagas (el vendedor cobró cuota 1 y 2 en la venta)
+                    # y no se sincroniza anticipadas, la planilla dibuja UNA sola
+                    # X y la próxima liquidación recalcula cuotas_pagadas hacia
+                    # abajo, perdiendo la cuota. Ver mismo criterio en
+                    # POST /{cid}/boleta/{bid}/cuotas.
+                    import json as _json_cpag
+                    _hl = 0
+                    if b_exist.historial_cuotas:
+                        try:
+                            _hl = len(_json_cpag.loads(b_exist.historial_cuotas))
+                        except (ValueError, TypeError):
+                            _hl = 0
+                    _ant_ok = max(1, nuevas - _hl)
+                    if (b_exist.cuotas_anticipadas or 1) != _ant_ok:
+                        b_exist.cuotas_anticipadas = _ant_ok
             except (ValueError, TypeError):
                 pass
 
