@@ -1445,6 +1445,20 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "siguiente_id": siguiente_id,
     }
 
+    # ── Entregas del cobrador en el período que se está liquidando ───────────
+    # Son por COBRADOR + mes/año (no por planilla), así que se ven iguales en
+    # P1, P2, P3: es la plata que ya entregó por ese mes. `cob_mes` trae el
+    # cobrado/comisión/neto de TODAS sus planillas en el mes, para mostrar el
+    # saldo que le queda por entregar mientras se liquida.
+    cobrador_obj = db.query(models.Cobrador).get(planilla.cobrador_id)
+    entregas_mes = (db.query(models.EntregaCobrador)
+                    .filter_by(cobrador_id=planilla.cobrador_id,
+                               mes=mes_liq, anio=anio_liq)
+                    .order_by(models.EntregaCobrador.fecha,
+                              models.EntregaCobrador.id)
+                    .all())
+    cob_mes = _consolidado_cobrador(db, cobrador_obj, mes_liq, anio_liq) if cobrador_obj else None
+
     return templates.TemplateResponse(request, "cobranza_liquidacion_detalle.html", {
         "user": user,
         "planilla": planilla,
@@ -1477,6 +1491,9 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "periodo_es_pasado": periodo_es_pasado,
         "periodo_ajustado": periodo_ajustado,
         "periodo_stats": periodo_stats,
+        "entregas_mes": entregas_mes,
+        "cob_mes": cob_mes,
+        "hoy_iso": hoy_ar().isoformat(),
     })
 
 
@@ -1618,6 +1635,66 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
         return RedirectResponse("/cobranza/?liquidado=1", status_code=302)
 
     return RedirectResponse(f"/cobranza/liquidacion/{planilla_id}{_qs_periodo}", status_code=302)
+
+
+@router.post("/liquidacion/{planilla_id:int}/entrega")
+async def liquidacion_entrega_crear(request: Request, planilla_id: int,
+                                    monto: float = Form(...),
+                                    fecha: str = Form(default=""),
+                                    tipo: str = Form(default="EFECTIVO"),
+                                    observacion: str = Form(default=""),
+                                    mes: int = Form(default=0),
+                                    anio: int = Form(default=0),
+                                    db: Session = Depends(get_db)):
+    """Registra plata entregada por el cobrador SIN salir de la liquidación.
+
+    Es la misma tabla que los adelantos (`EntregaCobrador`): por cobrador +
+    período, no por planilla. Sirve tanto para cargar una entrega que hubo
+    durante el mes como para anotar lo que entrega en el momento de liquidar."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    planilla = db.query(models.Planilla).get(planilla_id)
+    if not planilla:
+        raise HTTPException(404)
+    _anio, _mes, _, _ = _resolver_periodo_liq(mes, anio)
+    try:
+        _fecha = date.fromisoformat(fecha) if fecha else hoy_ar()
+    except (ValueError, TypeError):
+        _fecha = hoy_ar()
+    _tipo = (tipo or "EFECTIVO").strip().upper()
+    if _tipo not in ("EFECTIVO", "PREMIO"):
+        _tipo = "EFECTIVO"
+    if monto and monto > 0:
+        db.add(models.EntregaCobrador(
+            cobrador_id=planilla.cobrador_id,
+            fecha=_fecha,
+            mes=_mes, anio=_anio,
+            monto=float(monto),
+            tipo=_tipo,
+            observacion=(observacion or "").strip() or None,
+        ))
+        db.commit()
+    return RedirectResponse(
+        f"/cobranza/liquidacion/{planilla_id}?mes={_mes}&anio={_anio}", status_code=302)
+
+
+@router.post("/liquidacion/{planilla_id:int}/entrega/{entrega_id:int}/eliminar")
+async def liquidacion_entrega_eliminar(request: Request, planilla_id: int,
+                                       entrega_id: int,
+                                       db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    e = db.query(models.EntregaCobrador).get(entrega_id)
+    _hoy = hoy_ar()
+    _mes = e.mes if e else _hoy.month
+    _anio = e.anio if e else _hoy.year
+    if e:
+        db.delete(e)
+        db.commit()
+    return RedirectResponse(
+        f"/cobranza/liquidacion/{planilla_id}?mes={_mes}&anio={_anio}", status_code=302)
 
 
 @router.get("/liquidacion/siguiente")
@@ -1953,7 +2030,7 @@ async def adelanto_recibo(request: Request, adelanto_id: int,
 # El dinero se calcula con el valor REAL de cada cuota (PATA 0=$10.000, etc.), así
 # que es exacto sin depender de ponderaciones.
 # ─────────────────────────────────────────────────────────────────────────────
-def _resumen_meses_cobrador(db, cobrador):
+def _resumen_meses_cobrador(db, cobrador, solo_anio: int = 0, solo_mes: int = 0):
     """Resumen de cobranza de un cobrador con UN RENGLÓN POR MES liquidado.
 
     Recorre TODAS las planillas del cobrador y agrupa por el mes calendario en
@@ -1969,7 +2046,17 @@ def _resumen_meses_cobrador(db, cobrador):
     PATA. Las que no registraron ningún pago en el mes suman a `sin_cobrar`, y
     el `pct` del renglón es cobradas / (cobradas + sin cobrar).
 
-    Solo aparecen los meses con movimiento (cuotas, bajas o adelantos)."""
+    `entregas` es la plata que el cobrador ya entregó por ese mes (adelantos +
+    lo entregado al liquidar) y `saldo` lo que le queda por entregar
+    (neto − entregas).
+
+    Solo aparecen los meses con movimiento (cuotas, bajas o adelantos).
+
+    Con `solo_anio`/`solo_mes` el resultado se RECORTA a ese período (para pasar
+    a la institución solo el mes nuevo, ya que los anteriores se pasaron antes).
+    El cálculo se hace igual sobre todos los meses — recortar antes rompería el
+    arrastre de cuotas pagas — y el filtro se aplica al final. `periodos` viene
+    siempre completo, para poder armar el selector."""
     planillas = (db.query(models.Planilla)
                  .filter_by(cobrador_id=cobrador.id)
                  .order_by(models.Planilla.anio, models.Planilla.mes,
@@ -2102,9 +2189,21 @@ def _resumen_meses_cobrador(db, cobrador):
             "monto": monto,
             "comision": comision,
             "neto": round(monto - comision, 2),
+            # `entregas` = plata ya entregada por ese mes. Se mantiene la clave
+            # vieja `adelantos` por compatibilidad con lo que ya la consumía.
+            "entregas": round(adel, 2),
             "adelantos": round(adel, 2),
             "saldo": round(monto - comision - adel, 2),
         })
+
+    # Selector de mes: SIEMPRE con todos los períodos, aunque se esté filtrando.
+    periodos = [{"anio": f["anio"], "mes": f["mes"], "label": f["label"],
+                 "key": f"{f['anio']}-{f['mes']}"} for f in filas]
+
+    if solo_mes:
+        filas = [f for f in filas
+                 if f["mes"] == int(solo_mes)
+                 and (not solo_anio or not f["anio"] or f["anio"] == int(solo_anio))]
 
     tot_cuotas = sum(f["cuotas"] for f in filas)
     tot_sin = round(sum(f["sin_cobrar"] for f in filas), 2)
@@ -2117,10 +2216,13 @@ def _resumen_meses_cobrador(db, cobrador):
         "monto": round(sum(f["monto"] for f in filas), 2),
         "comision": round(sum(f["comision"] for f in filas), 2),
         "neto": round(sum(f["neto"] for f in filas), 2),
+        "entregas": round(sum(f["entregas"] for f in filas), 2),
         "adelantos": round(sum(f["adelantos"] for f in filas), 2),
         "saldo": round(sum(f["saldo"] for f in filas), 2),
     }
-    return {"cobrador": cobrador, "filas": filas, "totales": totales}
+    return {"cobrador": cobrador, "filas": filas, "totales": totales,
+            "periodos": periodos,
+            "filtro": {"anio": int(solo_anio or 0), "mes": int(solo_mes or 0)}}
 
 
 def _consolidado_cobrador(db, cobrador, mes, anio):
@@ -2221,21 +2323,20 @@ async def consolidado_comprobante(request: Request, cobrador_id: int,
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
     hoy = hoy_ar()
-    if not mes:  mes = hoy.month
-    if not anio: anio = hoy.year
     cobrador = db.query(models.Cobrador).get(cobrador_id)
     if not cobrador:
         raise HTTPException(404)
-    # El resumen muestra TODOS los meses liquidados (un renglón por mes), no
-    # solo el mes elegido. mes/anio se siguen aceptando por compatibilidad de
-    # los links viejos, pero no recortan el contenido.
-    data = _resumen_meses_cobrador(db, cobrador)
+    # Por defecto el resumen trae TODOS los meses liquidados (un renglón por
+    # mes). Con ?mes=&anio= se recorta a un mes puntual: al pasarle la
+    # liquidación a la institución normalmente los meses anteriores ya se
+    # pasaron y solo interesa el nuevo.
+    data = _resumen_meses_cobrador(db, cobrador, anio, mes)
     return templates.TemplateResponse(request, "cobranza_consolidado_comprobante.html", {
         "user": user,
         "d": data,
         "cobrador": cobrador,
         "mes": mes, "anio": anio,
-        "mes_nombre": MESES[mes - 1],
+        "mes_nombre": MESES[mes - 1] if 1 <= mes <= 12 else "",
         "institucion": INSTITUCION_NOMBRE,
         "hoy": hoy.strftime("%d/%m/%Y"),
         "thumb": bool(thumb),
@@ -2255,7 +2356,7 @@ def _render_comprobante_pdf(request, data, cobrador, mes, anio) -> bytes:
         d=data,
         cobrador=cobrador,
         mes=mes, anio=anio,
-        mes_nombre=MESES[mes - 1],
+        mes_nombre=MESES[mes - 1] if 1 <= mes <= 12 else "",
         institucion=INSTITUCION_NOMBRE,
         hoy=hoy_str,
     )
@@ -2275,15 +2376,14 @@ async def consolidado_comprobante_pdf(request: Request, cobrador_id: int,
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    hoy = hoy_ar()
-    if not mes:  mes = hoy.month
-    if not anio: anio = hoy.year
     cobrador = db.query(models.Cobrador).get(cobrador_id)
     if not cobrador:
         raise HTTPException(404)
-    data = _resumen_meses_cobrador(db, cobrador)
+    # Mismo criterio que la pantalla: sin mes → todos los meses; con mes → ese.
+    data = _resumen_meses_cobrador(db, cobrador, anio, mes)
     pdf_bytes = _render_comprobante_pdf(request, data, cobrador, mes, anio)
-    nombre_archivo = f"resumen_cobranza_{cobrador.nombre}.pdf".replace(" ", "_")
+    _suf = f"_{MESES[mes - 1].lower()}_{anio}" if 1 <= mes <= 12 else ""
+    nombre_archivo = f"resumen_cobranza_{cobrador.nombre}{_suf}.pdf".replace(" ", "_")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

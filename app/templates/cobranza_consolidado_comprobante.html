@@ -17,9 +17,9 @@
     width:210mm; min-height:160mm; margin:1rem auto; background:#fff; padding:14mm 16mm;
     font-family:'Times New Roman', Times, serif; box-shadow:0 0 8px rgba(0,0,0,.25);
   }
-  /* 8 columnas en A4: tipografía y padding más chicos para que entre todo. */
-  .hoja table { width:100%; border-collapse:collapse; font-size:9.5pt; }
-  .hoja th, .hoja td { border:1px solid #000; padding:1.5mm 1.8mm; }
+  /* 10 columnas en A4: tipografía y padding chicos para que entre todo. */
+  .hoja table { width:100%; border-collapse:collapse; font-size:8.5pt; }
+  .hoja th, .hoja td { border:1px solid #000; padding:1.2mm 1.2mm; }
   .hoja th { text-align:center; }
   .num { text-align:right; }
   .toolbar { text-align:center; margin:1rem; }
@@ -27,11 +27,23 @@
 </style>
 </head>
 <body{% if thumb %} class="thumb"{% endif %}>
+{# Querystring del filtro de mes, para que el PDF y los links arrastren el
+   mismo recorte que se ve en pantalla. Vacío = todos los meses. #}
+{% set _qs = ('?mes=' ~ d.filtro.mes ~ '&anio=' ~ d.filtro.anio) if d.filtro.mes else '' %}
 {% if not thumb %}
 <div class="toolbar">
   {% if not embed %}<button class="btn btn-outline-secondary" onclick="window.close()">← Cerrar</button>{% endif %}
+  {# Selector de mes: normalmente los meses anteriores ya se le pasaron a la
+     institución, así que se puede emitir el resumen de un mes solo. #}
+  <select class="btn btn-outline-dark" id="selMes" onchange="cambiarMes(this.value)"
+          style="width:auto; display:inline-block;">
+    <option value="">Todos los meses</option>
+    {% for p in d.periodos %}
+    <option value="{{ p.key }}" {% if d.filtro.mes == p.mes and (not d.filtro.anio or d.filtro.anio == p.anio) %}selected{% endif %}>{{ p.label }}</option>
+    {% endfor %}
+  </select>
   <button class="btn btn-danger" onclick="window.print()"><i class="bi bi-printer"></i> Imprimir</button>
-  <a class="btn btn-success" href="/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf">
+  <a class="btn btn-success" id="btnPdf" href="/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf{{ _qs }}">
     <i class="bi bi-file-earmark-pdf"></i> Descargar PDF
   </a>
   <button class="btn btn-outline-primary" onclick="compartirComprobante()"><i class="bi bi-share"></i> Compartir</button>
@@ -41,10 +53,14 @@
   <div style="text-align:center; margin-bottom:8mm;">
     <div style="font-size:13pt; font-weight:bold;">{{ institucion }}</div>
     <div style="font-size:16pt; font-weight:bold; margin-top:5mm; letter-spacing:1px;">RESUMEN DE COBRANZA</div>
+    {% if d.filtro.mes and d.filas %}
+    <div style="font-size:12pt; margin-top:2mm;">{{ d.filas[0].label }}</div>
+    {% endif %}
   </div>
 
   <div style="font-size:12pt; line-height:1.8; margin-bottom:5mm;">
     <strong>Cobrador/a:</strong> {{ cobrador.nombre }}<br>
+    <strong>Período:</strong> {% if d.filtro.mes %}{{ d.filas[0].label if d.filas else mes_nombre }}{% else %}todos los meses liquidados{% endif %}<br>
     <strong>Fecha de emisión:</strong> {{ hoy }}
   </div>
 
@@ -58,6 +74,8 @@
         <th>Monto de cobranza</th>
         <th>Comisión</th>
         <th>Neto</th>
+        <th>Entregas</th>
+        <th>Saldo</th>
         <th>% cobrado</th>
       </tr>
     </thead>
@@ -71,10 +89,12 @@
         <td class="num">{{ f.monto | pesos }}</td>
         <td class="num">{{ f.comision | pesos }}</td>
         <td class="num">{{ f.neto | pesos }}</td>
+        <td class="num">{% if f.entregas %}{{ f.entregas | pesos }}{% else %}—{% endif %}</td>
+        <td class="num">{{ f.saldo | pesos }}</td>
         <td style="text-align:center;">{{ f.pct }}%</td>
       </tr>
       {% else %}
-      <tr><td colspan="8" style="text-align:center;">Sin cobranza liquidada todavía</td></tr>
+      <tr><td colspan="10" style="text-align:center;">Sin cobranza liquidada todavía</td></tr>
       {% endfor %}
     </tbody>
     <tfoot>
@@ -86,6 +106,8 @@
         <td class="num">{{ d.totales.monto | pesos }}</td>
         <td class="num">{{ d.totales.comision | pesos }}</td>
         <td class="num">{{ d.totales.neto | pesos }}</td>
+        <td class="num">{% if d.totales.entregas %}{{ d.totales.entregas | pesos }}{% else %}—{% endif %}</td>
+        <td class="num">{{ d.totales.saldo | pesos }}</td>
         <td style="text-align:center;">{{ d.totales.pct }}%</td>
       </tr>
     </tfoot>
@@ -102,12 +124,19 @@
   // (funciona en la mayoría de los navegadores mobile — WhatsApp incluido).
   // Si el navegador no soporta compartir archivos, cae a un texto-resumen
   // por WhatsApp Web con el saldo a entregar.
+  // Cambiar el mes que se muestra: "" = todos, "2026-7" = ese período.
+  function cambiarMes(v) {
+    if (!v) { window.location.href = "/cobranza/consolidado/{{ cobrador.id }}/comprobante"; return; }
+    const [a, m] = v.split("-");
+    window.location.href = "/cobranza/consolidado/{{ cobrador.id }}/comprobante?mes=" + m + "&anio=" + a;
+  }
+
   async function compartirComprobante() {
-    const pdfUrl = "/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf";
+    const pdfUrl = "/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf{{ _qs }}";
     const nombreArchivo = "resumen_cobranza_{{ cobrador.nombre }}.pdf".replace(/ /g, "_");
-    const textoResumen = "Resumen de cobranza — {{ cobrador.nombre }}\n" +
-      {% for f in d.filas %}"{{ f.label }}: {{ f.cuotas | fmtcuota }} cobradas · {{ f.sin_cobrar | fmtcuota }} sin cobrar ({{ f.pct }}%) · {{ f.bajas }} baja(s) · cobranza {{ f.monto | pesos }} · comisión {{ f.comision | pesos }} · neto {{ f.neto | pesos }}\n" +
-      {% endfor %}"TOTAL: {{ d.totales.cuotas | fmtcuota }} cobradas · {{ d.totales.sin_cobrar | fmtcuota }} sin cobrar ({{ d.totales.pct }}%) · {{ d.totales.bajas }} baja(s) · cobranza {{ d.totales.monto | pesos }} · comisión {{ d.totales.comision | pesos }} · neto {{ d.totales.neto | pesos }}";
+    const textoResumen = "Resumen de cobranza — {{ cobrador.nombre }}{% if d.filtro.mes and d.filas %} ({{ d.filas[0].label }}){% endif %}\n" +
+      {% for f in d.filas %}"{{ f.label }}: {{ f.cuotas | fmtcuota }} cobradas · {{ f.sin_cobrar | fmtcuota }} sin cobrar ({{ f.pct }}%) · {{ f.bajas }} baja(s) · cobranza {{ f.monto | pesos }} · comisión {{ f.comision | pesos }} · neto {{ f.neto | pesos }} · entregó {{ f.entregas | pesos }} · saldo {{ f.saldo | pesos }}\n" +
+      {% endfor %}"TOTAL: {{ d.totales.cuotas | fmtcuota }} cobradas · {{ d.totales.sin_cobrar | fmtcuota }} sin cobrar ({{ d.totales.pct }}%) · {{ d.totales.bajas }} baja(s) · cobranza {{ d.totales.monto | pesos }} · comisión {{ d.totales.comision | pesos }} · neto {{ d.totales.neto | pesos }} · entregó {{ d.totales.entregas | pesos }} · saldo a entregar {{ d.totales.saldo | pesos }}";
     try {
       const resp = await fetch(pdfUrl);
       const blob = await resp.blob();

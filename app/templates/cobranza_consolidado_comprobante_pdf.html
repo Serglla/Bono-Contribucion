@@ -6,9 +6,9 @@
 <style>
   @page { size: A4 portrait; margin: 16mm 14mm; }
   body { font-family: Helvetica, Arial, sans-serif; font-size: 11pt; color: #000; }
-  /* 8 columnas en A4 vertical: tipografía chica para que no se desborde. */
-  table { width: 100%; border-collapse: collapse; font-size: 7.5pt; }
-  th, td { border: 1px solid #000; padding: 2pt 3pt; }
+  /* 10 columnas en A4 vertical: tipografía chica para que no se desborde. */
+  table { width: 100%; border-collapse: collapse; font-size: 6.5pt; }
+  th, td { border: 1px solid #000; padding: 1.5pt 2pt; }
   th { text-align: center; background: #eee; }
   .num { text-align: right; }
   .center { text-align: center; }
@@ -32,10 +32,12 @@
 <div class="titulo">
   <div class="inst">{{ institucion }}</div>
   <div class="doc">RESUMEN DE COBRANZA</div>
+  {% if d.filtro.mes and d.filas %}<div class="per">{{ d.filas[0].label }}</div>{% endif %}
 </div>
 
 <div class="datos">
   <strong>Cobrador/a:</strong> {{ cobrador.nombre }}<br>
+  <strong>Período:</strong> {% if d.filtro.mes %}{{ d.filas[0].label if d.filas else mes_nombre }}{% else %}todos los meses liquidados{% endif %}<br>
   <strong>Fecha de emisión:</strong> {{ hoy }}
 </div>
 
@@ -48,6 +50,8 @@
     <th>Monto de cobranza</th>
     <th>Comisión</th>
     <th>Neto</th>
+    <th>Entregas</th>
+    <th>Saldo</th>
     <th>% cobrado</th>
   </tr>
   {% for f in d.filas %}
@@ -59,10 +63,12 @@
     <td class="num">{{ f.monto | pesos }}</td>
     <td class="num">{{ f.comision | pesos }}</td>
     <td class="num">{{ f.neto | pesos }}</td>
+    <td class="num">{% if f.entregas %}{{ f.entregas | pesos }}{% else %}—{% endif %}</td>
+    <td class="num">{{ f.saldo | pesos }}</td>
     <td class="center">{{ f.pct }}%</td>
   </tr>
   {% else %}
-  <tr><td colspan="8" class="center">Sin cobranza liquidada todavía</td></tr>
+  <tr><td colspan="10" class="center">Sin cobranza liquidada todavía</td></tr>
   {% endfor %}
   <tr class="totfoot">
     <td>TOTAL</td>
@@ -72,6 +78,8 @@
     <td class="num">{{ d.totales.monto | pesos }}</td>
     <td class="num">{{ d.totales.comision | pesos }}</td>
     <td class="num">{{ d.totales.neto | pesos }}</td>
+    <td class="num">{% if d.totales.entregas %}{{ d.totales.entregas | pesos }}{% else %}—{% endif %}</td>
+    <td class="num">{{ d.totales.saldo | pesos }}</td>
     <td class="center">{{ d.totales.pct }}%</td>
   </tr>
 </table>
