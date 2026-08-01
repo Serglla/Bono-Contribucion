@@ -30,7 +30,7 @@
 <div class="toolbar">
   {% if not embed %}<button class="btn btn-outline-secondary" onclick="window.close()">← Cerrar</button>{% endif %}
   <button class="btn btn-danger" onclick="window.print()"><i class="bi bi-printer"></i> Imprimir</button>
-  <a class="btn btn-success" href="/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf?mes={{ mes }}&anio={{ anio }}">
+  <a class="btn btn-success" href="/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf">
     <i class="bi bi-file-earmark-pdf"></i> Descargar PDF
   </a>
   <button class="btn btn-outline-primary" onclick="compartirComprobante()"><i class="bi bi-share"></i> Compartir</button>
@@ -39,64 +39,43 @@
 <div class="hoja">
   <div style="text-align:center; margin-bottom:8mm;">
     <div style="font-size:13pt; font-weight:bold;">{{ institucion }}</div>
-    <div style="font-size:16pt; font-weight:bold; margin-top:5mm; letter-spacing:1px;">LIQUIDACIÓN DE COBRANZA</div>
-    <div style="font-size:12pt; margin-top:2mm;">{{ mes_nombre }} {{ anio }}</div>
+    <div style="font-size:16pt; font-weight:bold; margin-top:5mm; letter-spacing:1px;">RESUMEN DE COBRANZA</div>
   </div>
 
   <div style="font-size:12pt; line-height:1.8; margin-bottom:5mm;">
     <strong>Cobrador/a:</strong> {{ cobrador.nombre }}<br>
-    <strong>Fecha de liquidación:</strong> {{ hoy }}
+    <strong>Fecha de emisión:</strong> {{ hoy }}
   </div>
 
   <table style="margin-bottom:6mm;">
     <thead>
-      <tr><th>Planilla</th><th>Cuotas</th><th>Cobrado</th><th>Comisión</th><th>Neto</th></tr>
+      <tr>
+        <th style="text-align:left;">Mes</th>
+        <th>Cuotas cobradas</th>
+        <th>Bajas</th>
+        <th>Saldo a entregar</th>
+      </tr>
     </thead>
     <tbody>
-      {% for p in d.detalle %}
+      {% for f in d.filas %}
       <tr>
-        <td style="text-align:center;">P{{ p.numero }}</td>
-        <td style="text-align:center;">{{ p.cuotas | round(0) | int }}</td>
-        <td class="num">{{ p.monto | pesos }}</td>
-        <td class="num">{{ p.comision | pesos }} <span style="font-size:9pt;">({{ p.pct | round(0) | int }}%)</span></td>
-        <td class="num">{{ p.neto | pesos }}</td>
+        <td>{{ f.label }}</td>
+        <td style="text-align:center;">{{ f.cuotas | fmtcuota }}</td>
+        <td style="text-align:center;">{% if f.bajas %}{{ f.bajas }}{% else %}—{% endif %}</td>
+        <td class="num">{{ f.saldo | pesos }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="5" style="text-align:center;">Sin cobranza registrada este mes</td></tr>
+      <tr><td colspan="4" style="text-align:center;">Sin cobranza liquidada todavía</td></tr>
       {% endfor %}
     </tbody>
     <tfoot>
       <tr style="font-weight:bold;">
-        <td style="text-align:right;">TOTALES</td>
-        <td style="text-align:center;">{{ d.cuotas }}</td>
-        <td class="num">{{ d.monto | pesos }}</td>
-        <td class="num">{{ d.comision | pesos }}</td>
-        <td class="num">{{ d.neto | pesos }}</td>
+        <td>TOTAL</td>
+        <td style="text-align:center;">{{ d.totales.cuotas | fmtcuota }}</td>
+        <td style="text-align:center;">{% if d.totales.bajas %}{{ d.totales.bajas }}{% else %}—{% endif %}</td>
+        <td class="num">{{ d.totales.saldo | pesos }}</td>
       </tr>
     </tfoot>
-  </table>
-
-  {% if d.adelantos %}
-  <div style="font-size:11.5pt; margin-bottom:3mm;"><strong>Adelantos entregados en el mes:</strong></div>
-  <table style="margin-bottom:6mm;">
-    <thead><tr><th>Fecha</th><th>Monto</th><th>Observación</th></tr></thead>
-    <tbody>
-      {% for a in d.adelantos %}
-      <tr>
-        <td style="text-align:center;">{{ a.fecha.strftime('%d/%m/%Y') }}</td>
-        <td class="num">{{ a.monto | pesos }}</td>
-        <td>{{ a.observacion or '' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-    <tfoot><tr style="font-weight:bold;"><td style="text-align:right;">TOTAL ADELANTOS</td><td class="num">{{ d.total_adelantos | pesos }}</td><td></td></tr></tfoot>
-  </table>
-  {% endif %}
-
-  <table style="width:90mm; margin-left:auto; font-size:12.5pt;">
-    <tr><td>Neto a rendir</td><td class="num">{{ d.neto | pesos }}</td></tr>
-    <tr><td>(−) Adelantos entregados</td><td class="num">{{ d.total_adelantos | pesos }}</td></tr>
-    <tr style="font-weight:bold; font-size:13.5pt;"><td>SALDO A ENTREGAR</td><td class="num">{{ d.saldo | pesos }}</td></tr>
   </table>
 
   <div style="margin-top:24mm; display:flex; justify-content:space-between; gap:20mm;">
@@ -111,11 +90,11 @@
   // Si el navegador no soporta compartir archivos, cae a un texto-resumen
   // por WhatsApp Web con el saldo a entregar.
   async function compartirComprobante() {
-    const pdfUrl = "/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf?mes={{ mes }}&anio={{ anio }}";
-    const nombreArchivo = "liquidacion_{{ cobrador.nombre }}_{{ '%02d'|format(mes) }}-{{ anio }}.pdf".replace(/ /g, "_");
-    const textoResumen = "Liquidación de cobranza — {{ cobrador.nombre }} — {{ mes_nombre }} {{ anio }}\n" +
-      "Cobrado: {{ d.monto | pesos }} · Comisión: {{ d.comision | pesos }} · Neto: {{ d.neto | pesos }}\n" +
-      "Adelantos: {{ d.total_adelantos | pesos }} · Saldo a entregar: {{ d.saldo | pesos }}";
+    const pdfUrl = "/cobranza/consolidado/{{ cobrador.id }}/comprobante.pdf";
+    const nombreArchivo = "resumen_cobranza_{{ cobrador.nombre }}.pdf".replace(/ /g, "_");
+    const textoResumen = "Resumen de cobranza — {{ cobrador.nombre }}\n" +
+      {% for f in d.filas %}"{{ f.label }}: {{ f.cuotas | fmtcuota }} cuotas · {{ f.bajas }} baja(s) · {{ f.saldo | pesos }}\n" +
+      {% endfor %}"TOTAL: {{ d.totales.cuotas | fmtcuota }} cuotas · {{ d.totales.bajas }} baja(s) · saldo a entregar {{ d.totales.saldo | pesos }}";
     try {
       const resp = await fetch(pdfUrl);
       const blob = await resp.blob();

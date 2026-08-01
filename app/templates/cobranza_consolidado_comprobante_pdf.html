@@ -30,63 +30,37 @@
 
 <div class="titulo">
   <div class="inst">{{ institucion }}</div>
-  <div class="doc">LIQUIDACIÓN DE COBRANZA</div>
-  <div class="per">{{ mes_nombre }} {{ anio }}</div>
+  <div class="doc">RESUMEN DE COBRANZA</div>
 </div>
 
 <div class="datos">
   <strong>Cobrador/a:</strong> {{ cobrador.nombre }}<br>
-  <strong>Fecha de liquidación:</strong> {{ hoy }}
+  <strong>Fecha de emisión:</strong> {{ hoy }}
 </div>
 
 <table>
   <tr>
-    <th>Planilla</th><th>Cuotas</th><th>Cobrado</th><th>Comisión</th><th>Neto</th>
+    <th style="text-align:left;">Mes</th>
+    <th>Cuotas cobradas</th>
+    <th>Bajas</th>
+    <th>Saldo a entregar</th>
   </tr>
-  {% for p in d.detalle %}
+  {% for f in d.filas %}
   <tr>
-    <td class="center">P{{ p.numero }}</td>
-    <td class="center">{{ p.cuotas | round(0) | int }}</td>
-    <td class="num">{{ p.monto | pesos }}</td>
-    <td class="num">{{ p.comision | pesos }} ({{ p.pct | round(0) | int }}%)</td>
-    <td class="num">{{ p.neto | pesos }}</td>
+    <td>{{ f.label }}</td>
+    <td class="center">{{ f.cuotas | fmtcuota }}</td>
+    <td class="center">{% if f.bajas %}{{ f.bajas }}{% else %}—{% endif %}</td>
+    <td class="num">{{ f.saldo | pesos }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="5" class="center">Sin cobranza registrada este mes</td></tr>
+  <tr><td colspan="4" class="center">Sin cobranza liquidada todavía</td></tr>
   {% endfor %}
   <tr class="totfoot">
-    <td colspan="2" style="text-align:right;">TOTALES</td>
-    <td class="num">{{ d.monto | pesos }}</td>
-    <td class="num">{{ d.comision | pesos }}</td>
-    <td class="num">{{ d.neto | pesos }}</td>
+    <td>TOTAL</td>
+    <td class="center">{{ d.totales.cuotas | fmtcuota }}</td>
+    <td class="center">{% if d.totales.bajas %}{{ d.totales.bajas }}{% else %}—{% endif %}</td>
+    <td class="num">{{ d.totales.saldo | pesos }}</td>
   </tr>
-</table>
-
-{% if d.adelantos %}
-<div style="margin-top:6mm;">
-  <strong>Adelantos entregados en el mes:</strong>
-  <table style="margin-top:2mm;">
-    <tr><th>Fecha</th><th>Monto</th><th>Observación</th></tr>
-    {% for a in d.adelantos %}
-    <tr>
-      <td class="center">{{ a.fecha.strftime('%d/%m/%Y') }}</td>
-      <td class="num">{{ a.monto | pesos }}</td>
-      <td>{{ a.observacion or '' }}</td>
-    </tr>
-    {% endfor %}
-    <tr class="totfoot">
-      <td style="text-align:right;">TOTAL ADELANTOS</td>
-      <td class="num">{{ d.total_adelantos | pesos }}</td>
-      <td></td>
-    </tr>
-  </table>
-</div>
-{% endif %}
-
-<table class="saldo-box">
-  <tr><td>Neto a rendir</td><td class="num">{{ d.neto | pesos }}</td></tr>
-  <tr><td>(−) Adelantos entregados</td><td class="num">{{ d.total_adelantos | pesos }}</td></tr>
-  <tr class="saldo-final"><td>SALDO A ENTREGAR</td><td class="num">{{ d.saldo | pesos }}</td></tr>
 </table>
 
 <table class="firmas">

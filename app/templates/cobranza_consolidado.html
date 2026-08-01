@@ -61,7 +61,7 @@
           <td class="text-end fw-bold {% if f.saldo < 0 %}text-danger{% endif %}">{{ f.saldo | pesos }}</td>
           <td class="text-center">
             {% if f.monto or f.total_adelantos %}
-            <a href="/cobranza/consolidado/{{ f.cobrador.id }}/comprobante?mes={{ mes }}&anio={{ anio }}" target="_blank" class="btn btn-sm btn-outline-secondary" title="Comprobante"><i class="bi bi-file-earmark-text"></i></a>
+            <a href="/cobranza/consolidado/{{ f.cobrador.id }}/comprobante" target="_blank" class="btn btn-sm btn-outline-secondary" title="Resumen de cobranza (todos los meses)"><i class="bi bi-file-earmark-text"></i></a>
             {% endif %}
           </td>
         </tr>

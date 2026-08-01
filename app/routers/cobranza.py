@@ -244,20 +244,27 @@ def _planilla_tiene_pendientes(planilla, anio_liq: int, mes_liq: int) -> bool:
     return False
 
 
-def _cola_liquidacion(db, anio_liq: int = None, mes_liq: int = None):
-    """Cola GLOBAL de todas las planillas (de todos los cobradores), ordenada
-    por nombre de cobrador y número de planilla — el orden en que se recorren
-    al 'Liquidar todas'. Cada item indica si todavía tiene pendientes en el
-    período que se está liquidando (por defecto, el mes calendario de HOY,
-    igual que la propia pantalla de liquidación)."""
+def _cola_liquidacion(db, anio_liq: int = None, mes_liq: int = None,
+                      cobrador_id: int = None):
+    """Cola de planillas a liquidar, ordenada por cobrador y número de planilla.
+
+    La cadena de 'Guardar y seguir' es SIEMPRE por cobrador: se recorren las
+    planillas de UN cobrador (P1, P2, P3...) y ahí termina la ronda — no salta
+    al cobrador siguiente. Por eso `cobrador_id` es el uso normal; sin él
+    devuelve todas (lo usa el conteo de pendientes de la pantalla principal).
+
+    Cada item indica si todavía tiene pendientes en el período que se está
+    liquidando (por defecto, el mes calendario de HOY)."""
     if anio_liq is None or mes_liq is None:
         _hoy = hoy_ar()
         anio_liq, mes_liq = _hoy.year, _hoy.month
-    planillas = (db.query(models.Planilla)
-                 .join(models.Cobrador)
-                 .order_by(models.Cobrador.nombre, models.Planilla.anio,
-                           models.Planilla.mes, models.Planilla.numero)
-                 .all())
+    q = (db.query(models.Planilla)
+         .join(models.Cobrador)
+         .order_by(models.Cobrador.nombre, models.Planilla.anio,
+                   models.Planilla.mes, models.Planilla.numero))
+    if cobrador_id is not None:
+        q = q.filter(models.Planilla.cobrador_id == cobrador_id)
+    planillas = q.all()
     return [
         {
             "id": p.id,
@@ -647,11 +654,16 @@ async def index(request: Request, db: Session = Depends(get_db),
             for m, cnt in sorted(meses_baja.items())
         ]
 
-        # Resumen de cobranza del mes/año SELECCIONADO (mismos datos que la
-        # pestaña Consolidado) — se usa para la miniatura "Resumen del mes"
-        # de esta tarjeta, con acceso rápido a exportar/compartir/imprimir.
-        _cons = _consolidado_cobrador(db, co, mes, anio)
-        consolidado = _cons if (_cons["monto"] or _cons["total_adelantos"]) else None
+        # Resumen de cobranza del cobrador (todos los meses liquidados) — se
+        # usa para la miniatura "Resumen de cobranza" de esta tarjeta, con
+        # acceso rápido a ver/exportar/compartir/imprimir.
+        _res = _resumen_meses_cobrador(db, co)
+        consolidado = _res["totales"] if _res["filas"] else None
+
+        # Planillas de ESTE cobrador pendientes de liquidar en el mes en curso:
+        # alimenta el botón "Liquidar pendientes" de la tarjeta. La ronda de
+        # liquidación es por cobrador, no global.
+        pend_liq = sum(1 for c in _cola_liquidacion(db, cobrador_id=co.id) if c["pendiente"])
 
         resumen.append({
             "cobrador": co,
@@ -667,6 +679,7 @@ async def index(request: Request, db: Session = Depends(get_db),
             "meses_detalle": meses_detalle,
             "planillas": planillas,
             "consolidado": consolidado,
+            "pend_liq": pend_liq,
         })
 
     # --- Alineación de "Planillas entregadas" entre todas las tarjetas ---
@@ -701,9 +714,9 @@ async def index(request: Request, db: Session = Depends(get_db),
             grid.append({"anio": k[0], "mes": k[1], "cells": cells})
         r["planillas_grid"] = grid
 
-    # Cantidad de planillas (de cualquier cobrador) pendientes de liquidar
-    # este mes calendario — alimenta el botón "Liquidar todas las pendientes".
-    pendientes_liquidar = sum(1 for c in _cola_liquidacion(db) if c["pendiente"])
+    # Total de planillas pendientes de liquidar este mes (solo informativo en
+    # el encabezado; el botón para arrancar la ronda está en cada cobrador).
+    pendientes_liquidar = sum(r["pend_liq"] for r in resumen)
 
     return templates.TemplateResponse(request, "cobranza.html", {
         "user": user,
@@ -1379,12 +1392,12 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
             baja_info[b.id] = {"mes": int(b.mes_baja), "desde": 0,
                                "hasta": 0, "mid": 0}
 
-    # ── Cadena de liquidación: "Liquidar todas, una a una" ──────────────────
-    # Cola GLOBAL (todos los cobradores) de planillas con pendientes en este
-    # período. Si la planilla actual ya no tiene pendientes (se está
-    # revisando/corrigiendo), no cuenta posición pero igual se calcula a dónde
-    # mandar "Siguiente" (la próxima pendiente real, salteándola).
-    cola = _cola_liquidacion(db, anio_liq, mes_liq)
+    # ── Cadena de liquidación: las planillas DE ESTE COBRADOR, una a una ────
+    # La ronda es por cobrador (P1 → P2 → P3 de la misma persona) y termina
+    # ahí: nunca salta al cobrador siguiente. Si la planilla actual ya no tiene
+    # pendientes (se está revisando/corrigiendo), no cuenta posición pero igual
+    # se calcula a dónde mandar "Siguiente" (la próxima pendiente, salteándola).
+    cola = _cola_liquidacion(db, anio_liq, mes_liq, cobrador_id=planilla.cobrador_id)
     pendientes_ids = [c["id"] for c in cola if c["pendiente"]]
     total_cola = len(pendientes_ids)
     if planilla_id in pendientes_ids:
@@ -1560,10 +1573,11 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     # ── "Guardar y seguir con la siguiente" (liquidación en cadena) ─────────
     # Recalcula la cola YA con los cambios recién guardados (esta planilla
     # sale de "pendientes" en cuanto tiene algo marcado en el período) y salta
-    # a la próxima planilla pendiente de CUALQUIER cobrador. Si no queda
-    # ninguna, vuelve a Planillas avisando que se terminó la ronda.
+    # a la próxima planilla pendiente DEL MISMO COBRADOR. Cuando no le queda
+    # ninguna, la ronda de ese cobrador terminó y vuelve a Planillas.
     if modo == "siguiente":
-        cola = _cola_liquidacion(db, _anio_liq, _mes_liq)
+        cola = _cola_liquidacion(db, _anio_liq, _mes_liq,
+                                 cobrador_id=planilla.cobrador_id)
         resto = [c["id"] for c in cola if c["pendiente"] and c["id"] != planilla_id]
         if resto:
             return RedirectResponse(f"/cobranza/liquidacion/{resto[0]}{_qs_periodo}", status_code=302)
@@ -1577,17 +1591,19 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
 
 @router.get("/liquidacion/siguiente")
 async def liquidacion_siguiente(request: Request,
+                                cobrador_id: int = Query(default=0),
                                 mes: int = Query(default=0), anio: int = Query(default=0),
                                 db: Session = Depends(get_db)):
-    """Punto de entrada de 'Liquidar todas las planillas pendientes': salta a
-    la primera planilla pendiente de la cola global (cualquier cobrador). Si
-    no queda ninguna, vuelve a Planillas. Acepta mes/anio para arrancar una
-    ronda de un período pasado (nunca futuro)."""
+    """Punto de entrada de 'Liquidar las planillas pendientes de un cobrador':
+    salta a la primera planilla pendiente DE ESE COBRADOR. Si no queda ninguna,
+    vuelve a Planillas. Acepta mes/anio para arrancar una ronda de un período
+    pasado (nunca futuro)."""
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
     anio_liq, mes_liq, _, _ = _resolver_periodo_liq(mes, anio)
-    cola = _cola_liquidacion(db, anio_liq, mes_liq)
+    cola = _cola_liquidacion(db, anio_liq, mes_liq,
+                             cobrador_id=cobrador_id or None)
     pendientes = [c for c in cola if c["pendiente"]]
     if not pendientes:
         return RedirectResponse("/cobranza/?sin_pendientes=1", status_code=302)
@@ -1904,6 +1920,101 @@ async def adelanto_recibo(request: Request, adelanto_id: int,
 # El dinero se calcula con el valor REAL de cada cuota (PATA 0=$10.000, etc.), así
 # que es exacto sin depender de ponderaciones.
 # ─────────────────────────────────────────────────────────────────────────────
+def _resumen_meses_cobrador(db, cobrador):
+    """Resumen de cobranza de un cobrador con UN RENGLÓN POR MES liquidado.
+
+    Recorre TODAS las planillas del cobrador y agrupa por el mes calendario en
+    que se cobró cada cuota (historial_cuotas). Por cada mes devuelve:
+      - cuotas: cuotas cobradas ese mes (ponderadas por PATA, igual criterio
+        que el resto del sistema: PATA 2 vale 2, PATA 0 vale 0.67).
+      - bajas: socios dados de baja ese mes.
+      - saldo: saldo a entregar = cobrado − comisión − adelantos del mes.
+
+    Solo aparecen los meses con movimiento (cuotas, bajas o adelantos)."""
+    planillas = (db.query(models.Planilla)
+                 .filter_by(cobrador_id=cobrador.id)
+                 .order_by(models.Planilla.anio, models.Planilla.mes,
+                           models.Planilla.numero)
+                 .all())
+
+    por_periodo = {}          # (anio, mes) -> {cuotas, monto, comision}
+    bajas_por_mes = {}        # mes (1-12) -> cantidad de socios dados de baja
+    for p in planillas:
+        pct = float(p.comision_pct or 0)
+        boletas = db.query(models.Boleta).filter_by(planilla_id=p.id).all()
+        todo0 = _planilla_todo_pata0(boletas)
+        for b in boletas:
+            # Baja: mes_baja es un registro único por boleta (sin año).
+            if b.mes_baja:
+                try:
+                    _mb = int(b.mes_baja)
+                    if 1 <= _mb <= 12:
+                        bajas_por_mes[_mb] = bajas_por_mes.get(_mb, 0) + 1
+                except (TypeError, ValueError):
+                    pass
+            try:
+                hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+            except (ValueError, TypeError):
+                hist = {}
+            if not hist:
+                continue
+            vc = float(b.talonera.valor_cuota) if (b.talonera and b.talonera.valor_cuota) else 0.0
+            peso = 1.0 if todo0 else _pata_valor(b)
+            for v in hist.values():
+                per = parse_periodo(v)
+                if per is None:
+                    continue
+                anio_p, mes_p = per
+                key = (anio_p or 0, mes_p)      # legacy sin año -> 0
+                d = por_periodo.setdefault(key, {"cuotas": 0.0, "monto": 0.0, "comision": 0.0})
+                d["cuotas"] += peso
+                d["monto"] += vc
+                d["comision"] += vc * pct / 100.0
+
+    # Adelantos entregados por el cobrador, agrupados por período.
+    adel_por_periodo = {}
+    for a in (db.query(models.EntregaCobrador)
+              .filter_by(cobrador_id=cobrador.id).all()):
+        key = (int(a.anio or 0), int(a.mes or 0))
+        adel_por_periodo[key] = adel_por_periodo.get(key, 0.0) + float(a.monto or 0)
+
+    # Un renglón por mes con movimiento (cuotas cobradas o adelantos).
+    claves = set(por_periodo) | set(k for k in adel_por_periodo if 1 <= k[1] <= 12)
+    filas = []
+    bajas_asignadas = set()
+    for (anio_p, mes_p) in sorted(claves):
+        d = por_periodo.get((anio_p, mes_p), {"cuotas": 0.0, "monto": 0.0, "comision": 0.0})
+        adel = adel_por_periodo.get((anio_p, mes_p), 0.0)
+        # Las bajas no guardan año: se cuelgan del primer renglón con ese mes.
+        if mes_p in bajas_asignadas:
+            bajas = 0
+        else:
+            bajas = bajas_por_mes.get(mes_p, 0)
+            bajas_asignadas.add(mes_p)
+        monto = round(d["monto"], 2)
+        comision = round(d["comision"], 2)
+        filas.append({
+            "anio": anio_p, "mes": mes_p,
+            "label": f"{MESES[mes_p - 1]}" + (f" {anio_p}" if anio_p else ""),
+            "cuotas": d["cuotas"],
+            "bajas": bajas,
+            "monto": monto,
+            "comision": comision,
+            "adelantos": round(adel, 2),
+            "saldo": round(monto - comision - adel, 2),
+        })
+
+    totales = {
+        "cuotas": sum(f["cuotas"] for f in filas),
+        "bajas": sum(f["bajas"] for f in filas),
+        "monto": round(sum(f["monto"] for f in filas), 2),
+        "comision": round(sum(f["comision"] for f in filas), 2),
+        "adelantos": round(sum(f["adelantos"] for f in filas), 2),
+        "saldo": round(sum(f["saldo"] for f in filas), 2),
+    }
+    return {"cobrador": cobrador, "filas": filas, "totales": totales}
+
+
 def _consolidado_cobrador(db, cobrador, mes, anio):
     detalle = []
     tot_monto = 0.0
@@ -2007,7 +2118,10 @@ async def consolidado_comprobante(request: Request, cobrador_id: int,
     cobrador = db.query(models.Cobrador).get(cobrador_id)
     if not cobrador:
         raise HTTPException(404)
-    data = _consolidado_cobrador(db, cobrador, mes, anio)
+    # El resumen muestra TODOS los meses liquidados (un renglón por mes), no
+    # solo el mes elegido. mes/anio se siguen aceptando por compatibilidad de
+    # los links viejos, pero no recortan el contenido.
+    data = _resumen_meses_cobrador(db, cobrador)
     return templates.TemplateResponse(request, "cobranza_consolidado_comprobante.html", {
         "user": user,
         "d": data,
@@ -2059,9 +2173,9 @@ async def consolidado_comprobante_pdf(request: Request, cobrador_id: int,
     cobrador = db.query(models.Cobrador).get(cobrador_id)
     if not cobrador:
         raise HTTPException(404)
-    data = _consolidado_cobrador(db, cobrador, mes, anio)
+    data = _resumen_meses_cobrador(db, cobrador)
     pdf_bytes = _render_comprobante_pdf(request, data, cobrador, mes, anio)
-    nombre_archivo = f"liquidacion_{cobrador.nombre}_{mes:02d}-{anio}.pdf".replace(" ", "_")
+    nombre_archivo = f"resumen_cobranza_{cobrador.nombre}.pdf".replace(" ", "_")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

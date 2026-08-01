@@ -3,15 +3,16 @@
 {% block content %}
 <div class="page-header d-flex align-items-center flex-wrap gap-2">
   <h4 class="page-title mb-0"><i class="bi bi-wallet2 text-danger"></i>Cobranza</h4>
-  <a href="/cobranza/liquidacion/siguiente" class="btn btn-sm {% if pendientes_liquidar %}btn-danger{% else %}btn-outline-secondary disabled{% endif %} ms-auto">
-    <i class="bi bi-arrow-repeat me-1"></i>
-    {% if pendientes_liquidar %}Liquidar todas las pendientes ({{ pendientes_liquidar }}){% else %}No hay planillas pendientes{% endif %}
-  </a>
+  {% if pendientes_liquidar %}
+  <span class="badge bg-danger-subtle text-danger border border-danger ms-auto" style="font-size:.76rem;">
+    <i class="bi bi-exclamation-circle me-1"></i>{{ pendientes_liquidar }} planilla{% if pendientes_liquidar != 1 %}s{% endif %} pendiente{% if pendientes_liquidar != 1 %}s{% endif %} de liquidar
+  </span>
+  {% endif %}
 </div>
 
 {% if request.query_params.get('cadena_completa') %}
 <div class="alert alert-success alert-dismissible fade show d-flex align-items-center gap-2 py-2" role="alert">
-  <i class="bi bi-check-circle-fill"></i> ¡Listo! Liquidaste todas las planillas pendientes de este mes.
+  <i class="bi bi-check-circle-fill"></i> ¡Listo! Terminaste de liquidar las planillas de ese cobrador.
   <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
 {% elif request.query_params.get('sin_pendientes') %}
@@ -122,6 +123,15 @@
         </span>
       </div>
 
+      {# Ronda de liquidación DE ESTE COBRADOR: recorre sus planillas una a una. #}
+      {% if r.pend_liq %}
+      <a href="/cobranza/liquidacion/siguiente?cobrador_id={{ r.cobrador.id }}"
+         class="btn btn-sm btn-danger rounded-0 d-flex align-items-center justify-content-center gap-1">
+        <i class="bi bi-cash-coin"></i>
+        Liquidar planillas de {{ r.cobrador.nombre }} ({{ r.pend_liq }} pendiente{% if r.pend_liq != 1 %}s{% endif %})
+      </a>
+      {% endif %}
+
       <div class="p-3 pb-2" style="flex:1;">
         <!-- Cuotas en cobranza + % de cobro -->
         <div class="d-flex align-items-end justify-content-between mb-1">
@@ -230,12 +240,12 @@
            con acceso directo a imprimir / descargar PDF / compartir. -->
       {% if r.consolidado %}
       <div class="p-3 pt-0">
-        <div class="text-muted mb-2" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;">Resumen de cobranza — {{ mes_nombre }} {{ anio }}</div>
+        <div class="text-muted mb-2" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;">Resumen de cobranza — todos los meses</div>
         <div class="d-flex align-items-center gap-3">
           <div class="pl-item">
-            <div class="pl-thumb res-thumb" ondblclick="abrirResumen({{ r.cobrador.id }}, {{ mes }}, {{ anio }}, 'Resumen — {{ r.cobrador.nombre }} — {{ mes_nombre }} {{ anio }}')"
+            <div class="pl-thumb res-thumb" ondblclick="abrirResumen({{ r.cobrador.id }}, 'Resumen de cobranza — {{ r.cobrador.nombre }}')"
                  title="Doble clic para ver / imprimir / exportar / compartir">
-              <iframe src="/cobranza/consolidado/{{ r.cobrador.id }}/comprobante?mes={{ mes }}&anio={{ anio }}&thumb=1" loading="lazy" scrolling="no" tabindex="-1"></iframe>
+              <iframe src="/cobranza/consolidado/{{ r.cobrador.id }}/comprobante?thumb=1" loading="lazy" scrolling="no" tabindex="-1"></iframe>
               <span class="pl-thumb-tag res-thumb-tag">$</span>
             </div>
             <div class="pl-meta">
@@ -243,8 +253,8 @@
             </div>
           </div>
           <div class="small" style="font-size:.76rem;">
-            <div>Cobrado: <strong>{{ r.consolidado.monto | pesos }}</strong></div>
-            <div class="text-muted">Comisión: {{ r.consolidado.comision | pesos }} · Neto: {{ r.consolidado.neto | pesos }}</div>
+            <div>Cuotas cobradas: <strong>{{ r.consolidado.cuotas | fmtcuota }}</strong></div>
+            <div class="text-muted">Bajas: {{ r.consolidado.bajas }}</div>
             <div class="fw-semibold {% if r.consolidado.saldo < 0 %}text-danger{% else %}text-success{% endif %}">Saldo a entregar: {{ r.consolidado.saldo | pesos }}</div>
           </div>
         </div>
@@ -301,10 +311,10 @@
     document.getElementById('planillaFrame').src = '';
   });
 
-  function abrirResumen(cobradorId, mes, anio, titulo) {
+  function abrirResumen(cobradorId, titulo) {
     document.getElementById('modalResumenTitulo').textContent = titulo || 'Resumen de cobranza';
     document.getElementById('resumenFrame').src =
-      '/cobranza/consolidado/' + cobradorId + '/comprobante?mes=' + mes + '&anio=' + anio + '&embed=1';
+      '/cobranza/consolidado/' + cobradorId + '/comprobante?embed=1';
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
   }
   document.getElementById('modalResumen').addEventListener('hidden.bs.modal', function () {
