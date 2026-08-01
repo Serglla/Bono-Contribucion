@@ -43,6 +43,11 @@
     <i class="bi bi-arrow-left"></i> Volver a la planilla
   </a>
   {% elif not embed %}<button class="btn btn-outline-secondary" onclick="window.close()">← Cerrar</button>{% endif %}
+  {# target="_top": si la hoja está embebida en el modal, sale del iframe y
+     carga Cobranza a pantalla completa en vez de anidar la app. #}
+  <a class="btn btn-outline-dark" target="_top" href="/cobranza/?mes={{ mes }}&anio={{ anio }}">
+    <i class="bi bi-house-door"></i> Ir a Cobranza
+  </a>
   <button class="btn btn-danger" onclick="window.print()"><i class="bi bi-printer"></i> Imprimir</button>
   <a class="btn btn-success" href="/cobranza/consolidado/{{ cobrador.id }}/hoja.pdf{{ _qs }}">
     <i class="bi bi-file-earmark-pdf"></i> Descargar PDF

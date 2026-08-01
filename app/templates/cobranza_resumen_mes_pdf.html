@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Cobranza {{ mes_nombre }} {{ anio }}</title>
+<style>
+  /* xhtml2pdf soporta un subconjunto chico de CSS: solo tablas, sin flex. */
+  @page { size: A4 portrait; margin: 16mm 14mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #000; }
+  table { width: 100%; border-collapse: collapse; font-size: 7.5pt; }
+  th, td { border: 1px solid #000; padding: 2pt 3pt; }
+  th { text-align: center; background: #eee; }
+  .num { text-align: right; }
+  .center { text-align: center; }
+  .titulo { text-align: center; margin-bottom: 7mm; }
+  .titulo .inst { font-size: 12pt; font-weight: bold; }
+  .titulo .doc { font-size: 15pt; font-weight: bold; margin-top: 4mm; }
+  .titulo .per { font-size: 11pt; margin-top: 2mm; }
+  .datos { font-size: 10pt; margin-bottom: 4mm; }
+  .sec { font-size: 10pt; font-weight: bold; margin: 6mm 0 2mm; }
+  .totfoot td { font-weight: bold; }
+  .caja-saldo { width: 100mm; margin-left: auto; margin-top: 6mm; font-size: 9pt; }
+  .caja-saldo .final td { font-weight: bold; font-size: 12pt; }
+  .firmas { width: 100%; margin-top: 16mm; }
+  .firmas td { border: none; border-top: 1px solid #000; text-align: center;
+               padding-top: 2mm; font-size: 9pt; }
+  .firmas .sep { border: none; width: 20mm; }
+</style>
+</head>
+<body>
+
+<div class="titulo">
+  <div class="inst">{{ institucion }}</div>
+  <div class="doc">RESUMEN DE COBRANZA DEL MES</div>
+  <div class="per">{{ mes_nombre }} {{ anio }}</div>
+</div>
+
+<div class="datos"><strong>Fecha de emisión:</strong> {{ hoy }}</div>
+
+<div class="sec">COBRANZA POR COBRADOR</div>
+<table>
+  <tr>
+    <th style="text-align:left;">Cobrador</th>
+    <th>Planillas</th>
+    <th>Cuotas cobradas</th>
+    <th>Monto cobrado</th>
+    <th>Comisión</th>
+    <th>Neto</th>
+    <th>Entregado</th>
+    <th>Saldo</th>
+  </tr>
+  {% for f in d.filas %}
+  <tr>
+    <td>{{ f.cobrador.nombre }}</td>
+    <td class="center">{{ f.planillas }}</td>
+    <td class="center">{{ f.cuotas | fmtcuota }}</td>
+    <td class="num">{{ f.monto | pesos }}</td>
+    <td class="num">{{ f.comision | pesos }}</td>
+    <td class="num">{{ f.neto | pesos }}</td>
+    <td class="num">{% if f.entregas %}{{ f.entregas | pesos }}{% else %}—{% endif %}</td>
+    <td class="num">{{ f.saldo | pesos }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="center">Sin cobranza registrada en {{ mes_nombre }} {{ anio }}</td></tr>
+  {% endfor %}
+  <tr class="totfoot">
+    <td>TOTAL</td>
+    <td class="center">{{ d.totales.planillas }}</td>
+    <td class="center">{{ d.totales.cuotas | fmtcuota }}</td>
+    <td class="num">{{ d.totales.monto | pesos }}</td>
+    <td class="num">{{ d.totales.comision | pesos }}</td>
+    <td class="num">{{ d.totales.neto | pesos }}</td>
+    <td class="num">{{ d.totales.entregas | pesos }}</td>
+    <td class="num">{{ d.totales.saldo | pesos }}</td>
+  </tr>
+</table>
+
+<table class="caja-saldo">
+  <tr>
+    <td>Total cobrado en el mes</td>
+    <td class="num">{{ d.totales.monto | pesos }}</td>
+  </tr>
+  <tr>
+    <td>Comisión de cobradores</td>
+    <td class="num">− {{ d.totales.comision | pesos }}</td>
+  </tr>
+  <tr>
+    <td><strong>Neto para la institución</strong></td>
+    <td class="num"><strong>{{ d.totales.neto | pesos }}</strong></td>
+  </tr>
+  <tr>
+    <td>Ya entregado{% if d.totales.adel_premio %} (efectivo {{ d.totales.adel_efectivo | pesos }} · premios {{ d.totales.adel_premio | pesos }}){% endif %}</td>
+    <td class="num">− {{ d.totales.entregas | pesos }}</td>
+  </tr>
+  <tr class="final">
+    <td>SALDO PENDIENTE DE ENTREGA</td>
+    <td class="num">{{ d.totales.saldo | pesos }}</td>
+  </tr>
+</table>
+
+<table class="firmas">
+  <tr>
+    <td>Tesorería</td>
+    <td class="sep"></td>
+    <td>Presidencia</td>
+  </tr>
+</table>
+
+</body>
+</html>

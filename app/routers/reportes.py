@@ -8,7 +8,7 @@ from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..models import CondicionBoleta
 from ..database import get_db
-from ..tiempo import parse_periodo
+from ..tiempo import parse_periodo, hoy_ar
 from .vendedores import _stats_bulk
 
 router = APIRouter(prefix="/reportes", tags=["reportes"])
@@ -269,6 +269,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     _cob_acc: dict = {}
     _g_meses: dict = {}   # tally global de cuotas cobradas por mes (para el total)
     _g_activas = 0        # boletas activas globales (denominador del total)
+    _g_infos: list = []   # info por boleta para el denominador mes a mes global
     # Solo las planillas YA liquidadas entran en el % de cobrado (igual criterio
     # que las tarjetas de /cobranza/): una planilla recién armada todavía no tiene
     # cobranza y, si se contara, sumaría al denominador sin aportar cuotas cobradas
@@ -277,6 +278,14 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         pid for (pid,) in db.query(models.Liquidacion.planilla_id)
                             .filter(models.Liquidacion.planilla_id.isnot(None)).all()
     }
+    # Período (anio, mes) en que se entregó cada planilla: hace falta para el
+    # denominador MES A MES del % cobrado (ver más abajo).
+    _pl_periodo = {
+        pid: (int(a or 0), int(m or 0))
+        for pid, a, m in db.query(models.Planilla.id, models.Planilla.anio,
+                                  models.Planilla.mes).all()
+    }
+    _anios_vistos = {a for (a, _m) in _pl_periodo.values() if a}
     boletas_con_cob = db.query(models.Boleta).filter(
         models.Boleta.cobrador_id.isnot(None)
     ).all()
@@ -285,7 +294,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         acc = _cob_acc.setdefault(cid, {
             "a_cobrar": 0, "del_mes": 0, "bajas": 0,
             "pactadas": 0, "pagadas": 0, "anticipadas": 0,
-            "meses_cob": {}, "activas": 0, "total": 0,
+            "meses_cob": {}, "activas": 0, "total": 0, "infos": [],
         })
         acc["total"] += 1   # todas las boletas del cobrador (denominador del % de baja)
         if b.condicion == CondicionBoleta.BAJA or b.mes_baja:
@@ -311,6 +320,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
                     _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
                 except (ValueError, TypeError):
                     _hist = {}
+                _pagos_b = []
                 for _k, _v in _hist.items():
                     # Valores "YYYY-MM" (nuevo) o int 1-12 (legacy). Agrupar por
                     # (anio, mes) para no mezclar julio 2026 con julio 2027 (C-1).
@@ -318,26 +328,64 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
                     if _p is None:
                         continue
                     _pk = (_p[0] or 0, _p[1])
+                    _pagos_b.append(_pk)
+                    if _p[0]:
+                        _anios_vistos.add(_p[0])
                     acc["meses_cob"][_pk] = acc["meses_cob"].get(_pk, 0) + 1
                     _g_meses[_pk] = _g_meses.get(_pk, 0) + 1
+                _info_b = {
+                    "desde": _pl_periodo.get(b.planilla_id, (0, 0)),
+                    "ant": int(b.cuotas_anticipadas or 0),
+                    "pact": int(b.cuotas_pactadas or 0),
+                    "pagos": _pagos_b,
+                }
+                acc["infos"].append(_info_b)
+                _g_infos.append(_info_b)
         elif no_terminada and b.numero_especial_2 is None:
             acc["del_mes"] += pv               # pendiente de emplanillar
+
+    # ── Denominador MES A MES ───────────────────────────────────────────────
+    # No todas las boletas estuvieron en cobranza todos los meses: una planilla
+    # entregada en julio no puede figurar en el denominador de junio, ni una
+    # boleta que ya había terminado de pagar. Antes se dividía siempre por el
+    # total de activas y eso hundía el % de los meses viejos.
+    _anio_ref = min(_anios_vistos) if _anios_vistos else hoy_ar().year
+
+    def _ordp(anio_p, mes_p):
+        return (anio_p or _anio_ref) * 12 + (mes_p or 1)
+
+    def _activas_en(infos, anio_p, mes_p):
+        _o = _ordp(anio_p, mes_p)
+        n = 0
+        for bi in infos:
+            if _ordp(*bi["desde"]) > _o:
+                continue
+            pagadas_antes = bi["ant"] + sum(1 for k in bi["pagos"] if _ordp(*k) < _o)
+            if bi["pact"] and pagadas_antes >= bi["pact"]:
+                continue
+            n += 1
+        return n
+
+    def _pct_promedio(infos, meses):
+        rates = []
+        for (y, m), cnt in meses.items():
+            act = _activas_en(infos, y, m)
+            if act > 0:
+                rates.append(cnt / act)
+        return round(sum(rates) / len(rates) * 100, 1) if rates else None
 
     cobradores_resumen = []
     _g_pac = _g_pag = _g_ant = 0
     for c in db.query(models.Cobrador).order_by(models.Cobrador.nombre).all():
         acc = _cob_acc.get(c.id, {"a_cobrar": 0, "del_mes": 0, "bajas": 0,
                                   "pactadas": 0, "pagadas": 0, "anticipadas": 0,
-                                  "meses_cob": {}, "activas": 0, "total": 0})
+                                  "meses_cob": {}, "activas": 0, "total": 0,
+                                  "infos": []})
         pac = acc["pactadas"]; pag = acc["pagadas"]; ant = acc["anticipadas"]
         _g_pac += pac; _g_pag += pag; _g_ant += ant
-        # % = promedio de las tasas mensuales (cuotas cobradas ese mes / activas).
-        _meses = acc["meses_cob"]; _act = acc["activas"]
-        if _meses and _act:
-            _rates = [cnt / _act for cnt in _meses.values()]
-            pct = round(sum(_rates) / len(_rates) * 100, 1)
-        else:
-            pct = None
+        # % = promedio de las tasas mensuales (cuotas cobradas ese mes ÷ boletas
+        # que estaban efectivamente en cobranza ESE mes).
+        pct = _pct_promedio(acc.get("infos", []), acc["meses_cob"])
         cobradores_resumen.append({
             "nombre": c.nombre,
             "planillas": int(planillas_por_cob.get(c.id, 0) or 0),
@@ -350,12 +398,9 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         })
     cobradores_resumen.sort(key=lambda x: (x["a_cobrar"], x["del_mes"]), reverse=True)
 
-    # Total: promedio de las tasas mensuales globales (todas las boletas activas).
-    if _g_meses and _g_activas:
-        _g_rates = [cnt / _g_activas for cnt in _g_meses.values()]
-        _pct_total = round(sum(_g_rates) / len(_g_rates) * 100, 1)
-    else:
-        _pct_total = None
+    # Total: promedio de las tasas mensuales globales, con el mismo denominador
+    # mes a mes que se usa por cobrador.
+    _pct_total = _pct_promedio(_g_infos, _g_meses)
     _g_total_cob = sum(a.get("total", 0) for a in _cob_acc.values())
     _g_bajas_cob = sum(c["bajas"] for c in cobradores_resumen)
     cobradores_total = {

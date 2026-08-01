@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+<title>Cobranza {{ mes_nombre }} {{ anio }}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+  body { background:#e9ecef; }
+  body.thumb { background:#fff; }
+  body.thumb .hoja { margin:0; box-shadow:none; width:794px; height:1123px; overflow:hidden; }
+  .hoja, .hoja * { color:#000 !important; -webkit-text-fill-color:#000 !important; }
+  .hoja a { text-decoration:none !important; pointer-events:none; }
+  .hoja {
+    width:210mm; min-height:200mm; margin:1rem auto; background:#fff; padding:14mm 16mm;
+    font-family:'Times New Roman', Times, serif; box-shadow:0 0 8px rgba(0,0,0,.25);
+  }
+  .hoja table { width:100%; border-collapse:collapse; font-size:10pt; }
+  .hoja th, .hoja td { border:1px solid #000; padding:1.6mm 2mm; }
+  .hoja th { text-align:center; }
+  .num { text-align:right; }
+  .ctr { text-align:center; }
+  .sec { font-size:11pt; font-weight:bold; margin:7mm 0 2mm; letter-spacing:.5px; }
+  .caja-saldo { width:100mm; margin-left:auto; margin-top:6mm; }
+  .caja-saldo td { border:1px solid #000; padding:2mm 3mm; }
+  .caja-saldo .final td { font-weight:bold; font-size:13pt; }
+  .toolbar { text-align:center; margin:1rem; }
+  @media print { body{background:#fff;} .toolbar{display:none;} .hoja{box-shadow:none;margin:0;width:auto;min-height:auto;padding:0;} }
+</style>
+</head>
+<body{% if thumb %} class="thumb"{% endif %}>
+{% set _qs = '?mes=' ~ mes ~ '&anio=' ~ anio %}
+{% if not thumb %}
+<div class="toolbar">
+  <a class="btn btn-outline-dark" target="_top" href="/cobranza/{{ _qs }}">
+    <i class="bi bi-house-door"></i> Ir a Cobranza
+  </a>
+  <button class="btn btn-danger" onclick="window.print()"><i class="bi bi-printer"></i> Imprimir</button>
+  <a class="btn btn-success" href="/cobranza/resumen-mes.pdf{{ _qs }}">
+    <i class="bi bi-file-earmark-pdf"></i> Descargar PDF
+  </a>
+  <button class="btn btn-outline-primary" onclick="compartirResumen()"><i class="bi bi-share"></i> Compartir</button>
+</div>
+{% endif %}
+<div class="hoja">
+  <div style="text-align:center; margin-bottom:7mm;">
+    <div style="font-size:13pt; font-weight:bold;">{{ institucion }}</div>
+    <div style="font-size:16pt; font-weight:bold; margin-top:4mm; letter-spacing:1px;">RESUMEN DE COBRANZA DEL MES</div>
+    <div style="font-size:12pt; margin-top:2mm;">{{ mes_nombre }} {{ anio }}</div>
+  </div>
+
+  <div style="font-size:11pt; margin-bottom:3mm;">
+    <strong>Fecha de emisión:</strong> {{ hoy }}
+  </div>
+
+  <div class="sec">COBRANZA POR COBRADOR</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="text-align:left;">Cobrador</th>
+        <th>Planillas</th>
+        <th>Cuotas cobradas</th>
+        <th>Monto cobrado</th>
+        <th>Comisión</th>
+        <th>Neto</th>
+        <th>Entregado</th>
+        <th>Saldo</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in d.filas %}
+      <tr>
+        <td>{{ f.cobrador.nombre }}</td>
+        <td class="ctr">{{ f.planillas }}</td>
+        <td class="ctr">{{ f.cuotas | fmtcuota }}</td>
+        <td class="num">{{ f.monto | pesos }}</td>
+        <td class="num">{{ f.comision | pesos }}</td>
+        <td class="num">{{ f.neto | pesos }}</td>
+        <td class="num">{% if f.entregas %}{{ f.entregas | pesos }}{% else %}—{% endif %}</td>
+        <td class="num">{{ f.saldo | pesos }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="ctr">Sin cobranza registrada en {{ mes_nombre }} {{ anio }}</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="font-weight:bold;">
+        <td>TOTAL</td>
+        <td class="ctr">{{ d.totales.planillas }}</td>
+        <td class="ctr">{{ d.totales.cuotas | fmtcuota }}</td>
+        <td class="num">{{ d.totales.monto | pesos }}</td>
+        <td class="num">{{ d.totales.comision | pesos }}</td>
+        <td class="num">{{ d.totales.neto | pesos }}</td>
+        <td class="num">{{ d.totales.entregas | pesos }}</td>
+        <td class="num">{{ d.totales.saldo | pesos }}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <table class="caja-saldo">
+    <tr>
+      <td>Total cobrado en el mes</td>
+      <td class="num">{{ d.totales.monto | pesos }}</td>
+    </tr>
+    <tr>
+      <td>Comisión de cobradores</td>
+      <td class="num">− {{ d.totales.comision | pesos }}</td>
+    </tr>
+    <tr>
+      <td><strong>Neto para la institución</strong></td>
+      <td class="num"><strong>{{ d.totales.neto | pesos }}</strong></td>
+    </tr>
+    <tr>
+      <td>Ya entregado{% if d.totales.adel_premio %} (efectivo {{ d.totales.adel_efectivo | pesos }} · premios {{ d.totales.adel_premio | pesos }}){% endif %}</td>
+      <td class="num">− {{ d.totales.entregas | pesos }}</td>
+    </tr>
+    <tr class="final">
+      <td>SALDO PENDIENTE DE ENTREGA</td>
+      <td class="num">{{ d.totales.saldo | pesos }}</td>
+    </tr>
+  </table>
+
+  <div style="margin-top:20mm; display:flex; justify-content:space-between; gap:20mm;">
+    <div style="text-align:center; flex:1; border-top:1px solid #000; padding-top:2mm;">Tesorería</div>
+    <div style="text-align:center; flex:1; border-top:1px solid #000; padding-top:2mm;">Presidencia</div>
+  </div>
+</div>
+{% if not thumb %}
+<script>
+  async function compartirResumen() {
+    const pdfUrl = "/cobranza/resumen-mes.pdf{{ _qs }}";
+    const nombreArchivo = "cobranza_{{ mes_nombre|lower }}_{{ anio }}.pdf";
+    const texto = "Cobranza {{ mes_nombre }} {{ anio }} — {{ institucion }}\n" +
+      {% for f in d.filas %}"{{ f.cobrador.nombre }}: {{ f.cuotas | fmtcuota }} cuotas · {{ f.monto | pesos }} · neto {{ f.neto | pesos }} · entregó {{ f.entregas | pesos }}\n" +
+      {% endfor %}"TOTAL cobrado {{ d.totales.monto | pesos }} · comisión {{ d.totales.comision | pesos }} · neto {{ d.totales.neto | pesos }}\n" +
+      "Entregado {{ d.totales.entregas | pesos }} · SALDO {{ d.totales.saldo | pesos }}";
+    try {
+      const resp = await fetch(pdfUrl);
+      const blob = await resp.blob();
+      const file = new File([blob], nombreArchivo, { type: "application/pdf" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "Cobranza {{ mes_nombre }} {{ anio }}", text: texto });
+        return;
+      }
+    } catch (e) { /* fallback */ }
+    window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank");
+  }
+</script>
+{% endif %}
+</body>
+</html>

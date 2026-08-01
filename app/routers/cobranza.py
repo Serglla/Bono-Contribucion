@@ -604,6 +604,10 @@ async def index(request: Request, db: Session = Depends(get_db),
         activas_cob = 0       # boletas activas emplanilladas (denominador por mes)
         meses_baja = {}       # mes calendario -> bajas registradas ese mes
         bajas_tot = 0         # boletas dadas de baja (emplanilladas, liquidadas)
+        # Datos por boleta para calcular el denominador MES A MES (ver abajo).
+        infos_pct = []
+        _pl_periodo = {p.id: (int(p.anio or 0), int(p.mes or 0)) for p in planillas}
+        _anios_vistos = {a for (a, _m) in _pl_periodo.values() if a}
         for b in boletas:
             no_terminada = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
             pv = _pata_valor(b)
@@ -621,13 +625,23 @@ async def index(request: Request, db: Session = Depends(get_db),
                             _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
                         except (ValueError, TypeError):
                             _hist = {}
+                        _pagos_b = []
                         for _k, _v in _hist.items():
                             # Valores "YYYY-MM" (nuevo) o int 1-12 (legacy, anio 0).
                             _p = parse_periodo(_v)
                             if _p is None:
                                 continue
                             _key = (_p[0] or 0, _p[1])   # (anio, mes)
+                            _pagos_b.append(_key)
+                            if _p[0]:
+                                _anios_vistos.add(_p[0])
                             meses_cob[_key] = meses_cob.get(_key, 0) + 1
+                        infos_pct.append({
+                            "desde": _pl_periodo.get(b.planilla_id, (0, 0)),
+                            "ant": int(b.cuotas_anticipadas or 0),
+                            "pact": int(b.cuotas_pactadas or 0),
+                            "pagos": _pagos_b,
+                        })
                     else:
                         # Baja de cobranza: el socio se dio de baja en mes_baja.
                         bajas_tot += 1
@@ -639,21 +653,45 @@ async def index(request: Request, db: Session = Depends(get_db),
             elif no_terminada and b.numero_especial_2 is None:
                 pend_emplanillar += pv
 
-        cobranza_iniciada = bool(meses_cob) and activas_cob > 0
-        if cobranza_iniciada:
-            _rates = [cnt / activas_cob for cnt in meses_cob.values()]
-            pct_cobro = round(sum(_rates) / len(_rates) * 100)
-        else:
-            pct_cobro = 0
+        # ── Denominador MES A MES (no uno solo para todos los meses) ─────────
+        # Bug viejo: la tasa de cada mes se dividía por TODAS las boletas
+        # emplanilladas-liquidadas, incluidas las de planillas entregadas
+        # DESPUÉS de ese mes. Un P4 entregado en julio hundía el % de junio,
+        # porque esos números todavía no estaban en cobranza. Ahora, para cada
+        # mes, cuentan solo las boletas cuya planilla ya estaba entregada y a
+        # las que todavía les faltaban cuotas por pagar en ese momento.
+        _anio_ref = min(_anios_vistos) if _anios_vistos else hoy.year
 
-        # Desglose por mes para mostrar cómo se forma el promedio: cada mes con
-        # cobranza con su tasa (cuotas cobradas / boletas activas).
-        meses_detalle = [
-            {"mes": (MESES[m - 1] + (f" {y}" if y else "")), "num": m,
-             "cobradas": cnt,
-             "activas": activas_cob, "pct": round(cnt / activas_cob * 100)}
-            for (y, m), cnt in sorted(meses_cob.items())
-        ] if cobranza_iniciada else []
+        def _ordp(anio_p, mes_p):
+            return (anio_p or _anio_ref) * 12 + (mes_p or 1)
+
+        def _activas_en(anio_p, mes_p):
+            _o = _ordp(anio_p, mes_p)
+            n = 0
+            for bi in infos_pct:
+                if _ordp(*bi["desde"]) > _o:
+                    continue                      # planilla aún no entregada
+                pagadas_antes = bi["ant"] + sum(1 for k in bi["pagos"] if _ordp(*k) < _o)
+                if bi["pact"] and pagadas_antes >= bi["pact"]:
+                    continue                      # ya había terminado de pagar
+                n += 1
+            return n
+
+        _rates = []
+        meses_detalle = []
+        for (y, m), cnt in sorted(meses_cob.items()):
+            _act = _activas_en(y, m)
+            if _act <= 0:
+                continue
+            _r = cnt / _act
+            _rates.append(_r)
+            meses_detalle.append({
+                "mes": (MESES[m - 1] + (f" {y}" if y else "")), "num": m,
+                "cobradas": cnt, "activas": _act, "pct": round(_r * 100),
+            })
+
+        cobranza_iniciada = bool(_rates)
+        pct_cobro = round(sum(_rates) / len(_rates) * 100) if _rates else 0
 
         # % de baja (TOTAL ACUMULADO, no promedio mes a mes): a diferencia del
         # cobrado, una baja ocurre una sola vez por boleta (mes_baja), así que el
@@ -2366,6 +2404,91 @@ async def consolidado_index(request: Request, db: Session = Depends(get_db),
         "mes": mes, "anio": anio,
         "mes_nombre": MESES[mes - 1],
     })
+
+
+def _resumen_institucion(db, mes: int, anio: int):
+    """Resumen de la cobranza de UN mes para la institución: un renglón por
+    cobrador con cuotas cobradas, monto, comisión, neto, entregado y saldo.
+    Es la foto que se pasa a la comisión directiva al cerrar el mes."""
+    cobradores = db.query(models.Cobrador).order_by(models.Cobrador.nombre).all()
+    filas = []
+    for c in cobradores:
+        d = _consolidado_cobrador(db, c, mes, anio)
+        # Solo los que tuvieron movimiento en el mes: un listado con diez
+        # cobradores en cero no le dice nada a nadie.
+        if not (d["monto"] or d["total_adelantos"]):
+            continue
+        filas.append({
+            "cobrador": c,
+            "planillas": len(d["detalle"]),
+            "cuotas": d["cuotas"],
+            "monto": d["monto"],
+            "comision": d["comision"],
+            "neto": d["neto"],
+            "entregas": d["total_adelantos"],
+            "adel_efectivo": d["adel_efectivo"],
+            "adel_premio": d["adel_premio"],
+            "saldo": d["saldo"],
+        })
+    totales = {
+        k: round(sum(f[k] for f in filas), 2)
+        for k in ("monto", "comision", "neto", "entregas",
+                  "adel_efectivo", "adel_premio", "saldo")
+    }
+    totales["cuotas"] = sum(f["cuotas"] for f in filas)
+    totales["planillas"] = sum(f["planillas"] for f in filas)
+    return {"filas": filas, "totales": totales}
+
+
+@router.get("/resumen-mes", response_class=HTMLResponse)
+async def resumen_mes_institucion(request: Request, db: Session = Depends(get_db),
+                                  mes: int = Query(default=0), anio: int = Query(default=0),
+                                  thumb: int = Query(default=0), embed: int = Query(default=0)):
+    """Hoja A4 con la cobranza del mes de TODOS los cobradores, para la
+    institución. Se abre desde la barra del selector de mes en Planillas."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    hoy = hoy_ar()
+    if not mes:  mes = hoy.month
+    if not anio: anio = hoy.year
+    data = _resumen_institucion(db, mes, anio)
+    return templates.TemplateResponse(request, "cobranza_resumen_mes.html", {
+        "user": user,
+        "d": data,
+        "mes": mes, "anio": anio,
+        "mes_nombre": MESES[mes - 1],
+        "institucion": INSTITUCION_NOMBRE,
+        "hoy": hoy.strftime("%d/%m/%Y"),
+        "thumb": bool(thumb),
+        "embed": bool(embed),
+    })
+
+
+@router.get("/resumen-mes.pdf")
+async def resumen_mes_institucion_pdf(request: Request, db: Session = Depends(get_db),
+                                      mes: int = Query(default=0), anio: int = Query(default=0)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    hoy = hoy_ar()
+    if not mes:  mes = hoy.month
+    if not anio: anio = hoy.year
+    data = _resumen_institucion(db, mes, anio)
+    html = templates.get_template("cobranza_resumen_mes_pdf.html").render(
+        request=request, d=data, mes=mes, anio=anio,
+        mes_nombre=MESES[mes - 1], institucion=INSTITUCION_NOMBRE,
+        hoy=hoy.strftime("%d/%m/%Y"),
+    )
+    buf = BytesIO()
+    if pisa.CreatePDF(html, dest=buf, encoding="utf-8").err:
+        raise HTTPException(500, "No se pudo generar el PDF del resumen del mes")
+    nombre = f"cobranza_{MESES[mes - 1].lower()}_{anio}.pdf"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
 
 
 @router.get("/consolidado/{cobrador_id}/hoja", response_class=HTMLResponse)

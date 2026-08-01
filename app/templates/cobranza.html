@@ -106,6 +106,13 @@
     </select>
     <button type="submit" class="btn btn-sm btn-danger">Ver</button>
     <span class="text-muted small ms-1 d-none d-sm-inline">Planillas: <strong>{{ mes_nombre }} {{ anio }}</strong></span>
+    {# Resumen del mes para la institución: todos los cobradores en una hoja.
+       Va acá porque depende del mes elegido en este mismo selector. #}
+    <button type="button" class="btn btn-sm btn-outline-dark ms-auto"
+            onclick="abrirResumenMes()"
+            title="Hoja con la cobranza de {{ mes_nombre }} {{ anio }} de todos los cobradores, para la institución">
+      <i class="bi bi-building me-1"></i>Resumen del mes
+    </button>
   </form>
 </div>
 
@@ -352,6 +359,15 @@
     document.getElementById('modalResumenTitulo').textContent = titulo || 'Resumen de cobranza';
     document.getElementById('resumenFrame').src =
       '/cobranza/consolidado/' + cobradorId + '/comprobante?embed=1';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
+  }
+
+  // Resumen del mes para la institución (todos los cobradores juntos).
+  function abrirResumenMes() {
+    document.getElementById('modalResumenTitulo').textContent =
+      'Cobranza {{ mes_nombre }} {{ anio }} — todos los cobradores';
+    document.getElementById('resumenFrame').src =
+      '/cobranza/resumen-mes?mes={{ mes }}&anio={{ anio }}&embed=1';
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
   }
 
