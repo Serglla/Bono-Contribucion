@@ -332,9 +332,11 @@
     <span class="ms-auto fw-normal text-muted" style="font-size:.78rem;">
       Cierre del mes — cubre todas las planillas del cobrador
     </span>
-    <a class="btn btn-sm btn-outline-dark" target="_blank"
-       href="/cobranza/consolidado/{{ planilla.cobrador.id }}/hoja?mes={{ mes_actual }}&anio={{ anio_actual }}"
-       title="Hoja A4 con la liquidación del mes: P1, P2, P3… + entregas y saldo">
+    {# `volver` fija el mes que se está liquidando y muestra la vuelta a la
+       planilla: entrando por acá la hoja NO ofrece navegar a otros meses. #}
+    <a class="btn btn-sm btn-outline-dark"
+       href="/cobranza/consolidado/{{ planilla.cobrador.id }}/hoja?mes={{ mes_actual }}&anio={{ anio_actual }}&volver={{ planilla.id }}"
+       title="Hoja A4 con la liquidación de {{ mes_nombre }} {{ anio_actual }}: P1, P2, P3… + entregas y saldo">
       <i class="bi bi-file-earmark-text me-1"></i>Hoja del mes
     </a>
   </div>

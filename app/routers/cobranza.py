@@ -2382,11 +2382,43 @@ async def consolidado_hoja(request: Request, cobrador_id: int,
     if not auth_module.has_permission(user, 'cobranza', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
     hoy = hoy_ar()
-    if not mes:  mes = hoy.month
-    if not anio: anio = hoy.year
     cobrador = db.query(models.Cobrador).get(cobrador_id)
     if not cobrador:
         raise HTTPException(404)
+
+    # Meses que este cobrador tiene liquidados (con cobranza o con entregas).
+    # Alimentan el navegador ← → de la hoja y definen a cuál caer por defecto.
+    periodos = [p for p in _resumen_meses_cobrador(db, cobrador)["periodos"]]
+    for p in periodos:
+        if not p["anio"]:
+            p["anio"] = hoy.year          # datos legacy sin año
+        p["key"] = f"{p['anio']}-{p['mes']}"
+
+    # Sin mes explícito (entrada desde el preview) se abre el ÚLTIMO mes
+    # liquidado, no el mes en curso: en el mes actual todavía puede no haberse
+    # liquidado nada y la hoja saldría en cero.
+    if not mes:
+        if periodos:
+            anio, mes = periodos[-1]["anio"], periodos[-1]["mes"]
+        else:
+            anio, mes = hoy.year, hoy.month
+    if not anio:
+        anio = hoy.year
+
+    # Anterior / siguiente entre los meses liquidados. Si el mes pedido no está
+    # en la lista (ej. agosto sin liquidar), "anterior" es el último liquidado
+    # antes de él y "siguiente" el primero después.
+    _ord_actual = anio * 12 + mes
+    _antes = [p for p in periodos if p["anio"] * 12 + p["mes"] < _ord_actual]
+    _despues = [p for p in periodos if p["anio"] * 12 + p["mes"] > _ord_actual]
+    nav_meses = {
+        "periodos": periodos,
+        "actual_key": f"{anio}-{mes}",
+        "anterior": _antes[-1] if _antes else None,
+        "siguiente": _despues[0] if _despues else None,
+        "liquidado": any(p["anio"] == anio and p["mes"] == mes for p in periodos),
+    }
+
     data = _consolidado_cobrador(db, cobrador, mes, anio)
     return templates.TemplateResponse(request, "cobranza_hoja_liquidacion.html", {
         "user": user,
@@ -2399,6 +2431,7 @@ async def consolidado_hoja(request: Request, cobrador_id: int,
         "thumb": bool(thumb),
         "embed": bool(embed),
         "volver": volver or 0,
+        "nav_meses": nav_meses,
     })
 
 

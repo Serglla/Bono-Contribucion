@@ -234,15 +234,18 @@
              en su propia fila para no romper la alineación por mes de la
              grilla de arriba (que se comparte entre todas las tarjetas). #}
           <div class="d-flex flex-wrap gap-3 mb-2 pt-2" style="border-top:1px dashed #dee2e6;">
+            {# Sin mes en la URL: abre el ÚLTIMO mes liquidado (el mes elegido
+               arriba puede no estar liquidado todavía y saldría en cero).
+               Adentro tiene su propio navegador ← → entre meses. #}
             <div class="pl-item">
-              <div class="pl-thumb res-thumb" ondblclick="abrirHoja({{ r.cobrador.id }}, 'Liquidación {{ mes_nombre }} {{ anio }} — {{ r.cobrador.nombre }}')"
-                   title="Hoja resumen de la liquidación de {{ mes_nombre }} {{ anio }} — doble clic para ver / imprimir / exportar">
-                <iframe src="/cobranza/consolidado/{{ r.cobrador.id }}/hoja?mes={{ mes }}&anio={{ anio }}&thumb=1" loading="lazy" scrolling="no" tabindex="-1"></iframe>
+              <div class="pl-thumb res-thumb" ondblclick="abrirHoja({{ r.cobrador.id }}, 'Liquidación del mes — {{ r.cobrador.nombre }}')"
+                   title="Hoja resumen de liquidación — doble clic para ver / navegar entre meses / imprimir">
+                <iframe src="/cobranza/consolidado/{{ r.cobrador.id }}/hoja?thumb=1" loading="lazy" scrolling="no" tabindex="-1"></iframe>
                 <span class="pl-thumb-tag res-thumb-tag"><i class="bi bi-receipt"></i></span>
               </div>
               <div class="pl-meta">
                 <span class="fw-semibold">Hoja resumen</span><br>
-                <span class="text-muted">{{ mes_nombre }} {{ anio }}</span>
+                <span class="text-muted">Último mes liquidado</span>
               </div>
             </div>
           </div>
@@ -352,11 +355,12 @@
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
   }
 
-  // Hoja de liquidación del mes que está elegido arriba en el selector.
+  // Hoja de liquidación: abre en el último mes liquidado y desde ahí se
+  // navega con las flechas del propio documento.
   function abrirHoja(cobradorId, titulo) {
     document.getElementById('modalResumenTitulo').textContent = titulo || 'Liquidación del mes';
     document.getElementById('resumenFrame').src =
-      '/cobranza/consolidado/' + cobradorId + '/hoja?mes={{ mes }}&anio={{ anio }}&embed=1';
+      '/cobranza/consolidado/' + cobradorId + '/hoja?embed=1';
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
   }
   document.getElementById('modalResumen').addEventListener('hidden.bs.modal', function () {
