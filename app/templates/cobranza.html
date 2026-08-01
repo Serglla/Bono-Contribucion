@@ -64,7 +64,7 @@
     font-size: .7rem; color: #cbd5e1; font-weight: 600;
     text-transform: uppercase; letter-spacing: .04em;
   }
-  /* Miniatura del resumen/comprobante mensual (mismo mecanismo que .pl-thumb,
+  /* Miniatura de la hoja de liquidación (mismo mecanismo que .pl-thumb,
      tag verde en vez de rojo para distinguirla de las planillas). */
   .res-thumb-tag { background: var(--bs-success, #198754); }
 </style>
@@ -263,30 +263,6 @@
         {% endif %}
       </div>
 
-      <!-- Resumen de cobranza del mes: miniatura del comprobante consolidado,
-           con acceso directo a imprimir / descargar PDF / compartir. -->
-      {% if r.consolidado %}
-      <div class="p-3 pt-0">
-        <div class="text-muted mb-2" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;">Resumen de cobranza — todos los meses</div>
-        <div class="d-flex align-items-center gap-3">
-          <div class="pl-item">
-            <div class="pl-thumb res-thumb" ondblclick="abrirResumen({{ r.cobrador.id }}, 'Resumen de cobranza — {{ r.cobrador.nombre }}')"
-                 title="Doble clic para ver / imprimir / exportar / compartir">
-              <iframe src="/cobranza/consolidado/{{ r.cobrador.id }}/comprobante?thumb=1" loading="lazy" scrolling="no" tabindex="-1"></iframe>
-              <span class="pl-thumb-tag res-thumb-tag">$</span>
-            </div>
-            <div class="pl-meta">
-              <span class="fw-semibold">Ver / exportar</span>
-            </div>
-          </div>
-          <div class="small" style="font-size:.76rem;">
-            <div>Cuotas cobradas: <strong>{{ r.consolidado.cuotas | fmtcuota }}</strong></div>
-            <div class="text-muted">Bajas: {{ r.consolidado.bajas }}</div>
-            <div class="fw-semibold {% if r.consolidado.saldo < 0 %}text-danger{% else %}text-success{% endif %}">Saldo a entregar: {{ r.consolidado.saldo | pesos }}</div>
-          </div>
-        </div>
-      </div>
-      {% endif %}
     </div>
   </div>
   {% endif %}
@@ -311,8 +287,9 @@
   </div>
 </div>
 
-<!-- Modal: resumen de cobranza del mes (comprobante consolidado del cobrador,
-     con su propia barra de Imprimir / Descargar PDF / Compartir). -->
+<!-- Modal compartido: hoja de liquidación de un cobrador o resumen del mes de
+     la institución. Cada documento trae su propia barra de Imprimir / PDF /
+     Compartir y su navegador de meses. -->
 <div class="modal fade" id="modalResumen" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content" style="height:92vh;">
@@ -354,13 +331,6 @@
     _planillaSrc = '';
     if (navego) window.location.reload();
   });
-
-  function abrirResumen(cobradorId, titulo) {
-    document.getElementById('modalResumenTitulo').textContent = titulo || 'Resumen de cobranza';
-    document.getElementById('resumenFrame').src =
-      '/cobranza/consolidado/' + cobradorId + '/comprobante?embed=1';
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen')).show();
-  }
 
   // Resumen del mes para la institución (todos los cobradores juntos). Abre en
   // el último mes con cobranza y adentro tiene su propio navegador ← →.

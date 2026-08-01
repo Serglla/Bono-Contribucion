@@ -17,8 +17,8 @@
     width:210mm; min-height:200mm; margin:1rem auto; background:#fff; padding:14mm 16mm;
     font-family:'Times New Roman', Times, serif; box-shadow:0 0 8px rgba(0,0,0,.25);
   }
-  .hoja table { width:100%; border-collapse:collapse; font-size:11pt; }
-  .hoja th, .hoja td { border:1px solid #000; padding:1.8mm 2.5mm; }
+  .hoja table { width:100%; border-collapse:collapse; font-size:9.5pt; }
+  .hoja th, .hoja td { border:1px solid #000; padding:1.4mm 1.6mm; }
   .hoja th { text-align:center; }
   .num { text-align:right; }
   .ctr { text-align:center; }
@@ -111,6 +111,9 @@
       <tr>
         <th style="text-align:left;">Planilla</th>
         <th>Cuotas cobradas</th>
+        <th>Sin cobrar</th>
+        <th>Bajas</th>
+        <th>% cobr.</th>
         <th>Monto cobrado</th>
         <th>Comisión</th>
         <th>Neto</th>
@@ -121,24 +124,31 @@
       <tr>
         <td>P{{ p.numero }}</td>
         <td class="ctr">{{ p.cuotas | fmtcuota }}</td>
+        <td class="ctr">{% if p.sin_cobrar %}{{ p.sin_cobrar | fmtcuota }}{% else %}—{% endif %}</td>
+        <td class="ctr">{% if p.bajas %}{{ p.bajas }}{% else %}—{% endif %}</td>
+        <td class="ctr">{{ p.efect }}%</td>
         <td class="num">{{ p.monto | pesos }}</td>
-        <td class="num">{{ p.comision | pesos }} <span class="pct">({{ p.pct }}%)</span></td>
+        <td class="num">{{ p.comision | pesos }}{% if not d.pct_uniforme %} <span class="pct">({{ p.pct }}%)</span>{% endif %}</td>
         <td class="num">{{ p.neto | pesos }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="5" class="ctr">Sin cobranza registrada en {{ mes_nombre }} {{ anio }}</td></tr>
+      <tr><td colspan="8" class="ctr">Sin cobranza registrada en {{ mes_nombre }} {{ anio }}</td></tr>
       {% endfor %}
     </tbody>
     <tfoot>
       <tr style="font-weight:bold;">
         <td>TOTAL</td>
-        <td class="ctr">{{ d.cuotas | fmtcuota }}</td>
+        <td class="ctr">{{ d.cuotas_exact | fmtcuota }}</td>
+        <td class="ctr">{% if d.sin_cobrar %}{{ d.sin_cobrar | fmtcuota }}{% else %}—{% endif %}</td>
+        <td class="ctr">{% if d.bajas %}{{ d.bajas }}{% else %}—{% endif %}</td>
+        <td class="ctr">{{ d.efect }}%</td>
         <td class="num">{{ d.monto | pesos }}</td>
         <td class="num">{{ d.comision | pesos }}</td>
         <td class="num">{{ d.neto | pesos }}</td>
       </tr>
     </tfoot>
   </table>
+  {% if d.pct_uniforme %}<div style="font-size:8.5pt; margin-top:1.5mm;">Comisión del cobrador: {{ d.pct_uniforme }}%</div>{% endif %}
 
   <div class="sec">ENTREGAS DEL MES</div>
   <table>

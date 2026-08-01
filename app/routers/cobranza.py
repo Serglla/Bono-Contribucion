@@ -707,12 +707,6 @@ async def index(request: Request, db: Session = Depends(get_db),
             for m, cnt in sorted(meses_baja.items())
         ]
 
-        # Resumen de cobranza del cobrador (todos los meses liquidados) — se
-        # usa para la miniatura "Resumen de cobranza" de esta tarjeta, con
-        # acceso rápido a ver/exportar/compartir/imprimir.
-        _res = _resumen_meses_cobrador(db, co)
-        consolidado = _res["totales"] if _res["filas"] else None
-
         # Planillas de ESTE cobrador pendientes de liquidar en el mes en curso:
         # alimenta el botón "Liquidar pendientes" de la tarjeta. La ronda de
         # liquidación es por cobrador, no global.
@@ -731,7 +725,6 @@ async def index(request: Request, db: Session = Depends(get_db),
             "cobranza_iniciada": cobranza_iniciada,
             "meses_detalle": meses_detalle,
             "planillas": planillas,
-            "consolidado": consolidado,
             "pend_liq": pend_liq,
         })
 
@@ -2322,10 +2315,32 @@ def _resumen_meses_cobrador(db, cobrador, solo_anio: int = 0, solo_mes: int = 0)
 
 
 def _consolidado_cobrador(db, cobrador, mes, anio):
+    """Cobranza de UN mes de un cobrador, con un renglón por planilla.
+
+    Por cada planilla, además de lo cobrado, se calcula lo que quedó SIN COBRAR
+    ese mes y las bajas registradas, para poder mostrar el % de efectividad:
+      - sin_cobrar: boletas que estaban en cobranza ese mes y no registraron
+        ningún pago, ponderadas por PATA. Una planilla arranca a cobrarse el mes
+        SIGUIENTE al de entrega, así que la recién entregada no suma.
+      - bajas: socios de esa planilla dados de baja en ese mes.
+      - efect (%): cobradas / (cobradas + sin cobrar).
+    """
     detalle = []
     tot_monto = 0.0
     tot_com = 0.0
     tot_cuotas = 0.0
+    tot_sin = 0.0
+    tot_bajas = 0
+    _ord_mes = anio * 12 + mes
+
+    def _ord_pago(v):
+        """Ordinal (anio*12+mes) de una entrada de historial. Los valores legacy
+        no traen año: se asume el del período que se está mirando."""
+        per = parse_periodo(v)
+        if per is None:
+            return None
+        return (per[0] or anio) * 12 + per[1]
+
     planillas = (db.query(models.Planilla)
                  .filter_by(cobrador_id=cobrador.id)
                  .order_by(models.Planilla.anio, models.Planilla.mes, models.Planilla.numero)
@@ -2334,30 +2349,59 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
         pct = float(p.comision_pct or 0)
         boletas = db.query(models.Boleta).filter_by(planilla_id=p.id).all()
         todo0 = _planilla_todo_pata0(boletas)
+        # La cobranza arranca el mes siguiente al de entrega de la planilla.
+        _entregada_antes = (int(p.anio or 0) * 12 + int(p.mes or 0)) < _ord_mes
         m_pl = 0.0
         c_pl = 0.0
+        s_pl = 0.0
+        b_pl = 0
         for b in boletas:
             try:
                 h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
             except (ValueError, TypeError):
                 h = {}
+            _mb = 0
+            try:
+                _mb = int(b.mes_baja) if b.mes_baja else 0
+            except (TypeError, ValueError):
+                _mb = 0
+            if _mb == mes:
+                b_pl += 1
+            peso = 1.0 if todo0 else _pata_valor(b)
             # Cuotas cobradas en ESTE periodo (anio+mes). Antes comparaba solo
             # el mes y mezclaba julio 2026 con julio 2027 (fix C-1).
             cM = sum(1 for v in h.values() if match_periodo(v, anio, mes))
             if cM:
                 vc = float(b.talonera.valor_cuota) if (b.talonera and b.talonera.valor_cuota) else 0.0
                 m_pl += cM * vc
-                c_pl += cM * (1.0 if todo0 else _pata_valor(b))
-        if m_pl or c_pl:
+                c_pl += cM * peso
+                continue
+            # ── No cobró nada este mes: ¿se le podía cobrar? ────────────────
+            if not _entregada_antes:
+                continue                       # planilla recién entregada
+            if _mb and _mb <= mes:
+                continue                       # dada de baja en este mes o antes
+            _pagadas_antes = int(b.cuotas_anticipadas or 0) + sum(
+                1 for v in h.values()
+                if (_ord_pago(v) or 0) and _ord_pago(v) < _ord_mes)
+            if (b.cuotas_pactadas or 0) and _pagadas_antes >= (b.cuotas_pactadas or 0):
+                continue                       # ya había terminado de pagar
+            s_pl += peso
+        if m_pl or c_pl or s_pl or b_pl:
             com = round(m_pl * pct / 100.0, 2)
+            _base = c_pl + s_pl
             detalle.append({
                 "numero": p.numero, "mes_planilla": p.mes, "anio_planilla": p.anio,
                 "cuotas": c_pl, "monto": round(m_pl, 2), "pct": pct,
                 "comision": com, "neto": round(m_pl - com, 2),
+                "sin_cobrar": round(s_pl, 2), "bajas": b_pl,
+                "efect": round(c_pl / _base * 100) if _base > 0 else 0,
             })
             tot_monto += m_pl
             tot_com += com
             tot_cuotas += c_pl
+            tot_sin += s_pl
+            tot_bajas += b_pl
     neto = round(tot_monto - tot_com, 2)
     adelantos = (db.query(models.EntregaCobrador)
                  .filter_by(cobrador_id=cobrador.id, mes=mes, anio=anio)
@@ -2371,6 +2415,16 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
         "detalle": detalle,
         "adelantos": adelantos,
         "cuotas": int(round(tot_cuotas)),
+        "cuotas_exact": round(tot_cuotas, 2),
+        # Si todas las planillas comparten el mismo % de comisión, la hoja lo
+        # aclara UNA vez al pie en vez de repetirlo en cada renglón (con 8
+        # columnas, el "(15%)" adentro de la celda la partía en dos líneas).
+        "pct_uniforme": ({d["pct"] for d in detalle}.pop()
+                         if len({d["pct"] for d in detalle}) == 1 else None),
+        "sin_cobrar": round(tot_sin, 2),
+        "bajas": tot_bajas,
+        "efect": (round(tot_cuotas / (tot_cuotas + tot_sin) * 100)
+                  if (tot_cuotas + tot_sin) > 0 else 0),
         "monto": round(tot_monto, 2),
         "comision": round(tot_com, 2),
         "neto": neto,
@@ -2648,79 +2702,4 @@ async def consolidado_hoja_pdf(request: Request, cobrador_id: int,
     )
 
 
-@router.get("/consolidado/{cobrador_id}/comprobante", response_class=HTMLResponse)
-async def consolidado_comprobante(request: Request, cobrador_id: int,
-                                  db: Session = Depends(get_db),
-                                  mes: int = Query(default=0), anio: int = Query(default=0),
-                                  thumb: int = Query(default=0), embed: int = Query(default=0)):
-    user = await auth_module.require_user(request, db)
-    if not auth_module.has_permission(user, 'cobranza', 'ver'):
-        raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    hoy = hoy_ar()
-    cobrador = db.query(models.Cobrador).get(cobrador_id)
-    if not cobrador:
-        raise HTTPException(404)
-    # Por defecto el resumen trae TODOS los meses liquidados (un renglón por
-    # mes). Con ?mes=&anio= se recorta a un mes puntual: al pasarle la
-    # liquidación a la institución normalmente los meses anteriores ya se
-    # pasaron y solo interesa el nuevo.
-    data = _resumen_meses_cobrador(db, cobrador, anio, mes)
-    return templates.TemplateResponse(request, "cobranza_consolidado_comprobante.html", {
-        "user": user,
-        "d": data,
-        "cobrador": cobrador,
-        "mes": mes, "anio": anio,
-        "mes_nombre": MESES[mes - 1] if 1 <= mes <= 12 else "",
-        "institucion": INSTITUCION_NOMBRE,
-        "hoy": hoy.strftime("%d/%m/%Y"),
-        "thumb": bool(thumb),
-        "embed": bool(embed),
-    })
-
-
-def _render_comprobante_pdf(request, data, cobrador, mes, anio) -> bytes:
-    """Genera el PDF del comprobante de liquidación consolidada de un cobrador
-    (mismos datos que la pantalla /comprobante), con xhtml2pdf: pura Python,
-    sin dependencias de sistema (Cairo/Pango), para no complicar el Dockerfile
-    de Railway. Usa una plantilla aparte (solo tablas, sin flex) porque el
-    motor de xhtml2pdf soporta un subconjunto chico de CSS."""
-    hoy_str = hoy_ar().strftime("%d/%m/%Y")
-    html = templates.get_template("cobranza_consolidado_comprobante_pdf.html").render(
-        request=request,
-        d=data,
-        cobrador=cobrador,
-        mes=mes, anio=anio,
-        mes_nombre=MESES[mes - 1] if 1 <= mes <= 12 else "",
-        institucion=INSTITUCION_NOMBRE,
-        hoy=hoy_str,
-    )
-    buf = BytesIO()
-    result = pisa.CreatePDF(html, dest=buf, encoding="utf-8")
-    if result.err:
-        raise HTTPException(500, "No se pudo generar el PDF del comprobante")
-    return buf.getvalue()
-
-
-@router.get("/consolidado/{cobrador_id}/comprobante.pdf")
-async def consolidado_comprobante_pdf(request: Request, cobrador_id: int,
-                                      db: Session = Depends(get_db),
-                                      mes: int = Query(default=0), anio: int = Query(default=0)):
-    """Descarga el comprobante de liquidación consolidada en PDF (mismos datos
-    que la pantalla, listo para guardar, mandar por WhatsApp o imprimir)."""
-    user = await auth_module.require_user(request, db)
-    if not auth_module.has_permission(user, 'cobranza', 'ver'):
-        raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    cobrador = db.query(models.Cobrador).get(cobrador_id)
-    if not cobrador:
-        raise HTTPException(404)
-    # Mismo criterio que la pantalla: sin mes → todos los meses; con mes → ese.
-    data = _resumen_meses_cobrador(db, cobrador, anio, mes)
-    pdf_bytes = _render_comprobante_pdf(request, data, cobrador, mes, anio)
-    _suf = f"_{MESES[mes - 1].lower()}_{anio}" if 1 <= mes <= 12 else ""
-    nombre_archivo = f"resumen_cobranza_{cobrador.nombre}{_suf}.pdf".replace(" ", "_")
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
-    )
 # fin cobranza.py
