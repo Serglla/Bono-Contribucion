@@ -2327,6 +2327,74 @@ async def consolidado_index(request: Request, db: Session = Depends(get_db),
     })
 
 
+@router.get("/consolidado/{cobrador_id}/hoja", response_class=HTMLResponse)
+async def consolidado_hoja(request: Request, cobrador_id: int,
+                           db: Session = Depends(get_db),
+                           mes: int = Query(default=0), anio: int = Query(default=0),
+                           thumb: int = Query(default=0), embed: int = Query(default=0)):
+    """Hoja A4 de la liquidación de UN mes: un renglón por planilla (P1, P2, P3…)
+    con cuotas cobradas, monto, comisión y neto; abajo el detalle de entregas
+    del mes y el saldo a entregar. Es la hoja que acompaña el cierre mensual,
+    aparte del Resumen de cobranza (que es el histórico mes a mes)."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    hoy = hoy_ar()
+    if not mes:  mes = hoy.month
+    if not anio: anio = hoy.year
+    cobrador = db.query(models.Cobrador).get(cobrador_id)
+    if not cobrador:
+        raise HTTPException(404)
+    data = _consolidado_cobrador(db, cobrador, mes, anio)
+    return templates.TemplateResponse(request, "cobranza_hoja_liquidacion.html", {
+        "user": user,
+        "d": data,
+        "cobrador": cobrador,
+        "mes": mes, "anio": anio,
+        "mes_nombre": MESES[mes - 1],
+        "institucion": INSTITUCION_NOMBRE,
+        "hoy": hoy.strftime("%d/%m/%Y"),
+        "thumb": bool(thumb),
+        "embed": bool(embed),
+    })
+
+
+@router.get("/consolidado/{cobrador_id}/hoja.pdf")
+async def consolidado_hoja_pdf(request: Request, cobrador_id: int,
+                               db: Session = Depends(get_db),
+                               mes: int = Query(default=0), anio: int = Query(default=0)):
+    """La misma hoja del mes en PDF, para guardar o mandar por WhatsApp."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    hoy = hoy_ar()
+    if not mes:  mes = hoy.month
+    if not anio: anio = hoy.year
+    cobrador = db.query(models.Cobrador).get(cobrador_id)
+    if not cobrador:
+        raise HTTPException(404)
+    data = _consolidado_cobrador(db, cobrador, mes, anio)
+    html = templates.get_template("cobranza_hoja_liquidacion_pdf.html").render(
+        request=request,
+        d=data,
+        cobrador=cobrador,
+        mes=mes, anio=anio,
+        mes_nombre=MESES[mes - 1],
+        institucion=INSTITUCION_NOMBRE,
+        hoy=hoy.strftime("%d/%m/%Y"),
+    )
+    buf = BytesIO()
+    if pisa.CreatePDF(html, dest=buf, encoding="utf-8").err:
+        raise HTTPException(500, "No se pudo generar el PDF de la hoja de liquidación")
+    nombre = (f"liquidacion_{cobrador.nombre}_{MESES[mes - 1].lower()}_{anio}.pdf"
+              .replace(" ", "_"))
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
+
+
 @router.get("/consolidado/{cobrador_id}/comprobante", response_class=HTMLResponse)
 async def consolidado_comprobante(request: Request, cobrador_id: int,
                                   db: Session = Depends(get_db),

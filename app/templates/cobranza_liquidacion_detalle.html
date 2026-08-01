@@ -261,7 +261,7 @@
         </tr>
       </tbody>
     </table>
-    <small class="text-muted">
+    <small class="text-muted d-block text-center mt-1">
       Comisión cobrador: <strong>{{ planilla.comision_pct }}%</strong>
       &middot; Valor cuota: <strong>$ {{ "{:,.2f}".format(valor_cuota).replace(",", "X").replace(".", ",").replace("X", ".") }}</strong>
     </small>
@@ -270,7 +270,7 @@
   </div><!-- /lqCentro -->
   </div><!-- /scrollWrapper -->
 
-  <div class="d-flex justify-content-end gap-2 mt-3 flex-wrap">
+  <div class="d-flex justify-content-center gap-2 mt-3 flex-wrap">
     <a href="/cobranza/"
        class="btn btn-secondary">Cancelar</a>
     <button type="button" class="btn btn-outline-secondary" onclick="imprimirLiquidacion()">
@@ -303,6 +303,11 @@
     <span class="ms-auto fw-normal text-muted" style="font-size:.78rem;">
       Cierre del mes — cubre todas las planillas del cobrador
     </span>
+    <a class="btn btn-sm btn-outline-dark" target="_blank"
+       href="/cobranza/consolidado/{{ planilla.cobrador.id }}/hoja?mes={{ mes_actual }}&anio={{ anio_actual }}"
+       title="Hoja A4 con la liquidación del mes: P1, P2, P3… + entregas y saldo">
+      <i class="bi bi-file-earmark-text me-1"></i>Hoja del mes
+    </a>
   </div>
   <div class="card-body py-2">
 
@@ -389,6 +394,7 @@
     .alert,
     .d-flex.gap-3.mb-2,
     .d-flex.justify-content-end,
+    .d-flex.justify-content-center,
     #hiddenInputs
       { display: none !important; }
 

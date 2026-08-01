@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Liquidación del mes — {{ cobrador.nombre }}</title>
+<style>
+  /* xhtml2pdf soporta un subconjunto chico de CSS: solo tablas, sin flex. */
+  @page { size: A4 portrait; margin: 16mm 14mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #000; }
+  table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+  th, td { border: 1px solid #000; padding: 3pt 4pt; }
+  th { text-align: center; background: #eee; }
+  .num { text-align: right; }
+  .center { text-align: center; }
+  .pct { font-size: 7.5pt; color: #444; }
+  .titulo { text-align: center; margin-bottom: 7mm; }
+  .titulo .inst { font-size: 12pt; font-weight: bold; }
+  .titulo .doc { font-size: 15pt; font-weight: bold; margin-top: 4mm; }
+  .titulo .per { font-size: 11pt; margin-top: 2mm; }
+  .datos { font-size: 10pt; margin-bottom: 4mm; line-height: 1.7; }
+  .sec { font-size: 10pt; font-weight: bold; margin: 6mm 0 2mm; }
+  .totfoot td { font-weight: bold; }
+  .caja-saldo { width: 92mm; margin-left: auto; margin-top: 6mm; }
+  .caja-saldo .final td { font-weight: bold; font-size: 12pt; }
+  .firmas { width: 100%; margin-top: 16mm; }
+  .firmas td { border: none; border-top: 1px solid #000; text-align: center;
+               padding-top: 2mm; font-size: 9pt; }
+  .firmas .sep { border: none; width: 20mm; }
+</style>
+</head>
+<body>
+
+<div class="titulo">
+  <div class="inst">{{ institucion }}</div>
+  <div class="doc">LIQUIDACIÓN DEL MES</div>
+  <div class="per">{{ mes_nombre }} {{ anio }}</div>
+</div>
+
+<div class="datos">
+  <strong>Cobrador/a:</strong> {{ cobrador.nombre }}<br>
+  <strong>Fecha de emisión:</strong> {{ hoy }}
+</div>
+
+<div class="sec">COBRANZA POR PLANILLA</div>
+<table>
+  {# El % de comisión va DENTRO de la celda de comisión, no en columna aparte:
+     xhtml2pdf ignora los anchos de <colgroup> y una columna angosta extra
+     quedaba pegada al monto. #}
+  <tr>
+    <th style="text-align:left;">Planilla</th>
+    <th>Cuotas cobradas</th>
+    <th>Monto cobrado</th>
+    <th>Comisión</th>
+    <th>Neto</th>
+  </tr>
+  {% for p in d.detalle %}
+  <tr>
+    <td>P{{ p.numero }}</td>
+    <td class="center">{{ p.cuotas | fmtcuota }}</td>
+    <td class="num">{{ p.monto | pesos }}</td>
+    <td class="num">{{ p.comision | pesos }} <span class="pct">({{ p.pct }}%)</span></td>
+    <td class="num">{{ p.neto | pesos }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="center">Sin cobranza registrada en {{ mes_nombre }} {{ anio }}</td></tr>
+  {% endfor %}
+  <tr class="totfoot">
+    <td>TOTAL</td>
+    <td class="center">{{ d.cuotas | fmtcuota }}</td>
+    <td class="num">{{ d.monto | pesos }}</td>
+    <td class="num">{{ d.comision | pesos }}</td>
+    <td class="num">{{ d.neto | pesos }}</td>
+  </tr>
+</table>
+
+<div class="sec">ENTREGAS DEL MES</div>
+<table>
+  <tr>
+    <th style="text-align:left;">Fecha</th>
+    <th>Tipo</th>
+    <th style="text-align:left;">Observación</th>
+    <th>Monto</th>
+  </tr>
+  {% for e in d.adelantos %}
+  <tr>
+    <td>{{ e.fecha.strftime("%d/%m/%Y") if e.fecha else "" }}</td>
+    <td class="center">{% if (e.tipo or 'EFECTIVO')|upper == 'PREMIO' %}Premio{% else %}Efectivo{% endif %}</td>
+    <td>{{ e.observacion or "" }}</td>
+    <td class="num">{{ e.monto | pesos }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="center">Sin entregas registradas</td></tr>
+  {% endfor %}
+  <tr class="totfoot">
+    <td colspan="3">TOTAL ENTREGADO</td>
+    <td class="num">{{ d.total_adelantos | pesos }}</td>
+  </tr>
+</table>
+
+<table class="caja-saldo">
+  <tr>
+    <td>Neto de cobranza</td>
+    <td class="num">{{ d.neto | pesos }}</td>
+  </tr>
+  <tr>
+    <td>Menos entregas del mes</td>
+    <td class="num">− {{ d.total_adelantos | pesos }}</td>
+  </tr>
+  <tr class="final">
+    <td>SALDO A ENTREGAR</td>
+    <td class="num">{{ d.saldo | pesos }}</td>
+  </tr>
+</table>
+
+<table class="firmas">
+  <tr>
+    <td>Firma del cobrador</td>
+    <td class="sep"></td>
+    <td>Firma por la institución</td>
+  </tr>
+</table>
+
+</body>
+</html>
