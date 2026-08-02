@@ -60,4 +60,31 @@ def _has_permission(user, section: str, action: str = "ver") -> bool:
 
 _env.globals["has_permission"] = _has_permission
 
+
+def _volver_seguro(valor, default: str = "/") -> str:
+    """Ruta de retorno para los botones «Volver».
+
+    Varias pantallas se alcanzan desde más de un lugar (p. ej. la planilla se abre
+    tanto desde Planillas como desde Emplanillado), pero el botón Volver tenía el
+    destino fijo y siempre te dejaba en el mismo lado, no en el que veniás.
+    La solución es que quien linkea pase `?volver=<ruta>`; esta función valida ese
+    valor y, si no sirve, cae al destino de siempre.
+
+    Validación (evita open redirect: sin esto, `?volver=https://sitio-malo/` te
+    sacaría de la app desde un link manipulado):
+      - tiene que ser una ruta interna: empezar con "/" y no con "//"
+      - sin esquema ("http:", "javascript:") ni backslashes
+    """
+    if not valor or not isinstance(valor, str):
+        return default
+    v = valor.strip()
+    if not v.startswith("/") or v.startswith("//"):
+        return default
+    if "\\" in v or ":" in v.split("?")[0]:
+        return default
+    return v
+
+
+_env.globals["volver_seguro"] = _volver_seguro
+
 templates = Jinja2Templates(env=_env)

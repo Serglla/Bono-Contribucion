@@ -79,7 +79,9 @@
           {% for pl in r.planillas %}
           <div class="d-flex align-items-center gap-1">
             <span class="badge bg-secondary" style="font-size:.7rem;">P{{ pl.numero }}</span>
-            <a href="/cobranza/planilla/{{ pl.id }}/ver"
+            {# ?volver= para que el botón «Volver» de la planilla traiga de vuelta
+               acá (Emplanillado) y no al tab Planillas. #}
+            <a href="/cobranza/planilla/{{ pl.id }}/ver?volver={{ ('/cobranza/emplanillado?mes=' ~ mes ~ '&anio=' ~ anio) | urlencode }}"
                class="btn btn-sm btn-outline-danger py-0 px-2 flex-fill" style="font-size:.75rem;">
               <i class="bi bi-eye me-1"></i>Ver
             </a>

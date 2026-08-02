@@ -235,7 +235,9 @@
 
 {% if not thumb %}
 <div class="toolbar">
-  {% if not embed %}<a href="/cobranza/?mes={{ mes }}&anio={{ anio }}" class="btn-back">← Volver</a>{% endif %}
+  {# A esta planilla se llega desde Planillas y también desde Emplanillado. Quien
+     linkea manda ?volver=<ruta>; si no viene, se cae al destino de siempre. #}
+  {% if not embed %}<a href="{{ volver_seguro(request.query_params.get('volver'), '/cobranza/?mes=' ~ mes ~ '&anio=' ~ anio) }}" class="btn-back">← Volver</a>{% endif %}
   <button onclick="window.print()" class="btn-print">🖨 Imprimir</button>
   {% if planilla %}
   {# target="_top": liquidar es una pantalla completa del sistema. Si se abre
