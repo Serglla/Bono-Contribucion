@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request, Query, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 from sqlalchemy import func, or_
 from datetime import date
 from io import BytesIO
@@ -561,7 +561,11 @@ async def index(request: Request, db: Session = Depends(get_db),
     resumen = []
     for co in cobradores:
         # Todas las boletas vivas del cobrador (excluye solo las dadas de baja).
+        # undefer(numero_especial_2): más abajo el loop `for b in boletas` la lee
+        # para contar pendientes de emplanillar. Sin esto, al ser `deferred`,
+        # cada boleta dispara su propio SELECT (N+1).
         boletas = (db.query(models.Boleta)
+                   .options(undefer(models.Boleta.numero_especial_2))
                    .filter(models.Boleta.cobrador_id == co.id,
                            models.Boleta.condicion != CondicionBoleta.BAJA)
                    .all())

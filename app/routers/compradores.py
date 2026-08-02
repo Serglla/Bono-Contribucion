@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, undefer
 from sqlalchemy import func as func_count
 from typing import Optional
 from datetime import date
@@ -141,7 +141,13 @@ async def listar(request: Request, db: Session = Depends(get_db),
             query = query.filter(models.Comprador.zona_id == zona_id_int)
         except (TypeError, ValueError):
             query = query.filter(models.Zona.nombre == zona)
+    # undefer(numero_especial_2): el template (compradores.html, badge CONTADO)
+    # lee esa columna por cada boleta. Al estar declarada `deferred` en models.py,
+    # cada acceso dispara un SELECT propio → con 600 socios eran 600 queries extra
+    # por request (en Railway, 600 round-trips de red = varios segundos). Pidiéndola
+    # en el SELECT del selectinload el costo pasa a cero.
     compradores_raw = query.options(
+        selectinload(models.Comprador.boletas).undefer(models.Boleta.numero_especial_2),
         selectinload(models.Comprador.boletas).selectinload(models.Boleta.talonera)
     ).order_by(models.Comprador.apellido_nombre).all()
     # Ordenar por PATA (multiplicador) primero, luego por número de boleta

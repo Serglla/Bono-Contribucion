@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 from typing import Optional, List
 from datetime import date
 from .. import models, auth as auth_module
@@ -100,7 +100,13 @@ async def listar(request: Request, db: Session = Depends(get_db), error: str = "
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'taloneras', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    taloneras = db.query(models.Talonera).order_by(models.Talonera.multiplicador, models.Talonera.numero_inicio).all()
+    # undefer: num_cuotas / num_digitos son `deferred` y el template las lee por
+    # cada talonera → un SELECT extra por fila si no se piden acá.
+    taloneras = (db.query(models.Talonera)
+                 .options(undefer(models.Talonera.num_cuotas),
+                          undefer(models.Talonera.num_digitos))
+                 .order_by(models.Talonera.multiplicador, models.Talonera.numero_inicio)
+                 .all())
     # Agrupar por nombre para la vista — separamos COMUN de CONTADO
     grupos: dict = {}
     grupos_contado: list = []

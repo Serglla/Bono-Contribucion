@@ -1,10 +1,25 @@
+"""Backup / restore desde la propia app.
+
+REESCRITO: antes el export leía las columnas del modelo (bien) pero el restore
+tenía listas de columnas escritas a mano que quedaron congeladas en abril. Un ZIP
+se restauraba "sin error" y en el camino se perdían 11 columnas de `boletas`
+(entre ellas `historial_cuotas`, o sea TODA la cobranza, y los `numero_especial`
+de los contados), 11 de `liquidaciones_vendedor`, 4 de `taloneras`, y 10 tablas
+enteras que ni se exportaban (`users`, `liquidacion_contado_items`,
+`premios_sorteo`, `config_bono`, ...).
+
+Ahora tanto el export como el restore recorren models.Base.metadata: cualquier
+columna o tabla nueva entra sola, sin tocar este archivo.
+"""
+
 import io
 import json
 import zipfile
-from datetime import date, datetime
+from datetime import date, datetime, time
+from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Request, UploadFile, File
+from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -16,120 +31,126 @@ router = APIRouter(prefix="/backup", tags=["backup"])
 
 
 # ─────────────────────────────────────────
-# Helpers
+# Serialización
 # ─────────────────────────────────────────
 
-def _serialize(val):
-    """Convierte tipos especiales a algo serializable en JSON."""
-    if isinstance(val, (date, datetime)):
-        return val.isoformat()
-    return val
+def _encode(v):
+    """Tipos de la DB → JSON. El marcador __t__ permite reconstruir al restaurar."""
+    if isinstance(v, (datetime, date, time)):
+        return {"__t__": "dt", "v": v.isoformat()}
+    if isinstance(v, Decimal):
+        return {"__t__": "dec", "v": str(v)}
+    if isinstance(v, (bytes, memoryview)):
+        import base64
+        return {"__t__": "b64", "v": base64.b64encode(bytes(v)).decode()}
+    return v
 
 
-def _row_to_dict(row):
-    """Convierte una fila de SQLAlchemy (modelo ORM) a dict serializable."""
-    d = {}
-    for col in row.__table__.columns:
-        d[col.name] = _serialize(getattr(row, col.name))
-    return d
+def _decode(v):
+    """Inversa de _encode(). Los strings ISO los castea el motor solo."""
+    if isinstance(v, dict) and "__t__" in v:
+        if v["__t__"] == "b64":
+            import base64
+            return base64.b64decode(v["v"])
+        return v["v"]
+    return v
 
 
-def _export_table(db: Session, model_class):
-    rows = db.query(model_class).all()
-    return [_row_to_dict(r) for r in rows]
+def _tablas_ordenadas():
+    """Tablas en orden de dependencias (padres primero). Para restaurar se
+    recorre al derecho; para borrar, al revés."""
+    return list(models.Base.metadata.sorted_tables)
 
 
-def _export_zona_cobradores(db: Session):
-    rows = db.execute(text("SELECT zona_id, cobrador_id, asignado_en FROM zona_cobradores")).fetchall()
-    result = []
-    for r in rows:
-        result.append({
-            "zona_id": r[0],
-            "cobrador_id": r[1],
-            "asignado_en": r[2].isoformat() if r[2] else None,
-        })
-    return result
+def _stats(db: Session):
+    """Conteos que muestra la página. Si una tabla todavía no existe (deploy a
+    medio migrar), devuelve 0 en vez de tumbar la pantalla."""
+    def _c(model):
+        try:
+            return db.query(model).count()
+        except Exception:
+            db.rollback()
+            return 0
+    return {
+        "socios":        _c(models.Comprador),
+        "taloneras":     _c(models.Talonera),
+        "boletas":       _c(models.Boleta),
+        "vendedores":    _c(models.Vendedor),
+        "cobradores":    _c(models.Cobrador),
+        "zonas":         _c(models.Zona),
+        "sorteos":       _c(models.Sorteo),
+        "planillas":     _c(models.Planilla),
+        "liquidaciones": _c(models.Liquidacion),
+    }
+
+
+def _pagina(request, user, stats=None, msg=None, error=None):
+    return templates.TemplateResponse(request, "backup.html", {
+        "user": user,
+        "stats": stats if stats is not None else {},
+        "msg": msg,
+        "error": error,
+    })
 
 
 # ─────────────────────────────────────────
-# GET /backup/  — página
+# GET /backup/
 # ─────────────────────────────────────────
 
 @router.get("/", response_class=HTMLResponse)
 async def backup_page(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
-
-    # Contar registros por tabla para mostrar en la página
-    stats = {
-        "socios":      db.query(models.Comprador).count(),
-        "taloneras":   db.query(models.Talonera).count(),
-        "boletas":     db.query(models.Boleta).count(),
-        "vendedores":  db.query(models.Vendedor).count(),
-        "cobradores":  db.query(models.Cobrador).count(),
-        "zonas":       db.query(models.Zona).count(),
-        "sorteos":     db.query(models.Sorteo).count(),
-        "planillas":   db.query(models.Planilla).count(),
-        "liquidaciones": db.query(models.Liquidacion).count(),
-    }
-
-    return templates.TemplateResponse(request, "backup.html", {
-        "user": user,
-        "stats": stats,
-        "msg": None,
-        "error": None,
-    })
+    return _pagina(request, user, stats=_stats(db))
 
 
 # ─────────────────────────────────────────
-# GET /backup/descargar  — genera ZIP con JSONs
+# GET /backup/descargar
 # ─────────────────────────────────────────
 
 @router.get("/descargar")
 async def descargar_backup(request: Request, db: Session = Depends(get_db)):
     await auth_module.require_user(request, db)
 
-    data = {
-        "vendedores":           _export_table(db, models.Vendedor),
-        "cobradores":           _export_table(db, models.Cobrador),
-        "zonas":                _export_table(db, models.Zona),
-        "zona_cobradores":      _export_zona_cobradores(db),
-        "taloneras":            _export_table(db, models.Talonera),
-        "compradores":          _export_table(db, models.Comprador),
-        "boletas":              _export_table(db, models.Boleta),
-        "sorteos":              _export_table(db, models.Sorteo),
-        "planillas":            _export_table(db, models.Planilla),
-        "liquidaciones":        _export_table(db, models.Liquidacion),
-        "liquidacion_detalles": _export_table(db, models.LiquidacionDetalle),
-        "liquidaciones_vendedor": _export_table(db, models.LiquidacionVendedor),
-        "entregas_caja":        _export_table(db, models.EntregaCaja),
-    }
-
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for nombre, registros in data.items():
-            contenido = json.dumps(registros, ensure_ascii=False, indent=2)
-            zf.writestr(f"{nombre}.json", contenido)
+    conteos = {}
 
-        # Metadato del backup
-        meta = {
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for tabla in _tablas_ordenadas():
+            cols = [c.name for c in tabla.columns]
+            try:
+                filas = db.execute(
+                    text('SELECT %s FROM "%s"' % (
+                        ", ".join('"%s"' % c for c in cols), tabla.name))
+                ).fetchall()
+            except Exception:
+                # Tabla todavía inexistente en esta DB: se omite y queda registrado.
+                db.rollback()
+                conteos[tabla.name] = None
+                continue
+
+            datos = [{c: _encode(v) for c, v in zip(cols, fila)} for fila in filas]
+            conteos[tabla.name] = len(datos)
+            zf.writestr(f"{tabla.name}.json", json.dumps(datos, ensure_ascii=False, indent=1))
+
+        zf.writestr("_meta.json", json.dumps({
             "fecha": datetime.now().isoformat(),
-            "tablas": {k: len(v) for k, v in data.items()},
-        }
-        zf.writestr("_meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
+            "formato": 2,          # v1 = export viejo con columnas parciales
+            "dialect": engine.dialect.name,
+            "tablas": conteos,
+            "orden": [t.name for t in _tablas_ordenadas()],
+        }, ensure_ascii=False, indent=2))
 
     buf.seek(0)
-    fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"backup_bonos_{fecha_str}.zip"
-
+    nombre = f"backup_bonos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
     )
 
 
 # ─────────────────────────────────────────
-# POST /backup/restaurar  — restaura desde ZIP
+# POST /backup/restaurar
 # ─────────────────────────────────────────
 
 @router.post("/restaurar", response_class=HTMLResponse)
@@ -140,123 +161,84 @@ async def restaurar_backup(
 ):
     user = await auth_module.require_user(request, db)
 
-    if not archivo.filename.endswith(".zip"):
-        return templates.TemplateResponse(request, "backup.html", {
-            "user": user,
-            "stats": {},
-            "msg": None,
-            "error": "El archivo debe ser un .zip generado por esta app.",
-        })
+    if not (archivo.filename or "").lower().endswith(".zip"):
+        return _pagina(request, user, error="El archivo debe ser un .zip generado por esta app.")
 
     contenido = await archivo.read()
     try:
         with zipfile.ZipFile(io.BytesIO(contenido)) as zf:
-            nombres = zf.namelist()
-
-            def leer(nombre):
-                if nombre in nombres:
-                    return json.loads(zf.read(nombre).decode("utf-8"))
-                return []
-
-            vendedores_data      = leer("vendedores.json")
-            cobradores_data      = leer("cobradores.json")
-            zonas_data           = leer("zonas.json")
-            zona_cob_data        = leer("zona_cobradores.json")
-            taloneras_data       = leer("taloneras.json")
-            compradores_data     = leer("compradores.json")
-            boletas_data         = leer("boletas.json")
-            sorteos_data         = leer("sorteos.json")
-            planillas_data       = leer("planillas.json")
-            liquidaciones_data   = leer("liquidaciones.json")
-            liq_det_data         = leer("liquidacion_detalles.json")
-            liq_vend_data        = leer("liquidaciones_vendedor.json")
-            entregas_data        = leer("entregas_caja.json")
-
+            nombres = set(zf.namelist())
+            datos = {
+                n[:-5]: json.loads(zf.read(n).decode("utf-8"))
+                for n in nombres if n.endswith(".json") and n != "_meta.json"
+            }
+            meta = json.loads(zf.read("_meta.json")) if "_meta.json" in nombres else {}
     except Exception as e:
-        return templates.TemplateResponse(request, "backup.html", {
-            "user": user,
-            "stats": {},
-            "msg": None,
-            "error": f"Error al leer el ZIP: {e}",
-        })
+        return _pagina(request, user, error=f"Error al leer el ZIP: {e}")
+
+    if not datos:
+        return _pagina(request, user, error="El ZIP no contiene datos de ninguna tabla.")
+
+    tablas = [t for t in _tablas_ordenadas() if t.name in datos]
+    if not tablas:
+        return _pagina(request, user, error="El ZIP no coincide con ninguna tabla de esta base.")
+
+    dialect = engine.dialect.name
+    restauradas = {}
 
     try:
-        dialect = engine.dialect.name
-
-        # Deshabilitar FK en SQLite durante la restauración
+        # TODO en una sola transacción. El código anterior hacía commit después
+        # del DELETE: si la inserción fallaba, la base quedaba vacía y sin vuelta
+        # atrás. Acá, si algo falla, el rollback deja todo como estaba.
         if dialect == "sqlite":
             db.execute(text("PRAGMA foreign_keys = OFF"))
 
-        # Limpiar tablas en orden inverso de dependencias
-        for tabla in [
-            "entregas_caja", "liquidaciones_vendedor",
-            "liquidacion_detalles", "liquidaciones", "boletas",
-            "planillas", "compradores", "zona_cobradores",
-            "zonas", "cobradores", "vendedores", "taloneras", "sorteos",
-        ]:
-            db.execute(text(f"DELETE FROM {tabla}"))
-        db.commit()
+        for tabla in reversed(tablas):
+            db.execute(text('DELETE FROM "%s"' % tabla.name))
 
-        def insertar(tabla, filas, columnas):
+        for tabla in tablas:
+            filas = datos.get(tabla.name) or []
             if not filas:
-                return
-            for fila in filas:
-                vals = {c: fila.get(c) for c in columnas}
-                cols_str = ", ".join(columnas)
-                params_str = ", ".join(f":{c}" for c in columnas)
-                db.execute(text(f"INSERT INTO {tabla} ({cols_str}) VALUES ({params_str})"), vals)
-            db.commit()
+                restauradas[tabla.name] = 0
+                continue
 
-        insertar("vendedores",  vendedores_data,  ["id", "nombre", "telefono", "activo"])
-        insertar("cobradores",  cobradores_data,  ["id", "nombre", "telefono", "activo", "comision_pct"])
-        insertar("zonas",       zonas_data,       ["id", "nombre", "descripcion", "vendedor_id"])
-        insertar("zona_cobradores", zona_cob_data, ["zona_id", "cobrador_id", "asignado_en"])
-        insertar("taloneras",   taloneras_data,   ["id", "nombre", "multiplicador", "numero_inicio", "numero_fin",
-                                                    "num_series", "offset_series", "activa", "color"])
-        insertar("compradores", compradores_data, ["id", "apellido_nombre", "direccion", "zona_id", "telefono"])
-        insertar("sorteos",     sorteos_data,     ["id", "nombre", "tipo", "cifras", "fecha",
-                                                    "num_premios", "resultado_json"])
-        insertar("planillas",   planillas_data,   ["id", "cobrador_id", "numero", "mes", "anio",
-                                                    "comision_pct", "fecha_creacion"])
-        insertar("liquidaciones_vendedor", liq_vend_data,
-                 ["id", "vendedor_id", "fecha", "cuotas_vendidas", "cuota_1_total", "monto_cuotas",
-                  "comision_cuotas_pct", "comision_cuotas", "contados_vendidos", "monto_contados",
-                  "comision_contados_pct", "comision_contados", "total_comision", "observacion"])
-        insertar("boletas",     boletas_data,     ["id", "talonera_id", "numero_principal", "numeros_adicionales",
-                                                    "comprador_id", "cobrador_id", "vendedor_id", "planilla_id",
-                                                    "fecha_venta", "condicion", "cuotas_pactadas",
-                                                    "cuotas_anticipadas", "cuotas_pagadas", "total_pagado",
-                                                    "liquidacion_vendedor_id"])
-        insertar("liquidaciones", liquidaciones_data,
-                 ["id", "planilla_id", "fecha", "total_cuotas", "monto_total", "comision", "neto"])
-        insertar("liquidacion_detalles", liq_det_data,
-                 ["id", "liquidacion_id", "boleta_id", "cuotas_cobradas"])
-        insertar("entregas_caja", entregas_data,
-                 ["id", "talonera_nombre", "desde", "hasta", "boletas_afectadas",
-                  "observacion", "fecha", "usuario_id", "vendedor_id"])
+            # Intersección entre lo que trae el backup y lo que existe hoy en la
+            # tabla. Un backup viejo al que le falta una columna nueva entra igual
+            # (la columna toma su default); una columna que ya no existe se ignora.
+            presentes = set(filas[0].keys())
+            cols = [c.name for c in tabla.columns if c.name in presentes]
+            if not cols:
+                restauradas[tabla.name] = 0
+                continue
+
+            sql = text('INSERT INTO "%s" (%s) VALUES (%s)' % (
+                tabla.name,
+                ", ".join('"%s"' % c for c in cols),
+                ", ".join(":%s" % c for c in cols),
+            ))
+            db.execute(sql, [{c: _decode(f.get(c)) for c in cols} for f in filas])
+            restauradas[tabla.name] = len(filas)
+
+        # Postgres: reencauzar las secuencias. Sin esto, como los id vienen
+        # explícitos en el backup, el contador queda atrás y el próximo alta
+        # revienta con "duplicate key value violates unique constraint".
+        if dialect == "postgresql":
+            for tabla in tablas:
+                for col in tabla.columns:
+                    seq = db.execute(
+                        text("SELECT pg_get_serial_sequence(:t, :c)"),
+                        {"t": tabla.name, "c": col.name},
+                    ).scalar()
+                    if seq:
+                        db.execute(text(
+                            'SELECT setval(:s, COALESCE((SELECT MAX("%s") FROM "%s"), 0) + 1, false)'
+                            % (col.name, tabla.name)
+                        ), {"s": seq})
 
         if dialect == "sqlite":
             db.execute(text("PRAGMA foreign_keys = ON"))
 
-        # Estadísticas post-restauración
-        stats = {
-            "socios":      db.query(models.Comprador).count(),
-            "taloneras":   db.query(models.Talonera).count(),
-            "boletas":     db.query(models.Boleta).count(),
-            "vendedores":  db.query(models.Vendedor).count(),
-            "cobradores":  db.query(models.Cobrador).count(),
-            "zonas":       db.query(models.Zona).count(),
-            "sorteos":     db.query(models.Sorteo).count(),
-            "planillas":   db.query(models.Planilla).count(),
-            "liquidaciones": db.query(models.Liquidacion).count(),
-        }
-
-        return templates.TemplateResponse(request, "backup.html", {
-            "user": user,
-            "stats": stats,
-            "msg": f"✅ Backup restaurado correctamente desde «{archivo.filename}».",
-            "error": None,
-        })
+        db.commit()
 
     except Exception as e:
         db.rollback()
@@ -265,9 +247,24 @@ async def restaurar_backup(
                 db.execute(text("PRAGMA foreign_keys = ON"))
             except Exception:
                 pass
-        return templates.TemplateResponse(request, "backup.html", {
-            "user": user,
-            "stats": {},
-            "msg": None,
-            "error": f"Error al restaurar: {e}",
-        })
+        return _pagina(
+            request, user,
+            error=f"Error al restaurar: {e} — no se modificó nada, la base quedó como estaba.",
+        )
+
+    total = sum(restauradas.values())
+    fecha = meta.get("fecha", "")[:19].replace("T", " ")
+    detalle = ", ".join(f"{t} {n}" for t, n in restauradas.items() if n)
+    aviso = ""
+    if meta.get("formato") != 2:
+        aviso = (" ATENCIÓN: el ZIP es de la versión vieja del backup y puede no "
+                 "traer todas las columnas (historial de cobranza, contados).")
+
+    return _pagina(
+        request, user,
+        stats=_stats(db),
+        msg=f"Backup restaurado desde «{archivo.filename}»"
+            + (f" (del {fecha})" if fecha else "")
+            + f": {total:,} filas en {len([n for n in restauradas.values() if n])} tablas."
+            + (f" [{detalle}]" if detalle else "") + aviso,
+    )

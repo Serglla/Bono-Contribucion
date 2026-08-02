@@ -1,10 +1,22 @@
 from jinja2 import Environment, FileSystemLoader
 from starlette.templating import Jinja2Templates
 
-# cache_size=0 evita el bug de Jinja2 con globals no-hashables
+# cache_size: cantidad de templates compilados que Jinja mantiene en memoria.
+#
+# Estuvo en 0 (cache desactivado) por un bug viejo con globals no-hashables. Ese
+# problema aparece cuando se pasan globals distintos en cada get_template(); acá
+# los globals se registran una sola vez sobre el env (ver abajo), así que no
+# aplica. Con el cache apagado, Jinja RECOMPILABA el template entero en cada
+# request: compradores.html (84 KB) ~34 ms y vendedor_detalle.html (130 KB) ~53 ms
+# de CPU puro por visita, y bastante más en el CPU compartido de Railway.
+#
+# auto_reload=True mantiene el hot reload en desarrollo: Jinja compara el mtime
+# del archivo y recompila solo si cambió. Editás un .html y lo ves al recargar,
+# igual que antes, pero sin pagar la compilación cuando no cambió nada.
 _env = Environment(
     loader=FileSystemLoader("app/templates"),
-    cache_size=0,
+    cache_size=400,
+    auto_reload=True,
     autoescape=True
 )
 
