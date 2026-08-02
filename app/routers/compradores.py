@@ -656,16 +656,49 @@ async def crear(
                 z_obj.vendedor_id = vendedor_id
                 effective_vendedor_id = vendedor_id
 
-    c = models.Comprador(
-        apellido_nombre=apellido_nombre.strip().upper(),
-        direccion=direccion.strip().upper() or None,
-        zona_id=zona,
-        telefono=telefono.strip() or None
-    )
-    db.add(c)
+    # ── Anti-duplicados (idempotencia) ───────────────────────────────────────
+    # Antes el Comprador se creaba SIEMPRE, antes de mirar la boleta. Si el
+    # navegador reintentaba el mismo alta —cosa que pasaba seguido cuando el
+    # servidor tardaba y el fetch cortaba con "Error de conexión", aunque el
+    # guardado hubiera entrado— cada reintento creaba OTRO socio y le pasaba la
+    # boleta al último. Resultado: un socio bueno con su boleta y N-1 socios
+    # fantasma sin boleta, sin zona y sin fecha.
+    #
+    # Ahora la operación es idempotente: si la boleta ya tiene socio, se
+    # actualiza ese en lugar de crear uno nuevo. Reintentar deja de duplicar.
+    _boleta = db.query(models.Boleta).get(boleta_id) if boleta_id else None
+
+    if _boleta is None:
+        # Sin boleta válida no hay socio que crear: sería un registro huérfano.
+        # El modal siempre manda boleta_id, así que llegar acá es un form roto
+        # o un reintento con la boleta ya borrada.
+        raise HTTPException(400, "No se indicó una boleta válida para el socio.")
+
+    if _boleta.comprador_id:
+        # Reintento del mismo alta: reusar el socio que ya quedó asociado.
+        c = db.query(models.Comprador).get(_boleta.comprador_id)
+    else:
+        c = None
+
+    if c is None:
+        c = models.Comprador(
+            apellido_nombre=apellido_nombre.strip().upper(),
+            direccion=direccion.strip().upper() or None,
+            zona_id=zona,
+            telefono=telefono.strip() or None,
+        )
+        db.add(c)
+    else:
+        # Mismo socio, datos posiblemente corregidos en el reintento.
+        c.apellido_nombre = apellido_nombre.strip().upper()
+        c.direccion       = direccion.strip().upper() or None
+        c.telefono        = telefono.strip() or None
+        if zona:
+            c.zona_id = zona
+
     db.flush()
     if boleta_id:
-        b = db.query(models.Boleta).get(boleta_id)
+        b = _boleta
         if b:
             b.comprador_id = c.id
             b.fecha_venta = date.fromisoformat(fecha_compra) if fecha_compra else b.fecha_venta

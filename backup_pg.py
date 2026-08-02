@@ -6,19 +6,27 @@ A diferencia de /backup/ dentro de la app, este script NO tiene listas de
 columnas escritas a mano: descubre tablas y columnas desde information_schema,
 asi que nunca queda desactualizado cuando se agrega una columna nueva.
 
-USO (PowerShell, desde D:\\MeIA\\bono-app):
+FORMA FACIL: doble click en backup.bat (tiene la URL adentro).
+
+USO MANUAL (PowerShell, desde D:\\MeIA\\bono-app):
 
   # 1) URL publica de Railway (Postgres -> Variables -> DATABASE_PUBLIC_URL)
   $env:DATABASE_URL="postgresql://postgres:xxx@yyy.proxy.rlwy.net:1234/railway"
 
-  # 2) Backup
+  # 2) Backup (se verifica solo al terminar)
   py -3.12 backup_pg.py dump
 
-  # 3) Ver que trajo
-  py -3.12 backup_pg.py inspect backups\\backup_20260801_143000.zip
+  # 3) Re-verificar el ultimo backup en cualquier momento
+  py -3.12 backup_pg.py verify
 
-  # 4) Restaurar (PIDE CONFIRMACION: borra todo antes de insertar)
+  # 4) Ver que trajo
+  py -3.12 backup_pg.py inspect
+
+  # 5) Restaurar (PIDE CONFIRMACION: borra todo antes de insertar)
   py -3.12 backup_pg.py restore backups\\backup_20260801_143000.zip
+
+Los comandos verify / inspect / restore, sin nombre de archivo, usan el backup
+mas reciente de la carpeta backups\\.
 
 Requiere: py -3.12 -m pip install psycopg2-binary
 """
@@ -99,6 +107,20 @@ def columnas_de(cur, tabla):
     return [r[0] for r in cur.fetchall()]
 
 
+def foreign_keys(cur):
+    """[(tabla_hija, columna_hija, tabla_padre, columna_padre), ...]"""
+    cur.execute("""
+        SELECT tc.table_name, kcu.column_name, ccu.table_name, ccu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+        JOIN information_schema.constraint_column_usage ccu
+          ON tc.constraint_name = ccu.constraint_name
+        WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+    """)
+    return cur.fetchall()
+
+
 def orden_por_dependencias(cur, tablas):
     """Ordena las tablas para que las padres se inserten antes que las hijas."""
     cur.execute("""
@@ -159,9 +181,114 @@ def cmd_dump():
             "orden_restore": orden_por_dependencias(cur, tablas),
         }, ensure_ascii=False, indent=2))
 
-    conn.close()
     mb = os.path.getsize(destino) / 1024 / 1024
-    print(f"\nOK -> {destino}  ({mb:.2f} MB, {sum(conteos.values()):,} filas en {len(tablas)} tablas)")
+    print(f"\nArchivo: {destino}")
+    print(f"         {mb:.2f} MB - {sum(conteos.values()):,} filas en {len(tablas)} tablas\n")
+
+    # Verificación inmediata: si el backup no sirve, quiero enterarme AHORA y no
+    # el día que lo necesite.
+    ok = cmd_verify(destino, conn=conn)
+    conn.close()
+    if not ok:
+        print("\n*** NO USES ESTE BACKUP. Volve a correrlo; si sigue fallando, avisá. ***")
+        sys.exit(1)
+    return destino
+
+
+# ─────────────────────────────────────────────────────────────
+# VERIFY — un backup "que existe" no sirve; este comprueba que sirva
+# ─────────────────────────────────────────────────────────────
+
+def cmd_verify(path, conn=None):
+    """Tres controles sobre el ZIP recién hecho:
+      1. Se puede reabrir y cada tabla es JSON válido.
+      2. La cantidad de filas coincide con la base, tabla por tabla.
+      3. Las relaciones cierran DENTRO del backup: toda boleta apunta a un socio
+         y a una talonera que también están en el ZIP. Un backup con conteos
+         correctos pero relaciones rotas falla al restaurar, y eso recién se
+         descubre el día que lo necesitás.
+    Devuelve True/False.
+    """
+    print("VERIFICANDO", os.path.basename(path))
+    problemas, avisos = [], []
+
+    # ── 1. legibilidad ────────────────────────────────────────
+    try:
+        with zipfile.ZipFile(path) as zf:
+            roto = zf.testzip()
+            if roto:
+                print("  [FALLA] el ZIP esta corrupto en:", roto)
+                return False
+            meta = json.loads(zf.read("_meta.json"))
+            datos = {}
+            for n in zf.namelist():
+                if n.endswith(".json") and n != "_meta.json":
+                    try:
+                        datos[n[:-5]] = json.loads(zf.read(n))
+                    except Exception as e:
+                        problemas.append("%s no es JSON valido: %s" % (n, e))
+    except Exception as e:
+        print("  [FALLA] no se puede abrir el ZIP:", e)
+        return False
+    print("  [OK] archivo legible - %d tablas, %s" % (len(datos), meta.get("fecha", "")[:19]))
+
+    # ── 2. conteos contra la base ─────────────────────────────
+    propia = conn is None
+    if propia:
+        conn = psycopg2.connect(get_url())
+    cur = conn.cursor()
+    try:
+        for t in sorted(datos):
+            try:
+                cur.execute('SELECT COUNT(*) FROM "%s"' % t)
+                en_db = cur.fetchone()[0]
+            except Exception:
+                conn.rollback()
+                avisos.append("%s: esta en el ZIP pero ya no existe en la base" % t)
+                continue
+            en_zip = len(datos[t])
+            if en_zip != en_db:
+                problemas.append("%s: %d filas en el ZIP vs %d en la base" % (t, en_zip, en_db))
+        faltantes = [t for t in listar_tablas(cur) if t not in datos]
+        if faltantes:
+            problemas.append("tablas de la base que no entraron al ZIP: " + ", ".join(faltantes))
+        if not problemas:
+            total = sum(len(v) for v in datos.values())
+            print("  [OK] conteos coinciden - %s filas en total" % format(total, ","))
+
+        # ── 3. integridad referencial dentro del ZIP ──────────
+        claves = {}
+        for t, filas in datos.items():
+            claves[t] = {f.get("id") for f in filas if f.get("id") is not None}
+        rotas = 0
+        for hija, col_h, padre, col_p in foreign_keys(cur):
+            if hija not in datos or padre not in claves or col_p != "id":
+                continue
+            validos = claves[padre]
+            for f in datos[hija]:
+                v = f.get(col_h)
+                if v is not None and v not in validos:
+                    rotas += 1
+                    if rotas <= 5:
+                        problemas.append(
+                            "%s.%s = %s no existe en %s (relacion rota)" % (hija, col_h, v, padre))
+        if rotas > 5:
+            problemas.append("...y %d relaciones rotas mas" % (rotas - 5))
+        if not rotas:
+            print("  [OK] relaciones consistentes - todo apunta a algo que existe")
+    finally:
+        if propia:
+            conn.close()
+
+    for a in avisos:
+        print("  [aviso]", a)
+    if problemas:
+        print("\n  BACKUP NO CONFIABLE:")
+        for p in problemas:
+            print("    -", p)
+        return False
+    print("\n  BACKUP VERIFICADO - se puede restaurar.")
+    return True
 
 
 # ─────────────────────────────────────────────────────────────
@@ -254,17 +381,30 @@ def cmd_restore(path, forzar=False):
         conn.close()
 
 
+def ultimo_backup():
+    if not os.path.isdir(BACKUP_DIR):
+        return None
+    zips = sorted(f for f in os.listdir(BACKUP_DIR) if f.endswith(".zip"))
+    return os.path.join(BACKUP_DIR, zips[-1]) if zips else None
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
-    if not args or args[0] not in ("dump", "restore", "inspect"):
+    if not args or args[0] not in ("dump", "restore", "inspect", "verify"):
         sys.exit(__doc__)
+
     if args[0] == "dump":
         cmd_dump()
-    elif args[0] == "inspect":
-        if len(args) < 2:
-            sys.exit("Falta el archivo: backup_pg.py inspect backups\\backup_....zip")
-        cmd_inspect(args[1])
     else:
-        if len(args) < 2:
-            sys.exit("Falta el archivo: backup_pg.py restore backups\\backup_....zip")
-        cmd_restore(args[1], forzar="--yes" in args)
+        # Sin argumento, opera sobre el backup más reciente.
+        path = args[1] if len(args) > 1 and not args[1].startswith("--") else ultimo_backup()
+        if not path:
+            sys.exit("No encontre ningun backup en %s. Corre primero:  backup_pg.py dump" % BACKUP_DIR)
+        if not os.path.exists(path):
+            sys.exit("No existe el archivo: %s" % path)
+        if args[0] == "inspect":
+            cmd_inspect(path)
+        elif args[0] == "verify":
+            sys.exit(0 if cmd_verify(path) else 1)
+        else:
+            cmd_restore(path, forzar="--yes" in args)

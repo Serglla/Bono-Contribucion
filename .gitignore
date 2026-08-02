@@ -43,3 +43,10 @@ logs/
 
 # Cowork / Claude internal
 .claude/
+
+# Backups de la base (datos reales de socios: NO van al repo)
+backups/
+
+# backup.bat lleva adentro la contraseña de Postgres de Railway.
+# Si esto se sube a GitHub, la credencial queda publicada.
+backup.bat
