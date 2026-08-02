@@ -356,8 +356,30 @@ function swSyncNow() {
   swRegistration.active?.postMessage({ type: "SYNC_NOW" });
 }
 
-function swPrefetch() {
+// Pre-carga de las 4 páginas pesadas (/compradores/, /reportes/, /cobranza/,
+// /vendedores/) para poder verlas sin conexión.
+//
+// OJO: esto se disparaba en CADA carga de página. Cada navegación generaba 5
+// requests en vez de 1, y las 4 extra son las más caras de la app: con 744
+// socios, /compradores/ sola son cientos de queries. El servidor terminaba
+// haciendo más trabajo para nadie que para el que estaba usando la app, y los
+// guardados quedaban esperando hasta que el navegador cortaba el fetch
+// ("Error de conexión" del modal de socios).
+//
+// Ahora corre como mucho una vez cada 15 minutos. Alcanza de sobra para tener
+// las páginas cacheadas y saca del medio el bombardeo.
+const PREFETCH_KEY   = "bonos_last_prefetch";
+const PREFETCH_MIN_MS = 15 * 60 * 1000;
+
+function swPrefetch(forzar = false) {
   if (!swRegistration?.active) return;
+  if (!forzar) {
+    try {
+      const ultimo = parseInt(localStorage.getItem(PREFETCH_KEY) || "0", 10);
+      if (Date.now() - ultimo < PREFETCH_MIN_MS) return;   // todavía es reciente
+    } catch (_) { /* sin localStorage: seguir de largo */ }
+  }
+  try { localStorage.setItem(PREFETCH_KEY, String(Date.now())); } catch (_) {}
   swRegistration.active.postMessage({ type: "PREFETCH_PAGES" });
 }
 
@@ -432,10 +454,12 @@ window.addEventListener("offline", () => {
 });
 
 // Pre-cachear páginas clave cuando la app carga y hay conexión.
+// El throttle de 15 min vive dentro de swPrefetch(): en la práctica esto corre
+// una vez al abrir la app y no en cada pantalla que visitás.
 window.addEventListener("load", () => {
   if (navigator.onLine) {
-    // Pequeño delay para no competir con la carga inicial de la página.
-    setTimeout(swPrefetch, 3000);
+    // Delay para no competir con la carga inicial de la página.
+    setTimeout(swPrefetch, 5000);
   }
 });
 
