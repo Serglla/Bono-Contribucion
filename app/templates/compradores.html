@@ -572,28 +572,70 @@ function verContadoSinCargar(btn) {
     return textoCelda(td, col).includes(q);
   }
 
+  // ── Índice de búsqueda ────────────────────────────────────────────────────
+  // Antes cada tecla recorría las ~750 filas leyendo td.innerText de 9 columnas
+  // (~6.700 lecturas por pulsación). innerText obliga al navegador a recalcular
+  // el layout, y como el mismo bucle ESCRIBÍA row.style.display mientras leía la
+  // fila siguiente, cada escritura invalidaba el layout y la lectura siguiente lo
+  // recalculaba entero (layout thrashing). De ahí el retraso al tipear.
+  //
+  // Ahora el texto de cada fila se extrae UNA sola vez y queda cacheado; cada
+  // tecla solo compara strings en memoria. Se sigue usando innerText para armar
+  // el índice, así los resultados de la búsqueda son idénticos a antes.
+  let idxBusqueda = null;
+
+  function datosDeFila(row) {
+    const tds = row.querySelectorAll('td');
+    if (tds.length < 8) return { row, corta: true };
+    const textos = [];
+    for (let c = 0; c <= 9; c++) textos[c] = tds[c] ? textoCelda(tds[c], c) : '';
+    return {
+      row, corta: false, textos,
+      // Números de la celda de N° Boleta, ya normalizados a 4 dígitos.
+      nums: (tds[1] ? numerosDeCelda(tds[1]) : []).map(n => n.padStart(4, '0')),
+    };
+  }
+
+  function construirIndice() {
+    idxBusqueda = [];
+    tbody.querySelectorAll('tr').forEach(row => idxBusqueda.push(datosDeFila(row)));
+  }
+
+  // Rearmar el índice de una fila puntual (ej: le cambiaron el cobrador).
+  function reindexarFila(row) {
+    if (!idxBusqueda || !row) return;
+    const i = idxBusqueda.findIndex(it => it.row === row);
+    if (i >= 0) idxBusqueda[i] = datosDeFila(row);
+  }
+
+  function coincideIdx(it, col, q) {
+    if (col === 1) return it.nums.some(n => n.endsWith(q));
+    return (it.textos[col] || '').includes(q);
+  }
+
   function aplicarBusqueda() {
+    if (!idxBusqueda) construirIndice();
     const q = inputBusqueda.value.trim().toLowerCase();
     const col = parseInt(selectCol.value);
     let visible = 0;
-    tbody.querySelectorAll('tr').forEach(row => {
-      const tds = row.querySelectorAll('td');
-      if (tds.length < 8) { row.style.display = ''; return; }
+    for (const it of idxBusqueda) {
       let show = true;
-      if (q) {
+      if (!it.corta && q) {
         if (col === -1) {
           // Buscar en columnas de datos (1..9), saltea checkbox (0)
           show = false;
           for (let c = 1; c <= 9; c++) {
-            if (coincide(tds[c], c, q)) { show = true; break; }
+            if (coincideIdx(it, c, q)) { show = true; break; }
           }
         } else {
-          show = coincide(tds[col], col, q);
+          show = coincideIdx(it, col, q);
         }
       }
-      row.style.display = show ? '' : 'none';
+      const d = show ? '' : 'none';
+      // Escribir solo si cambia: cada asignación a style invalida el layout.
+      if (it.row.style.display !== d) it.row.style.display = d;
       if (show) visible++;
-    });
+    }
     if (contador) contador.textContent = visible;
   }
 
@@ -615,7 +657,15 @@ function verContadoSinCargar(btn) {
     } catch (e) {}
   }
 
-  inputBusqueda.addEventListener('input', () => { guardarBusqueda(); aplicarBusqueda(); });
+  // guardarBusqueda() escribe en sessionStorage, que es síncrono y bloquea.
+  // No hace falta persistir en cada tecla: alcanza con hacerlo cuando el
+  // usuario deja de escribir. El filtrado sí corre en el acto.
+  let tGuardar = null;
+  inputBusqueda.addEventListener('input', () => {
+    aplicarBusqueda();
+    clearTimeout(tGuardar);
+    tGuardar = setTimeout(guardarBusqueda, 250);
+  });
   selectCol.addEventListener('change', () => { guardarBusqueda(); aplicarBusqueda(); });
   btnLimpiar.addEventListener('click', () => {
     inputBusqueda.value = '';
@@ -1733,6 +1783,15 @@ document.querySelectorAll('.input-upper').forEach(el => {
       const data = await resp.json();
       if (data.ok) {
         sel.dataset.prev = nuevo;
+        const _td = sel.closest('td');
+        // Mantener sincronizado el data-val que usa la búsqueda por cobrador,
+        // y refrescar el índice de esa fila.
+        if (_td) {
+          const _opt = sel.options[sel.selectedIndex];
+          const _txt = (_opt && nuevo) ? _opt.textContent.trim() : '';
+          if (_td.dataset.val !== undefined) _td.dataset.val = _txt;
+          if (typeof reindexarFila === 'function') reindexarFila(sel.closest('tr'));
+        }
         flashCelda(sel.closest('td'), true);
         // Avisar transferencia si hubo
         if (data.boletas_transferidas > 0) {
