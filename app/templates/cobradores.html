@@ -5,20 +5,7 @@
   <h4 class="page-title"><i class="bi bi-wallet2 text-danger"></i>Cobranza</h4>
 </div>
 
-<!-- Tabs de navegación de Cobranza -->
-<ul class="nav nav-tabs mb-4">
-  {% if has_permission(user, 'cobranza', 'ver') %}
-  <li class="nav-item">
-    <a class="nav-link" href="/cobranza/">Planillas</a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link" href="/cobranza/emplanillado">Emplanillado</a>
-  </li>
-  {% endif %}
-  <li class="nav-item">
-    <a class="nav-link active fw-semibold" href="/cobradores/">Cobradores</a>
-  </li>
-</ul>
+{% include "_cobranza_tabs.html" %}
 
 <div class="page-header">
   <h5 class="page-title" style="font-size:1.05rem;"><i class="bi bi-cash-coin text-danger"></i>Cobradores</h5>

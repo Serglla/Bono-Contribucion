@@ -1,0 +1,44 @@
+{# ─────────────────────────────────────────────────────────────────────────────
+   Barra de pestañas de Cobranza — FUENTE ÚNICA.
+
+   Antes esta barra estaba copiada y pegada en 6 templates, y cada copia había
+   quedado con una lista distinta: cobradores.html mostraba solo 3 pestañas
+   (sin Adelantos ni Consolidado), el resto 5, y cobranza_liquidacion.html tenía
+   una sexta ("Liquidación") que apuntaba a /cobranza/liquidacion — ruta que no
+   existe: el router solo define /cobranza/liquidacion/{planilla_id}.
+
+   Al agregar una sección nueva hay que tocar SOLO este archivo.
+   Se incluye con:  {% include "_cobranza_tabs.html" %}
+
+   La pestaña activa se detecta sola con request.url.path, así que no hay que
+   pasarle nada ni acordarse de mover el "active" al copiar.
+─────────────────────────────────────────────────────────────────────────────#}
+{% set _ruta = request.url.path %}
+<ul class="nav nav-tabs mb-4">
+  {% if has_permission(user, 'cobranza', 'ver') %}
+  <li class="nav-item">
+    {# Planillas es "/cobranza/" exacto: comparar por prefijo la marcaría
+       activa en todas las subpáginas de cobranza. #}
+    <a class="nav-link {% if _ruta == '/cobranza/' or _ruta == '/cobranza' %}active fw-semibold{% endif %}"
+       href="/cobranza/">Planillas</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if _ruta.startswith('/cobranza/emplanillado') %}active fw-semibold{% endif %}"
+       href="/cobranza/emplanillado">Emplanillado</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if _ruta.startswith('/cobranza/adelantos') %}active fw-semibold{% endif %}"
+       href="/cobranza/adelantos">Adelantos</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if _ruta.startswith('/cobranza/consolidado') %}active fw-semibold{% endif %}"
+       href="/cobranza/consolidado">Consolidado</a>
+  </li>
+  {% endif %}
+  {% if has_permission(user, 'cobradores', 'ver') %}
+  <li class="nav-item">
+    <a class="nav-link {% if _ruta.startswith('/cobradores') %}active fw-semibold{% endif %}"
+       href="/cobradores/">Cobradores</a>
+  </li>
+  {% endif %}
+</ul>

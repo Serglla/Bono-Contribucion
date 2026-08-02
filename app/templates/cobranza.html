@@ -69,26 +69,7 @@
   .res-thumb-tag { background: var(--bs-success, #198754); }
 </style>
 
-<!-- Tabs de navegación -->
-<ul class="nav nav-tabs mb-4">
-  <li class="nav-item">
-    <a class="nav-link active fw-semibold" href="/cobranza/">Planillas</a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link" href="/cobranza/emplanillado">Emplanillado</a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link" href="/cobranza/adelantos">Adelantos</a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link" href="/cobranza/consolidado">Consolidado</a>
-  </li>
-  {% if has_permission(user, 'cobradores', 'ver') %}
-  <li class="nav-item">
-    <a class="nav-link" href="/cobradores/">Cobradores</a>
-  </li>
-  {% endif %}
-</ul>
+{% include "_cobranza_tabs.html" %}
 
 <!-- Selector de mes/año -->
 <div class="search-wrap mb-4">
