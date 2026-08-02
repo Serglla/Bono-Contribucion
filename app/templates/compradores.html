@@ -18,6 +18,25 @@
   </div>
 </div>
 
+{# Aviso del filtro activo: va FUERA del bloque de alertas de abajo, porque ese
+   solo se renderiza si hay pendientes. Si filtrás y ya no queda ninguno sin
+   cobrador, igual tenés que poder ver que el filtro está puesto y sacarlo. #}
+{% if filtro_sin_cob %}
+<div class="alert alert-info d-flex align-items-center justify-content-between py-2 mb-3">
+  <span><i class="bi bi-funnel-fill me-2"></i>
+    Viendo <strong>solo los socios sin cobrador</strong>.
+  </span>
+  <span class="d-flex gap-2">
+    <button class="btn btn-sm btn-primary fw-semibold" id="btnSeleccionarTodosSinCob">
+      <i class="bi bi-check2-square me-1"></i>Seleccionar todos
+    </button>
+    <a href="/compradores/" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-x-lg me-1"></i>Quitar filtro
+    </a>
+  </span>
+</div>
+{% endif %}
+
 {% if sin_vendedor > 0 or sin_cobrador > 0 or contado_sin_cargar > 0 %}
 <div class="d-flex flex-column gap-2 mb-3">
 
@@ -39,11 +58,19 @@
     <span><i class="bi bi-exclamation-triangle-fill me-2"></i>
       <strong>{{ sin_cobrador }}</strong> socio{% if sin_cobrador != 1 %}s{% endif %} sin cobrador asignado.
     </span>
-    {% if user.is_admin %}
-    <button class="btn btn-sm btn-warning fw-semibold" onclick="completarFaltantes('cobradores', this, 'alertaSinCobrador')">
-      <i class="bi bi-magic me-1"></i>Completar automáticamente
-    </button>
-    {% endif %}
+    <span class="d-flex gap-2">
+      {# Atajo directo: filtra la tabla a esos socios y los deja listos para
+         seleccionar en masa. Antes había que encontrar el botón "Sin cobrador"
+         entre las tabs de PATA, que queda a la derecha y pasa desapercibido. #}
+      <a href="/compradores/?sin_cob=1" class="btn btn-sm btn-outline-dark fw-semibold">
+        <i class="bi bi-funnel-fill me-1"></i>Ver y asignar
+      </a>
+      {% if user.is_admin %}
+      <button class="btn btn-sm btn-warning fw-semibold" onclick="completarFaltantes('cobradores', this, 'alertaSinCobrador')">
+        <i class="bi bi-magic me-1"></i>Completar automáticamente
+      </button>
+      {% endif %}
+    </span>
   </div>
   {% endif %}
 
@@ -465,6 +492,19 @@ function verContadoSinCargar(btn) {
   #tablaCompradores tbody tr { height: 28px; }
   td.col-direccion { text-transform: uppercase; }
   .sortable:hover { background-color: #f0f0f0; }
+  /* Mientras se arrastra para seleccionar, que no se pinte el texto de la tabla */
+  body.arrastrando-seleccion, body.arrastrando-seleccion * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+  }
+  /* La casilla sola mide ~13px: agrandar el area agarrable a toda la celda,
+     asi arrastrar no exige puntería */
+  #tablaCompradores tbody td:first-child {
+    cursor: pointer;
+    padding-left: .5rem;
+    padding-right: .5rem;
+  }
+  #tablaCompradores tbody td:first-child:hover { background-color: #e9ecef; }
   .sortable.asc .sort-icon::after  { content: " ▲"; color: #dc3545; }
   .sortable.desc .sort-icon::after { content: " ▼"; color: #dc3545; }
   .sortable.asc .sort-icon,
@@ -496,9 +536,35 @@ function verContadoSinCargar(btn) {
       }
       headers.forEach(h => h.classList.remove('asc','desc'));
       th.classList.add(sortState.asc ? 'asc' : 'desc');
+      guardarOrden();
       sortRows();
     });
   });
+
+  // ── Persistencia del orden ────────────────────────────────────────────────
+  // sortState vivía solo en memoria: al entrar a un socio y volver, la página
+  // se recarga y el orden se perdía (el filtro de búsqueda sí sobrevivía, por
+  // eso la diferencia se notaba). Se guarda igual que la búsqueda.
+  const ORDEN_KEY = 'compradores_orden';
+
+  function guardarOrden() {
+    try { sessionStorage.setItem(ORDEN_KEY, JSON.stringify(sortState)); } catch (e) {}
+  }
+
+  // Devuelve true si aplicó un orden guardado (y por lo tanto ya ordenó/filtró).
+  function restaurarOrden() {
+    try {
+      const s = JSON.parse(sessionStorage.getItem(ORDEN_KEY) || 'null');
+      if (!s || typeof s.col !== 'number' || s.col < 0) return false;
+      const th = Array.from(headers).find(h => parseInt(h.dataset.col) === s.col);
+      if (!th) return false;
+      sortState = { col: s.col, asc: !!s.asc };
+      headers.forEach(h => h.classList.remove('asc','desc'));
+      th.classList.add(sortState.asc ? 'asc' : 'desc');
+      sortRows();
+      return true;
+    } catch (e) { return false; }
+  }
 
   function getCellText(row, col) {
     const td = row.querySelectorAll('td')[col];
@@ -679,11 +745,16 @@ function verContadoSinCargar(btn) {
     if (e.key === 'Enter') e.preventDefault();
   });
 
-  // Restaurar el filtro previo (al volver de la ficha de un socio) y aplicarlo.
+  // Restaurar filtro + orden previos (al volver de la ficha de un socio).
+  // restaurarOrden() ya llama a sortRows(), que a su vez aplica la búsqueda;
+  // solo filtramos por separado si no había un orden guardado.
   restaurarBusqueda();
-  aplicarBusqueda();
-  // Si el navegador restaura desde bfcache, re-aplicar el filtro guardado.
-  window.addEventListener('pageshow', () => { restaurarBusqueda(); aplicarBusqueda(); });
+  if (!restaurarOrden()) aplicarBusqueda();
+  // Si el navegador restaura desde bfcache, re-aplicar filtro y orden.
+  window.addEventListener('pageshow', () => {
+    restaurarBusqueda();
+    if (!restaurarOrden()) aplicarBusqueda();
+  });
 })();
 
 // Mayúsculas en tiempo real
@@ -1754,6 +1825,85 @@ document.querySelectorAll('.input-upper').forEach(el => {
     chkTodos.checked = false;
     refreshBarra();
   });
+
+  // ── Selección por arrastre y por rango ────────────────────────────────
+  // Marcar 29 socios de a uno es tedioso. Tres formas de hacerlo rápido:
+  //   1. Checkbox del encabezado  → todos los visibles (respeta el filtro).
+  //   2. Arrastrar con el mouse   → apretás sobre la primera casilla y sin
+  //      soltar pasás por las demás; se van marcando solas.
+  //   3. Shift + click            → marca todo el rango entre la última fila
+  //      clickeada y esta. Solo cuenta filas visibles.
+  // El primer checkbox que tocás define la acción: si estaba desmarcado,
+  // el arrastre MARCA; si estaba marcado, DESMARCA.
+  let arrastrando   = false;
+  let valorArrastre = true;
+  let ultimaFila    = null;
+
+  const chkDe = tr => (tr ? tr.querySelector('.chk-socio') : null);
+  const filasVisibles = () =>
+    Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none' && chkDe(tr));
+
+  tbody.addEventListener('mousedown', e => {
+    const td = e.target.closest('td');
+    if (!td || td.cellIndex !== 0) return;      // solo la columna de casillas
+    const tr  = td.closest('tr');
+    const chk = chkDe(tr);
+    if (!chk) return;
+
+    // preventDefault: evita que arrastrar seleccione el texto de la tabla.
+    // Como esto anula el toggle nativo, marcamos la casilla a mano.
+    e.preventDefault();
+
+    if (e.shiftKey && ultimaFila && ultimaFila !== tr) {
+      const vis = filasVisibles();
+      const i = vis.indexOf(tr), j = vis.indexOf(ultimaFila);
+      if (i >= 0 && j >= 0) {
+        const destino = !chk.checked;
+        const [a, b] = i < j ? [i, j] : [j, i];
+        for (let k = a; k <= b; k++) {
+          const c = chkDe(vis[k]);
+          if (c) c.checked = destino;
+        }
+      }
+    } else {
+      valorArrastre = !chk.checked;
+      chk.checked   = valorArrastre;
+      arrastrando   = true;
+      document.body.classList.add('arrastrando-seleccion');
+    }
+    ultimaFila = tr;
+    refreshBarra();
+  });
+
+  tbody.addEventListener('mouseover', e => {
+    if (!arrastrando) return;
+    const tr  = e.target.closest('tr');
+    const chk = chkDe(tr);
+    if (chk && chk.checked !== valorArrastre) {
+      chk.checked = valorArrastre;
+      ultimaFila  = tr;
+      refreshBarra();
+    }
+  });
+
+  // En document, no en tbody: si soltás el botón fuera de la tabla igual corta.
+  document.addEventListener('mouseup', () => {
+    if (!arrastrando) return;
+    arrastrando = false;
+    document.body.classList.remove('arrastrando-seleccion');
+  });
+
+  // Botón "Seleccionar todos" del aviso que aparece con el filtro sin_cob.
+  // Marca solo las filas visibles, así respeta cualquier filtro extra
+  // (PATA, zona, vendedor o lo que haya escrito en el buscador).
+  const btnSelSinCob = document.getElementById('btnSeleccionarTodosSinCob');
+  if (btnSelSinCob) {
+    btnSelSinCob.addEventListener('click', () => {
+      filasVisibles().forEach(tr => { const c = chkDe(tr); if (c) c.checked = true; });
+      chkTodos.checked = true;
+      refreshBarra();
+    });
+  }
 
   // ── Selector inline por fila ──────────────────────────────────────────
   function flashCelda(td, ok) {
