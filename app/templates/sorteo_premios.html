@@ -68,10 +68,22 @@
                    class="form-control form-control-sm text-end">
           </td>
           <td>
-            <select form="{{ fid }}" name="modalidad" class="form-select form-select-sm">
-              <option value="POSICION" {% if p.modalidad == "POSICION" %}selected{% endif %}>Por posición</option>
-              <option value="CADA_UNO" {% if p.modalidad == "CADA_UNO" %}selected{% endif %}>A cada uno</option>
-            </select>
+            <div class="d-flex gap-1">
+              <select form="{{ fid }}" name="modalidad" class="form-select form-select-sm">
+                <option value="POSICION" {% if p.modalidad == "POSICION" %}selected{% endif %}>Por posición</option>
+                <option value="CADA_UNO" {% if p.modalidad == "CADA_UNO" %}selected{% endif %}>A cada uno</option>
+                {% if cifras_sorteo|length > 1 or p.modalidad == "POR_CIFRAS" %}
+                <option value="POR_CIFRAS" {% if p.modalidad == "POR_CIFRAS" %}selected{% endif %}>Según las cifras</option>
+                {% endif %}
+              </select>
+              {# El nivel viaja siempre; el server lo ignora si la modalidad no es POR_CIFRAS #}
+              <select form="{{ fid }}" name="cifras" class="form-select form-select-sm"
+                      style="width:auto;" title="Nivel de cifras al que aplica este premio">
+                {% for c in cifras_sorteo %}
+                <option value="{{ c }}" {% if p.cifras == c %}selected{% endif %}>{{ c }}c</option>
+                {% endfor %}
+              </select>
+            </div>
           </td>
           <td class="text-end" style="white-space:nowrap;">
             <button form="{{ fid }}" class="btn btn-sm btn-outline-primary me-1" title="Guardar cambios">
@@ -129,9 +141,23 @@
       </div>
       <div class="col-8 col-md-2">
         <label class="form-label small mb-1">Modalidad</label>
-        <select name="modalidad" class="form-select form-select-sm">
+        <select name="modalidad" id="nuevoModalidad" class="form-select form-select-sm"
+                onchange="toggleCifrasNuevo()">
           <option value="POSICION">Por posición</option>
           <option value="CADA_UNO">A cada uno</option>
+          {% if cifras_sorteo|length > 1 %}
+          <option value="POR_CIFRAS">Según las cifras</option>
+          {% endif %}
+        </select>
+      </div>
+      {# Solo visible con modalidad POR_CIFRAS: a qué nivel aplica este premio.
+         Se ofrecen únicamente las cifras que juega este sorteo. #}
+      <div class="col-6 col-md-1 d-none" id="nuevoCifrasBox">
+        <label class="form-label small mb-1">Cifras</label>
+        <select name="cifras" class="form-select form-select-sm">
+          {% for c in cifras_sorteo %}
+          <option value="{{ c }}">{{ c }} cifras</option>
+          {% endfor %}
         </select>
       </div>
       <div class="col-4 col-md-1">
@@ -145,8 +171,24 @@
       <strong>Orden $</strong>: el monto suma al balance de costos apenas hay un ganador válido.
       <strong>Físico</strong>: el monto es solo referencia (cargás el gasto real al comprarlo).
       <strong>A cada uno</strong>: todos los ganadores del sorteo reciben este premio.
+      {% if cifras_sorteo|length > 1 %}
+      <strong>Según las cifras</strong>: solo los ganadores que pegaron ese nivel
+      (cargá un premio por cada nivel — el de {{ cifras_sorteo[0] }} cifras y el de
+      {{ cifras_sorteo[-1] }} — y «Asignar todos» le da a cada uno el que le toca).
+      {% endif %}
     </div>
   </div>
 </div>
+
+<script>
+  // El selector de cifras solo tiene sentido con modalidad POR_CIFRAS
+  function toggleCifrasNuevo() {
+    var m = document.getElementById('nuevoModalidad');
+    var box = document.getElementById('nuevoCifrasBox');
+    if (!m || !box) return;
+    box.classList.toggle('d-none', m.value !== 'POR_CIFRAS');
+  }
+  document.addEventListener('DOMContentLoaded', toggleCifrasNuevo);
+</script>
 
 {% endblock %}

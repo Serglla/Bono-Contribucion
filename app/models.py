@@ -383,9 +383,15 @@ class PremioSorteo(Base):
                    (NO entra al balance automatico; se carga aparte como gasto
                    al comprarlo).
     modalidad:
-      - "POSICION" → un unico ganador para esa posicion (FINAL 1°/2°/3°).
-      - "CADA_UNO" → todos los ganadores del sorteo reciben este premio
-                     (ej: semanal "$30.000 a cada uno").
+      - "POSICION"   → un unico ganador para esa posicion (FINAL 1°/2°/3°).
+      - "CADA_UNO"   → todos los ganadores del sorteo reciben este premio
+                       (ej: semanal "$30.000 a cada uno").
+      - "POR_CIFRAS" → todos los ganadores que pegaron EXACTAMENTE `cifras`
+                       cifras (03/08/2026). En un semanal a 4 y 3 cifras el que
+                       pega 4 cobra mas que el que pega 3, y con CADA_UNO les
+                       tocaba lo mismo. Con esta modalidad se cargan dos premios
+                       (uno de 4 y otro de 3) y "Asignar todos" le da a cada uno
+                       el que le corresponde, sin asignar a mano.
     """
     __tablename__ = "premios_sorteo"
     id          = Column(Integer, primary_key=True, index=True)
@@ -394,7 +400,11 @@ class PremioSorteo(Base):
     descripcion = Column(String, nullable=False)
     clase       = Column(String, default="ORDEN")     # ORDEN | FISICO
     monto       = Column(Float, default=0.0)
-    modalidad   = Column(String, default="POSICION")  # POSICION | CADA_UNO
+    modalidad   = Column(String, default="POSICION")  # POSICION | CADA_UNO | POR_CIFRAS
+    # Nivel de cifras al que aplica el premio. Solo se usa con modalidad
+    # POR_CIFRAS; en las otras queda NULL. deferred: la columna puede no existir
+    # todavia en una DB vieja (la crea la migracion de arranque en main.py).
+    cifras      = deferred(Column(Integer, nullable=True))
     created_at  = Column(DateTime, server_default=func.now())
 
     sorteo = relationship("Sorteo", back_populates="premios")

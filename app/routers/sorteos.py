@@ -730,7 +730,19 @@ async def eliminar(sid: int, request: Request, db: Session = Depends(get_db)):
 # ── Premios del sorteo ───────────────────────────────────────────────────────
 
 _CLASES_PREMIO = {"ORDEN", "FISICO"}
-_MODALIDADES_PREMIO = {"POSICION", "CADA_UNO"}
+_MODALIDADES_PREMIO = {"POSICION", "CADA_UNO", "POR_CIFRAS"}
+
+
+def _candidatos_del_premio(premio, candidatos):
+    """Filtra los ganadores que le corresponden a un premio.
+
+    Solo POR_CIFRAS filtra: se queda con los que pegaron EXACTAMENTE el nivel de
+    cifras del premio (en un semanal a 4 y 3, el premio de 4 no le toca al que
+    pego 3). POSICION y CADA_UNO ven todos los candidatos, como siempre.
+    """
+    if (premio.modalidad or "") != "POR_CIFRAS" or not premio.cifras:
+        return candidatos
+    return [c for c in candidatos if int(c.get("cifras") or 0) == int(premio.cifras)]
 
 
 @router.get("/{sid}/premios", response_class=HTMLResponse)
@@ -741,10 +753,18 @@ async def premios_form(sid: int, request: Request, db: Session = Depends(get_db)
     s = db.query(models.Sorteo).get(sid)
     if not s:
         return RedirectResponse("/sorteos/", status_code=302)
+    # Niveles de cifras que juega este sorteo (ej: [4, 3]) — el selector de la
+    # modalidad POR_CIFRAS solo ofrece estos, no un 2 que este sorteo no juega.
+    try:
+        cifras_sorteo = sorted({int(c) for c in str(s.cifras).split(",") if str(c).strip()},
+                               reverse=True)
+    except (ValueError, TypeError):
+        cifras_sorteo = []
     return templates.TemplateResponse(request, "sorteo_premios.html", {
         "user": user,
         "sorteo": s,
         "premios": s.premios,
+        "cifras_sorteo": cifras_sorteo,
         "tipo_label": _TIPO_LABEL_PLURAL.get(s.tipo.value, s.tipo.value),
     })
 
@@ -757,6 +777,7 @@ async def premio_crear(
     clase: str = Form("ORDEN"),
     monto: float = Form(0.0),
     modalidad: str = Form("POSICION"),
+    cifras: int = Form(0),
     orden: int = Form(0),
     db: Session = Depends(get_db),
 ):
@@ -781,6 +802,9 @@ async def premio_crear(
         clase=clase,
         monto=max(0.0, monto),
         modalidad=modalidad,
+        # El nivel de cifras solo tiene sentido en POR_CIFRAS; en el resto queda NULL
+        # para no dejar datos que confundan si después se cambia la modalidad.
+        cifras=(int(cifras) if modalidad == "POR_CIFRAS" and cifras in (2, 3, 4) else None),
     )
     db.add(p)
     db.commit()
@@ -795,6 +819,7 @@ async def premio_editar(
     clase: str = Form("ORDEN"),
     monto: float = Form(0.0),
     modalidad: str = Form("POSICION"),
+    cifras: int = Form(0),
     orden: int = Form(1),
     db: Session = Depends(get_db),
 ):
@@ -809,6 +834,8 @@ async def premio_editar(
         p.descripcion = desc
     p.clase = clase if clase in _CLASES_PREMIO else "ORDEN"
     p.modalidad = modalidad if modalidad in _MODALIDADES_PREMIO else "POSICION"
+    # Se limpia el nivel si el premio deja de ser POR_CIFRAS (ver premio_crear)
+    p.cifras = (int(cifras) if p.modalidad == "POR_CIFRAS" and cifras in (2, 3, 4) else None)
     p.monto = max(0.0, monto)
     p.orden = max(1, orden)
     db.commit()
@@ -1125,7 +1152,10 @@ async def entregas_form(sid: int, request: Request, db: Session = Depends(get_db
                 "fecha_entrega": e.fecha_entrega.strftime("%d/%m/%Y") if e.fecha_entrega else "",
             })
             ya.add((e.boleta_id, e.numero_ganador))
-        disponibles = [c for c in candidatos if (c["boleta_id"], c["numero"]) not in ya]
+        # POR_CIFRAS: el desplegable solo ofrece los ganadores del nivel del premio,
+        # así no se puede asignar por error el premio de 4 cifras al que pegó 3.
+        _del_premio = _candidatos_del_premio(p, candidatos)
+        disponibles = [c for c in _del_premio if (c["boleta_id"], c["numero"]) not in ya]
         premios_view.append({"premio": p, "entregas": entregas, "candidatos": disponibles})
 
     return templates.TemplateResponse(request, "sorteo_entregas.html", {
@@ -1178,7 +1208,8 @@ async def premio_asignar_todos(pid: int, request: Request, db: Session = Depends
     p = db.query(models.PremioSorteo).get(pid)
     if not p:
         return RedirectResponse("/sorteos/", status_code=302)
-    candidatos = _candidatos_ganadores(p.sorteo, db)
+    # POR_CIFRAS: solo los ganadores del nivel de este premio (ver _candidatos_del_premio)
+    candidatos = _candidatos_del_premio(p, _candidatos_ganadores(p.sorteo, db))
     ya = {(e.boleta_id, e.numero_ganador) for e in p.entregas}
     nuevos = 0
     for c in candidatos:

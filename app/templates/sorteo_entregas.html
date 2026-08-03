@@ -60,7 +60,9 @@
         <span class="badge bg-secondary-subtle text-secondary border">Físico</span>
       {% endif %}
       <span class="badge bg-light text-dark border">
-        {{ "A cada uno" if p.modalidad == "CADA_UNO" else "Por posición" }}
+        {% if p.modalidad == "POR_CIFRAS" %}Solo los de {{ p.cifras }} cifras
+        {% elif p.modalidad == "CADA_UNO" %}A cada uno
+        {% else %}Por posición{% endif %}
       </span>
     </div>
     <div class="card-body">
@@ -135,10 +137,13 @@
         <div class="col-6 col-md-2">
           <button class="btn btn-sm btn-danger w-100"><i class="bi bi-plus-lg me-1"></i>Asignar</button>
         </div>
-        {% if p.modalidad == "CADA_UNO" %}
+        {# POR_CIFRAS también permite "Todos": el server ya filtra por nivel,
+           así que asigna solo los ganadores que le corresponden a este premio. #}
+        {% if p.modalidad in ("CADA_UNO", "POR_CIFRAS") %}
         <div class="col-6 col-md-2">
           <button formaction="/sorteos/premios/{{ p.id }}/asignar-todos"
-                  class="btn btn-sm btn-outline-danger w-100" title="Asignar todos los ganadores válidos">
+                  class="btn btn-sm btn-outline-danger w-100"
+                  title="{% if p.modalidad == 'POR_CIFRAS' %}Asignar todos los ganadores de {{ p.cifras }} cifras{% else %}Asignar todos los ganadores válidos{% endif %}">
             <i class="bi bi-people me-1"></i>Todos
           </button>
         </div>

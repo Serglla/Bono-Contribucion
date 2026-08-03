@@ -267,6 +267,19 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion cuotas_anticipadas: {e}")
 
+        # Migrar columna cifras en premios_sorteo (modalidad POR_CIFRAS, 03/08/2026).
+        # Nivel de cifras al que aplica el premio: en un semanal a 4 y 3 cifras el
+        # que pega 4 cobra mas que el que pega 3. NULL en los premios ya cargados,
+        # que siguen funcionando como POSICION / CADA_UNO igual que antes.
+        try:
+            cols_prem = [c["name"] for c in inspector.get_columns("premios_sorteo")]
+            if "cifras" not in cols_prem:
+                db.execute(text("ALTER TABLE premios_sorteo ADD COLUMN cifras INTEGER"))
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion cifras premios_sorteo: {e}")
+
         # Migrar columna comision_pct en cobradores
         try:
             cols_cob = [c["name"] for c in inspector.get_columns("cobradores")]
