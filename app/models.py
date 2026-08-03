@@ -447,6 +447,34 @@ class HabilitacionSorteo(Base):
     created_at  = Column(DateTime, server_default=func.now())
 
 
+class CifrasGanadorOverride(Base):
+    """Override manual del NIVEL DE CIFRAS con que gano un ganador (03/08/2026).
+
+    En el extracto impreso la institucion quiere distinguir los premios mayores:
+    los que pegaron 4 cifras van en negrita, los de 3 normales, los de 2 mas
+    chicos. El nivel se calcula solo (`_build_ganador` guarda `cifras_match`,
+    y el cruce va de mayor a menor, asi que el que pega 4 queda en 4). Esta
+    tabla existe solo para forzarlo por EXCEPCION cuando un caso raro sale mal
+    clasificado.
+
+    Una fila (sorteo_id, boleta_id) reemplaza el calculo automatico.
+    Si no hay fila, manda el automatico.
+
+    POR QUE UNA TABLA APARTE Y NO UNA COLUMNA EN HabilitacionSorteo:
+    aquella tabla usa la misma clave, pero `habilitado` viene en True por
+    default y `POST /sorteos/habilitar/quitar` BORRA la fila entera. Meter el
+    nivel de cifras ahi habilitaria ganadores sin querer al forzar un nivel, y
+    quitar una habilitacion se llevaria puesto el nivel forzado.
+    """
+    __tablename__ = "cifras_ganador_override"
+    id         = Column(Integer, primary_key=True, index=True)
+    sorteo_id  = Column(Integer, ForeignKey("sorteos.id"), nullable=False, index=True)
+    boleta_id  = Column(Integer, ForeignKey("boletas.id"), nullable=False, index=True)
+    cifras     = Column(Integer, nullable=False)   # 2, 3 o 4
+    motivo     = Column(String, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
 class ConfigBono(Base):
     """Par clave/valor para configuracion global del bono (ej: pago_mensual_bomberos)."""
     __tablename__ = "config_bono"

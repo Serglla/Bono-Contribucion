@@ -157,6 +157,14 @@ async def extracto_mes(
             models.HabilitacionSorteo.sorteo_id.in_(sorteo_ids)
         ).all()
     }
+    # Overrides manuales del NIVEL DE CIFRAS (para el resaltado del extracto).
+    # Tabla aparte de HabilitacionSorteo a propósito — ver models.py.
+    cifras_overrides = {
+        (co.sorteo_id, co.boleta_id): co
+        for co in db.query(models.CifrasGanadorOverride).filter(
+            models.CifrasGanadorOverride.sorteo_id.in_(sorteo_ids)
+        ).all()
+    }
 
     # Agrupar sorteos por tipo
     sorteos_por_tipo: dict = {}
@@ -220,7 +228,10 @@ async def extracto_mes(
                             for n in candidatos:
                                 bol4 = f"{n:04d}"
                                 if bol4[-c:] == sufijo:
-                                    ganadores_dict[b.id] = _build_ganador(b, bol4, c, s, overrides.get((s.id, b.id)))
+                                    ganadores_dict[b.id] = _build_ganador(
+                                        b, bol4, c, s,
+                                        overrides.get((s.id, b.id)),
+                                        cifras_overrides.get((s.id, b.id)))
                                     break
                         else:
                             # Excluir boletas de talonera CONTADO (pool, no son boletas reales)
@@ -232,7 +243,10 @@ async def extracto_mes(
                             for n in _numeros_boleta(b):
                                 bol4 = f"{n:04d}"
                                 if bol4[-c:] == sufijo:
-                                    ganadores_dict[b.id] = _build_ganador(b, bol4, c, s, overrides.get((s.id, b.id)))
+                                    ganadores_dict[b.id] = _build_ganador(
+                                        b, bol4, c, s,
+                                        overrides.get((s.id, b.id)),
+                                        cifras_overrides.get((s.id, b.id)))
                                     break
 
         # Ordenar premios por fecha y posición
@@ -243,6 +257,13 @@ async def extracto_mes(
 
         cifras_label = " Y ".join(str(c) for c in sorted(cifras_set, reverse=True))
 
+        # Nivel MÁS ALTO de cifras de este bloque (4 en un sorteo "a 4 y 3 cifras").
+        # El extracto pone en negrita a los ganadores que llegaron a ese nivel —
+        # son los "premios mayores" que pidió distinguir la institución. Se toma el
+        # máximo real del bloque y no un 4 fijo, para que un sorteo que se juegue
+        # solo a 3 y 2 cifras igual resalte a los de 3.
+        cifras_max = max(cifras_set) if cifras_set else 0
+
         bloques.append({
             "tipo": tipo,
             "tipo_label": _TIPO_LABEL_PLURAL.get(tipo, tipo),
@@ -251,6 +272,7 @@ async def extracto_mes(
             "total_ganadores": len(ganadores_lista),
             "total_habilitados": sum(1 for g in ganadores_lista if g["habilitado"]),
             "cifras_label": cifras_label,
+            "cifras_max": cifras_max,
         })
 
     return templates.TemplateResponse(request, "sorteo_extracto.html", {
@@ -290,20 +312,37 @@ async def informe_mes(
         models.Sorteo.resultado_json.isnot(None),
     ).order_by(models.Sorteo.fecha.asc()).all()
 
+    # Overrides manuales del nivel de cifras (los mismos que usa el extracto para
+    # decidir quién va en negrita). Se cargan de una para no hacer N+1.
+    _cif_ov = {
+        (co.sorteo_id, co.boleta_id): co
+        for co in db.query(models.CifrasGanadorOverride).filter(
+            models.CifrasGanadorOverride.sorteo_id.in_([s.id for s in sorteos])
+        ).all()
+    } if sorteos else {}
+
     bloques = []
     total_ganadores_mes = 0
     for s in sorteos:
         grupos, cifras_list = _calcular_grupos_ganadores(s, db)
+        cifras_max = max(cifras_list) if cifras_list else 0
         ganadores = []
         for g in grupos:
             for f in g["filas"]:
                 if not f["es_ganador_valido"]:
                     continue
+                _ov = _cif_ov.get((s.id, f["boleta_id"]))
                 ganadores.append({
                     "boleta_id": f["boleta_id"],
                     "nombre": f["comprador"],
                     "numero": f["num_match"],
                     "cifras": g["cifras"],
+                    # Nivel que va a usar el extracto para el resaltado: el forzado
+                    # a mano si existe, sino el que salió del cruce.
+                    "cifras_efectivas": int(_ov.cifras) if _ov else g["cifras"],
+                    "cifras_manual": _ov is not None,
+                    "cifras_motivo": (_ov.motivo if _ov else None),
+                    "es_mayor": (int(_ov.cifras) if _ov else g["cifras"]) == cifras_max,
                     "posicion": g["posicion"],
                     "talonera": f["talonera"],
                     "vendedor": f["vendedor"],
@@ -330,6 +369,7 @@ async def informe_mes(
                 )
             ),
             "numeros_ganadores": [str(n).zfill(4) for n in numeros],
+            "cifras_max": cifras_max,
             "ganadores": ganadores,
             "total_ganadores": len(ganadores),
             "total_habilitados": sum(1 for g in ganadores if g["habilitado"]),
@@ -406,6 +446,68 @@ async def habilitar_quitar(
     db.query(models.HabilitacionSorteo).filter(
         models.HabilitacionSorteo.sorteo_id == sorteo_id,
         models.HabilitacionSorteo.boleta_id == boleta_id,
+    ).delete()
+    db.commit()
+
+    return RedirectResponse(_vista_redirect(vista, year, month), status_code=302)
+
+
+@router.post("/cifras")
+async def cifras_manual(
+    request: Request,
+    sorteo_id: int = Form(...),
+    boleta_id: int = Form(...),
+    cifras: int = Form(...),
+    motivo: str = Form(""),
+    year: int = Form(...),
+    month: int = Form(...),
+    vista: str = Form("informe"),
+    db: Session = Depends(get_db),
+):
+    """Fuerza a mano el NIVEL DE CIFRAS de un ganador (excepción).
+
+    El nivel se calcula solo al cruzar los números; esto es para los casos raros
+    que salen mal clasificados. Del nivel depende que el ganador salga en negrita
+    en el extracto impreso (los "mayores"). No toca la habilitación.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    if cifras not in (2, 3, 4):
+        raise HTTPException(400, 'Cifras inválidas (2, 3 o 4)')
+
+    over = db.query(models.CifrasGanadorOverride).filter(
+        models.CifrasGanadorOverride.sorteo_id == sorteo_id,
+        models.CifrasGanadorOverride.boleta_id == boleta_id,
+    ).first()
+    if over is None:
+        over = models.CifrasGanadorOverride(sorteo_id=sorteo_id, boleta_id=boleta_id)
+        db.add(over)
+    over.cifras = int(cifras)
+    over.motivo = (motivo or "").strip() or None
+    db.commit()
+
+    return RedirectResponse(_vista_redirect(vista, year, month), status_code=302)
+
+
+@router.post("/cifras/quitar")
+async def cifras_quitar(
+    request: Request,
+    sorteo_id: int = Form(...),
+    boleta_id: int = Form(...),
+    year: int = Form(...),
+    month: int = Form(...),
+    vista: str = Form("informe"),
+    db: Session = Depends(get_db),
+):
+    """Quita el override y vuelve al nivel de cifras calculado automáticamente."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    db.query(models.CifrasGanadorOverride).filter(
+        models.CifrasGanadorOverride.sorteo_id == sorteo_id,
+        models.CifrasGanadorOverride.boleta_id == boleta_id,
     ).delete()
     db.commit()
 
@@ -491,11 +593,18 @@ def _numeros_boleta(b) -> List[int]:
     return nums
 
 
-def _build_ganador(b, numero_match: str, cifras_match: int, sorteo, override=None) -> dict:
+def _build_ganador(b, numero_match: str, cifras_match: int, sorteo, override=None,
+                   cifras_override=None) -> dict:
     nombre = (b.comprador.apellido_nombre or "").strip().upper() if b.comprador else ""
     direccion = (b.comprador.direccion or "").strip().upper() if b.comprador else ""
     # Misma habilitación que el informe (control de pago del mes / venta en el mes)
     habilitado, hab_motivo, hab_manual = _habilitacion_boleta(b, sorteo, override)
+    # Nivel de cifras: automático salvo excepción manual (CifrasGanadorOverride).
+    # El extracto lo usa para poner en negrita a los ganadores del nivel más alto.
+    cifras_auto = cifras_match
+    cifras_manual = cifras_override is not None
+    if cifras_manual:
+        cifras_match = int(cifras_override.cifras)
     return {
         "boleta_id": b.id,
         "sorteo_id": sorteo.id,
@@ -503,6 +612,9 @@ def _build_ganador(b, numero_match: str, cifras_match: int, sorteo, override=Non
         "direccion": direccion,
         "numero_match": numero_match,
         "cifras_match": cifras_match,
+        "cifras_auto": cifras_auto,
+        "cifras_manual": cifras_manual,
+        "cifras_motivo": (cifras_override.motivo if cifras_manual else None),
         "fecha_sorteo": sorteo.fecha,
         "habilitado": habilitado,
         "habilitado_motivo": hab_motivo,

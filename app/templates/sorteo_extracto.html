@@ -109,7 +109,9 @@
       {% if bloque.ganadores %}
         <div class="ext-ganadores">
           {% for g in bloque.ganadores %}
-            <div class="ganador-linea {% if not g.habilitado %}ext-no-hab{% endif %}">{{ g.nombre }}{% if g.direccion %} - {{ g.direccion }}{% endif %}<span class="ext-hab-tag d-print-none">{% if g.habilitado %}{% if g.habilitado_manual %}<i class="bi bi-hand-index-thumb text-success" title="Habilitado manualmente desde el informe"></i>{% endif %}{% else %}<span class="badge bg-danger">NO habilitado</span> <span class="ext-hab-motivo">{{ g.habilitado_motivo }}</span>{% endif %}</span></div>
+            {# ext-mayor = gano al nivel de cifras mas alto del bloque (los "premios
+               mayores"). Se imprime en negrita para distinguirlo de los de 3 y 2. #}
+            <div class="ganador-linea {% if not g.habilitado %}ext-no-hab{% endif %}{% if bloque.cifras_max and g.cifras_match == bloque.cifras_max %} ext-mayor{% endif %}">{{ g.nombre }}{% if g.direccion %} - {{ g.direccion }}{% endif %}<span class="ext-hab-tag d-print-none">{% if g.habilitado %}{% if g.habilitado_manual %}<i class="bi bi-hand-index-thumb text-success" title="Habilitado manualmente desde el informe"></i>{% endif %}{% else %}<span class="badge bg-danger">NO habilitado</span> <span class="ext-hab-motivo">{{ g.habilitado_motivo }}</span>{% endif %}</span></div>
           {% endfor %}
         </div>
         {% if bloque.total_habilitados == 0 %}
@@ -211,13 +213,22 @@
     font-size: var(--fs-ganador);
     line-height: 1.25;
   }
+  /* Ganadores del extracto (03/08/2026 — pedido de la institución).
+     ANTES: todas las líneas iban en 700, así que no se distinguía quién había
+     ganado con 4 cifras y quién con 3. Ahora la base es peso normal y solo los
+     del nivel MÁS ALTO del bloque (`.ext-mayor`, ver sorteos.py: cifras_max)
+     van en negrita. Si algún día quieren achicar además los de 2 cifras,
+     alcanza con agregar una regla para `.ext-menor`. */
   .ganador-linea {
-    font-weight: 700;
+    font-weight: 400;
     break-inside: avoid;
     page-break-inside: avoid;
     overflow-wrap: anywhere;
     word-break: break-word;
     padding: 0 2px;
+  }
+  .ganador-linea.ext-mayor {
+    font-weight: 700;
   }
   .ext-vacio {
     text-align: center;

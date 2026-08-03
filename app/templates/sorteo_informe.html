@@ -94,7 +94,21 @@
             <td class="text-muted">{{ loop.index }}</td>
             <td class="fw-semibold">{{ g.nombre or "—" }}</td>
             <td><span class="badge bg-dark">{{ g.numero }}</span></td>
-            <td><span class="badge bg-secondary">{{ g.cifras }} cifras</span></td>
+            {# Cifras: define si el ganador sale en NEGRITA en el extracto impreso
+               (los "mayores" son los del nivel más alto del sorteo). Sale del cruce
+               automático; el lápiz permite forzarlo por excepción. #}
+            <td class="inf-cifras-cell">
+              <span class="badge {% if g.es_mayor %}bg-dark{% else %}bg-secondary{% endif %}">{{ g.cifras_efectivas }} cifras</span>
+              {% if g.es_mayor %}<i class="bi bi-type-bold text-dark" title="Sale en negrita en el extracto (premio mayor)"></i>{% endif %}
+              {% if g.cifras_manual %}<i class="bi bi-hand-index-thumb text-primary" title="Nivel forzado a mano{% if g.cifras_motivo %} — {{ g.cifras_motivo }}{% endif %} (el cruce dio {{ g.cifras }})"></i>{% endif %}
+              {% if has_permission(user, 'sorteos', 'editar') %}
+              <button type="button" class="btn btn-link btn-sm p-0 inf-hab-btn d-print-none"
+                      title="Forzar el nivel de cifras"
+                      onclick="abrirCifras({{ b.sorteo.id }}, {{ g.boleta_id }}, '{{ (g.nombre or '')|replace("'", "") }}', '{{ g.numero }}', {{ g.cifras_efectivas }}, {{ 'true' if g.cifras_manual else 'false' }})">
+                <i class="bi bi-pencil-square"></i>
+              </button>
+              {% endif %}
+            </td>
             <td>{{ g.posicion }}° premio</td>
             <td>{{ g.talonera or "—" }}</td>
             <td>{{ g.vendedor or "—" }}</td>
@@ -189,6 +203,58 @@
 <form method="post" action="/sorteos/habilitar/quitar" id="formQuitarHab" class="d-none">
   <input type="hidden" name="sorteo_id" id="qSorteoId">
   <input type="hidden" name="boleta_id" id="qBoletaId">
+  <input type="hidden" name="year" value="{{ year }}">
+  <input type="hidden" name="month" value="{{ month }}">
+  <input type="hidden" name="vista" value="informe">
+</form>
+
+<!-- Modal: forzar el nivel de cifras (define quién sale en negrita en el extracto) -->
+<div class="modal fade d-print-none" id="modalCifras" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="/sorteos/cifras" id="formCifras">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-type-bold me-2"></i>Nivel de cifras</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="sorteo_id" id="cifSorteoId">
+        <input type="hidden" name="boleta_id" id="cifBoletaId">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="month" value="{{ month }}">
+        <input type="hidden" name="vista" value="informe">
+        <p class="mb-2 small text-muted" id="cifGanador"></p>
+        <div class="alert alert-light border py-2 px-2 small mb-3">
+          <i class="bi bi-info-circle me-1"></i>En el extracto impreso, los ganadores del
+          nivel más alto del sorteo salen en <strong>negrita</strong>. Esto se calcula solo;
+          usá esto únicamente si algún caso quedó mal clasificado.
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold mb-1">Ganó a</label>
+          <select name="cifras" id="cifValor" class="form-select form-select-sm">
+            <option value="4">4 cifras</option>
+            <option value="3">3 cifras</option>
+            <option value="2">2 cifras</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold mb-1">Motivo (opcional)</label>
+          <input type="text" name="motivo" id="cifMotivo" class="form-control form-control-sm"
+                 placeholder="Ej: corregido a pedido de la institución">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-danger me-auto d-none" id="cifQuitar"
+                onclick="quitarCifras()">Volver a automático</button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<form method="post" action="/sorteos/cifras/quitar" id="formQuitarCifras" class="d-none">
+  <input type="hidden" name="sorteo_id" id="qcSorteoId">
+  <input type="hidden" name="boleta_id" id="qcBoletaId">
   <input type="hidden" name="year" value="{{ year }}">
   <input type="hidden" name="month" value="{{ month }}">
   <input type="hidden" name="vista" value="informe">
@@ -314,6 +380,25 @@
 
   function quitarHab() {
     document.getElementById('formQuitarHab').submit();
+  }
+
+  // Forzar el nivel de cifras de un ganador. Mismo patrón que abrirHab().
+  function abrirCifras(sorteoId, boletaId, nombre, numero, cifras, manual) {
+    document.getElementById('cifSorteoId').value = sorteoId;
+    document.getElementById('cifBoletaId').value = boletaId;
+    document.getElementById('cifValor').value = String(cifras);
+    document.getElementById('cifMotivo').value = '';
+    document.getElementById('cifGanador').textContent =
+      'Ganador: ' + (nombre || '—') + '  ·  N° ' + numero;
+    // "Volver a automático" solo si ya hay un nivel forzado
+    document.getElementById('cifQuitar').classList.toggle('d-none', !manual);
+    document.getElementById('qcSorteoId').value = sorteoId;
+    document.getElementById('qcBoletaId').value = boletaId;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalCifras')).show();
+  }
+
+  function quitarCifras() {
+    document.getElementById('formQuitarCifras').submit();
   }
 </script>
 
