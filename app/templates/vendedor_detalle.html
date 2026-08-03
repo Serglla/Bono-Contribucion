@@ -497,6 +497,23 @@
         </div>
         <div class="modal-body" style="max-height:75vh;overflow-y:auto;">
 
+          {# ── Fecha de la liquidación ──
+             No es decorativa: define cuántas cuotas vale un CONTADO. Como el sorteo
+             final es en junio 2027, las cuotas que ya no entran se regalan (ago-2026
+             → 11 cuotas, sep → 10, oct → 9). Editable para poder liquidar atrasado
+             con el precio que regía ese mes. Ver app/cuotas.py. #}
+          <div class="d-flex align-items-center gap-2 flex-wrap mb-3 p-2 rounded"
+               style="background:#f8f9fa;border:1px solid #dee2e6;">
+            <label class="form-label fw-semibold small mb-0" for="inp-fecha-liq">
+              <i class="bi bi-calendar-event me-1"></i>Fecha de liquidación
+            </label>
+            <input type="date" name="fecha" id="inp-fecha-liq"
+                   class="form-control form-control-sm" style="width:auto;"
+                   value="{{ hoy_iso }}" onchange="onFechaLiqChange()">
+            <span id="lbl-cuotas-vigentes" class="badge text-bg-light border small fw-normal"
+                  title="Cuotas que se cobran por boleta a esta fecha. El resto van de regalo porque no entran antes del sorteo final (junio 2027)."></span>
+          </div>
+
           {# ── Selección de boletas por PATA ── #}
           <div class="small fw-semibold text-muted mb-2">
             <i class="bi bi-check2-square me-1"></i>Seleccioná las boletas a incluir en esta liquidación:
@@ -1115,8 +1132,62 @@ const VENDEDOR_ID = {{ v.id }};
 const NOMBRES_CONTADO = {{ nombres_contado | tojson }};
 // Unidad base: PATA 1 — todo se calcula en múltiplos de PATA 1
 const PATA1_VC = {{ pata1_vc }};  // valor_cuota de PATA 1
-const PATA1_NC = {{ pata1_nc }};  // num_cuotas de PATA 1
+const PATA1_NC = {{ pata1_nc }};  // num_cuotas de PATA 1 (nominal: 12)
 const PATA0_VC = {{ pata0_vc }};  // valor_cuota de PATA 0 (~$10.000); 0 si no existe
+
+// ── Cuotas vigentes según la fecha ────────────────────────────────────────────
+// ESPEJO EXACTO de `cuotas_vigentes()` en app/cuotas.py. Si cambia la fórmula
+// allá, hay que cambiarla acá también — el server recalcula y manda el valor real,
+// esto es solo para que el preview del modal no mienta.
+// Las cuotas que no llegan a cobrarse antes del sorteo final se regalan:
+// ago-2026 → 11, sep → 10, oct → 9, nov → 8...
+const SORTEO_FINAL_ANIO = {{ sorteo_final_anio }};
+const SORTEO_FINAL_MES  = {{ sorteo_final_mes }};
+
+function cuotasVigentes(numCuotas, fechaStr) {
+  const nominal = parseInt(numCuotas) || 12;
+  // fechaStr viene del <input type="date"> como "YYYY-MM-DD". Se parsea a mano
+  // para evitar que new Date("2026-08-03") lo interprete en UTC y corra el mes.
+  let anio, mes;
+  const m = /^(\d{4})-(\d{2})/.exec(String(fechaStr || ''));
+  if (m) { anio = +m[1]; mes = +m[2]; }
+  else   { const h = new Date(); anio = h.getFullYear(); mes = h.getMonth() + 1; }
+  const mesesCobranza = 12 * (SORTEO_FINAL_ANIO - anio) + (SORTEO_FINAL_MES - mes);
+  return Math.max(1, Math.min(nominal, 1 + mesesCobranza));
+}
+
+/** Fecha elegida en el modal (o hoy si el input no está). */
+function fechaLiqActual() {
+  return document.getElementById('inp-fecha-liq')?.value || '';
+}
+
+/** Cuotas que se cobran por boleta a la fecha elegida. */
+function cuotasVigentesHoy() {
+  return cuotasVigentes(PATA1_NC, fechaLiqActual());
+}
+
+/** Al cambiar la fecha: refrescar el cartelito y recalcular todos los montos. */
+function onFechaLiqChange() {
+  const vig = cuotasVigentesHoy();
+  const regaladas = Math.max(0, (parseInt(PATA1_NC) || 12) - vig);
+  const lbl = document.getElementById('lbl-cuotas-vigentes');
+  if (lbl) {
+    lbl.innerHTML = regaladas > 0
+      ? `<i class="bi bi-gift text-success me-1"></i><strong>${vig}</strong> cuotas por boleta `
+        + `<span class="text-muted">(${regaladas} de regalo, de ${PATA1_NC})</span>`
+      : `<strong>${vig}</strong> cuotas por boleta <span class="text-muted">(talonera completa)</span>`;
+  }
+  // Se refrescan los tooltips de los badges ("Contado total: $X") sin volver a
+  // renderizar la lista — un re-render perdería las boletas ya tildadas.
+  document.querySelectorAll('.boleta-chk[data-mult]').forEach(chk => {
+    const lbl = chk.closest('label');
+    if (!lbl || chk.dataset.pool === '1') return;
+    const mult = parseFloat(chk.dataset.mult) || 1;
+    lbl.title = `×${fmtMult(mult)} — Cuota 1: $${(mult * PATA1_VC).toLocaleString('es-AR')}`
+              + ` · Contado total (${vig} cuotas): $${(mult * vig * PATA1_VC).toLocaleString('es-AR')}`;
+  });
+  recalcular();
+}
 
 function fmt(n) {
   return '$' + n.toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -1239,8 +1310,11 @@ function renderPatas() {
       }
       const mult = parseFloat(b.multiplicador) || 1;
       const cuota1Unit = mult * PATA1_VC;
-      const contadoTotal = mult * PATA1_NC * PATA1_VC;
-      const title = `×${fmtMult(mult)} — Cuota 1: $${cuota1Unit.toLocaleString('es-AR')} · Contado total: $${contadoTotal.toLocaleString('es-AR')}`;
+      // Contado a la FECHA elegida (no las 12 nominales): las cuotas que no entran
+      // antes del sorteo final van de regalo. onFechaLiqChange() reescribe este title.
+      const _vig = cuotasVigentesHoy();
+      const contadoTotal = mult * _vig * PATA1_VC;
+      const title = `×${fmtMult(mult)} — Cuota 1: $${cuota1Unit.toLocaleString('es-AR')} · Contado total (${_vig} cuotas): $${contadoTotal.toLocaleString('es-AR')}`;
       html += `
           <div class="liq-num-item">
             <label title="${title}" style="margin:0;cursor:pointer;">
@@ -1522,7 +1596,9 @@ function recalcular() {
     if (modalidad === 'contado' || modalidad === 'contado2') {
       nContados++;
       nContadosEq += mult;          // ponderado: PATA 1 ×1, PATA 2 ×2, PATA 0 ×0.67
-      montoContados += mult * PATA1_NC * PATA1_VC;  // mult × total_pata1
+      // cuotasVigentesHoy() en vez de PATA1_NC fijo: el contado vale lo que se
+      // puede cobrar hasta el sorteo final, no las 12 nominales.
+      montoContados += mult * cuotasVigentesHoy() * PATA1_VC;  // mult × total_pata1 a la fecha
     } else {
       nCuotasReal++;
       nCuotasEq += mult;            // PATA 1 ×1, PATA 2 ×2, ...
@@ -1587,7 +1663,7 @@ function recalcular() {
 document.addEventListener('DOMContentLoaded', () => {
   renderPatas();
   setModoLiquidar('cuotas');   // pinta los botones de modo (Cuotas activo por default)
-  recalcular();
+  onFechaLiqChange();          // pinta el cartel de cuotas vigentes + recalcula
   // Botones "Agregar número de otra caja"
   const btnAgregar = document.getElementById('btnAgregarNumero');
   const box        = document.getElementById('agregarNumeroBox');

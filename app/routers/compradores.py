@@ -9,6 +9,9 @@ from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
 from ..models import CondicionBoleta
+# Cuotas que se cobran realmente segun la fecha de venta: las que no entran antes
+# del sorteo final (jun-2027) van de regalo. Ver app/cuotas.py.
+from ..cuotas import cuotas_vigentes
 
 
 def _parse_zona_id(zona_id_str: Optional[str]) -> Optional[int]:
@@ -734,15 +737,35 @@ async def crear(
                     or b.numero_especial is not None
                     or b.numero_especial_2 is not None
                 )
+            # ── Cuotas que realmente se cobran (03/08/2026) ────────────────────
+            # El sorteo final es en junio 2027: las cuotas que no llegan a cobrarse
+            # antes van de REGALO (ago-2026 → 11, sep → 10, oct → 9). Ver app/cuotas.py.
+            # De este `cuotas_pactadas` cuelga TODO lo demás: cobranza, planillas,
+            # reportes y contabilidad leen la boleta, no la talonera.
+            #
+            # QUÉ FECHA MANDA (y por qué importa): el socio se carga días después de
+            # que el vendedor rindió, a veces cruzando el mes — liquidación el viernes
+            # 28, alta el 1° del mes siguiente. Tomar "hoy" le comería una cuota. Orden:
+            #   1. La fecha de compra tipeada en el modal — el operador manda.
+            #      (El modal la prellena con la fecha de la liquidación, no con hoy.)
+            #   2. La fecha de la liquidación del vendedor, si la boleta se liquidó.
+            #   3. Hoy, para boletas que nunca pasaron por una liquidación.
+            _nc_nominal = (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0) or 12
+            _fecha_ref = b.fecha_venta or getattr(b.liquidacion_vendedor, "fecha", None)
+            _cuotas_max = cuotas_vigentes(_nc_nominal, _fecha_ref)
             if _contado_liq:
-                _nc_tal = (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0) \
-                          or (cuotas_pactadas if cuotas_pactadas and cuotas_pactadas > 0 else 0) or 12
-                b.cuotas_pactadas = _nc_tal
-                ant = _nc_tal
+                # Al contado paga el total vigente de una: pactadas = anticipadas.
+                b.cuotas_pactadas = _cuotas_max
+                ant = _cuotas_max
             else:
+                # El form manda el nominal de la talonera (12) en un hidden. Se
+                # recorta a lo cobrable: nunca se pactan cuotas que no se van a cobrar.
                 if cuotas_pactadas is not None and cuotas_pactadas > 0:
-                    b.cuotas_pactadas = cuotas_pactadas
+                    b.cuotas_pactadas = min(int(cuotas_pactadas), _cuotas_max)
+                else:
+                    b.cuotas_pactadas = _cuotas_max
                 ant = cuotas_anticipadas if cuotas_anticipadas and cuotas_anticipadas > 0 else 1
+                ant = min(ant, _cuotas_max)   # no anticipar más cuotas de las que existen
             b.cuotas_anticipadas = ant
             b.cuotas_pagadas = ant   # las cuotas anticipadas ya están cobradas
 
@@ -1169,9 +1192,21 @@ async def editar(
             b.fecha_venta = date.fromisoformat(fecha_compra) if fecha_compra else b.fecha_venta
             if vendedor_id:
                 b.vendedor_id = vendedor_id
+            # Boleta que se ENGANCHA a un socio existente: es una venta nueva, así que
+            # se le pactan las cuotas vigentes a su fecha de venta (las que no entran
+            # antes del sorteo final van de regalo). Antes heredaba el 12 nominal que
+            # le puso la generación de la talonera. Ver app/cuotas.py.
+            # Misma precedencia que en `crear`: fecha tipeada → fecha de la
+            # liquidación del vendedor → hoy. Ver el comentario largo allá.
+            _cuotas_max_e = cuotas_vigentes(
+                (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0) or 12,
+                b.fecha_venta or getattr(b.liquidacion_vendedor, "fecha", None),
+            )
+            if not b.cuotas_pactadas or b.cuotas_pactadas > _cuotas_max_e:
+                b.cuotas_pactadas = _cuotas_max_e
             if cuotas_anticipadas and cuotas_anticipadas > 0:
-                b.cuotas_anticipadas = cuotas_anticipadas
-                b.cuotas_pagadas = cuotas_anticipadas
+                b.cuotas_anticipadas = min(int(cuotas_anticipadas), _cuotas_max_e)
+                b.cuotas_pagadas = b.cuotas_anticipadas
             if effective_cobrador_id:
                 b.cobrador_id = effective_cobrador_id
 

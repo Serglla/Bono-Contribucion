@@ -8,6 +8,8 @@ from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..models import CondicionBoleta
 from ..database import get_db
+# Cuotas cobrables segun la fecha (las ultimas van de regalo). Ver app/cuotas.py.
+from ..cuotas import cuotas_vigentes
 
 router = APIRouter(prefix="/taloneras", tags=["taloneras"])
 
@@ -68,6 +70,11 @@ def _generar_boletas_rango(db, talonera, desde, hasta, cuotas_pactadas=None):
     """
     if desde is None or hasta is None or hasta < desde:
         return 0
+    # A PROPÓSITO se usa el NOMINAL de la talonera (12) y no `cuotas_vigentes()`:
+    # acá las boletas se generan SIN_VENDER, meses antes de venderse. Recortarlas a
+    # la fecha de generación las dejaría mal (una boleta generada hoy y vendida en
+    # noviembre quedaría con 11 cuotas en vez de 8). Las cuotas reales se fijan al
+    # dar de alta el socio, en `compradores.py` (crear/editar), según fecha_venta.
     if cuotas_pactadas is None:
         cuotas_pactadas = int(talonera.num_cuotas or 12)
     existentes = {
@@ -289,6 +296,20 @@ async def buscar_boleta_global(numero: int, request: Request, db: Session = Depe
         # rearmada que no dejó modalidad_liquidacion). El modal precarga igual.
         "es_contado": (b.numero_especial is not None) or (b.numero_especial_2 is not None),
         "num_cuotas": (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 12),
+        # ── Fecha real de la venta y cuotas que le corresponden ──────────────
+        # El socio se carga después de que el vendedor rinde, a veces cruzando el
+        # mes. El modal de Nuevo Socio usa `fecha_liquidacion` para prellenar el
+        # campo Fecha (en vez de "hoy"), así la boleta conserva las cuotas del mes
+        # en que se vendió de verdad. `cuotas_vigentes` es lo que quedó estampado
+        # al liquidar; si la boleta nunca se liquidó, se calcula a hoy.
+        "fecha_liquidacion": (
+            _liq_fecha.date().isoformat()
+            if (_liq_fecha := getattr(b.liquidacion_vendedor, "fecha", None)) else ""
+        ),
+        "cuotas_vigentes": int(
+            b.cuotas_pactadas
+            or cuotas_vigentes(b.talonera.num_cuotas if b.talonera else None, None)
+        ),
     })
 
 

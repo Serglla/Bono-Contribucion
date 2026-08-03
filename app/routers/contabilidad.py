@@ -6,6 +6,8 @@ from typing import Optional
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
+# Cuotas cobrables segun la fecha (las ultimas van de regalo). Ver app/cuotas.py.
+from ..cuotas import cuotas_vigentes
 
 router = APIRouter(prefix="/contabilidad", tags=["contabilidad"])
 
@@ -70,9 +72,15 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         (b.cuotas_pagadas or 0) * (b.talonera.valor_cuota if b.talonera else 0)
         for b in baja_boletas
     )
-    # Contado activo: ingreso = num_cuotas × valor_cuota (precio total del bono)
+    # Contado activo: ingreso = precio total del bono A SU FECHA DE VENTA.
+    # Antes era `num_cuotas × valor_cuota` (siempre 12), lo que inflaba el bruto:
+    # desde ago-2026 las cuotas que no entran antes del sorteo final van de regalo,
+    # así que un contado de octubre vale 9 cuotas, no 12. Ver app/cuotas.py.
+    # Se prefiere `cuotas_pactadas` (lo que quedó fijado al dar de alta el socio) y
+    # solo se cae al cálculo por fecha si la boleta es vieja y no lo tiene.
     gross_contado = sum(
-        (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0)
+        (b.cuotas_pactadas or cuotas_vigentes(
+            b.talonera.num_cuotas if b.talonera else None, b.fecha_venta))
         * (b.talonera.valor_cuota if b.talonera else 0)
         for b in boletas if _es_contado(b)
     )

@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, and_, or_
 from typing import Optional
+from datetime import date, datetime
 import json
 from .. import models, auth as auth_module
 from ..models import CondicionBoleta
@@ -10,7 +11,11 @@ from ..templates_config import templates
 from ..database import get_db
 # Fecha argentina (fix A-2b): el server corre en UTC; utcnow() corria de
 # semana/mes las liquidaciones guardadas de noche.
-from ..tiempo import hoy_ar
+from ..tiempo import hoy_ar, ahora_ar
+# Cuotas que realmente se cobran segun la fecha (las ultimas van de regalo
+# porque el sorteo final es en junio 2027). Ver app/cuotas.py.
+from ..cuotas import (cuotas_vigentes, cuotas_regaladas,
+                      SORTEO_FINAL_ANIO, SORTEO_FINAL_MES)
 
 router = APIRouter(prefix="/vendedores", tags=["vendedores"])
 
@@ -1228,6 +1233,11 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         "pata1_vc": pata1_vc,
         "pata0_vc": pata0_vc,
         "pata1_nc": pata1_nc,
+        # Fecha de liquidación editable + constantes del sorteo final, para que el
+        # JS del modal replique cuotas_vigentes() y el preview no mienta.
+        "hoy_iso": hoy_ar().isoformat(),
+        "sorteo_final_anio": SORTEO_FINAL_ANIO,
+        "sorteo_final_mes":  SORTEO_FINAL_MES,
         # nuevas métricas para el header
         "total_liquidaciones": len(liquidaciones),
         "total_boletas_liquidadas": total_boletas_liquidadas,
@@ -1305,6 +1315,12 @@ async def liquidar(
 
     Total a rendir = monto_contados × (1 - %contado/100)
                    + cuotas_extras_monto × (1 - %cuotas/100)
+
+    FECHA DE LIQUIDACIÓN (03/08/2026): el form manda `fecha` (default hoy, editable).
+    No es solo un dato: define **cuántas cuotas vale un contado**. Como el sorteo final
+    es en junio 2027, las últimas cuotas se regalan (ver `app/cuotas.py`), así que una
+    boleta al contado liquidada en agosto vale 11 cuotas y en octubre 9, no 12.
+    Liquidar con fecha atrasada reproduce el precio que regía ese mes.
     """
     _perm_user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(_perm_user, "vendedores", "editar"):
@@ -1322,6 +1338,19 @@ async def liquidar(
     cuotas_extras_p0_cantidad = int(float(form.get("cuotas_extras_p0_cantidad", 0) or 0))
     cuotas_extras_p0_valor    = float(form.get("cuotas_extras_p0_valor", 0) or 0)
     observacion               = (form.get("observacion") or "").strip()
+
+    # Fecha de la liquidación: editable en el modal, default hoy (hora AR, no UTC).
+    # Si viene basura o vacío se cae a hoy en vez de romper la liquidación.
+    _fecha_raw = (form.get("fecha") or "").strip()
+    fecha_liq = ahora_ar()
+    if _fecha_raw:
+        try:
+            _d = date.fromisoformat(_fecha_raw[:10])
+            # Se conserva la hora actual para no pisar el orden de liquidaciones
+            # del mismo día (varias liquidaciones a un vendedor en una jornada).
+            fecha_liq = datetime.combine(_d, ahora_ar().time())
+        except (ValueError, TypeError):
+            pass
 
     boleta_ids = []
     # pool_ids: tuplas (talonera_id, numero) declaradas como entregadas a institución
@@ -1410,10 +1439,16 @@ async def liquidar(
     monto_cuotas   = cuota_1_total
     com_cuotas     = round(cuota_1_total, 2)  # el vendedor retiene íntegramente la cuota 1 de boletas por cuotas
 
-    # Comisión contado: % sobre el valor TOTAL de la talonera (num_cuotas × valor_cuota)
+    # Comisión contado: % sobre el valor TOTAL de la talonera a la FECHA DE LIQUIDACIÓN.
     # Usa la PATA de cada boleta marcada como contado.
+    #
+    # Antes era `num_cuotas × valor_cuota` con num_cuotas siempre 12. Desde 08/2026 el
+    # que paga al contado NO paga las 12: las cuotas que ya no entran antes del sorteo
+    # final (jun-2027) se regalan, así que paga `cuotas_vigentes(fecha)` cuotas.
+    # Ago-2026 → 11, sep → 10, oct → 9. Por eso el monto depende de `fecha_liq`.
     monto_contados = sum(
-        ((b.talonera.num_cuotas or 12) * (b.talonera.valor_cuota if b.talonera else 0.0))
+        cuotas_vigentes(b.talonera.num_cuotas if b.talonera else None, fecha_liq)
+        * (b.talonera.valor_cuota if b.talonera else 0.0)
         for b in contados_b
     )
     contados_count = len(contados_b)
@@ -1445,6 +1480,7 @@ async def liquidar(
 
     liq = models.LiquidacionVendedor(
         vendedor_id=vid,
+        fecha=fecha_liq,
         cuotas_vendidas=len(cuotas),
         cuotas_equiv=cuotas_equiv,
         cuota_1_total=cuota_1_total,
@@ -1478,6 +1514,15 @@ async def liquidar(
     for b in boletas_sel:
         b.liquidacion_vendedor_id = liq.id
         b.condicion = CondicionBoleta.VENDIDO
+        # ── Se ESTAMPA acá cuántas cuotas se cobran (03/08/2026) ──────────────
+        # El socio se carga días o semanas después de que el vendedor rinde (a veces
+        # cruzando el mes: liquidación el viernes 28, alta el 1° del mes siguiente).
+        # Si las cuotas se calcularan en el alta, esa boleta perdería una cuota que
+        # sí correspondía. La fecha buena es la de ESTA liquidación, así que el
+        # número queda grabado en la boleta y viaja hasta el alta. Ver app/cuotas.py.
+        b.cuotas_pactadas = cuotas_vigentes(
+            b.talonera.num_cuotas if b.talonera else None, fecha_liq
+        )
 
     # Pool CONTADO/CONTADO 2 VECES: números entregados a la institución. Se
     # persisten como LiquidacionContadoItem para sacarlos de la caja del vendedor.

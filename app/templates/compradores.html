@@ -796,7 +796,15 @@ document.querySelectorAll('.input-upper').forEach(el => {
           <!-- Fila 1: Fecha · Zona · Vendedor -->
           <div class="row g-2 align-items-end mb-2">
             <div class="col-md-4">
-              <label class="form-label form-label-sm mb-1 fw-semibold text-primary">Fecha</label>
+              <label class="form-label form-label-sm mb-1 fw-semibold text-primary">
+                Fecha
+                {# Se prende cuando la boleta viene de una liquidación: avisa que la
+                   fecha es la de la venta real (no la de hoy) y cuántas cuotas da. #}
+                <span id="fechaLiquidacionBadge"
+                      class="badge bg-success-subtle text-success-emphasis border border-success-subtle fw-normal d-none"
+                      style="font-size:.65rem;"
+                      title="Fecha tomada de la liquidación del vendedor. Podés cambiarla a mano si la venta fue otro día."></span>
+              </label>
               <input type="date" name="fecha_compra" id="fechaInput" class="form-control form-control-sm">
             </div>
             <div class="col-md-4">
@@ -1083,7 +1091,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
             const antInp    = document.getElementById('anticipadasInput');
             if (liqBadge) liqBadge.classList.add('d-none');
             if (esContado) {
-              const nc = parseInt(b.num_cuotas) || 12;
+              // cuotas_vigentes (lo estampado al liquidar), no el nominal de la
+              // talonera: un contado de octubre son 9/9 pagas, no 12/12.
+              const nc = parseInt(b.cuotas_vigentes) || parseInt(b.num_cuotas) || 12;
               if (!window._prefillContadoPrevio) {
                 window._prefillContadoPrevio = { cuotas: cuotasInp.value, ant: antInp.value };
               }
@@ -1110,6 +1120,24 @@ document.querySelectorAll('.input-upper').forEach(el => {
                 cuotasInp.dispatchEvent(new Event('input'));
                 antInp.value = '1';
                 window._prefillContadoPrevio = null;
+              }
+            }
+
+            // ── Fecha de compra: la de la LIQUIDACIÓN, no la de hoy ────────────
+            // El socio se carga días después de que el vendedor rindió, a veces
+            // cruzando el mes (liquidación el viernes 28, alta el 1°). Como de la
+            // fecha salen las cuotas pactadas (las últimas van de regalo, ver
+            // app/cuotas.py), dejar "hoy" le comería una cuota a la boleta.
+            // El operador puede pisarla a mano: lo que quede en el casillero manda.
+            const fechaInp  = document.getElementById('fechaInput');
+            const fechaLiqB = document.getElementById('fechaLiquidacionBadge');
+            if (fechaLiqB) fechaLiqB.classList.add('d-none');
+            if (fechaInp && b.fecha_liquidacion) {
+              fechaInp.value = b.fecha_liquidacion;
+              if (fechaLiqB) {
+                const [aa, mm, dd] = b.fecha_liquidacion.split('-');
+                fechaLiqB.textContent = `liquidada ${dd}/${mm} — ${b.cuotas_vigentes} cuotas`;
+                fechaLiqB.classList.remove('d-none');
               }
             }
 
