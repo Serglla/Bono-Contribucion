@@ -1,9 +1,13 @@
 from fastapi import HTTPException,  APIRouter, Depends, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from typing import Optional, List
 from datetime import date as date_type, timedelta
 from pydantic import BaseModel
+from io import BytesIO
 import json
+import re
+# PDF del recibo de premio (mismo motor que usa cobranza para sus hojas)
+from xhtml2pdf import pisa
 
 from sqlalchemy.orm import Session, joinedload
 from .. import models, auth as auth_module
@@ -321,6 +325,17 @@ async def informe_mes(
         ).all()
     } if sorteos else {}
 
+    # Entregas ya asignadas del mes, para linkear el RECIBO directo desde el informe
+    # (antes había que ir a Entregas del sorteo a buscarlo). Clave (sorteo, boleta).
+    _entregas = {}
+    if sorteos:
+        for _e in (db.query(models.EntregaPremio)
+                     .join(models.PremioSorteo,
+                           models.EntregaPremio.premio_id == models.PremioSorteo.id)
+                     .filter(models.PremioSorteo.sorteo_id.in_([s.id for s in sorteos]))
+                     .all()):
+            _entregas.setdefault((_e.premio.sorteo_id, _e.boleta_id), _e.id)
+
     bloques = []
     total_ganadores_mes = 0
     for s in sorteos:
@@ -343,6 +358,8 @@ async def informe_mes(
                     "cifras_manual": _ov is not None,
                     "cifras_motivo": (_ov.motivo if _ov else None),
                     "es_mayor": (int(_ov.cifras) if _ov else g["cifras"]) == cifras_max,
+                    # id de la entrega asignada, si ya la hay → botón de recibo
+                    "entrega_id": _entregas.get((s.id, f["boleta_id"])),
                     "posicion": g["posicion"],
                     "talonera": f["talonera"],
                     "vendedor": f["vendedor"],
@@ -653,11 +670,43 @@ async def crear(
     cifras_str = ",".join(sorted(set(cifras), key=lambda x: int(x)))
     num_p = max(1, min(20, num_premios))
 
+    # ── Premios por nivel de cifras, cargados de una en el alta (03/08/2026) ──
+    # En los semanales el premio es SIEMPRE el mismo (4 cifras tanto, 3 cifras
+    # tanto), así que se definen acá una sola vez y cada sorteo del rango nace
+    # con los suyos. Antes había que entrar sorteo por sorteo a cargarlos, y
+    # hasta que no hubiera un premio no se podía emitir ningún recibo.
+    # El form manda `premio_monto_4`, `premio_desc_4`, `premio_monto_3`, ...
+    _form = await request.form()
+    premios_cfg = []
+    for _c in sorted({int(x) for x in cifras}, reverse=True):
+        try:
+            _monto = float(_form.get(f"premio_monto_{_c}") or 0)
+        except (ValueError, TypeError):
+            _monto = 0.0
+        if _monto <= 0:
+            continue   # sin monto no se crea premio: ese nivel no paga
+        _desc = (_form.get(f"premio_desc_{_c}") or "").strip() or f"Premio a {_c} cifras"
+        premios_cfg.append({"cifras": _c, "monto": _monto, "descripcion": _desc})
+
+    def _crear_premios(sorteo):
+        """Crea los premios POR_CIFRAS de un sorteo recién creado."""
+        for i, cfg in enumerate(premios_cfg, start=1):
+            db.add(models.PremioSorteo(
+                sorteo_id=sorteo.id,
+                orden=i,
+                descripcion=cfg["descripcion"],
+                clase="ORDEN",
+                monto=cfg["monto"],
+                modalidad="POR_CIFRAS",
+                cifras=cfg["cifras"],
+            ))
+
     # Semanal con rango → crear uno por cada sábado
     if tipo == "SEMANAL" and fecha_desde and fecha_hasta:
         d_desde = date_type.fromisoformat(fecha_desde)
         d_hasta = date_type.fromisoformat(fecha_hasta)
         sabados = _sabados_entre(d_desde, d_hasta)
+        nuevos = []
         for sab in sabados:
             s = models.Sorteo(
                 nombre=nombre.strip() or None,
@@ -667,6 +716,10 @@ async def crear(
                 num_premios=num_p,
             )
             db.add(s)
+            nuevos.append(s)
+        db.flush()          # asigna los id sin cerrar la transacción
+        for s in nuevos:
+            _crear_premios(s)
         db.commit()
     else:
         # Mensual, Final o Semanal con fecha única
@@ -681,6 +734,8 @@ async def crear(
             num_premios=num_p,
         )
         db.add(s)
+        db.flush()
+        _crear_premios(s)
         db.commit()
 
     return RedirectResponse("/sorteos/", status_code=302)
@@ -1083,7 +1138,53 @@ async def guardar_resultado(sid: int, payload: ResultadoPayload, request: Reques
             status_code=500,
         )
 
-    return JSONResponse({"ok": True, "numeros": nums_norm})
+    # ── Asignación automática de ganadores a sus premios (03/08/2026) ─────────
+    # El sistema ya sabe quién ganó y con cuántas cifras: no tiene sentido pedirle
+    # al operador que lo repita a mano. Apenas se carga el resultado, cada ganador
+    # habilitado queda asignado al premio de SU nivel y el recibo queda listo.
+    # Es revisable: se puede desasignar o reasignar desde Entregas como siempre.
+    # Corre en un try aparte para que un problema acá NO invalide el resultado
+    # que ya se guardó bien — es un extra, no parte del guardado.
+    asignados = 0
+    try:
+        asignados = _autoasignar_entregas(s, db)
+    except Exception as e:
+        db.rollback()
+        print(f"Autoasignación de entregas (sorteo {sid}): {e.__class__.__name__}: {e}")
+
+    return JSONResponse({"ok": True, "numeros": nums_norm, "asignados": asignados})
+
+
+def _autoasignar_entregas(s, db) -> int:
+    """Asigna cada ganador habilitado al premio que le corresponde. Devuelve cuántos.
+
+    - POR_CIFRAS → solo los ganadores de ese nivel de cifras.
+    - CADA_UNO   → todos los ganadores.
+    - POSICION   → NO se toca: es un premio de un único ganador (FINAL 1°/2°/3°)
+      y elegir cuál es una decisión humana.
+
+    Idempotente: no duplica entregas ya cargadas, así que se puede volver a
+    guardar el resultado sin ensuciar nada.
+    """
+    if not s.premios:
+        return 0
+    candidatos = _candidatos_ganadores(s, db)
+    if not candidatos:
+        return 0
+    nuevos = 0
+    for p in s.premios:
+        if (p.modalidad or "POSICION") not in ("POR_CIFRAS", "CADA_UNO"):
+            continue
+        ya = {(e.boleta_id, e.numero_ganador) for e in p.entregas}
+        for c in _candidatos_del_premio(p, candidatos):
+            if (c["boleta_id"], c["numero"]) in ya:
+                continue
+            db.add(models.EntregaPremio(
+                premio_id=p.id, boleta_id=c["boleta_id"], numero_ganador=c["numero"]))
+            nuevos += 1
+    if nuevos:
+        db.commit()
+    return nuevos
 
 
 # ── Entregas de premios + recibos ────────────────────────────────────────────
@@ -1269,6 +1370,68 @@ async def entrega_eliminar(eid: int, request: Request, db: Session = Depends(get
         db.commit()
         return RedirectResponse(f"/sorteos/{sid}/entregas", status_code=302)
     return RedirectResponse("/sorteos/", status_code=302)
+
+
+def _ctx_recibo(eid: int, db, user):
+    """Contexto del recibo de una entrega. Compartido por la vista HTML y el PDF."""
+    e = db.query(models.EntregaPremio).get(eid)
+    if not e:
+        return None
+    p = e.premio
+    s = p.sorteo
+    b = e.boleta
+    c = b.comprador if b else None
+    # No se emite recibo de un ganador NO habilitado para cobrar
+    habilitado, hab_motivo, _man = (True, "", False)
+    if b is not None:
+        habilitado, hab_motivo, _man = _boleta_habilitada(b, s, db)
+    return {
+        "user": user,
+        "institucion": INSTITUCION_NOMBRE,
+        "entrega": e,
+        "premio": p,
+        "sorteo": s,
+        "tipo_label": _TIPO_LABEL_PLURAL.get(s.tipo.value, s.tipo.value),
+        "socio": c,
+        "boleta": b,
+        "numero": e.numero_ganador or "",
+        "fecha_entrega": e.fecha_entrega.strftime("%d/%m/%Y") if e.fecha_entrega else "",
+        "habilitado": habilitado,
+        "habilitado_motivo": hab_motivo,
+    }
+
+
+@router.get("/entregas/{eid}/recibo.pdf")
+async def entrega_recibo_pdf(eid: int, request: Request, db: Session = Depends(get_db)):
+    """Recibo en PDF, para mandárselo por WhatsApp al cobrador que lo entrega.
+
+    Se genera con xhtml2pdf desde `sorteo_recibo_pdf.html` (sin toolbar ni CSS
+    externo — pisa no ejecuta JS ni baja hojas de estilo).
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    ctx = _ctx_recibo(eid, db, user)
+    if ctx is None:
+        raise HTTPException(404, "Entrega no encontrada")
+    if not ctx["habilitado"]:
+        raise HTTPException(400, "El ganador no está habilitado para cobrar: no se emite recibo")
+
+    html = templates.get_template("sorteo_recibo_pdf.html").render(request=request, **ctx)
+    buf = BytesIO()
+    if pisa.CreatePDF(html, dest=buf, encoding="utf-8").err:
+        raise HTTPException(500, "No se pudo generar el PDF del recibo")
+
+    socio = ctx["socio"]
+    _quien = (socio.apellido_nombre if socio else "ganador")
+    nombre = f"recibo_{_quien}_{ctx['numero']}.pdf"
+    # Se limpia el nombre: acentos/espacios/barras rompen el Content-Disposition
+    nombre = re.sub(r"[^A-Za-z0-9_.-]", "_", nombre)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
 
 
 @router.get("/entregas/{eid}/recibo", response_class=HTMLResponse)

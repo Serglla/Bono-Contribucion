@@ -12,8 +12,12 @@
     <a href="/sorteos/{{ sorteo.id }}/premios" class="btn btn-sm btn-outline-danger">
       <i class="bi bi-gift me-1"></i>Premios
     </a>
-    <a href="/sorteos/" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-arrow-left me-1"></i>Volver
+    {# Vuelve al MES del sorteo, no al menú general: el ancla #mes-AAAA-MM abre
+       ese panel del acordeón y hace scroll (ver sorteos.html). Antes te dejaba
+       arriba de todo y había que buscar el mes y abrirlo de nuevo a mano. #}
+    <a href="/sorteos/#mes-{{ '%04d-%02d'|format(sorteo.fecha.year, sorteo.fecha.month) }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Volver a {{ sorteo.fecha.strftime('%m/%Y') }}
     </a>
   </div>
 </div>

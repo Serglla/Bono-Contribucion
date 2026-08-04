@@ -274,6 +274,26 @@
           </div>
         </div>
 
+        {# ── Premios por nivel de cifras ──────────────────────────────────────
+           Se cargan acá, en el alta, porque en los semanales son siempre los
+           mismos. Cada sorteo del rango nace con sus premios ya definidos, y al
+           cargar el resultado los ganadores se asignan solos: el recibo queda
+           listo sin entrar a ninguna otra pantalla. Se muestra una fila por cifra
+           tildada arriba; dejar el monto en 0 significa que ese nivel no paga. #}
+        <div class="mb-3 d-none" id="bloquePremios">
+          <label class="form-label fw-semibold">
+            Premios
+            <small class="text-muted ms-1">
+              <i class="bi bi-gift"></i> Se cargan en todos los sorteos que se creen
+            </small>
+          </label>
+          <div id="premiosFilas" class="d-flex flex-column gap-2"></div>
+          <div class="form-text">
+            Dejá el monto en <strong>0</strong> si ese nivel no lleva premio.
+            Después se puede cambiar sorteo por sorteo desde <em>Premios</em>.
+          </div>
+        </div>
+
         <!-- Fecha (MENSUAL / FINAL) -->
         <div class="mb-3" id="bloqueUnaFecha">
           <label class="form-label fw-semibold">
@@ -636,8 +656,65 @@
   });
   document.getElementById('inputFechaHasta').addEventListener('change', actualizarPreviz);
 
+  // --- Premios por nivel de cifras (se cargan en el alta) ---
+  // Una fila por cifra tildada. Los montos se recuerdan entre altas porque en los
+  // semanales son siempre los mismos: se tipean una vez y quedan.
+  const PREMIOS_LS = 'bono_premios_por_cifras';
+
+  function premiosGuardados() {
+    try { return JSON.parse(localStorage.getItem(PREMIOS_LS) || '{}'); }
+    catch { return {}; }
+  }
+
+  function guardarPremios() {
+    const out = {};
+    document.querySelectorAll('#premiosFilas input[data-cifra]').forEach(i => {
+      out[i.dataset.cifra] = out[i.dataset.cifra] || {};
+      out[i.dataset.cifra][i.dataset.campo] = i.value;
+    });
+    try { localStorage.setItem(PREMIOS_LS, JSON.stringify(out)); } catch (e) {}
+  }
+
+  function renderPremios() {
+    const cont = document.getElementById('premiosFilas');
+    const bloque = document.getElementById('bloquePremios');
+    if (!cont || !bloque) return;
+    const cifras = [...document.querySelectorAll('.cifras-check:checked')]
+      .map(c => parseInt(c.value)).sort((a, b) => b - a);
+    bloque.classList.toggle('d-none', cifras.length === 0);
+    const prev = premiosGuardados();
+    // Se conserva lo ya tipeado en esta sesión del modal
+    const actual = {};
+    cont.querySelectorAll('input[data-cifra]').forEach(i => {
+      actual[i.dataset.cifra] = actual[i.dataset.cifra] || {};
+      actual[i.dataset.cifra][i.dataset.campo] = i.value;
+    });
+    cont.innerHTML = cifras.map(c => {
+      const g = (actual[c] || prev[c] || {});
+      const desc = (g.desc !== undefined ? g.desc : '');
+      const monto = (g.monto !== undefined ? g.monto : '0');
+      return `
+        <div class="d-flex gap-2 align-items-center">
+          <span class="badge bg-dark" style="min-width:4.5rem;">${c} cifras</span>
+          <input type="text" name="premio_desc_${c}" data-cifra="${c}" data-campo="desc"
+                 class="form-control form-control-sm" value="${desc}"
+                 placeholder="Descripción (ej: Orden de compra)">
+          <div class="input-group input-group-sm" style="max-width:11rem;">
+            <span class="input-group-text">$</span>
+            <input type="number" name="premio_monto_${c}" data-cifra="${c}" data-campo="monto"
+                   class="form-control text-end" min="0" step="any" value="${monto}">
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  document.querySelectorAll('.cifras-check').forEach(cb =>
+    cb.addEventListener('change', renderPremios));
+  document.getElementById('modalNuevo')?.addEventListener('shown.bs.modal', renderPremios);
+
   // --- Validar cifras ---
   document.querySelector('#modalNuevo form').addEventListener('submit', function(e) {
+    guardarPremios();
     const checked = document.querySelectorAll('.cifras-check:checked');
     const errorEl = document.getElementById('cifrasError');
     if (checked.length === 0) {
@@ -815,6 +892,24 @@
     const cm = document.getElementById('contadorMeses');
     if (cm) cm.textContent = mesesVisibles;
   }
+
+  // --- Volver desde Premios / Entregas / Informe al MES del sorteo ------------
+  // Esas pantallas linkean a /sorteos/#mes-AAAA-MM. Acá se abre ese panel del
+  // acordeón y se hace scroll, así no hay que buscar el mes y desplegarlo a mano
+  // cada vez que se sale de un sorteo.
+  (function abrirMesDelHash() {
+    function ir() {
+      const h = window.location.hash;
+      if (!h || !h.startsWith('#mes-')) return;
+      const panel = document.querySelector(h);   // id="mes-AAAA-MM"
+      if (!panel) return;
+      bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).show();
+      const cab = panel.previousElementSibling || panel;
+      cab.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    document.addEventListener('DOMContentLoaded', ir);
+    window.addEventListener('hashchange', ir);
+  })();
 
   document.querySelectorAll('.filtro-tipo').forEach(btn => {
     btn.addEventListener('click', function () {

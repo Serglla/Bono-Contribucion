@@ -8,9 +8,17 @@
   <h4 class="fw-bold mb-0">
     <i class="bi bi-gift-fill text-danger me-2"></i>Premios del sorteo
   </h4>
-  <a href="/sorteos/" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-left me-1"></i>Volver a Sorteos
-  </a>
+  <div class="d-flex gap-2">
+    {# Atajo a Entregas: es a donde se va después de cargar los premios #}
+    <a href="/sorteos/{{ sorteo.id }}/entregas" class="btn btn-sm btn-outline-danger">
+      <i class="bi bi-clipboard-check me-1"></i>Entregas
+    </a>
+    {# Vuelve al MES del sorteo (ancla del acordeón), no al menú general #}
+    <a href="/sorteos/#mes-{{ '%04d-%02d'|format(sorteo.fecha.year, sorteo.fecha.month) }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Volver a {{ sorteo.fecha.strftime('%m/%Y') }}
+    </a>
+  </div>
 </div>
 
 <!-- Cabecera del sorteo -->

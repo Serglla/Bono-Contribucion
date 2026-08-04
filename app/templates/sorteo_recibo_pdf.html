@@ -1,0 +1,62 @@
+{# Recibo de entrega de premio — versión para PDF (xhtml2pdf / pisa).
+
+   Es un gemelo de sorteo_recibo.html SIN toolbar, sin Bootstrap y sin JS:
+   pisa no ejecuta scripts ni entiende hojas de estilo externas, así que todo el
+   CSS va inline y acotado a lo que soporta (nada de flex ni grid).
+   Se usa para el botón "PDF / Compartir" — el cobrador lo recibe por WhatsApp.
+
+   OJO: si cambia el texto legal del recibo, hay que tocarlo en LOS DOS archivos. #}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Recibo de entrega</title>
+  <style>
+    @page { size: A4 portrait; margin: 18mm 16mm; }
+    body { font-family: "Times New Roman", serif; color: #000; font-size: 12pt; }
+    .inst { text-align: center; font-size: 13pt; font-weight: bold; }
+    .sub { text-align: center; font-size: 10pt; margin-bottom: 8mm; }
+    h1 { text-align: center; font-size: 15pt; letter-spacing: 1px;
+         margin: 0 0 8mm; text-transform: uppercase; }
+    .cuerpo { text-align: justify; line-height: 1.6; }
+    .dato { font-weight: bold; }
+    .premio-box { border: 1px solid #000; padding: 4mm; margin: 6mm 0; line-height: 1.7; }
+    .firmas { margin-top: 20mm; text-align: center; }
+    .linea { border-top: 1px solid #000; width: 70mm; margin: 0 auto 1mm; }
+    small { font-size: 9pt; }
+  </style>
+</head>
+<body>
+  <div class="inst">{{ institucion }}</div>
+  <div class="sub">Bono Contribución 2026 – 2027</div>
+  <h1>Recibo de entrega de premio</h1>
+
+  <div class="cuerpo">
+    <p>
+      En la ciudad de Concepción del Uruguay, a los {{ fecha_entrega or "____________" }},
+      el/la Sr./Sra. <span class="dato">{{ socio.apellido_nombre if socio else "____________________" }}</span>
+      {% if socio and socio.direccion %}, con domicilio en <span class="dato">{{ socio.direccion }}</span>{% endif %},
+      declara haber recibido de conformidad de la {{ institucion }} el premio que se detalla a continuación,
+      correspondiente al sorteo del Bono Contribución.
+    </p>
+
+    <div class="premio-box">
+      <div><span class="dato">Premio:</span> {{ premio.descripcion }}{% if premio.clase == "ORDEN" and premio.monto %} (valor ${{ premio.monto|round(0)|int }}){% endif %}</div>
+      <div><span class="dato">Sorteo:</span> {{ tipo_label }} del {{ sorteo.fecha.strftime("%d/%m/%Y") }}</div>
+      <div><span class="dato">Número favorecido:</span> {{ numero }}</div>
+      {% if boleta %}<div><span class="dato">Talonera / Boleta:</span> {{ (boleta.talonera.nombre if boleta.talonera else "—") | replace('PATA ', 'X') }} · {{ "%04d"|format(boleta.numero_principal) }}</div>{% endif %}
+    </div>
+
+    <p>
+      Recibiendo el premio detallado en perfectas condiciones, no teniendo nada más que reclamar
+      por ningún concepto a la institución.
+    </p>
+  </div>
+
+  <div class="firmas">
+    <div class="linea">&nbsp;</div>
+    <small>Firma del ganador</small><br>
+    <small>Aclaración / DNI</small>
+  </div>
+</body>
+</html>

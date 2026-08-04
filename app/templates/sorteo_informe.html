@@ -4,7 +4,7 @@
 
 <!-- Toolbar (no se imprime) -->
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap d-print-none">
-  <a href="/sorteos/" class="btn btn-sm btn-outline-secondary">
+  <a href="/sorteos/#mes-{{ '%04d-%02d'|format(year, month) }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-arrow-left"></i>
   </a>
   <h4 class="fw-bold mb-0">
@@ -92,7 +92,18 @@
           {% for g in b.ganadores %}
           <tr class="{% if not g.habilitado %}inf-no-hab{% endif %}">
             <td class="text-muted">{{ loop.index }}</td>
-            <td class="fw-semibold">{{ g.nombre or "—" }}</td>
+            <td class="fw-semibold">
+              {{ g.nombre or "—" }}
+              {# Acceso directo al recibo desde el informe: la entrega ya se creó
+                 sola al cargar el resultado, así que no hace falta pasar por
+                 Entregas del sorteo para imprimirlo o mandarlo por WhatsApp. #}
+              {% if g.entrega_id and g.habilitado %}
+              <a href="/sorteos/entregas/{{ g.entrega_id }}/recibo" target="_blank"
+                 class="btn btn-link btn-sm p-0 ms-1 d-print-none" title="Abrir el recibo de entrega">
+                <i class="bi bi-receipt"></i>
+              </a>
+              {% endif %}
+            </td>
             <td><span class="badge bg-dark">{{ g.numero }}</span></td>
             {# Cifras: define si el ganador sale en NEGRITA en el extracto impreso
                (los "mayores" son los del nivel más alto del sorteo). Sale del cruce

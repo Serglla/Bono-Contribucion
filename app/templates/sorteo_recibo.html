@@ -55,11 +55,53 @@
     </button>
     <span class="fw-semibold text-secondary">Recibo de entrega de premio</span>
     {% if habilitado %}
-    <button type="button" onclick="window.print()" class="btn btn-sm btn-danger ms-auto">
+    {# Compartir: en el celular abre el menú del teléfono (WhatsApp, mail…) con el
+       PDF adjunto. En la compu no hay Web Share con archivos, así que baja el PDF. #}
+    <button type="button" onclick="compartirRecibo(this)" class="btn btn-sm btn-outline-danger ms-auto">
+      <i class="bi bi-share me-1"></i>PDF / Compartir
+    </button>
+    <button type="button" onclick="window.print()" class="btn btn-sm btn-danger">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
     {% endif %}
   </div>
+
+  <script>
+    const RECIBO_PDF_URL = "/sorteos/entregas/{{ entrega.id }}/recibo.pdf";
+    const RECIBO_NOMBRE  = "recibo_{{ (socio.apellido_nombre if socio else 'ganador')|replace(' ', '_') }}_{{ numero }}.pdf";
+
+    async function compartirRecibo(btn) {
+      const original = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Generando…';
+      try {
+        const resp = await fetch(RECIBO_PDF_URL, { credentials: 'include' });
+        if (!resp.ok) throw new Error('pdf');
+        const blob = await resp.blob();
+        const file = new File([blob], RECIBO_NOMBRE, { type: 'application/pdf' });
+
+        // Celular: menú de compartir nativo con el PDF adjunto
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: 'Recibo de entrega de premio' });
+          return;
+        }
+        // Escritorio: descarga directa
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = RECIBO_NOMBRE;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+      } catch (err) {
+        // AbortError = el usuario cerró el menú de compartir; no es un error real
+        if (!err || err.name !== 'AbortError') {
+          alert('No se pudo generar el PDF del recibo. Probá con Imprimir.');
+        }
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = original;
+      }
+    }
+  </script>
 
   <script>
     // El recibo se abre en pestaña nueva: "Cerrar" cierra esta pestaña y vuelve
