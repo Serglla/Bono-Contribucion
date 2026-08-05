@@ -338,6 +338,21 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         if b.cobrador_id is not None and b.talonera is not None
     ]
 
+    # Ponderación por PATA, igual criterio que las hojas de liquidación:
+    # el multiplicador de la talonera, salvo que TODA la planilla sea PATA 0
+    # (ahí las cuotas cuentan ×1, porque no hay PATA 1 con que comparar).
+    from .cobranza import _pata_valor, _planilla_todo_pata0
+    _pl_boletas = {}
+    for b in boletas_con_cob:
+        if b.planilla_id:
+            _pl_boletas.setdefault(b.planilla_id, []).append(b)
+    _pl_todo0 = {pid: _planilla_todo_pata0(bs) for pid, bs in _pl_boletas.items()}
+
+    def _peso_pata(b):
+        if b.planilla_id and _pl_todo0.get(b.planilla_id):
+            return 1.0
+        return _pata_valor(b)
+
     # Info de cobradores únicos
     _cob_info = {}
     for b in boletas_con_cob:
@@ -389,8 +404,11 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
                 })
             else:
                 # ── Mes futuro: proyección × tasa de cobro ───────────
+                # Las cuotas se cuentan PONDERADAS POR PATA, igual que en las
+                # hojas de liquidación, para que la columna sea comparable entre
+                # meses reales y proyectados (una PATA 2 cuenta como 2 cuotas).
                 bruto_teorico = 0.0
-                cant = 0
+                cant = 0.0
                 for b in boletas_con_cob:
                     if b.cobrador_id != cid:
                         continue
@@ -404,8 +422,11 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
                     if n <= pagadas:     continue
                     if n <= anticipadas: continue
                     bruto_teorico += vc
-                    cant          += 1
+                    cant          += _peso_pata(b)
 
+                # La cantidad proyectada también se ajusta por la tasa de cobro:
+                # si se cobra el 93%, no se van a cobrar las 668, sino ~621.
+                cant     = round(cant * tasa, 2)
                 bruto_aj = round(bruto_teorico * tasa)
                 comision = round(bruto_aj * pct)
                 meses_proj.append({
