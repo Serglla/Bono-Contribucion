@@ -192,6 +192,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
                 "bruto":    _d["monto"],
                 "comision": _d["comision"],
                 "neto":     _d["neto"],
+                "cuotas":   _d["cuotas_exact"],   # cuotas realmente cobradas (ponderadas)
             }
             _cr = _cob_real.setdefault(_cid, {
                 "nombre":        _c.nombre,
@@ -382,7 +383,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
                     "bruto":      r["bruto"],
                     "comision":   r["comision"],
                     "neto":       r["neto"],
-                    "cant":       None,
+                    "cant":       r.get("cuotas", 0),   # cuotas realmente cobradas
                     "es_real":    True,
                     "tasa":       None,
                 })
@@ -436,6 +437,44 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         for cid in _cob_info
     ], key=lambda x: x["nombre"])
 
+    # ── Ventas al contado por mes ────────────────────────────────────────
+    # Cada contado se imputa al mes de su FECHA DE VENTA (es cuando entra la
+    # plata). El bruto usa el mismo criterio que gross_contado. La comisión del
+    # vendedor se prorratea: cada liquidación reparte su comision_contados entre
+    # las boletas de contado que la integran, en proporción al monto de cada una.
+    _contado_boletas = [b for b in boletas if _es_contado(b)]
+
+    def _bruto_contado(b):
+        return (b.cuotas_pactadas or cuotas_vigentes(
+            b.talonera.num_cuotas if b.talonera else None, b.fecha_venta)) \
+            * (b.talonera.valor_cuota if b.talonera else 0)
+
+    # Monto total de contado agrupado por liquidación, para prorratear
+    _lv_bruto = {}
+    for b in _contado_boletas:
+        if b.liquidacion_vendedor_id:
+            _lv_bruto[b.liquidacion_vendedor_id] = \
+                _lv_bruto.get(b.liquidacion_vendedor_id, 0.0) + _bruto_contado(b)
+    _lv_com = {lv.id: (lv.comision_contados or 0) for lv in liqs_v}
+
+    contados_por_mes = {}   # (anio, mes) -> {"cant","bruto","comision","neto"}
+    for b in _contado_boletas:
+        if not b.fecha_venta:
+            continue
+        _key = (b.fecha_venta.year, b.fecha_venta.month)
+        _br = _bruto_contado(b)
+        # Comisión proporcional dentro de su liquidación (0 si aún no se liquidó)
+        _com = 0.0
+        _lvid = b.liquidacion_vendedor_id
+        if _lvid and _lv_bruto.get(_lvid):
+            _com = _lv_com.get(_lvid, 0.0) * (_br / _lv_bruto[_lvid])
+        _c = contados_por_mes.setdefault(
+            _key, {"cant": 0, "bruto": 0.0, "comision": 0.0, "neto": 0.0})
+        _c["cant"]     += 1
+        _c["bruto"]    += _br
+        _c["comision"] += _com
+        _c["neto"]     += _br - _com
+
     # ── Resumen consolidado mes a mes (todos los cobradores juntos) ───────
     # Para cada mes de campaña suma, sobre todos los cobradores:
     #   · cuotas a cobrar  → cuántas cuotas quedan por cobrar (solo proyectado)
@@ -470,22 +509,35 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
             estado = "proy"
         else:
             estado = "mixto"
+        _ct = contados_por_mes.get((pm["anio"], pm["mes"]),
+                                   {"cant": 0, "bruto": 0.0, "comision": 0.0, "neto": 0.0})
+        if _ct["cant"] and estado == "vacio":
+            estado = "real"       # hubo ventas de contado ese mes
         resumen_meses.append({
-            "mes_nombre": pm["mes_nombre"],
-            "anio":       pm["anio"],
-            "cuotas":     cuotas,
-            "bruto":      bruto,
-            "comision":   comision,
-            "neto":       neto,
-            "estado":     estado,
+            "mes_nombre":     pm["mes_nombre"],
+            "anio":           pm["anio"],
+            "cuotas":         cuotas,
+            "bruto":          bruto,
+            "comision":       comision,
+            "neto":           neto,
+            "contados":       _ct["cant"],
+            "contado_bruto":  _ct["bruto"],
+            "contado_com":    _ct["comision"],
+            "contado_neto":   _ct["neto"],
+            "neto_total":     neto + _ct["neto"],
+            "estado":         estado,
         })
 
-    resumen_cuotas    = sum(r["cuotas"]   for r in resumen_meses)
-    resumen_bruto     = sum(r["bruto"]    for r in resumen_meses)
-    resumen_comision  = sum(r["comision"] for r in resumen_meses)
-    resumen_neto      = sum(r["neto"]     for r in resumen_meses)
-    # Neto final = neto de cobranza − comisiones de vendedores por contado
-    resumen_neto_final = resumen_neto - com_vendedores_contado
+    resumen_cuotas         = sum(r["cuotas"]       for r in resumen_meses)
+    resumen_bruto          = sum(r["bruto"]        for r in resumen_meses)
+    resumen_comision       = sum(r["comision"]     for r in resumen_meses)
+    resumen_neto           = sum(r["neto"]         for r in resumen_meses)
+    resumen_contados       = sum(r["contados"]     for r in resumen_meses)
+    resumen_contado_bruto  = sum(r["contado_bruto"] for r in resumen_meses)
+    resumen_contado_com    = sum(r["contado_com"]  for r in resumen_meses)
+    resumen_contado_neto   = sum(r["contado_neto"] for r in resumen_meses)
+    # Neto final = neto de cobranza + neto de contados (ya sin comisiones)
+    resumen_neto_final = resumen_neto + resumen_contado_neto
 
     return templates.TemplateResponse(request, "contabilidad.html", {
         "user":                  user,
@@ -523,6 +575,10 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "resumen_bruto":         resumen_bruto,
         "resumen_comision":      resumen_comision,
         "resumen_neto":          resumen_neto,
+        "resumen_contados":      resumen_contados,
+        "resumen_contado_bruto": resumen_contado_bruto,
+        "resumen_contado_com":   resumen_contado_com,
+        "resumen_contado_neto":  resumen_contado_neto,
         "resumen_neto_final":    resumen_neto_final,
         "com_vendedores_contado": com_vendedores_contado,
     })
