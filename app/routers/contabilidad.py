@@ -156,40 +156,58 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     # de la planilla) daba un acumulado incompleto — "la suma de mayo y junio
     # daba solo el último mes liquidado". Ver _resumen_institucion en
     # app/routers/cobranza.py.
-    from .cobranza import _resumen_institucion, _periodos_cobranza
+    from .cobranza import _consolidado_cobrador, _periodos_cobranza
+    from datetime import date as _date_hoy
+    _mes_actual_key = (_date_hoy.today().year, _date_hoy.today().month)
+
+    _cobradores_all = db.query(models.Cobrador).order_by(models.Cobrador.nombre).all()
     _periodos = _periodos_cobranza(db)                 # [{anio, mes, ...}]
-    rec_real      = {}   # (anio, mes) -> {"monto","comision","neto",...}
+    rec_real      = {}   # (anio, mes) -> {"monto","comision","neto"}
     _real_por_cob = {}   # cid -> {(mes, anio): {"bruto","comision","neto"}}
     _cob_real     = {}   # cid -> acumulado por cobrador (para el historial)
+    # Efectividad real de cobranza por cobrador (cobradas / (cobradas+sin cobrar)),
+    # SOLO sobre meses ya cerrados. El mes en curso todavía no terminó de cobrarse,
+    # así que arrastra "sin cobrar" y hundiría la tasa (por eso antes daba ~50% en
+    # vez del ~90% real). Es la misma efectividad que muestran las hojas.
+    _cob_efect    = {}   # cid -> [cobradas_ponderadas, sin_cobrar_ponderadas]
     for _p in _periodos:
         _a, _m = _p["anio"], _p["mes"]
-        _data = _resumen_institucion(db, _m, _a)
-        _tot = _data["totales"]
-        if not _tot.get("monto"):
-            continue
-        rec_real[(_a, _m)] = _tot
-        for _f in _data["filas"]:
-            _cid = _f["cobrador"].id
+        _mes_cerrado = (_a, _m) < _mes_actual_key
+        for _c in _cobradores_all:
+            _d = _consolidado_cobrador(db, _c, _m, _a)
+            if not (_d["monto"] or _d["sin_cobrar"]):
+                continue
+            _cid = _c.id
+            if _mes_cerrado:
+                _ef = _cob_efect.setdefault(_cid, [0.0, 0.0])
+                _ef[0] += _d["cuotas_exact"]
+                _ef[1] += _d["sin_cobrar"]
+            if not _d["monto"]:
+                continue
+            _t = rec_real.setdefault((_a, _m), {"monto": 0.0, "comision": 0.0, "neto": 0.0})
+            _t["monto"]    += _d["monto"]
+            _t["comision"] += _d["comision"]
+            _t["neto"]     += _d["neto"]
             _real_por_cob.setdefault(_cid, {})[(_m, _a)] = {
-                "bruto":    _f["monto"],
-                "comision": _f["comision"],
-                "neto":     _f["neto"],
+                "bruto":    _d["monto"],
+                "comision": _d["comision"],
+                "neto":     _d["neto"],
             }
             _cr = _cob_real.setdefault(_cid, {
-                "nombre":        _f["cobrador"].nombre,
+                "nombre":        _c.nombre,
                 "total_monto":   0.0, "total_comision": 0.0, "total_neto": 0.0,
                 "liquidaciones": [],
             })
-            _cr["total_monto"]    += _f["monto"]
-            _cr["total_comision"] += _f["comision"]
-            _cr["total_neto"]     += _f["neto"]
+            _cr["total_monto"]    += _d["monto"]
+            _cr["total_comision"] += _d["comision"]
+            _cr["total_neto"]     += _d["neto"]
             _cr["liquidaciones"].append({
                 "fecha":      "",
                 "mes_nombre": MESES[_m - 1],
                 "anio":       _a,
-                "monto":      _f["monto"],
-                "comision":   _f["comision"],
-                "neto":       _f["neto"],
+                "monto":      _d["monto"],
+                "comision":   _d["comision"],
+                "neto":       _d["neto"],
             })
 
     total_com_cobradores = sum(t["comision"] for t in rec_real.values())
@@ -328,42 +346,18 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
                 "comision_pct": float(b.cobrador.comision_pct or 0),
             }
 
-    # Tasa de cobro por cobrador:
-    # De las cuotas que YA VENCIERON (según meses de campaña transcurridos),
-    # cuántas se cobraron efectivamente.
-    # Cuota 1 venció en Junio 2026, cuota 2 en Julio 2026, etc.
-    from datetime import date as _date
-    _hoy = _date.today()
-    _camp_start_anio = 2026
-    _camp_start_mes  = 5   # Mayo (cuota 1 = mes de venta)
-    # Cuántos meses de campaña han transcurrido (0 = aún no empezó)
-    _meses_transcurridos = max(
-        0,
-        (_hoy.year - _camp_start_anio) * 12 + (_hoy.month - _camp_start_mes) + 1
-    )
-
+    # Tasa = efectividad real de cobranza de cada cobrador, la MISMA que muestran
+    # las hojas de liquidación: cobradas / (cobradas + sin cobrar) sobre los meses
+    # ya cerrados. (El cálculo anterior contaba contra "cuotas vencidas" incluyendo
+    # el mes en curso sin cobrar todavía, y daba ~50% cuando en la práctica se
+    # cobra ~90%.)
     _cob_tasa = {}
     for cid in _cob_info:
-        tot_vencido = tot_pag = 0
-        for b in boletas_con_cob:
-            if b.cobrador_id != cid:
-                continue
-            if _es_contado(b):
-                continue
-            pac  = b.cuotas_pactadas    or 0
-            pag  = b.cuotas_pagadas     or 0
-            ant  = b.cuotas_anticipadas or 0
-            # Cuotas vencidas de esta boleta = min(meses transcurridos, pactadas) - anticipadas
-            # (las anticipadas ya estaban pagas antes de vencer)
-            vencidas_boleta = max(0, min(_meses_transcurridos, pac) - ant)
-            # Cuotas pagas a través de cobranza = pagadas - anticipadas
-            pagas_cob = max(0, pag - ant)
-            tot_vencido += vencidas_boleta
-            tot_pag     += min(pagas_cob, vencidas_boleta)   # no puede superar lo vencido
-        if tot_vencido > 0:
-            _cob_tasa[cid] = round(tot_pag / tot_vencido, 4)
+        _ef = _cob_efect.get(cid)
+        if _ef and (_ef[0] + _ef[1]) > 0:
+            _cob_tasa[cid] = round(_ef[0] / (_ef[0] + _ef[1]), 4)
         else:
-            _cob_tasa[cid] = 1.0   # campaña no comenzó → proyección al 100%
+            _cob_tasa[cid] = 1.0   # sin historial cerrado → proyección al 100%
 
     # Para cada cobrador, armar 12 meses mezclando reales + proyectados
     _cob_proyeccion = {}
