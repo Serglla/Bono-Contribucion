@@ -443,6 +443,57 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         for cid in _cob_info
     ], key=lambda x: x["nombre"])
 
+    # ── Resumen consolidado mes a mes (todos los cobradores juntos) ───────
+    # Para cada mes de campaña suma, sobre todos los cobradores:
+    #   · cuotas a cobrar  → cuántas cuotas quedan por cobrar (solo proyectado)
+    #   · proyectado       → cobranza esperada (real ya cobrado + proyectado × tasa)
+    #   · comisión         → comisión de cobradores sobre esa cobranza
+    #   · neto             → proyectado − comisión
+    # El estado del mes es "real" si ya se liquidó, "proy." si es proyección,
+    # o "mixto" si algunos cobradores ya liquidaron y otros no.
+    resumen_meses = []
+    for i, pm in enumerate(proyeccion_meses):
+        cuotas = 0
+        bruto = comision = neto = 0.0
+        n_real = n_tot = 0
+        for c in proyeccion_list:
+            m = c["meses"][i]
+            bruto    += m["bruto"]
+            comision += m["comision"]
+            neto     += m["neto"]
+            if m.get("cant"):
+                cuotas += m["cant"]
+            # solo contamos como "mes con actividad" si hay monto o es real
+            if m["es_real"]:
+                n_real += 1
+                n_tot  += 1
+            elif m["bruto"] or m.get("cant"):
+                n_tot += 1
+        if n_tot == 0:
+            estado = "vacio"
+        elif n_real == n_tot:
+            estado = "real"
+        elif n_real == 0:
+            estado = "proy"
+        else:
+            estado = "mixto"
+        resumen_meses.append({
+            "mes_nombre": pm["mes_nombre"],
+            "anio":       pm["anio"],
+            "cuotas":     cuotas,
+            "bruto":      bruto,
+            "comision":   comision,
+            "neto":       neto,
+            "estado":     estado,
+        })
+
+    resumen_cuotas    = sum(r["cuotas"]   for r in resumen_meses)
+    resumen_bruto     = sum(r["bruto"]    for r in resumen_meses)
+    resumen_comision  = sum(r["comision"] for r in resumen_meses)
+    resumen_neto      = sum(r["neto"]     for r in resumen_meses)
+    # Neto final = neto de cobranza − comisiones de vendedores por contado
+    resumen_neto_final = resumen_neto - com_vendedores_contado
+
     return templates.TemplateResponse(request, "contabilidad.html", {
         "user":                  user,
         "total_recaudado":       total_recaudado,
@@ -474,6 +525,13 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "total_socios":          len(boletas),
         "proyeccion_list":       proyeccion_list,
         "proyeccion_meses":      proyeccion_meses,
+        "resumen_meses":         resumen_meses,
+        "resumen_cuotas":        resumen_cuotas,
+        "resumen_bruto":         resumen_bruto,
+        "resumen_comision":      resumen_comision,
+        "resumen_neto":          resumen_neto,
+        "resumen_neto_final":    resumen_neto_final,
+        "com_vendedores_contado": com_vendedores_contado,
     })
 
 

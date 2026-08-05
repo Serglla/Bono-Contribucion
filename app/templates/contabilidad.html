@@ -5,6 +5,98 @@
   <span class="badge bg-secondary">{{ total_socios }} socios activos</span>
 </div>
 
+<!-- ══ RESUMEN: Proyección de cobranza mes a mes ═══════════════════════ -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-dark text-white d-flex align-items-center justify-content-between py-2">
+    <span class="fw-semibold"><i class="bi bi-graph-up-arrow me-2"></i>Proyección de cobranza — lo que falta cobrar</span>
+    <span class="small">Tasa de cobro real por cobrador · descuenta lo que no se paga</span>
+  </div>
+
+  <!-- Tarjetones de cabecera -->
+  <div class="row g-0 text-center border-bottom">
+    <div class="col-6 col-md-3 border-end py-3">
+      <div class="small text-muted"><i class="bi bi-hash me-1"></i>Cuotas por cobrar</div>
+      <div class="h4 fw-bold text-primary mb-0">{{ resumen_cuotas }}</div>
+    </div>
+    <div class="col-6 col-md-3 border-end py-3">
+      <div class="small text-muted"><i class="bi bi-cash-coin me-1"></i>Proyectado a cobrar</div>
+      <div class="h4 fw-bold text-success mb-0">{{ resumen_bruto | pesos }}</div>
+    </div>
+    <div class="col-6 col-md-3 border-end py-3">
+      <div class="small text-muted"><i class="bi bi-people me-1"></i>Comisión cobradores</div>
+      <div class="h4 fw-bold text-danger mb-0">{{ resumen_comision | pesos }}</div>
+    </div>
+    <div class="col-6 col-md-3 py-3">
+      <div class="small text-muted"><i class="bi bi-bank me-1"></i>Neto final</div>
+      <div class="h4 fw-bold {% if resumen_neto_final >= 0 %}text-info{% else %}text-danger{% endif %} mb-0">{{ resumen_neto_final | pesos }}</div>
+    </div>
+  </div>
+
+  <!-- Tabla mes a mes -->
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0" style="font-size:.85rem;">
+      <thead class="table-dark">
+        <tr>
+          <th style="min-width:120px;">Mes</th>
+          <th class="text-end">Cuotas a cobrar</th>
+          <th class="text-end">Proyectado de cobranza</th>
+          <th class="text-end">Comisión cobradores</th>
+          <th class="text-end">Neto institución</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in resumen_meses %}
+        {% if r.estado != 'vacio' %}
+        <tr>
+          <td class="fw-semibold">
+            {{ r.mes_nombre }} {{ r.anio }}
+            {% if r.estado == 'real' %}
+              <span class="badge bg-success ms-1" style="font-size:.62rem;">cobrado</span>
+            {% elif r.estado == 'mixto' %}
+              <span class="badge bg-warning text-dark ms-1" style="font-size:.62rem;">parcial</span>
+            {% else %}
+              <span class="badge bg-light text-muted border ms-1" style="font-size:.62rem;">proyectado</span>
+            {% endif %}
+          </td>
+          <td class="text-end">{% if r.cuotas %}{{ r.cuotas }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end text-success fw-semibold">{{ r.bruto | pesos }}</td>
+          <td class="text-end text-danger">−{{ r.comision | pesos }}</td>
+          <td class="text-end fw-bold">{{ r.neto | pesos }}</td>
+        </tr>
+        {% endif %}
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-3">Sin boletas asignadas a cobradores.</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="table-secondary fw-bold">
+          <td>Subtotal cobranza</td>
+          <td class="text-end">{{ resumen_cuotas }}</td>
+          <td class="text-end text-success">{{ resumen_bruto | pesos }}</td>
+          <td class="text-end text-danger">−{{ resumen_comision | pesos }}</td>
+          <td class="text-end">{{ resumen_neto | pesos }}</td>
+        </tr>
+        <tr class="fw-semibold">
+          <td colspan="4" class="text-end text-muted">
+            <i class="bi bi-person-badge me-1"></i>− Comisión vendedores por ventas al contado
+          </td>
+          <td class="text-end text-danger">−{{ com_vendedores_contado | pesos }}</td>
+        </tr>
+        <tr class="table-dark fw-bold">
+          <td colspan="4" class="text-end">NETO FINAL PROYECTADO</td>
+          <td class="text-end {% if resumen_neto_final >= 0 %}text-info{% else %}text-danger{% endif %}">{{ resumen_neto_final | pesos }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  <div class="card-footer bg-white small text-muted py-2">
+    <i class="bi bi-info-circle me-1"></i>
+    Los meses marcados <span class="badge bg-success" style="font-size:.6rem;">cobrado</span> ya están liquidados (cifras reales).
+    Los <span class="badge bg-light text-muted border" style="font-size:.6rem;">proyectado</span> aplican la tasa de cobro real de cada cobrador, que ya descuenta las cuotas que no se pagan.
+    El detalle por cobrador está en el tab <strong>Cobradores</strong>.
+  </div>
+</div>
+
 <!-- ── KPI row 1: Recaudacion ─────────────────────────────────────────── -->
 <div class="row g-3 mb-3">
   <div class="col-6 col-md-3">
