@@ -149,62 +149,71 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         })
     vendedores_list = sorted(vendedores_dict.values(), key=lambda x: -x["total"])
 
-    liqs_c = (
-        db.query(models.Liquidacion)
-        .options(
-            joinedload(models.Liquidacion.planilla)
-            .joinedload(models.Planilla.cobrador)
-        )
-        .order_by(models.Liquidacion.fecha)
-        .all()
-    )
-    total_com_cobradores = sum(lc.comision or 0 for lc in liqs_c)
-
-    cobradores_dict = {}
-    for lc in liqs_c:
-        p = lc.planilla
-        if not p:
+    # ── Fuente confiable: mismo motor que las hojas de liquidación ────────
+    # Contabilidad debe coincidir peso por peso con la hoja de cada mes, que se
+    # calcula desde historial_cuotas por período REAL de pago. La tabla
+    # Liquidacion (una por planilla, se pisa al re-liquidar y agrupa por el mes
+    # de la planilla) daba un acumulado incompleto — "la suma de mayo y junio
+    # daba solo el último mes liquidado". Ver _resumen_institucion en
+    # app/routers/cobranza.py.
+    from .cobranza import _resumen_institucion, _periodos_cobranza
+    _periodos = _periodos_cobranza(db)                 # [{anio, mes, ...}]
+    rec_real      = {}   # (anio, mes) -> {"monto","comision","neto",...}
+    _real_por_cob = {}   # cid -> {(mes, anio): {"bruto","comision","neto"}}
+    _cob_real     = {}   # cid -> acumulado por cobrador (para el historial)
+    for _p in _periodos:
+        _a, _m = _p["anio"], _p["mes"]
+        _data = _resumen_institucion(db, _m, _a)
+        _tot = _data["totales"]
+        if not _tot.get("monto"):
             continue
-        cid    = p.cobrador_id
-        nombre = p.cobrador.nombre if p.cobrador else "---"
-        if cid not in cobradores_dict:
-            cobradores_dict[cid] = {
-                "nombre": nombre,
-                "total_monto": 0.0, "total_comision": 0.0, "total_neto": 0.0,
+        rec_real[(_a, _m)] = _tot
+        for _f in _data["filas"]:
+            _cid = _f["cobrador"].id
+            _real_por_cob.setdefault(_cid, {})[(_m, _a)] = {
+                "bruto":    _f["monto"],
+                "comision": _f["comision"],
+                "neto":     _f["neto"],
+            }
+            _cr = _cob_real.setdefault(_cid, {
+                "nombre":        _f["cobrador"].nombre,
+                "total_monto":   0.0, "total_comision": 0.0, "total_neto": 0.0,
                 "liquidaciones": [],
-            }
-        cobradores_dict[cid]["total_monto"]    += lc.monto_total or 0
-        cobradores_dict[cid]["total_comision"] += lc.comision or 0
-        cobradores_dict[cid]["total_neto"]     += lc.neto or 0
-        cobradores_dict[cid]["liquidaciones"].append({
-            "fecha":      lc.fecha.strftime("%d/%m/%Y") if lc.fecha else "",
-            "mes_nombre": MESES[p.mes - 1] if p and p.mes else "",
-            "anio":       p.anio if p else 0,
-            "monto":      lc.monto_total or 0,
-            "comision":   lc.comision or 0,
-            "neto":       lc.neto or 0,
-        })
-    cobradores_list = sorted(cobradores_dict.values(), key=lambda x: -x["total_comision"])
+            })
+            _cr["total_monto"]    += _f["monto"]
+            _cr["total_comision"] += _f["comision"]
+            _cr["total_neto"]     += _f["neto"]
+            _cr["liquidaciones"].append({
+                "fecha":      "",
+                "mes_nombre": MESES[_m - 1],
+                "anio":       _a,
+                "monto":      _f["monto"],
+                "comision":   _f["comision"],
+                "neto":       _f["neto"],
+            })
 
-    rec_por_mes = {}
-    for lc in liqs_c:
-        p = lc.planilla
-        if not p:
-            continue
-        key = (p.anio, p.mes)
-        if key not in rec_por_mes:
-            rec_por_mes[key] = {
-                "mes_nombre": MESES[p.mes - 1],
-                "anio": p.anio,
-                "monto": 0.0, "comision": 0.0, "neto": 0.0,
-            }
-        rec_por_mes[key]["monto"]    += lc.monto_total or 0
-        rec_por_mes[key]["comision"] += lc.comision or 0
-        rec_por_mes[key]["neto"]     += lc.neto or 0
-    rec_por_mes_list = sorted(rec_por_mes.values(), key=lambda x: (x["anio"], x["mes_nombre"]))
+    total_com_cobradores = sum(t["comision"] for t in rec_real.values())
+    # Recaudado real = lo efectivamente cobrado según las hojas de liquidación
+    total_recaudado = sum(t["monto"] for t in rec_real.values())
+    pct_avance = round(total_recaudado / total_esperado * 100, 1) if total_esperado else 0
+
+    for _cr in _cob_real.values():
+        _cr["liquidaciones"].sort(key=lambda x: (x["anio"], MESES.index(x["mes_nombre"])))
+    cobradores_list = sorted(_cob_real.values(), key=lambda x: -x["total_comision"])
+
+    rec_por_mes_list = [
+        {
+            "mes_nombre": MESES[_m - 1],
+            "anio":       _a,
+            "monto":      _t["monto"],
+            "comision":   _t["comision"],
+            "neto":       _t["neto"],
+        }
+        for (_a, _m), _t in sorted(rec_real.items())
+    ]
 
     pago_mensual_bomberos = _get_config(db, "pago_mensual_bomberos", 0.0)
-    meses_liquidados      = len(rec_por_mes)
+    meses_liquidados      = len(rec_real)
     total_bomberos        = pago_mensual_bomberos * meses_liquidados
 
     gastos = (
@@ -301,18 +310,8 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         for i in range(12)
     ]
 
-    # Liquidaciones reales ya registradas, por cobrador y (mes, anio)
-    _real_por_cob = {}   # cid → {(mes, anio): {bruto, comision, neto}}
-    for lc in liqs_c:
-        p = lc.planilla
-        if not p:
-            continue
-        cid = p.cobrador_id
-        key = (p.mes, p.anio)
-        _real_por_cob.setdefault(cid, {}).setdefault(key, {"bruto": 0.0, "comision": 0.0, "neto": 0.0})
-        _real_por_cob[cid][key]["bruto"]    += lc.monto_total or 0
-        _real_por_cob[cid][key]["comision"] += lc.comision    or 0
-        _real_por_cob[cid][key]["neto"]     += lc.neto        or 0
+    # _real_por_cob ya se construyó arriba desde el motor de las hojas de
+    # liquidación (historial_cuotas por período real). Keys: (mes, anio).
 
     # Boletas activas con cobrador y talonera
     boletas_con_cob = [
