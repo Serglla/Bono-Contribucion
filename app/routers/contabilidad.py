@@ -212,9 +212,20 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
             })
 
     total_com_cobradores = sum(t["comision"] for t in rec_real.values())
-    # Recaudado real = lo efectivamente cobrado según las hojas de liquidación
+    # Recaudado por COBRANZA = lo efectivamente cobrado según las hojas
     total_recaudado = sum(t["monto"] for t in rec_real.values())
-    pct_avance = round(total_recaudado / total_esperado * 100, 1) if total_esperado else 0
+
+    # ── Ingreso real total (para el % de avance) ─────────────────────────
+    # No toda la plata entra por cobranza: los contados y la cuota 1 (anticipadas)
+    # las cobra el vendedor al vender. Medir el avance solo con la cobranza
+    # subestimaba el porcentaje (daba 8% cuando en realidad había entrado mucho más).
+    ingreso_anticipadas = sum(
+        (b.cuotas_anticipadas or 0) * (b.talonera.valor_cuota if b.talonera else 0)
+        for b in boletas if not _es_contado(b)
+    )
+    ingreso_contado = gross_contado
+    total_ingresado = total_recaudado + ingreso_anticipadas + ingreso_contado
+    pct_avance = round(total_ingresado / total_esperado * 100, 1) if total_esperado else 0
 
     for _cr in _cob_real.values():
         _cr["liquidaciones"].sort(key=lambda x: (x["anio"], MESES.index(x["mes_nombre"])))
@@ -280,13 +291,29 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
                  "CONTADO": "Al contado", "FINAL": "Final"}
     premios_list = []
     total_premios = 0.0
+    total_premios_comprometidos = 0.0
     for p in premios_orden:
         n = len(p.entregas)
+        so = p.sorteo
+        # Premios del sorteo FINAL por posición (1°, 2°, 3°): salen sí o sí,
+        # siempre hay ganador. Se cuentan como egreso comprometido aunque
+        # todavía no esté asignado el ganador — si no, la ganancia proyectada
+        # queda inflada hasta el día del sorteo.
+        _comprometido = False
         if n == 0:
-            continue
+            _es_final_posicion = (
+                so is not None
+                and getattr(so.tipo, "value", so.tipo) == "FINAL"
+                and (p.modalidad or "POSICION") == "POSICION"
+            )
+            if not _es_final_posicion:
+                continue
+            n = 1
+            _comprometido = True
         subtotal = (p.monto or 0) * n
         total_premios += subtotal
-        so = p.sorteo
+        if _comprometido:
+            total_premios_comprometidos += subtotal
         tipo_lbl = _TIPO_LBL.get(so.tipo.value, so.tipo.value) if so else ""
         premios_list.append({
             "descripcion": p.descripcion,
@@ -295,16 +322,20 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
             "monto":       p.monto or 0,
             "ganadores":   n,
             "subtotal":    subtotal,
+            "comprometido": _comprometido,
         })
     premios_list.sort(key=lambda x: (x["fecha"], x["descripcion"]))
 
     # Egresos reales (comisiones ya liquidadas + premios con ganador)
     total_egresos = (total_com_vendedores + total_com_cobradores
                      + total_bomberos + total_gastos + total_premios)
-    ganancia_neta = total_recaudado - total_egresos
-    # Egresos proyectados (para ganancia proyectada — usa com.cobradores proyectada)
-    total_egresos_proyectado = (total_com_vendedores + com_cobradores_proyectada
-                                + total_bomberos + total_gastos + total_premios)
+    # Ganancia real = TODO lo que entró (cobranza + contados + cuota 1) − egresos.
+    # Antes usaba solo la cobranza y daba un rojo enorme que no era real.
+    ganancia_neta = total_ingresado - total_egresos
+    # Egresos que no dependen de la cobranza (las comisiones se descuentan
+    # más abajo dentro de la proyección, para no contarlas dos veces).
+    com_vendedores_cuotas = total_com_vendedores - com_vendedores_contado
+    egresos_fijos = total_bomberos + total_gastos + total_premios
 
 
     # ── Proyección mensual por cobrador ─────────────────────────────────
@@ -560,6 +591,18 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     # Neto final = neto de cobranza + neto de contados (ya sin comisiones)
     resumen_neto_final = resumen_neto + resumen_contado_neto
 
+    # ── Ganancia proyectada REALISTA ─────────────────────────────────────
+    # Coherente con la tabla de arriba: parte del neto proyectado (que ya aplica
+    # la tasa real de cobranza y descuenta comisiones de cobradores y de
+    # vendedores por contado), le suma la cuota 1 que cobra el vendedor, y le
+    # resta la comisión de vendedores por cuotas más los egresos fijos
+    # (bomberos, gastos varios y premios, incluidos los comprometidos del final).
+    # La versión anterior asumía cobranza al 100% y quedaba inflada.
+    ganancia_proyectada = (resumen_neto_final + ingreso_anticipadas
+                           - com_vendedores_cuotas - egresos_fijos)
+    total_egresos_proyectado = (total_com_vendedores + resumen_comision
+                                + egresos_fijos)
+
     return templates.TemplateResponse(request, "contabilidad.html", {
         "user":                  user,
         "total_recaudado":       total_recaudado,
@@ -579,6 +622,11 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "total_bomberos":        total_bomberos,
         "total_gastos":          total_gastos,
         "total_premios":         total_premios,
+        "total_premios_comprometidos": total_premios_comprometidos,
+        "total_ingresado":       total_ingresado,
+        "ingreso_anticipadas":   ingreso_anticipadas,
+        "ingreso_contado":       ingreso_contado,
+        "ganancia_proyectada":   ganancia_proyectada,
         "premios_list":          premios_list,
         "gastos_list":           gastos_list,
         "categorias":            CATEGORIAS,

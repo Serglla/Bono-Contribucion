@@ -123,6 +123,7 @@
           {% if gross_baja %} · Bajas {{ gross_baja | pesos }}{% endif %}
           {% if gross_contado %} · Contado {{ gross_contado | pesos }}{% endif %}
           · − Com. cob. {{ com_cobradores_proyectada | pesos }}
+          · − Com. vend. contado {{ com_vendedores_contado | pesos }}
         </div>
       </div>
     </div>
@@ -150,6 +151,10 @@
         <div class="h5 fw-bold text-info mb-0">{{ pct_avance }}%</div>
         <div class="progress mt-1" style="height:4px;">
           <div class="progress-bar bg-info" style="width:{{ pct_avance }}%"></div>
+        </div>
+        <div class="small text-muted mt-1" style="font-size:.72rem; line-height:1.4;">
+          Ingresado {{ total_ingresado | pesos }}<br>
+          Cobranza {{ total_recaudado | pesos }} · Cuota 1 {{ ingreso_anticipadas | pesos }} · Contado {{ ingreso_contado | pesos }}
         </div>
       </div>
     </div>
@@ -189,7 +194,12 @@
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-trophy me-1"></i>Premios (órdenes)</div>
         <div class="h5 fw-bold text-danger mb-0">{{ total_premios | pesos }}</div>
-        <div class="small text-muted" style="font-size:.72rem;">órdenes de compra con ganador</div>
+        <div class="small text-muted" style="font-size:.72rem; line-height:1.4;">
+          con ganador asignado
+          {% if total_premios_comprometidos %}
+          <br>incl. {{ total_premios_comprometidos | pesos }} del sorteo final (sale sí o sí)
+          {% endif %}
+        </div>
       </div>
     </div>
   </div>
@@ -216,9 +226,12 @@
   <div class="col-6 col-md-4">
     <div class="card border-0 shadow-sm h-100 border-start border-4 {% if ganancia_neta >= 0 %}border-success{% else %}border-danger{% endif %}">
       <div class="card-body py-3">
-        <div class="small text-muted mb-1"><i class="bi bi-bank me-1"></i>Ganancia neta real</div>
+        <div class="small text-muted mb-1"><i class="bi bi-bank me-1"></i>Resultado a hoy</div>
         <div class="h5 fw-bold mb-0 {% if ganancia_neta >= 0 %}text-success{% else %}text-danger{% endif %}">{{ ganancia_neta | pesos }}</div>
-        <div class="small text-muted">(sobre lo recaudado hasta hoy)</div>
+        <div class="small text-muted" style="font-size:.72rem; line-height:1.4;">
+          Ingresado {{ total_ingresado | pesos }} − egresos {{ total_egresos | pesos }}.
+          Los gastos se cuentan completos aunque la cobranza recién empiece: al inicio da negativo.
+        </div>
       </div>
     </div>
   </div>
@@ -226,9 +239,11 @@
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-info">
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-graph-up me-1"></i>Ganancia proyectada</div>
-        {% set ganancia_proy = total_esperado - total_egresos_proyectado %}
-        <div class="h5 fw-bold mb-0 {% if ganancia_proy >= 0 %}text-info{% else %}text-danger{% endif %}">{{ ganancia_proy | pesos }}</div>
-        <div class="small text-muted">(si se cobra todo lo esperado)</div>
+        <div class="h5 fw-bold mb-0 {% if ganancia_proyectada >= 0 %}text-info{% else %}text-danger{% endif %}">{{ ganancia_proyectada | pesos }}</div>
+        <div class="small text-muted" style="font-size:.72rem; line-height:1.4;">
+          Fin de campaña, con la tasa real de cobranza.<br>
+          Neto tabla {{ resumen_neto_final | pesos }} + cuota 1 {{ ingreso_anticipadas | pesos }} − com. vend. y gastos
+        </div>
       </div>
     </div>
   </div>
@@ -590,11 +605,19 @@
           <tbody>
             {% for p in premios_list %}
             <tr>
-              <td>{{ p.descripcion }}</td>
+              <td>
+                {{ p.descripcion }}
+                {% if p.comprometido %}
+                <span class="badge bg-warning text-dark ms-1" style="font-size:.62rem;"
+                      title="Premio del sorteo final por posición: siempre hay ganador, se cuenta como egreso comprometido">
+                  sale sí o sí
+                </span>
+                {% endif %}
+              </td>
               <td>{{ p.sorteo }}</td>
               <td>{{ p.fecha }}</td>
               <td class="text-end">{{ p.monto | pesos }}</td>
-              <td class="text-center">{{ p.ganadores }}</td>
+              <td class="text-center">{% if p.comprometido %}<span class="text-muted">—</span>{% else %}{{ p.ganadores }}{% endif %}</td>
               <td class="text-end text-danger fw-semibold">{{ p.subtotal | pesos }}</td>
             </tr>
             {% else %}
