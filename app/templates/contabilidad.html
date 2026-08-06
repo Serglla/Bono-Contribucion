@@ -111,6 +111,172 @@
   </div>
 </div>
 
+<!-- ══ SIMULADOR de ventas futuras ═════════════════════════════════════ -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-primary text-white d-flex align-items-center justify-content-between py-2"
+       style="cursor:pointer;" onclick="bootstrap.Collapse.getOrCreateInstance(document.getElementById('simBody'), {toggle:false}).toggle()">
+    <span class="fw-semibold"><i class="bi bi-sliders me-2"></i>Simulador — ¿cuánto falta vender para dar ganancia?</span>
+    <span class="small"><i class="bi bi-chevron-expand"></i> abrir / cerrar</span>
+  </div>
+  <div class="collapse show" id="simBody">
+  <div class="card-body">
+
+    <div class="alert alert-light border small mb-3 py-2">
+      <i class="bi bi-info-circle me-1"></i>
+      Cada mes que pasa, la boleta nueva rinde menos: la campaña cierra con el sorteo final de
+      <strong>junio 2027</strong> y las cuotas que no llegan se regalan.
+      Además, <strong>la cuota 1 se la queda el vendedor</strong>, así que una venta por cuotas
+      le deja a la institución solo de la cuota 2 en adelante.
+      {% if sim_zonas_total %}
+      Zonas trabajadas: <strong>{{ sim_zonas_pct }}%</strong> ({{ sim_zonas_hechas }} de {{ sim_zonas_total }}).
+      {% endif %}
+    </div>
+
+    <div class="row g-3">
+      <!-- ── Inputs ── -->
+      <div class="col-lg-5">
+        <div class="border rounded p-3 h-100 bg-light">
+          <div class="fw-semibold small mb-2 text-secondary">ESCENARIO DE VENTA</div>
+
+          <div class="row g-2 mb-2">
+            <div class="col-7">
+              <label class="form-label small mb-1">Números el primer mes</label>
+              <input type="number" id="simQ0" class="form-control form-control-sm" value="150" min="0" step="10">
+            </div>
+            <div class="col-5">
+              <label class="form-label small mb-1">Caída mensual</label>
+              <div class="input-group input-group-sm">
+                <input type="number" id="simCaida" class="form-control" value="25" min="0" max="100" step="5">
+                <span class="input-group-text">%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small mb-1">Desde</label>
+              <select id="simDesde" class="form-select form-select-sm"></select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-1">Último mes de venta</label>
+              <select id="simHasta" class="form-select form-select-sm"></select>
+            </div>
+          </div>
+
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small mb-1">Tasa de cobro</label>
+              <div class="input-group input-group-sm">
+                <input type="number" id="simTasa" class="form-control" value="{{ sim_tasa_cobro }}" min="0" max="100" step="1">
+                <span class="input-group-text">%</span>
+              </div>
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-1">Ventas al contado</label>
+              <div class="input-group input-group-sm">
+                <input type="number" id="simContado" class="form-control" value="{{ sim_pct_contado }}" min="0" max="100" step="1">
+                <span class="input-group-text">%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="fw-semibold small mb-2 text-secondary">MEZCLA DE TALONERAS (%)</div>
+          <div id="simMix">
+            {% for t in sim_taloneras %}
+            <div class="row g-2 align-items-center mb-1">
+              <div class="col-6 small">
+                {{ t.nombre }}
+                <span class="text-muted" style="font-size:.72rem;">{{ t.valor_cuota | pesos }}/cuota</span>
+              </div>
+              <div class="col-6">
+                <div class="input-group input-group-sm">
+                  <input type="number" class="form-control sim-pata" value="{{ t.pct }}"
+                         min="0" max="100" step="1"
+                         data-valor="{{ t.valor_cuota }}" data-cuotas="{{ t.num_cuotas }}">
+                  <span class="input-group-text">%</span>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <div id="simMixWarn" class="small text-danger mt-1 d-none"></div>
+
+          <div class="row g-2 mt-3">
+            <div class="col-6">
+              <label class="form-label small mb-1">Com. cobrador</label>
+              <div class="input-group input-group-sm">
+                <input type="number" id="simComCob" class="form-control" value="{{ sim_com_cobrador_pct }}" min="0" max="100" step="1">
+                <span class="input-group-text">%</span>
+              </div>
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-1">Com. contado</label>
+              <div class="input-group input-group-sm">
+                <input type="number" id="simComCont" class="form-control" value="{{ sim_com_contado_pct }}" min="0" max="100" step="1">
+                <span class="input-group-text">%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Resultados ── -->
+      <div class="col-lg-7">
+        <div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <div class="border rounded p-3 h-100 text-center bg-white">
+              <div class="small text-muted"><i class="bi bi-bullseye me-1"></i>Punto de equilibrio</div>
+              <div class="h3 fw-bold mb-0" id="simEquilibrio">—</div>
+              <div class="small text-muted" id="simEquilibrioNota">números a vender para no perder</div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="border rounded p-3 h-100 text-center bg-white">
+              <div class="small text-muted"><i class="bi bi-graph-up-arrow me-1"></i>Ganancia del escenario</div>
+              <div class="h3 fw-bold mb-0" id="simGanancia">—</div>
+              <div class="small text-muted"><span id="simTotalNums">0</span> números en total</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="border rounded p-2 mb-2 bg-white">
+          <div class="d-flex justify-content-between small">
+            <span class="text-muted">Situación actual (sin vender nada más)</span>
+            <span class="fw-bold {% if ganancia_proyectada >= 0 %}text-success{% else %}text-danger{% endif %}">{{ ganancia_proyectada | pesos }}</span>
+          </div>
+          <div class="d-flex justify-content-between small">
+            <span class="text-muted">+ Aporte de las ventas nuevas</span>
+            <span class="fw-bold text-success" id="simAporte">$0</span>
+          </div>
+        </div>
+
+        <div class="table-responsive" style="max-height:320px; overflow-y:auto;">
+          <table class="table table-sm table-hover mb-0" style="font-size:.8rem;">
+            <thead class="table-dark sticky-top">
+              <tr>
+                <th>Mes de venta</th>
+                <th class="text-end">Números</th>
+                <th class="text-end" title="Cuotas que se alcanzan a cobrar antes del sorteo final">Cuotas útiles</th>
+                <th class="text-end">Neto institución</th>
+              </tr>
+            </thead>
+            <tbody id="simTbody"></tbody>
+            <tfoot class="table-secondary fw-bold">
+              <tr>
+                <td>TOTAL</td>
+                <td class="text-end" id="simFootNums">0</td>
+                <td class="text-end">—</td>
+                <td class="text-end" id="simFootNeto">$0</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</div>
+
 <!-- ── KPI row 1: Recaudacion ─────────────────────────────────────────── -->
 <div class="row g-3 mb-3">
   <div class="col-6 col-md-3">
@@ -912,6 +1078,163 @@
     });
   };
 
+})();
+
+// ══ SIMULADOR de ventas futuras ═══════════════════════════════════════
+(function() {
+  var MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+               "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  var SF_ANIO = {{ sim_sorteo_anio }}, SF_MES = {{ sim_sorteo_mes }};
+  var HOY_ANIO = {{ sim_hoy_anio }},  HOY_MES = {{ sim_hoy_mes }};
+  var GANANCIA_ACTUAL = {{ ganancia_proyectada | round | int }};
+
+  var $ = function(id) { return document.getElementById(id); };
+  function pesos(n) { return "$" + Math.round(n).toLocaleString("es-AR"); }
+
+  // Misma fórmula que app/cuotas.py: las últimas cuotas van de regalo.
+  function cuotasVigentes(numCuotas, anio, mes) {
+    var restantes = 12 * (SF_ANIO - anio) + (SF_MES - mes);
+    return Math.max(1, Math.min(numCuotas, 1 + restantes));
+  }
+
+  // Lista de meses vendibles: desde el mes actual hasta el sorteo final.
+  var meses = [];
+  for (var a = HOY_ANIO, m = HOY_MES;
+       a * 12 + m <= SF_ANIO * 12 + SF_MES;
+       (m === 12 ? (m = 1, a++) : m++)) {
+    meses.push({ anio: a, mes: m, label: MESES[m - 1] + " " + a });
+  }
+
+  var selD = $("simDesde"), selH = $("simHasta");
+  meses.forEach(function(x, i) {
+    selD.add(new Option(x.label, i));
+    selH.add(new Option(x.label, i));
+  });
+  selD.value = 0;
+  // Por defecto se vende hasta noviembre (o el último mes disponible).
+  var idxNov = meses.findIndex(function(x) { return x.mes === 11; });
+  selH.value = idxNov >= 0 ? idxNov : meses.length - 1;
+
+  // Aporte neto de UN número vendido en un mes dado, según la mezcla cargada.
+  // · Contado: entra cv × valor, menos la comisión del vendedor.
+  // · Por cuotas: la cuota 1 se la queda el vendedor → rinden las cuotas 2..cv,
+  //   por la tasa de cobro y menos la comisión del cobrador.
+  function netoPorNumero(anio, mes, cfg) {
+    var neto = 0, cuotasUtiles = 0, pesoTot = 0;
+    cfg.patas.forEach(function(p) {
+      if (!p.pct) return;
+      var frac = p.pct / 100;
+      var cv   = cuotasVigentes(p.cuotas, anio, mes);
+      var cont = frac * cfg.pctContado;
+      var cuot = frac * (1 - cfg.pctContado);
+      neto += cont * cv * p.valor * (1 - cfg.comContado);
+      neto += cuot * Math.max(0, cv - 1) * p.valor * cfg.tasa * (1 - cfg.comCobrador);
+      cuotasUtiles += frac * cv;
+      pesoTot += frac;
+    });
+    return { neto: neto, cuotas: pesoTot ? cuotasUtiles / pesoTot : 0 };
+  }
+
+  function leerConfig() {
+    var patas = [];
+    var suma = 0;
+    document.querySelectorAll(".sim-pata").forEach(function(inp) {
+      var pct = parseFloat(inp.value) || 0;
+      suma += pct;
+      patas.push({
+        pct:    pct,
+        valor:  parseFloat(inp.dataset.valor) || 0,
+        cuotas: parseInt(inp.dataset.cuotas, 10) || 12,
+      });
+    });
+    var warn = $("simMixWarn");
+    if (patas.length && Math.abs(suma - 100) > 0.5) {
+      warn.textContent = "La mezcla suma " + suma.toFixed(0) + "% (deberia sumar 100%).";
+      warn.classList.remove("d-none");
+    } else {
+      warn.classList.add("d-none");
+    }
+    return {
+      patas:       patas,
+      pctContado:  (parseFloat($("simContado").value) || 0) / 100,
+      tasa:        (parseFloat($("simTasa").value) || 0) / 100,
+      comCobrador: (parseFloat($("simComCob").value) || 0) / 100,
+      comContado:  (parseFloat($("simComCont").value) || 0) / 100,
+    };
+  }
+
+  function calcular() {
+    var cfg   = leerConfig();
+    var q0    = parseFloat($("simQ0").value) || 0;
+    var caida = (parseFloat($("simCaida").value) || 0) / 100;
+    var iD    = parseInt(selD.value, 10) || 0;
+    var iH    = parseInt(selH.value, 10) || 0;
+    if (iH < iD) { iH = iD; selH.value = iH; }
+
+    var filas = [], totNeto = 0, totNums = 0;
+    // netoUnit = aporte con q0 = 1, para despejar el punto de equilibrio
+    var netoUnit = 0, numsUnit = 0;
+    for (var i = iD; i <= iH; i++) {
+      var mm    = meses[i];
+      var f     = Math.pow(1 - caida, i - iD);
+      var nums  = q0 * f;
+      var r     = netoPorNumero(mm.anio, mm.mes, cfg);
+      var neto  = nums * r.neto;
+      totNeto  += neto;
+      totNums  += nums;
+      netoUnit += f * r.neto;
+      numsUnit += f;
+      filas.push({ label: mm.label, nums: nums, cuotas: r.cuotas, neto: neto });
+    }
+
+    // ── Tabla ──
+    $("simTbody").innerHTML = filas.map(function(f) {
+      return "<tr><td class='fw-semibold'>" + f.label + "</td>" +
+             "<td class='text-end'>" + Math.round(f.nums) + "</td>" +
+             "<td class='text-end'>" + f.cuotas.toFixed(1) + "</td>" +
+             "<td class='text-end text-success fw-semibold'>" + pesos(f.neto) + "</td></tr>";
+    }).join("") || "<tr><td colspan='4' class='text-center text-muted py-3'>Elegí un rango de meses.</td></tr>";
+    $("simFootNums").textContent = Math.round(totNums);
+    $("simFootNeto").textContent = pesos(totNeto);
+    $("simTotalNums").textContent = Math.round(totNums);
+    $("simAporte").textContent = pesos(totNeto);
+
+    // ── Ganancia del escenario ──
+    var gan = GANANCIA_ACTUAL + totNeto;
+    var elG = $("simGanancia");
+    elG.textContent = pesos(gan);
+    elG.className = "h3 fw-bold mb-0 " + (gan >= 0 ? "text-success" : "text-danger");
+
+    // ── Punto de equilibrio ──
+    // El aporte es lineal en q0, así que se despeja directo.
+    var elE = $("simEquilibrio"), elN = $("simEquilibrioNota");
+    if (GANANCIA_ACTUAL >= 0) {
+      elE.textContent = "Ya da ganancia";
+      elE.className = "h3 fw-bold mb-0 text-success";
+      elN.textContent = "sin vender un número más";
+    } else if (netoUnit <= 0) {
+      elE.textContent = "No alcanza";
+      elE.className = "h3 fw-bold mb-0 text-danger";
+      elN.textContent = "vendiendo en estos meses no se recupera";
+    } else {
+      var q0eq  = (-GANANCIA_ACTUAL) / netoUnit;   // números del primer mes
+      var total = q0eq * numsUnit;                 // total en todo el período
+      elE.textContent = Math.ceil(total).toLocaleString("es-AR");
+      elE.className = "h3 fw-bold mb-0 " + (total <= totNums ? "text-success" : "text-warning");
+      elN.textContent = "números a vender (" + Math.ceil(q0eq) + " el primer mes, con la misma caída)";
+    }
+  }
+
+  ["simQ0","simCaida","simDesde","simHasta","simTasa","simContado","simComCob","simComCont"]
+    .forEach(function(id) {
+      var el = $(id);
+      if (el) { el.addEventListener("input", calcular); el.addEventListener("change", calcular); }
+    });
+  document.querySelectorAll(".sim-pata").forEach(function(inp) {
+    inp.addEventListener("input", calcular);
+  });
+
+  calcular();
 })();
 </script>
 {% endblock %}

@@ -7,7 +7,7 @@ from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
 # Cuotas cobrables segun la fecha (las ultimas van de regalo). Ver app/cuotas.py.
-from ..cuotas import cuotas_vigentes
+from ..cuotas import cuotas_vigentes, SORTEO_FINAL_ANIO, SORTEO_FINAL_MES
 
 router = APIRouter(prefix="/contabilidad", tags=["contabilidad"])
 
@@ -603,7 +603,74 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     total_egresos_proyectado = (total_com_vendedores + resumen_comision
                                 + egresos_fijos)
 
+    # ── Datos base del SIMULADOR de ventas futuras ───────────────────────
+    # Economía de una boleta NUEVA vendida en el mes M (ver app/cuotas.py):
+    #   cv = cuotas_vigentes(num_cuotas, M)  → las últimas van de regalo
+    #   · Por cuotas: la cuota 1 se la queda ENTERA el vendedor, así que a la
+    #     institución le rinden las cuotas 2..cv, por la tasa de cobro y menos
+    #     la comisión del cobrador.
+    #   · Al contado: entra cv × valor_cuota menos la comisión del vendedor.
+    # Vender tarde rinde mucho menos: en junio 2027 una venta por cuotas deja $0.
+    _tot_ef_ok = sum(v[0] for v in _cob_efect.values())
+    _tot_ef_no = sum(v[1] for v in _cob_efect.values())
+    sim_tasa_cobro = round(_tot_ef_ok / (_tot_ef_ok + _tot_ef_no) * 100, 1) \
+        if (_tot_ef_ok + _tot_ef_no) > 0 else 90.0
+
+    # Comisión de cobradores: promedio ponderado por cantidad de boletas
+    _cob_cnt = {}
+    for b in boletas_con_cob:
+        _cob_cnt[b.cobrador_id] = _cob_cnt.get(b.cobrador_id, 0) + 1
+    _sum_pct = sum(_cob_info[c]["comision_pct"] * n
+                   for c, n in _cob_cnt.items() if c in _cob_info)
+    _sum_n = sum(n for c, n in _cob_cnt.items() if c in _cob_info)
+    sim_com_cobrador_pct = round(_sum_pct / _sum_n, 1) if _sum_n else 15.0
+
+    # Comisión de contado: la última usada por los vendedores
+    _ult_lv = liqs_v[-1] if liqs_v else None
+    sim_com_contado_pct = float(getattr(_ult_lv, "comision_contados_pct", 0) or 30.0)
+
+    # Mezcla actual de ventas: proporción de cada talonera y % al contado
+    _mix_cnt = {}
+    _n_contado = 0
+    for b in boletas:
+        if not b.talonera_id:
+            continue
+        _mix_cnt[b.talonera_id] = _mix_cnt.get(b.talonera_id, 0) + 1
+        if _es_contado(b):
+            _n_contado += 1
+    _n_total = sum(_mix_cnt.values())
+    sim_pct_contado = round(_n_contado / _n_total * 100, 1) if _n_total else 0.0
+
+    sim_taloneras = [
+        {
+            "id":          t.id,
+            "nombre":      t.nombre,
+            "valor_cuota": float(t.valor_cuota or 0),
+            "num_cuotas":  int(t.num_cuotas or 12),
+            "pct":         round(_mix_cnt.get(t.id, 0) / _n_total * 100, 1) if _n_total else 0.0,
+        }
+        for t in db.query(models.Talonera).order_by(models.Talonera.nombre).all()
+        if _mix_cnt.get(t.id, 0) > 0 or t.activa
+    ]
+
+    # Zonas trabajadas — contexto de cuánto mercado queda en la ciudad
+    _z_tot = db.query(models.Zona).count()
+    _z_hechas = db.query(models.Zona).filter(models.Zona.hecha.is_(True)).count()
+    sim_zonas_pct = round(_z_hechas / _z_tot * 100) if _z_tot else 0
+
     return templates.TemplateResponse(request, "contabilidad.html", {
+        "sim_tasa_cobro":       sim_tasa_cobro,
+        "sim_com_cobrador_pct": sim_com_cobrador_pct,
+        "sim_com_contado_pct":  sim_com_contado_pct,
+        "sim_pct_contado":      sim_pct_contado,
+        "sim_taloneras":        sim_taloneras,
+        "sim_zonas_pct":        sim_zonas_pct,
+        "sim_zonas_hechas":     _z_hechas,
+        "sim_zonas_total":      _z_tot,
+        "sim_sorteo_anio":      SORTEO_FINAL_ANIO,
+        "sim_sorteo_mes":       SORTEO_FINAL_MES,
+        "sim_hoy_anio":         _mes_actual_key[0],
+        "sim_hoy_mes":          _mes_actual_key[1],
         "user":                  user,
         "total_recaudado":       total_recaudado,
         "total_bruto":           total_bruto,
