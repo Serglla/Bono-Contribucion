@@ -1244,6 +1244,21 @@ async def entregas_form(sid: int, request: Request, db: Session = Depends(get_db
         for e in p.entregas:
             b = e.boleta
             c = b.comprador if b else None
+            # Columna Cobrador: quién le cobra a este ganador, para saber a quién
+            # mandarle el recibo. Si la boleta es al contado no hay cobrador →
+            # se muestra "Contado". Mismo criterio que el badge de Socios:
+            # tiene número especial (slot 1 o 2) O entró pagando todo de entrada
+            # (cuotas_anticipadas >= cuotas_pactadas) — los especiales se cargan
+            # recién cuando se agota el talonario de 5, así que puede no haberlo aún.
+            _contado = False
+            _cobrador = ""
+            if b is not None:
+                _pact = b.cuotas_pactadas or 0
+                _contado = bool(
+                    b.numero_especial or b.numero_especial_2
+                    or (_pact > 0 and (b.cuotas_anticipadas or 0) >= _pact)
+                )
+                _cobrador = b.cobrador.nombre if b.cobrador else ""
             entregas.append({
                 "id": e.id,
                 "socio": c.apellido_nombre if c else "—",
@@ -1251,6 +1266,8 @@ async def entregas_form(sid: int, request: Request, db: Session = Depends(get_db
                 "numero": e.numero_ganador or "",
                 "entregado": e.entregado,
                 "fecha_entrega": e.fecha_entrega.strftime("%d/%m/%Y") if e.fecha_entrega else "",
+                "contado": _contado,
+                "cobrador": _cobrador,
             })
             ya.add((e.boleta_id, e.numero_ganador))
         # POR_CIFRAS: el desplegable solo ofrece los ganadores del nivel del premio,

@@ -76,7 +76,7 @@
       <table class="table table-sm align-middle mb-3" style="font-size:0.85rem;">
         <thead class="table-light">
           <tr>
-            <th>Socio</th><th>Talonera</th><th>N° ganador</th><th>Estado</th><th class="text-end"></th>
+            <th>Socio</th><th>Talonera</th><th>N° ganador</th><th>Estado</th><th>Cobrador</th><th class="text-end"></th>
           </tr>
         </thead>
         <tbody>
@@ -91,6 +91,16 @@
                 {% if e.fecha_entrega %}<span class="text-muted small">{{ e.fecha_entrega }}</span>{% endif %}
               {% else %}
                 <span class="badge bg-warning text-dark">Pendiente</span>
+              {% endif %}
+            </td>
+            {# Al contado no hay cobrador → se muestra "Contado" en su lugar #}
+            <td style="white-space:nowrap;">
+              {% if e.contado %}
+                <span class="badge bg-success-subtle text-success border border-success">Contado</span>
+              {% elif e.cobrador %}
+                {{ e.cobrador }}
+              {% else %}
+                <span class="text-muted">—</span>
               {% endif %}
             </td>
             <td class="text-end" style="white-space:nowrap;">
