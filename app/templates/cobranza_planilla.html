@@ -119,12 +119,14 @@
     /* Baja (registro): número en rojo tachado + línea con el mes en el medio */
     .td-num.num-baja { background: #ffd6d6 !important; color: #c00; text-decoration: line-through; }
     .td-q.td-baja {
-      background-image: linear-gradient(to bottom, transparent calc(50% - 0.4pt),
-        #c00 calc(50% - 0.4pt), #c00 calc(50% + 0.4pt), transparent calc(50% + 0.4pt)) !important;
+      background-image: linear-gradient(to bottom, transparent calc(50% - 0.55pt),
+        #c00 calc(50% - 0.55pt), #c00 calc(50% + 0.55pt), transparent calc(50% + 0.55pt)) !important;
     }
+    /* El mes va con fondo blanco para "cortar" la línea y quedar centrado en el
+       tramo: ----- 08 -----. Ver también el zfill a 2 dígitos en la fila. */
     .td-q.td-baja .baja-num {
       display: inline-block; background: #fff; color: #c00;
-      font-weight: 900; font-size: 7.5pt; line-height: 1; padding: 0 0.5mm;
+      font-weight: 900; font-size: 8pt; line-height: 1; padding: 0 0.6mm;
     }
 
     /* "Pasó a..." (registro): el cobrador dejó de cobrar este número y pasó a
@@ -345,7 +347,7 @@
           {% for n in cuota_nums %}
             {% set hmes = hist.get(n | string, 0) %}
             {% if _bm and _bd <= _bh and n >= _bd and n <= _bh %}
-              <td class="td-q td-baja">{% if n == _bmid %}<span class="baja-num">{{ _bm }}</span>{% endif %}</td>
+              <td class="td-q td-baja">{% if n == _bmid %}<span class="baja-num">{{ "%02d"|format(_bm) }}</span>{% endif %}</td>
             {% elif n <= ant %}
               {# Cuota 1 (y anticipadas) cobradas por el vendedor en la venta #}
               <td class="td-q cuota-venta">X</td>
