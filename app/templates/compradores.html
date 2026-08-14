@@ -1779,6 +1779,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
                  aria-label="Apellido y nombre del socio">
         </h6>
         <div class="ms-auto d-flex align-items-center gap-2">
+          {# Condición del socio (En cobranza / Al contado / Baja…): sube acá
+             desde el form, así no ocupa una fila entera del cuerpo. #}
+          <span id="editarModalCond" class="badge d-none" style="font-size:.72rem;padding:.4em .7em;"></span>
           {# Solo lectura por defecto: el modal se desbloquea con este botón o
              entrando directo por el lápiz de la fila. #}
           <button type="button" class="btn btn-sm btn-light d-none" id="btnModoEditar"
@@ -1811,6 +1814,23 @@ document.querySelectorAll('.input-upper').forEach(el => {
   const iconoModal    = document.getElementById('editarModalIcono');
   const inpNombreHdr  = document.getElementById('editarModalNombre');
   const spanNumero    = document.getElementById('editarModalNumero');
+  const badgeCond     = document.getElementById('editarModalCond');
+
+  // La condición se muestra en el encabezado (viene en los data-* del meta) y
+  // el bloque equivalente del form se oculta. En la página standalone, que no
+  // pasa por acá, ese bloque se sigue viendo.
+  function montarCondicionEnCabecera() {
+    const bloque = modalBody.querySelector('#campoCondicion');
+    const meta   = modalBody.querySelector('#editarSocioMeta');
+    if (bloque) bloque.classList.add('d-none');
+    if (!meta || !meta.dataset.condLabel) { badgeCond.classList.add('d-none'); return; }
+    const color = meta.dataset.condColor || 'secondary';
+    badgeCond.className = `badge bg-${color}-subtle text-${color}-emphasis border border-${color}`;
+    badgeCond.style.fontSize = '.72rem';
+    badgeCond.style.padding = '.4em .7em';
+    badgeCond.textContent = meta.dataset.condLabel;
+    badgeCond.classList.remove('d-none');
+  }
 
   // El nombre vive SIEMPRE en el encabezado: como texto en lectura y como
   // input en edición. El campo real del form (name="apellido_nombre") sigue
@@ -1889,6 +1909,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     });
 
     montarNombreEnCabecera(lectura);
+    montarCondicionEnCabecera();
     btnModoEditar.classList.toggle('d-none', !lectura);
     iconoModal.className = lectura ? 'bi bi-eye me-1' : 'bi bi-pencil-square me-1';
   }
@@ -1900,6 +1921,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     titulo.textContent = 'Socio';
     modalBody.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-danger" role="status"></div></div>';
     btnModoEditar.classList.add('d-none');
+    badgeCond.classList.add('d-none');
     getModal().show();
 
     let html;

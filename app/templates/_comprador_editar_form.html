@@ -6,9 +6,14 @@
 {% set num_guia = "%04d" % comprador.boletas[0].numero_principal if comprador.boletas else comprador.id %}
 {% set _MESES_AB = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"] %}
 
+{% set _cond_label = {'VENDIDO': 'Activo', 'EN_COBRANZA': 'En cobranza', 'CAJA': 'Al contado', 'BAJA': 'Baja', 'SIN_VENDER': 'Sin vender'}.get(cond_derivada, cond_derivada) %}
+{% set _cond_color = {'VENDIDO': 'success', 'EN_COBRANZA': 'info', 'CAJA': 'primary', 'BAJA': 'danger', 'SIN_VENDER': 'secondary'}.get(cond_derivada, 'secondary') %}
+{% set _mes_baja = comprador.boletas[0].mes_baja if comprador.boletas else None %}
 <div id="editarSocioMeta" class="d-none"
      data-num-guia="{{ num_guia }}"
-     data-nombre="{{ comprador.apellido_nombre }}"></div>
+     data-nombre="{{ comprador.apellido_nombre }}"
+     data-cond-label="{{ _cond_label }}{% if cond_derivada == 'BAJA' and _mes_baja %} · mes {{ _mes_baja }}{% endif %}"
+     data-cond-color="{{ _cond_color }}"></div>
 
 <style>
   /* Cabecera de cada boleta: números a la izquierda, datos del socio a la
@@ -298,31 +303,20 @@
   {% if comprador.boletas %}
   {% set cond_label = {'VENDIDO': 'Activo', 'EN_COBRANZA': 'En cobranza', 'CAJA': 'Al contado', 'BAJA': 'Baja', 'SIN_VENDER': 'Sin vender'}.get(cond_derivada, cond_derivada) %}
   {% set cond_color = {'VENDIDO': 'success', 'EN_COBRANZA': 'info', 'CAJA': 'primary', 'BAJA': 'danger', 'SIN_VENDER': 'secondary'}.get(cond_derivada, 'secondary') %}
-  <div class="row g-2 mb-2 align-items-end">
+  {# El badge de condición sube al encabezado del modal (lo hace el JS de
+     compradores.html, que oculta este bloque y lee los data-* del meta).
+     En la página standalone, que no tiene ese encabezado, se muestra acá.
+     El botón de baja/reactivar bajó al pie, junto a Guardar Cambios. #}
+  <div class="row g-2 mb-2 align-items-end" id="campoCondicion">
     <div class="col-auto">
       <label class="form-label mb-1" style="font-size:.8rem; font-weight:600;">Condición</label>
-      <div class="d-flex align-items-center gap-2">
+      <div>
         <span class="badge bg-{{ cond_color }}-subtle text-{{ cond_color }}-emphasis border border-{{ cond_color }}"
               style="font-size:.85rem; padding:.4em .8em;"
               title="Calculada automáticamente">
           {% if cond_derivada == 'BAJA' %}<i class="bi bi-x-octagon-fill me-1"></i>{% endif %}
           {{ cond_label }}
         </span>
-        {% if cond_derivada == 'BAJA' %}
-          <button type="button"
-                  class="btn btn-sm btn-outline-success"
-                  style="font-size:.7rem;"
-                  onclick="appConfirm('¿Reactivar este socio?').then(ok=>{ if(!ok) return; var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='condicion'; i.value='REACTIVAR'; f.appendChild(i); f.requestSubmit(); })">
-            <i class="bi bi-arrow-counterclockwise me-1"></i>Reactivar
-          </button>
-        {% else %}
-          <button type="button"
-                  class="btn btn-sm btn-outline-danger"
-                  style="font-size:.7rem;"
-                  onclick="appConfirm('¿Dar de baja a este socio?').then(ok=>{ if(!ok) return; var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='condicion'; i.value='BAJA'; f.appendChild(i); f.requestSubmit(); })">
-            <i class="bi bi-x-octagon me-1"></i>Dar de baja
-          </button>
-        {% endif %}
       </div>
     </div>
   </div>
@@ -348,18 +342,14 @@
     </div>
   </div>
 
-  <!-- Dirección -->
-  <div class="row g-2 mb-2">
-    <div class="col-12">
+  <!-- Dirección + Zona + Cobrador + Teléfono, todo en una fila -->
+  <div class="row g-2 mb-3">
+    <div class="col-4">
       <label class="form-label mb-1" style="font-size:.8rem;">Dirección</label>
       <input type="text" name="direccion" class="form-control form-control-sm input-upper"
              value="{{ comprador.direccion or '' }}">
     </div>
-  </div>
-
-  <!-- Zona + Cobrador + Teléfono -->
-  <div class="row g-2 mb-3">
-    <div class="col-5">
+    <div class="col-3">
       <label class="form-label mb-1" style="font-size:.8rem;">Zona</label>
       <div class="d-flex gap-1">
         <select name="zona_id" id="zonaSelectEdit" class="form-select form-select-sm">
@@ -374,7 +364,7 @@
                class="form-control form-control-sm input-upper d-none" placeholder="Nombre zona">
       </div>
     </div>
-    <div class="col-4">
+    <div class="col-3">
       <label class="form-label mb-1" style="font-size:.8rem;">Cobrador</label>
       {% set cobrador_actual = comprador.boletas[0].cobrador_id if comprador.boletas else None %}
       <select name="cobrador_id" id="cobradorSelectEdit" class="form-select form-select-sm">
@@ -384,12 +374,29 @@
         {% endfor %}
       </select>
     </div>
-    <div class="col-3">
+    {# 4 + 3 + 3 + 2 = 12 columnas Bootstrap. Si se toca algún ancho, la suma
+       tiene que seguir dando 12 o la fila se parte en dos. #}
+    <div class="col-2">
       <label class="form-label mb-1" style="font-size:.8rem;">Teléfono</label>
       <input type="text" name="telefono" class="form-control form-control-sm"
              value="{{ comprador.telefono or '' }}">
     </div>
   </div>
 
-  <button type="submit" class="btn btn-danger btn-sm px-4">Guardar Cambios</button>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <button type="submit" class="btn btn-danger btn-sm px-4">Guardar Cambios</button>
+    {% if comprador.boletas %}
+      {% if cond_derivada == 'BAJA' %}
+        <button type="button" class="btn btn-sm btn-outline-success"
+                onclick="appConfirm('¿Reactivar este socio?').then(ok=>{ if(!ok) return; var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='condicion'; i.value='REACTIVAR'; f.appendChild(i); f.requestSubmit(); })">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>Reactivar
+        </button>
+      {% else %}
+        <button type="button" class="btn btn-sm btn-outline-danger"
+                onclick="appConfirm('¿Dar de baja a este socio?').then(ok=>{ if(!ok) return; var f=this.closest('form'); var i=document.createElement('input'); i.type='hidden'; i.name='condicion'; i.value='BAJA'; f.appendChild(i); f.requestSubmit(); })">
+          <i class="bi bi-x-octagon me-1"></i>Dar de baja
+        </button>
+      {% endif %}
+    {% endif %}
+  </div>
 </form>
