@@ -87,7 +87,9 @@
           <td class="text-end fw-semibold {% if _es_premio %}text-warning-emphasis{% else %}text-success{% endif %}">{{ a.monto | pesos }}</td>
           <td class="text-muted">{{ a.observacion or '' }}</td>
           <td class="text-center">
-            <a href="/cobranza/adelantos/{{ a.id }}/recibo" target="_blank" class="btn btn-sm btn-outline-secondary" title="Recibo"><i class="bi bi-file-earmark-text"></i></a>
+            <a href="#" data-visor="/cobranza/adelantos/{{ a.id }}/recibo"
+               data-visor-titulo="Recibo de adelanto" data-visor-icono="bi-receipt"
+               class="btn btn-sm btn-outline-secondary" title="Recibo"><i class="bi bi-file-earmark-text"></i></a>
             {% if has_permission(user, 'cobranza', 'editar') %}
             <form method="post" action="/cobranza/adelantos/{{ a.id }}/eliminar" class="d-inline" onsubmit="return appConfirmSubmit(event, '¿Eliminar este adelanto?')">
               <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-trash"></i></button>

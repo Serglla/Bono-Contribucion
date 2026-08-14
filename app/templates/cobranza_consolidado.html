@@ -53,7 +53,10 @@
           <td class="text-end fw-bold {% if f.saldo < 0 %}text-danger{% endif %}">{{ f.saldo | pesos }}</td>
           <td class="text-center">
             {% if f.monto or f.total_adelantos %}
-            <a href="/cobranza/consolidado/{{ f.cobrador.id }}/hoja?mes={{ mes }}&anio={{ anio }}" target="_blank" class="btn btn-sm btn-outline-dark" title="Hoja de liquidación de {{ mes_nombre }} {{ anio }} (P1, P2, P3… + entregas y saldo)"><i class="bi bi-receipt"></i></a>
+            <a href="#"
+               data-visor="/cobranza/consolidado/{{ f.cobrador.id }}/hoja?mes={{ mes }}&amp;anio={{ anio }}"
+               data-visor-titulo="Liquidación {{ mes_nombre }} {{ anio }} — {{ f.cobrador.nombre }}"
+               data-visor-icono="bi-receipt" class="btn btn-sm btn-outline-dark" title="Hoja de liquidación de {{ mes_nombre }} {{ anio }} (P1, P2, P3… + entregas y saldo)"><i class="bi bi-receipt"></i></a>
             {% endif %}
           </td>
         </tr>

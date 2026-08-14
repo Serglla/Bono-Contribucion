@@ -147,7 +147,17 @@
     }
   </script>
 </head>
-<body>
+<body{% if embed %} class="embed-mode"{% endif %}>
+{# `embed` = la página está dentro del modal-visor: sin navbar ni menú lateral,
+   así el documento se ve limpio y ocupa todo el alto del modal. #}
+{% if embed %}
+<style>
+  body.embed-mode .main-content { padding: .75rem !important; }
+  body.embed-mode .d-print-none.embed-hide,
+  body.embed-mode #offline-pill { display: none !important; }
+</style>
+{% endif %}
+{% if not embed %}
 <!-- Topbar -->
 <nav class="navbar topbar shadow-sm sticky-top">
   <div class="container-fluid px-3 d-flex align-items-center gap-2 flex-nowrap">
@@ -191,8 +201,9 @@
     {% endif %}
   </div>
 </nav>
+{% endif %}
 
-{% if user %}
+{% if user and not embed %}
 <!-- Panel lateral (menú completo) -->
 <div class="offcanvas offcanvas-end menu-panel" tabindex="-1" id="mainMenu" aria-labelledby="mainMenuLabel">
   <div class="offcanvas-header">
@@ -318,8 +329,108 @@
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════════════════════
+     Modal-visor global: documentos y pantallas embebidas.
+     Regla del sistema: NINGÚN link interno abre pestaña nueva del navegador.
+     Todo lo que antes iba con target="_blank" (recibos, hojas de liquidación,
+     planillas, PDFs) se abre acá dentro con abrirEnModal(url, titulo).
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="modalVisor" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered" style="max-width:min(1100px,96vw);">
+    <div class="modal-content" style="height:92vh;">
+      <div class="modal-header py-2" style="background:#1a2a4a;">
+        <h6 class="modal-title text-white mb-0 d-flex align-items-center">
+          <i class="bi bi-file-earmark-text me-2" id="visorIcono"></i>
+          <span id="visorTitulo">Documento</span>
+        </h6>
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <button type="button" class="btn btn-sm btn-light" id="visorPrint"
+                  onclick="imprimirVisor()" title="Imprimir este documento">
+            <i class="bi bi-printer me-1"></i>Imprimir
+          </button>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+      </div>
+      <div class="modal-body p-0 position-relative" style="overflow:hidden;background:#e9ecef;">
+        <div id="visorLoading"
+             class="position-absolute top-50 start-50 translate-middle text-muted small">
+          <div class="spinner-border spinner-border-sm me-2"></div>Cargando…
+        </div>
+        <iframe id="visorFrame" src="" title="Visor de documentos"
+                style="width:100%;height:100%;border:0;display:block;"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+// ── Visor global (reemplaza a target="_blank") ────────────────────────────────
+// abrirEnModal(url, titulo, opts)
+//   opts.print : false → oculta el botón Imprimir (para pantallas de navegación)
+//   opts.icono : clase de bootstrap-icons para el encabezado
+//   opts.reloadOnClose : true → recarga la página al cerrar (si adentro se editó algo)
+let _visorReloadOnClose = false;
+
+function abrirEnModal(url, titulo, opts) {
+  opts = opts || {};
+  const modalEl = document.getElementById("modalVisor");
+  if (!modalEl) { window.location.href = url; return; }   // fallback defensivo
+  document.getElementById("visorTitulo").textContent = titulo || "Documento";
+  document.getElementById("visorIcono").className =
+    "bi me-2 " + (opts.icono || "bi-file-earmark-text");
+  const btnPrint = document.getElementById("visorPrint");
+  btnPrint.style.display = (opts.print === false) ? "none" : "";
+  _visorReloadOnClose = !!opts.reloadOnClose;
+
+  const loading = document.getElementById("visorLoading");
+  const fr = document.getElementById("visorFrame");
+  loading.style.display = "";
+  fr.style.visibility = "hidden";
+  fr.onload = () => { loading.style.display = "none"; fr.style.visibility = "visible"; };
+  // embed=1 le avisa al servidor que no dibuje navbar ni menú lateral.
+  fr.src = url + (url.includes("?") ? "&" : "?") + "embed=1";
+  bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+// Imprime SOLO el documento del iframe, no la página de atrás.
+function imprimirVisor() {
+  const fr = document.getElementById("visorFrame");
+  if (!fr || !fr.contentWindow) return;
+  try {
+    fr.contentWindow.focus();
+    fr.contentWindow.print();
+  } catch (e) {
+    appAlert("No se pudo abrir el diálogo de impresión de este documento.", "error");
+  }
+}
+
+// Al cerrar: liberar el iframe (frena descargas/timers de adentro) y, si
+// corresponde, refrescar la página para ver los cambios hechos en el visor.
+document.addEventListener("DOMContentLoaded", function () {
+  const modalEl = document.getElementById("modalVisor");
+  if (!modalEl) return;
+  modalEl.addEventListener("hidden.bs.modal", function () {
+    document.getElementById("visorFrame").src = "";
+    if (_visorReloadOnClose) { _visorReloadOnClose = false; window.location.reload(); }
+  });
+});
+
+// Forma declarativa y preferida de usar el visor, sin JS inline:
+//   <a href="#" data-visor="/ruta/al/documento"
+//      data-visor-titulo="Recibo de Pérez D'Angelo" data-visor-icono="bi-receipt">
+// Los datos viajan en atributos, así que un apóstrofe en un apellido no rompe nada.
+document.addEventListener("click", function (ev) {
+  const el = ev.target.closest("[data-visor]");
+  if (!el) return;
+  ev.preventDefault();
+  ev.stopPropagation();          // no dispara el acordeón/fila que lo contiene
+  abrirEnModal(el.getAttribute("data-visor"), el.getAttribute("data-visor-titulo"), {
+    icono: el.getAttribute("data-visor-icono") || undefined,
+    print: el.getAttribute("data-visor-print") !== "0",
+  });
+});
+
 // ── Service Worker + Offline ──────────────────────────────────────────────────
 
 const offlinePill    = document.getElementById("offline-pill");

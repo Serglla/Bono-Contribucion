@@ -42,10 +42,13 @@
         <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.65rem;">{{ b.talonera.nombre if b.talonera else "" }}</span>
         {# ── Planilla de cobranza donde está emplanillada esta boleta ── #}
         {% if b.planilla %}
-        <a href="/cobranza/planilla/{{ b.planilla.id }}/ver" target="_blank" rel="noopener"
+        <a href="#"
+           data-visor="/cobranza/planilla/{{ b.planilla.id }}/ver"
+           data-visor-titulo="P{{ b.planilla.numero }} — {{ b.planilla.cobrador.nombre if b.planilla.cobrador else '—' }} — {{ _MESES_AB[b.planilla.mes - 1] }} {{ b.planilla.anio }}"
+           data-visor-icono="bi-journal-text"
            class="badge bg-primary-subtle text-primary border border-primary text-decoration-none"
-           style="font-size:.65rem;"
-           title="Emplanillada en P{{ b.planilla.numero }} de {{ b.planilla.cobrador.nombre if b.planilla.cobrador else '—' }} ({{ _MESES_AB[b.planilla.mes - 1] }} {{ b.planilla.anio }}) — clic para abrir la planilla">
+           style="font-size:.65rem;cursor:pointer;"
+           title="Emplanillada en P{{ b.planilla.numero }} de {{ b.planilla.cobrador.nombre if b.planilla.cobrador else '—' }} ({{ _MESES_AB[b.planilla.mes - 1] }} {{ b.planilla.anio }}) — clic para ver la planilla">
           <i class="bi bi-journal-text me-1"></i>P{{ b.planilla.numero }}
           · {{ b.planilla.cobrador.nombre if b.planilla.cobrador else "—" }}
           · {{ _MESES_AB[b.planilla.mes - 1] }} {{ b.planilla.anio }}

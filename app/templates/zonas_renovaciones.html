@@ -16,7 +16,11 @@
       </button>
     </div>
     {% if grupos %}
-    <a href="/zonas/renovaciones/imprimir" target="_blank" class="btn btn-danger btn-sm"
+    <a href="#"
+       data-visor="/zonas/renovaciones/imprimir"
+       data-visor-titulo="Renovaciones pendientes — todas las zonas"
+       data-visor-icono="bi-file-earmark-pdf"
+       class="btn btn-danger btn-sm"
        title="Imprimir / exportar a PDF todas las zonas">
       <i class="bi bi-file-earmark-pdf me-1"></i>PDF (todas)
     </a>
@@ -75,7 +79,10 @@
         <span class="fw-semibold">Zona {{ g.zona }}</span>
         <span class="badge bg-warning text-dark ms-3">{{ g.cantidad }} pendiente(s)</span>
       </button>
-      <a href="/zonas/renovaciones/imprimir?zona={{ g.zona | urlencode }}" target="_blank"
+      <a href="#"
+         data-visor="/zonas/renovaciones/imprimir?zona={{ g.zona | urlencode }}"
+         data-visor-titulo="Renovaciones pendientes — Zona {{ g.zona }}"
+         data-visor-icono="bi-file-earmark-pdf"
          class="btn btn-sm btn-outline-danger position-absolute top-50 translate-middle-y"
          style="right:3rem; z-index:5;"
          title="Imprimir / exportar a PDF esta zona">

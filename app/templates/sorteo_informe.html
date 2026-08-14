@@ -98,7 +98,8 @@
                  sola al cargar el resultado, así que no hace falta pasar por
                  Entregas del sorteo para imprimirlo o mandarlo por WhatsApp. #}
               {% if g.entrega_id and g.habilitado %}
-              <a href="/sorteos/entregas/{{ g.entrega_id }}/recibo" target="_blank"
+              <a href="#" data-visor="/sorteos/entregas/{{ g.entrega_id }}/recibo"
+                 data-visor-titulo="Recibo de entrega" data-visor-icono="bi-receipt"
                  class="btn btn-link btn-sm p-0 ms-1 d-print-none" title="Abrir el recibo de entrega">
                 <i class="bi bi-receipt"></i>
               </a>

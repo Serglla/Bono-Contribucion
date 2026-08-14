@@ -678,7 +678,8 @@ async def renovaciones(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/renovaciones/imprimir", response_class=HTMLResponse)
-async def renovaciones_imprimir(request: Request, zona: str = "", db: Session = Depends(get_db)):
+async def renovaciones_imprimir(request: Request, zona: str = "", embed: int = 0,
+                                db: Session = Depends(get_db)):
     """Vista imprimible (PDF vía navegador) de las renovaciones pendientes.
     Si `zona` viene dado, imprime solo esa zona; si no, todas."""
     from datetime import datetime as _dt
@@ -698,6 +699,9 @@ async def renovaciones_imprimir(request: Request, zona: str = "", db: Session = 
         "zona_filtro": zona,
         "tiene_bono_anterior": tiene,
         "generado": _dt.now().strftime("%d/%m/%Y %H:%M"),
+        # embed=1 → se está viendo dentro del modal-visor: base.html oculta
+        # navbar y menú lateral (ver <body class="embed-mode"> en base.html).
+        "embed": bool(embed),
     })
 
 
