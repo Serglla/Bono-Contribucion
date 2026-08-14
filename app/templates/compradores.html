@@ -1750,8 +1750,16 @@ document.querySelectorAll('.input-upper').forEach(el => {
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header bg-danger text-white py-2">
-        <h6 class="modal-title mb-0">
-          <i class="bi bi-pencil-square me-2" id="editarModalIcono"></i><span id="editarModalTitulo">Socio</span>
+        <h6 class="modal-title mb-0 d-flex align-items-center flex-wrap gap-1">
+          <i class="bi bi-eye me-1" id="editarModalIcono"></i>
+          <span id="editarModalTitulo">Socio</span>
+          {# En edición el título se parte: queda "N° 8523 —" fijo y el nombre
+             pasa a este input. Así el nombre no se repite abajo en el form. #}
+          <span id="editarModalNumero" class="d-none"></span>
+          <input type="text" id="editarModalNombre"
+                 class="form-control form-control-sm d-none input-upper"
+                 style="width:auto;min-width:230px;font-weight:600;"
+                 aria-label="Apellido y nombre del socio">
         </h6>
         <div class="ms-auto d-flex align-items-center gap-2">
           {# Solo lectura por defecto: el modal se desbloquea con este botón o
@@ -1784,6 +1792,35 @@ document.querySelectorAll('.input-upper').forEach(el => {
   // se puede desbloquear con el botón Editar de la cabecera.
   const btnModoEditar = document.getElementById('btnModoEditar');
   const iconoModal    = document.getElementById('editarModalIcono');
+  const inpNombreHdr  = document.getElementById('editarModalNombre');
+  const spanNumero    = document.getElementById('editarModalNumero');
+
+  // El nombre vive SIEMPRE en el encabezado: como texto en lectura y como
+  // input en edición. El campo real del form (name="apellido_nombre") sigue
+  // existiendo para que el POST no cambie, pero se oculta y se sincroniza.
+  function montarNombreEnCabecera(lectura) {
+    const wrap = modalBody.querySelector('#campoApellidoNombre');
+    const real = modalBody.querySelector('input[name="apellido_nombre"]');
+    if (!wrap || !real) return;
+    wrap.classList.add('d-none');            // nunca se muestra dentro del modal
+    // Un input required y oculto rompe reportValidity() ("not focusable"):
+    // se valida a mano en el submit, contra el input del encabezado.
+    real.required = false;
+
+    if (lectura) {
+      titulo.classList.remove('d-none');
+      spanNumero.classList.add('d-none');
+      inpNombreHdr.classList.add('d-none');
+    } else {
+      const meta = modalBody.querySelector('#editarSocioMeta');
+      spanNumero.textContent = meta ? `N° ${meta.dataset.numGuia} —` : '';
+      spanNumero.classList.remove('d-none');
+      titulo.classList.add('d-none');
+      inpNombreHdr.value = real.value;
+      inpNombreHdr.classList.remove('d-none');
+      inpNombreHdr.oninput = () => { real.value = inpNombreHdr.value; };
+    }
+  }
 
   function setModoLectura(lectura) {
     const form = modalBody.querySelector('#formEditar');
@@ -1826,8 +1863,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
       if (aviso) aviso.remove();
     }
 
+    montarNombreEnCabecera(lectura);
     btnModoEditar.classList.toggle('d-none', !lectura);
-    iconoModal.className = lectura ? 'bi bi-eye me-2' : 'bi bi-pencil-square me-2';
+    iconoModal.className = lectura ? 'bi bi-eye me-1' : 'bi bi-pencil-square me-1';
   }
 
   window.desbloquearEdicionSocio = () => setModoLectura(false);
@@ -1870,6 +1908,15 @@ document.querySelectorAll('.input-upper').forEach(el => {
     if (form) {
       form.addEventListener('submit', async (ev) => {
         ev.preventDefault();
+        // El nombre se edita en el encabezado (fuera del form): se valida acá.
+        const inpReal = form.querySelector('input[name="apellido_nombre"]');
+        if (inpReal && !inpReal.value.trim()) {
+          appAlert('El apellido y nombre no puede quedar vacío.', 'error');
+          inpNombreHdr.classList.add('is-invalid');
+          inpNombreHdr.focus();
+          return;
+        }
+        inpNombreHdr.classList.remove('is-invalid');
         if (!form.reportValidity()) return;
         const btn = form.querySelector('button[type=submit]');
         if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }

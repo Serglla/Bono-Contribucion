@@ -10,6 +10,36 @@
      data-num-guia="{{ num_guia }}"
      data-nombre="{{ comprador.apellido_nombre }}"></div>
 
+<style>
+  /* Cabecera de cada boleta: números a la izquierda, datos del socio a la
+     derecha (modelo A). En pantallas angostas se apila. */
+  .boleta-head {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: .75rem 1rem;
+    align-items: start;
+  }
+  /* Los números van de a 2 por fila: una PATA 2 (6 números) ocupa 3 filas
+     en vez de una tira larga que empuja el resto. */
+  .nums-grid {
+    display: grid;
+    grid-template-columns: repeat(2, auto);
+    gap: 3px;
+    justify-content: start;
+  }
+  .nums-grid .badge { font-size: .78rem; }
+  .datos-socio-inline {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .4rem .5rem;
+    align-content: start;
+  }
+  @media (max-width: 575.98px) {
+    .boleta-head { grid-template-columns: 1fr; }
+    .datos-socio-inline { grid-template-columns: 1fr; }
+  }
+</style>
+
 <form method="post" action="/compradores/{{ comprador.id }}/editar" id="formEditar">
   <input type="hidden" name="from_page" id="fromPageInput" value="">
   <input type="hidden" name="next" id="nextInput" value="">
@@ -32,13 +62,19 @@
          else ('2pagos' if b.modalidad_liquidacion == 'contado2'
          else ('1pago' if _es_contado_liq else 'cuotas'))) %}
     <div class="boleta-wrap mb-2 border rounded bg-light">
-      <div class="d-flex align-items-center gap-2 px-2 py-1 flex-wrap">
-        <span class="badge bg-dark">{{ "%04d" % b.numero_principal }}</span>
-        {% if b.numeros_adicionales %}
-          {% for n in b.numeros_adicionales.split(', ') %}
-          <span class="badge bg-secondary">{{ "%04d" % n|int }}</span>
-          {% endfor %}
-        {% endif %}
+      {# Modelo A: izquierda = números (grilla de 2 por fila) + badges;
+         derecha = cuotas pagas y, en la primera boleta, fecha y vendedor. #}
+      <div class="boleta-head px-2 py-2">
+      <div class="boleta-ident">
+        <div class="nums-grid mb-1">
+          <span class="badge bg-dark">{{ "%04d" % b.numero_principal }}</span>
+          {% if b.numeros_adicionales %}
+            {% for n in b.numeros_adicionales.split(', ') %}
+            <span class="badge bg-secondary">{{ "%04d" % n|int }}</span>
+            {% endfor %}
+          {% endif %}
+        </div>
+        <div class="d-flex align-items-center gap-1 flex-wrap">
         <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.65rem;">{{ b.talonera.nombre if b.talonera else "" }}</span>
         {# ── Estado de cobranza de ESTA boleta (mismo criterio que la columna
              ESTADO de la lista de socios — app/estado_socio.py). #}
@@ -79,7 +115,29 @@
                 title="Liberar esta boleta de la talonera — la deja disponible para vender a otro socio (acción con doble confirmación)">
           <i class="bi bi-trash me-1"></i>Liberar boleta
         </button>
-        <div class="ms-auto d-flex align-items-center gap-2">
+        </div>
+      </div>
+
+      {# Columna derecha: datos del socio que se leen junto con los números. #}
+      <div class="datos-socio-inline">
+        {% if loop.first %}
+        <div>
+          <label class="form-label mb-1" style="font-size:.75rem;">Fecha de compra</label>
+          <input type="date" name="fecha_compra" class="form-control form-control-sm"
+                 value="{{ comprador.boletas[0].fecha_venta.isoformat() if comprador.boletas[0].fecha_venta else '' }}">
+        </div>
+        <div>
+          <label class="form-label mb-1" style="font-size:.75rem;">Vendedor</label>
+          {% set vendedor_actual = comprador.boletas[0].vendedor_id %}
+          <select name="vendedor_id" id="vendedorSelectEdit" class="form-select form-select-sm">
+            <option value="">— Sin vendedor —</option>
+            {% for v in vendedores %}
+            <option value="{{ v.id }}" {% if vendedor_actual == v.id %}selected{% endif %}>{{ v.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div class="d-flex align-items-center gap-2" style="grid-column:1/-1;">
           <span class="small text-muted">Cuotas pagas:</span>
           <input type="number" name="cpag_{{ b.id }}"
                  value="{{ b.cuotas_pagadas or 0 }}"
@@ -88,6 +146,7 @@
                  style="width:56px;">
           <span class="small text-muted">/ {{ b.cuotas_pactadas }}</span>
         </div>
+      </div>
       </div>
 
       <!-- Panel reasignacion talonera/numero (oculto por defecto) -->
@@ -251,24 +310,38 @@
   </div>
   {% endif %}
 
-  <!-- Datos personales -->
-  <div class="row g-2 mb-2">
-    <div class="col-8">
+  {# ══ Datos del socio ══
+     Orden pedido por Sergio (13/08/2026): fecha + vendedor · nombre ·
+     dirección · zona + cobrador + teléfono. El nombre va PRIMERO en el orden
+     de lectura, pero dentro del modal se oculta y se edita en el encabezado
+     (ver #campoApellidoNombre en compradores.html) — ahí ya está el nombre en
+     el título y repetirlo era redundante. En la página standalone, que no
+     tiene ese encabezado, el campo se muestra normal. #}
+
+  {# Fecha de compra y Vendedor van arriba, al lado de los números (modelo A):
+     ver el bloque "datos-socio-inline" dentro de la caja de la primera boleta. #}
+
+  <!-- Apellido y Nombre (el modal lo oculta: se edita en el encabezado) -->
+  <div class="row g-2 mb-2" id="campoApellidoNombre">
+    <div class="col-12">
       <label class="form-label mb-1" style="font-size:.8rem; font-weight:600;">Apellido y Nombre *</label>
       <input type="text" name="apellido_nombre" class="form-control form-control-sm input-upper"
              value="{{ comprador.apellido_nombre }}" required>
     </div>
-    <div class="col-4">
-      <label class="form-label mb-1" style="font-size:.8rem;">Teléfono</label>
-      <input type="text" name="telefono" class="form-control form-control-sm"
-             value="{{ comprador.telefono or '' }}">
-    </div>
+  </div>
+
+  <!-- Dirección -->
+  <div class="row g-2 mb-2">
     <div class="col-12">
       <label class="form-label mb-1" style="font-size:.8rem;">Dirección</label>
       <input type="text" name="direccion" class="form-control form-control-sm input-upper"
              value="{{ comprador.direccion or '' }}">
     </div>
-    <div class="col-6">
+  </div>
+
+  <!-- Zona + Cobrador + Teléfono -->
+  <div class="row g-2 mb-3">
+    <div class="col-5">
       <label class="form-label mb-1" style="font-size:.8rem;">Zona</label>
       <div class="d-flex gap-1">
         <select name="zona_id" id="zonaSelectEdit" class="form-select form-select-sm">
@@ -283,17 +356,7 @@
                class="form-control form-control-sm input-upper d-none" placeholder="Nombre zona">
       </div>
     </div>
-    <div class="col-3">
-      <label class="form-label mb-1" style="font-size:.8rem;">Vendedor</label>
-      {% set vendedor_actual = comprador.boletas[0].vendedor_id if comprador.boletas else None %}
-      <select name="vendedor_id" id="vendedorSelectEdit" class="form-select form-select-sm">
-        <option value="">— Sin vendedor —</option>
-        {% for v in vendedores %}
-        <option value="{{ v.id }}" {% if vendedor_actual == v.id %}selected{% endif %}>{{ v.nombre }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-3">
+    <div class="col-4">
       <label class="form-label mb-1" style="font-size:.8rem;">Cobrador</label>
       {% set cobrador_actual = comprador.boletas[0].cobrador_id if comprador.boletas else None %}
       <select name="cobrador_id" id="cobradorSelectEdit" class="form-select form-select-sm">
@@ -303,12 +366,12 @@
         {% endfor %}
       </select>
     </div>
-    <div class="col-5">
-      <label class="form-label mb-1" style="font-size:.8rem;">Fecha de compra</label>
-      <input type="date" name="fecha_compra" class="form-control form-control-sm"
-             value="{{ comprador.boletas[0].fecha_venta.isoformat() if comprador.boletas and comprador.boletas[0].fecha_venta else '' }}">
+    <div class="col-3">
+      <label class="form-label mb-1" style="font-size:.8rem;">Teléfono</label>
+      <input type="text" name="telefono" class="form-control form-control-sm"
+             value="{{ comprador.telefono or '' }}">
     </div>
   </div>
 
-  <button type="submit" class="btn btn-danger btn-sm w-100">Guardar Cambios</button>
+  <button type="submit" class="btn btn-danger btn-sm px-4">Guardar Cambios</button>
 </form>
