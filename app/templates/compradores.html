@@ -1870,6 +1870,12 @@ document.querySelectorAll('.input-upper').forEach(el => {
       b.classList.toggle('d-none', lectura);
     });
 
+    // Bloques que son puro control de edición: la modalidad de pago (radios
+    // cuotas/1 pago/2 pagos, con el "Pool de …" y los selectores de números
+    // CONTADO). En lectura no aportan nada — el badge de estado ya dice
+    // CONTADO / CONTADO X2 — y ensucian la ficha.
+    form.querySelectorAll('.contado-block').forEach(el => el.classList.toggle('d-none', lectura));
+
     // En lectura el form se lee como una ficha: sin recuadros (lo hace el CSS
     // de .modo-lectura) y con "—" donde no hay dato cargado.
     form.classList.toggle('modo-lectura', lectura);
