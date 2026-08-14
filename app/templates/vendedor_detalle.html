@@ -467,6 +467,10 @@
           </button>
         </form>
         {% endif %}
+        <button type="button" class="btn btn-sm btn-outline-success" id="dl-share-btn"
+                onclick="compartirDetalleLiq()" title="Compartir los números de esta liquidación">
+          <i class="bi bi-share-fill me-1"></i>Compartir
+        </button>
         {% if can_edit %}
         <button type="button" class="btn btn-sm btn-outline-primary" id="dl-edit-btn" onclick="toggleEditLiq()">
           <i class="bi bi-pencil me-1"></i>Editar números
@@ -1979,6 +1983,106 @@ function toggleEditLiq() {
   dlEditMode = !dlEditMode;
   setEditLiqBtn();
   if (dlDetalleData) renderDetalleLiq(dlDetalleData);
+}
+
+// ── Compartir el detalle de liquidación (solo los números) ──
+// Arma un texto plano listo para WhatsApp con los números agrupados por PATA
+// y los del pool CONTADO. Usa el menú nativo de compartir si existe; si no,
+// copia al portapapeles.
+const DL_VENDEDOR = {{ v.nombre | tojson }};
+
+function buildShareTextLiq(d) {
+  if (!d) return '';
+  const L = [];
+  L.push('*Liquidación — ' + DL_VENDEDOR + '*');
+  if (d.fecha) L.push(d.fecha);
+  L.push('');
+
+  // Números por PATA
+  const grupos = {};
+  (d.boletas || []).forEach(b => {
+    if (!grupos[b.pata]) grupos[b.pata] = [];
+    grupos[b.pata].push(b);
+  });
+  Object.keys(grupos).sort().forEach(pata => {
+    const g = grupos[pata].slice().sort((a, c) =>
+      String(a.num_str).localeCompare(String(c.num_str), 'es', { numeric: true }));
+    L.push('*' + pata + '* (' + g.length + ')');
+    L.push(g.map(b => b.num_str + (b.reasignado_a_nombre ? ' → ' + b.reasignado_a_nombre : '')).join('  '));
+    L.push('');
+  });
+
+  // Pool CONTADO
+  const gpool = {};
+  (d.pool_items || []).forEach(it => {
+    if (!gpool[it.talonera_nombre]) gpool[it.talonera_nombre] = [];
+    gpool[it.talonera_nombre].push(it);
+  });
+  Object.keys(gpool).sort().forEach(nombre => {
+    const g = gpool[nombre].slice().sort((a, c) =>
+      String(a.num_str).localeCompare(String(c.num_str), 'es', { numeric: true }));
+    L.push('*★ ' + nombre + '* (' + g.length + ')');
+    L.push(g.map(it => it.num_str).join('  '));
+    L.push('');
+  });
+
+  const totalNums = (d.boletas || []).length + (d.pool_items || []).length;
+  if (!totalNums) L.push('(Sin números asociados)');
+  else L.push('Total: ' + totalNums + ' número/s');
+
+  return L.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+async function compartirDetalleLiq() {
+  if (!dlDetalleData) {
+    appAlert('El detalle todavía se está cargando. Probá de nuevo en un instante.', 'info');
+    return;
+  }
+  const texto = buildShareTextLiq(dlDetalleData);
+  if (!texto) { appAlert('No hay números para compartir.', 'info'); return; }
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Liquidación — ' + DL_VENDEDOR, text: texto });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;   // el usuario canceló
+      // cualquier otro error → cae al fallback de copiar
+    }
+  }
+  copiarTextoLiq(texto);
+}
+
+function copiarTextoLiq(texto) {
+  const feedback = () => {
+    const btn = document.getElementById('dl-share-btn');
+    if (!btn) return;
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copiado';
+    btn.classList.add('btn-success');
+    btn.classList.remove('btn-outline-success');
+    setTimeout(() => {
+      btn.innerHTML = orig;
+      btn.classList.remove('btn-success');
+      btn.classList.add('btn-outline-success');
+    }, 1800);
+  };
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); feedback(); }
+    catch (e) { appAlert('No se pudo copiar automáticamente.', 'error'); }
+    document.body.removeChild(ta);
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(texto).then(feedback).catch(fallback);
+  } else {
+    fallback();
+  }
 }
 
 async function verDetalleLiq(liqId) {
