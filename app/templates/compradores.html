@@ -1630,16 +1630,33 @@ document.querySelectorAll('.input-upper').forEach(el => {
   .num-badge { font-size: 1rem; min-width: 3rem; text-align: center; }
   #tbodyCompradores tr:hover { background-color: #fff3f3 !important; }
 
-  /* Campos del modal de socio cuando está en solo lectura: se leen bien pero
-     se nota que no se pueden tocar. */
-  #editarModalBody .campo-lectura {
-    background-color: #f8f9fa !important;
+  /* ── Modal de socio en SOLO LECTURA ──────────────────────────────────────
+     Se lee como una ficha, no como un formulario bloqueado: los campos pierden
+     el recuadro y quedan como texto con su etiqueta chiquita arriba. */
+  #editarModalBody .modo-lectura .form-control,
+  #editarModalBody .modo-lectura .form-select {
+    border: 0 !important;
+    background: transparent !important;
+    background-image: none !important;   /* saca la flecha de los <select> */
+    box-shadow: none !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    height: auto;
+    min-height: 1.4rem;
     color: #212529 !important;
-    border-color: #e3e5e8 !important;
+    -webkit-appearance: none;
+    appearance: none;
     cursor: default;
     opacity: 1;
   }
-  #editarModalBody .campo-lectura:focus { box-shadow: none !important; }
+  #editarModalBody .modo-lectura .form-control::placeholder { color: #adb5bd; }
+  /* El de cuotas pagas queda centrado en su ancho fijo; sin caja se ve
+     descolgado, así que se alinea a la izquierda como el resto. */
+  #editarModalBody .modo-lectura input[name^="cpag_"] {
+    width: auto !important;
+    text-align: left !important;
+    min-width: 1.5rem;
+  }
 </style>
 
 <script>
@@ -1853,15 +1870,17 @@ document.querySelectorAll('.input-upper').forEach(el => {
       b.classList.toggle('d-none', lectura);
     });
 
-    if (lectura && !form.querySelector('.aviso-lectura')) {
-      const aviso = document.createElement('div');
-      aviso.className = 'aviso-lectura alert alert-secondary py-1 px-2 small mb-3';
-      aviso.innerHTML = '<i class="bi bi-eye me-1"></i>Solo lectura — tocá <strong>Editar</strong> arriba para modificar.';
-      form.prepend(aviso);
-    } else if (!lectura) {
-      const aviso = form.querySelector('.aviso-lectura');
-      if (aviso) aviso.remove();
-    }
+    // En lectura el form se lee como una ficha: sin recuadros (lo hace el CSS
+    // de .modo-lectura) y con "—" donde no hay dato cargado.
+    form.classList.toggle('modo-lectura', lectura);
+    form.querySelectorAll('input[type="text"], input[type="date"], input[type="number"]').forEach(el => {
+      if (lectura) {
+        if (!el.dataset.phPrev) el.dataset.phPrev = el.placeholder || '';
+        if (!el.value) el.placeholder = '—';
+      } else {
+        el.placeholder = el.dataset.phPrev || '';
+      }
+    });
 
     montarNombreEnCabecera(lectura);
     btnModoEditar.classList.toggle('d-none', !lectura);
