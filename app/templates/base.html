@@ -134,6 +134,25 @@
       .main-content { padding-top: .9rem !important; }
       .page-actions { flex-wrap: wrap; }
     }
+
+    /* ── Badges de ESTADO de cobranza ──────────────────────────────────────
+       Se usan en la columna Estado de la lista de socios y en el detalle del
+       socio (modal y página). Los textos y la lógica salen de
+       app/estado_socio.py — acá viven solo los colores:
+         aldia    verde    · no debe nada al último mes cargado
+         contado  azul     · pagó todo de una (o en 2 pagos)
+         atrasado amarillo · pagó el último mes pero arrastra huecos anteriores
+         moroso1  rosado   · no pagó el último mes y es lo único que debe
+         moroso   rojo     · no pagó el último mes y además arrastra atrasos
+         baja     rojo     · dado de baja                                      */
+    .badge[class*="est-"] { font-weight: 600; letter-spacing: .2px; border: 1px solid; }
+    .est-aldia    { background:#d1e7dd; color:#0f5132; border-color:#a3cfbb; }
+    .est-contado  { background:#cfe2ff; color:#084298; border-color:#9ec5fe; }
+    .est-atrasado { background:#fff3cd; color:#664d03; border-color:#ffe69c; }
+    .est-moroso1  { background:#fbd5e2; color:#8a1c46; border-color:#f5aec8; }
+    .est-moroso   { background:#dc3545; color:#fff;    border-color:#b02a37; }
+    .est-baja     { background:#842029; color:#fff;    border-color:#58151c; }
+    .est-vacio    { background:#f8f9fa; color:#6c757d; border-color:#dee2e6; }
   </style>
   <script>
     // Ninguna pantalla del sistema (las que usan esta base) va adentro de un
@@ -141,7 +160,12 @@
     // hojas de liquidación. Si igual se cuela una (ej. "Liquidar planilla" desde el
     // modal de la planilla), se sale del marco y se carga a pantalla completa,
     // así no queda la app anidada dentro del modal.
-    if (window.top !== window.self) {
+    //
+    // EXCEPCIÓN embed=1: la página se pidió a propósito para el modal-visor
+    // (documentos imprimibles que heredan de esta base, como el PDF de
+    // renovaciones). Sin esta guarda, el visor se auto-expulsaba y terminaba
+    // navegando la pestaña entera.
+    if (window.top !== window.self && !{{ 'true' if embed else 'false' }}) {
       try { window.top.location.replace(window.location.href); }
       catch (e) { window.location.replace(window.location.href); }
     }

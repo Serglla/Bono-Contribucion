@@ -532,27 +532,9 @@ function verContadoSinCargar(btn) {
     td.col-direccion { max-width: 110px; }
   }
 
-  /* ── Columna ESTADO ──────────────────────────────────────────────────────
-     Colores según app/estado_socio.py:
-       aldia    verde    — no debe nada al último mes cargado
-       contado  azul     — pagó todo de una (o en 2 pagos)
-       atrasado amarillo — pagó el último mes pero arrastra huecos anteriores
-       moroso1  rosado   — no pagó el último mes y es lo único que debe
-       moroso   rojo     — no pagó el último mes y además arrastra atrasos
-       baja     rojo     — dado de baja (la fila entera ya se tiñe de rojo)      */
-  #tablaCompradores .badge[class*="est-"] {
-    font-size: .68rem;
-    font-weight: 600;
-    letter-spacing: .2px;
-    border: 1px solid;
-  }
-  .est-aldia    { background:#d1e7dd; color:#0f5132; border-color:#a3cfbb; }
-  .est-contado  { background:#cfe2ff; color:#084298; border-color:#9ec5fe; }
-  .est-atrasado { background:#fff3cd; color:#664d03; border-color:#ffe69c; }
-  .est-moroso1  { background:#fbd5e2; color:#8a1c46; border-color:#f5aec8; }
-  .est-moroso   { background:#dc3545; color:#fff;    border-color:#b02a37; }
-  .est-baja     { background:#842029; color:#fff;    border-color:#58151c; }
-  .est-vacio    { background:#f8f9fa; color:#6c757d; border-color:#dee2e6; }
+  /* Los colores de los badges .est-* viven en base.html (se usan también en el
+     detalle del socio, dentro y fuera del modal). */
+  #tablaCompradores .badge[class*="est-"] { font-size: .68rem; }
 
   .sortable:hover { background-color: #f0f0f0; }
   /* Mientras se arrastra para seleccionar, que no se pinte el texto de la tabla */
@@ -1647,6 +1629,17 @@ document.querySelectorAll('.input-upper').forEach(el => {
   .detalle-boleta-card { border-left: 4px solid #dc3545; background: #fff8f8; }
   .num-badge { font-size: 1rem; min-width: 3rem; text-align: center; }
   #tbodyCompradores tr:hover { background-color: #fff3f3 !important; }
+
+  /* Campos del modal de socio cuando está en solo lectura: se leen bien pero
+     se nota que no se pueden tocar. */
+  #editarModalBody .campo-lectura {
+    background-color: #f8f9fa !important;
+    color: #212529 !important;
+    border-color: #e3e5e8 !important;
+    cursor: default;
+    opacity: 1;
+  }
+  #editarModalBody .campo-lectura:focus { box-shadow: none !important; }
 </style>
 
 <script>
@@ -1668,7 +1661,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
     btnEd.onclick = (ev) => {
       ev.preventDefault();
       // Esperar a que el detalle cierre del todo antes de abrir el de edición
-      modalEl.addEventListener('hidden.bs.modal', () => window.abrirEditarSocio(id), { once: true });
+      // Es el botón "Editar" del detalle → abre el modal ya desbloqueado.
+      modalEl.addEventListener('hidden.bs.modal',
+        () => window.abrirEditarSocio(id, { editar: true }), { once: true });
       modal.hide();
     };
     modal.show();
@@ -1756,9 +1751,17 @@ document.querySelectorAll('.input-upper').forEach(el => {
     <div class="modal-content">
       <div class="modal-header bg-danger text-white py-2">
         <h6 class="modal-title mb-0">
-          <i class="bi bi-pencil-square me-2"></i><span id="editarModalTitulo">Editar socio</span>
+          <i class="bi bi-pencil-square me-2" id="editarModalIcono"></i><span id="editarModalTitulo">Socio</span>
         </h6>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        <div class="ms-auto d-flex align-items-center gap-2">
+          {# Solo lectura por defecto: el modal se desbloquea con este botón o
+             entrando directo por el lápiz de la fila. #}
+          <button type="button" class="btn btn-sm btn-light d-none" id="btnModoEditar"
+                  onclick="desbloquearEdicionSocio()" title="Habilitar la edición de este socio">
+            <i class="bi bi-pencil me-1"></i>Editar
+          </button>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
       </div>
       <div class="modal-body" id="editarModalBody">
         <div class="text-center py-4"><div class="spinner-border text-danger" role="status"></div></div>
@@ -1775,9 +1778,65 @@ document.querySelectorAll('.input-upper').forEach(el => {
   const titulo    = document.getElementById('editarModalTitulo');
   const getModal  = () => bootstrap.Modal.getOrCreateInstance(modalEl);
 
-  async function abrirEditarSocio(id) {
-    titulo.textContent = 'Editar socio';
+  // ── Solo lectura vs edición ──────────────────────────────────────────────
+  // Doble clic en una fila → abre BLOQUEADO (ver datos sin riesgo de tocar algo
+  // sin querer). El lápiz de la fila → abre desbloqueado. Desde el modo lectura
+  // se puede desbloquear con el botón Editar de la cabecera.
+  const btnModoEditar = document.getElementById('btnModoEditar');
+  const iconoModal    = document.getElementById('editarModalIcono');
+
+  function setModoLectura(lectura) {
+    const form = modalBody.querySelector('#formEditar');
+    if (!form) return;
+
+    form.querySelectorAll('input, select, textarea').forEach(el => {
+      if (el.type === 'hidden') return;
+      if (lectura) {
+        // Los <select> y los inputs no textuales no soportan readonly: se
+        // deshabilitan. En modo lectura no se envía el form, así que no importa
+        // que queden fuera del POST.
+        if (el.tagName === 'SELECT' || ['checkbox', 'radio', 'date', 'number', 'file'].includes(el.type)) {
+          el.disabled = true;
+        } else {
+          el.readOnly = true;
+        }
+        el.classList.add('campo-lectura');
+      } else {
+        el.disabled = false;
+        el.readOnly = false;
+        el.classList.remove('campo-lectura');
+      }
+    });
+
+    // Todo lo accionable (asignar talonera, liberar boleta, dar de baja,
+    // guardar…) se esconde en modo lectura. Marcá con .js-siempre-visible
+    // cualquier control que deba sobrevivir al bloqueo.
+    form.querySelectorAll('button, a.btn').forEach(b => {
+      if (b.classList.contains('js-siempre-visible')) return;
+      b.classList.toggle('d-none', lectura);
+    });
+
+    if (lectura && !form.querySelector('.aviso-lectura')) {
+      const aviso = document.createElement('div');
+      aviso.className = 'aviso-lectura alert alert-secondary py-1 px-2 small mb-3';
+      aviso.innerHTML = '<i class="bi bi-eye me-1"></i>Solo lectura — tocá <strong>Editar</strong> arriba para modificar.';
+      form.prepend(aviso);
+    } else if (!lectura) {
+      const aviso = form.querySelector('.aviso-lectura');
+      if (aviso) aviso.remove();
+    }
+
+    btnModoEditar.classList.toggle('d-none', !lectura);
+    iconoModal.className = lectura ? 'bi bi-eye me-2' : 'bi bi-pencil-square me-2';
+  }
+
+  window.desbloquearEdicionSocio = () => setModoLectura(false);
+
+  async function abrirEditarSocio(id, opts) {
+    const lectura = !(opts && opts.editar);
+    titulo.textContent = 'Socio';
     modalBody.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-danger" role="status"></div></div>';
+    btnModoEditar.classList.add('d-none');
     getModal().show();
 
     let html;
@@ -1793,7 +1852,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
 
     // Título desde el bloque meta del fragmento
     const meta = modalBody.querySelector('#editarSocioMeta');
-    if (meta) titulo.textContent = `Editar Socio N° ${meta.dataset.numGuia} — ${meta.dataset.nombre}`;
+    if (meta) titulo.textContent = `Socio N° ${meta.dataset.numGuia} — ${meta.dataset.nombre}`;
 
     // next = lista actual con sus filtros (respaldo por si el POST redirige)
     const nextInput = modalBody.querySelector('#nextInput');
@@ -1801,6 +1860,10 @@ document.querySelectorAll('.input-upper').forEach(el => {
 
     // Widgets del formulario (contado, reasignar, liberar, zona…)
     window.initEditarSocio(modalBody);
+
+    // Se aplica DESPUÉS de initEditarSocio para que el bloqueo gane sobre
+    // cualquier campo que esos widgets hayan habilitado.
+    setModoLectura(lectura);
 
     // Guardar por AJAX → recarga la lista MANTENIENDO los filtros actuales
     const form = modalBody.querySelector('#formEditar');
@@ -1830,11 +1893,11 @@ document.querySelectorAll('.input-upper').forEach(el => {
   }
   window.abrirEditarSocio = abrirEditarSocio;
 
-  // Lápiz de cada fila → abre el modal (en vez de navegar a la página)
+  // Lápiz de cada fila → abre el modal YA DESBLOQUEADO (es el botón de edición).
   document.querySelectorAll('.js-editar-socio').forEach(a => {
     a.addEventListener('click', (e) => {
       e.preventDefault();
-      abrirEditarSocio(a.dataset.compradorId);
+      abrirEditarSocio(a.dataset.compradorId, { editar: true });
     });
   });
 })();

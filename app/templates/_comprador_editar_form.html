@@ -40,6 +40,12 @@
           {% endfor %}
         {% endif %}
         <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.65rem;">{{ b.talonera.nombre if b.talonera else "" }}</span>
+        {# ── Estado de cobranza de ESTA boleta (mismo criterio que la columna
+             ESTADO de la lista de socios — app/estado_socio.py). #}
+        {% set _est = (estados_boleta | default({})).get(b.id) %}
+        {% if _est %}
+        <span class="badge est-{{ _est.clase }}" style="font-size:.65rem;" title="{{ _est.tip }}">{{ _est.texto }}</span>
+        {% endif %}
         {# ── Planilla de cobranza donde está emplanillada esta boleta ── #}
         {% if b.planilla %}
         <a href="#"

@@ -13,7 +13,7 @@ from ..models import CondicionBoleta
 # del sorteo final (jun-2027) van de regalo. Ver app/cuotas.py.
 from ..cuotas import cuotas_vigentes
 # Columna ESTADO de la lista de socios (al día / contado / debe N / baja).
-from ..estado_socio import estados_por_socio
+from ..estado_socio import estados_por_socio, estado_boleta, periodo_referencia
 
 
 def _parse_zona_id(zona_id_str: Optional[str]) -> Optional[int]:
@@ -960,6 +960,17 @@ def _derivar_condicion(boleta) -> str:
     return "SIN_VENDER"
 
 
+def _estados_de_boletas(db, comprador):
+    """{boleta_id: estado} para el detalle del socio — mismo criterio que la
+    columna ESTADO de la lista (app/estado_socio.py). Acá el estado se muestra
+    por boleta, no consolidado: un socio puede tener una al día y otra atrasada.
+    """
+    if not comprador.boletas:
+        return {}
+    ref = periodo_referencia(db, models)
+    return {b.id: estado_boleta(b, ref) for b in comprador.boletas}
+
+
 @router.get("/{comprador_id}/editar", response_class=HTMLResponse)
 async def editar_form(comprador_id: int, request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
@@ -982,6 +993,7 @@ async def editar_form(comprador_id: int, request: Request, db: Session = Depends
     return templates.TemplateResponse(request, "comprador_editar.html", {
         "user": user,
         "comprador": c,
+        "estados_boleta": _estados_de_boletas(db, c),
         "zonas": zonas,
         "vendedores": vendedores,
         "cobradores": cobradores,
@@ -1012,6 +1024,7 @@ async def editar_fragmento(comprador_id: int, request: Request, db: Session = De
     cond_derivada = _derivar_condicion(c.boletas[0]) if c.boletas else "SIN_VENDER"
     return templates.TemplateResponse(request, "_comprador_editar_form.html", {
         "comprador": c,
+        "estados_boleta": _estados_de_boletas(db, c),
         "zonas": zonas,
         "vendedores": vendedores,
         "cobradores": cobradores,
