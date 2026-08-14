@@ -428,12 +428,16 @@ function verContadoSinCargar(btn) {
           {% set reg_baja = b and b.mes_baja and cond != 'BAJA' %}
           <td data-val="{% if cond == 'BAJA' or reg_baja %}baja{% elif es_contado or anticipo_total %}contado{% elif pagado %}pagado {{ cob_nombre }}{% else %}{{ cob_nombre }}{% endif %}"
               onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
-            {% if cond == 'BAJA' %}
-              <span class="badge bg-danger">Baja</span>
-              {% if cob_nombre %}<div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">{{ cob_nombre }}</div>{% endif %}
-            {% elif reg_baja %}
-              <span class="badge bg-danger">BAJA</span>
-              <div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">baja mes {{ b.mes_baja }}{% if cob_nombre %} · {{ cob_nombre }}{% endif %}</div>
+            {# El badge BAJA salió de acá: la columna ESTADO ya lo dice. Queda
+               solo el dato que esa columna no muestra: mes de baja y cobrador. #}
+            {% if cond == 'BAJA' or reg_baja %}
+              {% if b and b.mes_baja %}
+                <div class="text-muted small" style="font-size:.7rem; line-height:1.1;">baja mes {{ b.mes_baja }}{% if cob_nombre %} · {{ cob_nombre }}{% endif %}</div>
+              {% elif cob_nombre %}
+                <div class="text-muted small" style="font-size:.7rem; line-height:1.1;">{{ cob_nombre }}</div>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
             {% elif es_contado or anticipo_total %}
               <span class="badge bg-success">CONTADO</span>
             {% elif pagado %}
@@ -452,13 +456,19 @@ function verContadoSinCargar(btn) {
             {% endif %}
           </td>
           <td>{{ c.telefono or "—" }}</td>
-          <td data-val="{% if socio_baja %}baja{% elif b and b.cuotas_pactadas %}{{ (b.cuotas_pagadas or 0) }}/{{ b.cuotas_pactadas }}{% endif %}">
-            {% if socio_baja %}
-              <span class="badge bg-danger" style="font-size:.72rem;">BAJA</span>
-            {% elif b and b.cuotas_pactadas %}
+          {# ── Columna CUOTAS ───────────────────────────────────────────────
+               Antes, para un socio de baja acá decía "BAJA" — información que
+               ahora ya da la columna ESTADO. En su lugar mostramos cuántas
+               cuotas alcanzó a pagar ANTES de darse de baja (cuotas_pagadas deja
+               de crecer al darlo de baja, así que el valor es justamente ese). #}
+          <td data-val="{% if b and b.cuotas_pactadas %}{{ (b.cuotas_pagadas or 0) }}/{{ b.cuotas_pactadas }}{% endif %}">
+            {% if b and b.cuotas_pactadas %}
               {% set _pag = b.cuotas_pagadas or 0 %}
               {% set _pac = b.cuotas_pactadas %}
-              {% if _pag >= _pac %}
+              {% if socio_baja %}
+                <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.72rem;"
+                      title="Pagó {{ _pag }} de {{ _pac }} cuotas antes de darse de baja{% if b.mes_baja %} (mes {{ b.mes_baja }}){% endif %}">{{ _pag }}/{{ _pac }}</span>
+              {% elif _pag >= _pac %}
                 <span class="badge bg-success-subtle text-success border border-success" style="font-size:.72rem;">{{ _pag }}/{{ _pac }}</span>
               {% elif _pag == 0 %}
                 <span class="badge bg-light text-dark border" style="font-size:.72rem;">{{ _pag }}/{{ _pac }}</span>
