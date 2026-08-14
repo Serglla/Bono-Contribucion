@@ -304,6 +304,7 @@ function verContadoSinCargar(btn) {
     <option value="7">Cobrador</option>
     <option value="8">Teléfono</option>
     <option value="9">Cuotas</option>
+    <option value="10">Estado</option>
   </select>
   <input type="text" id="busquedaTexto" class="form-control form-control-sm" placeholder="Buscar..." value="{{ q }}" autocomplete="off" style="flex:1;min-width:80px;">
   <button type="button" class="btn btn-sm btn-outline-danger" id="btnBusquedaLimpiar" title="Limpiar búsqueda">
@@ -361,6 +362,10 @@ function verContadoSinCargar(btn) {
           <th class="sortable" data-col="9" style="cursor:pointer; user-select:none; white-space:nowrap;">
             Cuotas <span class="sort-icon text-muted ms-1">⇅</span>
           </th>
+          <th class="sortable" data-col="10" style="cursor:pointer; user-select:none; white-space:nowrap;"
+              title="Situación de cobranza al último mes cargado ({{ estado_ref | default('—') }}). Ordená por acá para ver primero los atrasados.">
+            Estado <span class="sort-icon text-muted ms-1">⇅</span>
+          </th>
           <th></th>
         </tr>
       </thead>
@@ -384,8 +389,8 @@ function verContadoSinCargar(btn) {
               <span class="text-muted">—</span>
             {% endfor %}
           </td>
-          <td class="fw-semibold">{{ c.apellido_nombre }}</td>
-          <td class="col-direccion">{{ c.direccion or "—" }}</td>
+          <td class="fw-semibold col-nombre" title="{{ c.apellido_nombre }}">{{ c.apellido_nombre }}</td>
+          <td class="col-direccion" title="{{ c.direccion or '' }}">{{ c.direccion or "—" }}</td>
           <td>{{ c.zona.nombre if c.zona else "—" }}</td>
           <td data-val="{{ b.fecha_venta.isoformat() if b and b.fecha_venta else '' }}" style="white-space:nowrap;">
             {% if b and b.fecha_venta %}
@@ -464,6 +469,17 @@ function verContadoSinCargar(btn) {
               <span class="text-muted">—</span>
             {% endif %}
           </td>
+          {# ── Columna ESTADO: situación de cobranza al último mes cargado.
+               La lógica vive en app/estado_socio.py (una sola fuente de verdad).
+               data-val = rank numérico para que el orden ponga los atrasados arriba. #}
+          {% set est = (estados | default({})).get(c.id) %}
+          <td data-val="{{ est.rank if est else 9 }}" style="white-space:nowrap;">
+            {% if est %}
+              <span class="badge est-{{ est.clase }}" title="{{ est.tip }}">{{ est.texto }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
           <td>
             <a href="/compradores/{{ c.id }}/editar" class="btn btn-sm btn-outline-primary js-editar-socio"
                data-comprador-id="{{ c.id }}"
@@ -473,7 +489,7 @@ function verContadoSinCargar(btn) {
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="11" class="text-center text-muted py-3">No hay compradores registrados</td></tr>
+        <tr><td colspan="12" class="text-center text-muted py-3">No hay compradores registrados</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -491,6 +507,43 @@ function verContadoSinCargar(btn) {
   #tablaCompradores tbody td { padding-top: 1px; padding-bottom: 1px; vertical-align: middle; line-height: 1.2; }
   #tablaCompradores tbody tr { height: 28px; }
   td.col-direccion { text-transform: uppercase; }
+
+  /* Nombre y dirección se comían el ancho de la tabla. Se acotan con elipsis;
+     el texto completo queda en el title (tooltip al pasar el mouse). */
+  td.col-nombre, td.col-direccion {
+    max-width: 190px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  td.col-direccion { max-width: 150px; }
+  @media (max-width: 1400px) {
+    td.col-nombre    { max-width: 150px; }
+    td.col-direccion { max-width: 110px; }
+  }
+
+  /* ── Columna ESTADO ──────────────────────────────────────────────────────
+     Colores según app/estado_socio.py:
+       aldia    verde    — no debe nada al último mes cargado
+       contado  azul     — pagó todo de una (o en 2 pagos)
+       atrasado amarillo — pagó el último mes pero arrastra huecos anteriores
+       moroso1  rosado   — no pagó el último mes y es lo único que debe
+       moroso   rojo     — no pagó el último mes y además arrastra atrasos
+       baja     rojo     — dado de baja (la fila entera ya se tiñe de rojo)      */
+  #tablaCompradores .badge[class*="est-"] {
+    font-size: .68rem;
+    font-weight: 600;
+    letter-spacing: .2px;
+    border: 1px solid;
+  }
+  .est-aldia    { background:#d1e7dd; color:#0f5132; border-color:#a3cfbb; }
+  .est-contado  { background:#cfe2ff; color:#084298; border-color:#9ec5fe; }
+  .est-atrasado { background:#fff3cd; color:#664d03; border-color:#ffe69c; }
+  .est-moroso1  { background:#fbd5e2; color:#8a1c46; border-color:#f5aec8; }
+  .est-moroso   { background:#dc3545; color:#fff;    border-color:#b02a37; }
+  .est-baja     { background:#842029; color:#fff;    border-color:#58151c; }
+  .est-vacio    { background:#f8f9fa; color:#6c757d; border-color:#dee2e6; }
+
   .sortable:hover { background-color: #f0f0f0; }
   /* Mientras se arrastra para seleccionar, que no se pinte el texto de la tabla */
   body.arrastrando-seleccion, body.arrastrando-seleccion * {
@@ -577,6 +630,9 @@ function verContadoSinCargar(btn) {
     if (col === 5 && td.dataset.val !== undefined) {
       return td.dataset.val ? td.dataset.val.replace(/-/g, '') : '';
     }
+    // Columna Estado (col 10): ordenar por el rank numérico (0 = más urgente),
+    // no alfabéticamente. Ascendente deja arriba bajas y morosos.
+    if (col === 10 && td.dataset.val !== undefined) return td.dataset.val;
     // Columna Cuotas (col 9): ordenar por proporción pagadas/pactadas
     if (col === 9 && td.dataset.val) {
       const m = td.dataset.val.match(/^(\d+)\s*\/\s*(\d+)/);

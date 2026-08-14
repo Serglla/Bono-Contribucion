@@ -12,6 +12,8 @@ from ..models import CondicionBoleta
 # Cuotas que se cobran realmente segun la fecha de venta: las que no entran antes
 # del sorteo final (jun-2027) van de regalo. Ver app/cuotas.py.
 from ..cuotas import cuotas_vigentes
+# Columna ESTADO de la lista de socios (al día / contado / debe N / baja).
+from ..estado_socio import estados_por_socio
 
 
 def _parse_zona_id(zona_id_str: Optional[str]) -> Optional[int]:
@@ -151,6 +153,10 @@ async def listar(request: Request, db: Session = Depends(get_db),
     # en el SELECT del selectinload el costo pasa a cero.
     compradores_raw = query.options(
         selectinload(models.Comprador.boletas).undefer(models.Boleta.numero_especial_2),
+        # modalidad_liquidacion también es `deferred` y la lee la columna ESTADO
+        # (app/estado_socio.py) por cada boleta. Sin este undefer serían ~600
+        # SELECTs extra por request, el mismo problema que ya tuvo numero_especial_2.
+        selectinload(models.Comprador.boletas).undefer(models.Boleta.modalidad_liquidacion),
         selectinload(models.Comprador.boletas).selectinload(models.Boleta.talonera)
     ).order_by(models.Comprador.apellido_nombre).all()
     # Ordenar por PATA (multiplicador) primero, luego por número de boleta
@@ -303,9 +309,15 @@ async def listar(request: Request, db: Session = Depends(get_db),
         for c in compradores
     ))
 
+    # Columna ESTADO: se compara contra el último mes con cobranza cargada, no
+    # contra el mes calendario (ver app/estado_socio.py).
+    estados, estado_ref = estados_por_socio(db, models, compradores)
+
     return templates.TemplateResponse(request, "compradores.html", {
         "user": user,
         "compradores": compradores,
+        "estados": estados,
+        "estado_ref": "%02d/%d" % (estado_ref[1], estado_ref[0]),
         "zonas": zonas,
         "vendedores": vendedores,
         "cobradores": cobradores,
