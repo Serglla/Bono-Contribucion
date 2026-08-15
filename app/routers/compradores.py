@@ -1362,25 +1362,78 @@ async def reasignar_talonera(
             "error": f"El número {nuevo_numero} de {nueva_t.nombre} ya está asignado a: {nombre_other}"
         }, status_code=400)
 
-    # Estado no-libre: SIN_VENDER es el unico estado valido para una boleta destino
-    if b2.condicion and b2.condicion != CondicionBoleta.SIN_VENDER:
+    # Estado no-libre. Decision (Sergio 15/08/2026): el criterio real de "libre"
+    # es NO TENER SOCIO. La condicion sola no alcanza: hay boletas fantasma que
+    # quedaron en VENDIDO/EN_COBRANZA sin comprador_id (cargas viejas, scripts,
+    # bajas mal deshechas) y bloqueaban la reasignacion sin motivo. Solo se
+    # rechaza BAJA (decision explicita de la institucion) o restos de cobranza.
+    if b2.condicion == CondicionBoleta.BAJA:
         return JSONResponse({
             "ok": False,
-            "error": f"El número {nuevo_numero} de {nueva_t.nombre} no está libre "
-                     f"(estado: {b2.condicion.value})"
+            "error": f"El número {nuevo_numero} de {nueva_t.nombre} está dado de BAJA. "
+                     f"Dala de alta antes de reasignar."
+        }, status_code=400)
+
+    _restos = []
+    if b2.planilla_id:
+        _restos.append("está emplanillada")
+    if (b2.cuotas_pagadas or 0) > 0:
+        _restos.append(f"tiene {b2.cuotas_pagadas} cuota(s) pagada(s)")
+    if (b2.total_pagado or 0) > 0:
+        _restos.append("tiene pagos registrados")
+    if b2.numero_especial or b2.numero_especial_2:
+        _restos.append("tiene número CONTADO asignado")
+    if _restos:
+        return JSONResponse({
+            "ok": False,
+            "error": f"El número {nuevo_numero} de {nueva_t.nombre} no está limpio: "
+                     f"{', '.join(_restos)}. Liberá esa boleta antes de reasignar."
         }, status_code=400)
 
     # ── INTERCAMBIO de identidad de talonera/numero entre B1 y B2 ──────────
+    # Se intercambia el bloque "identidad de stock": talonera + numero + numeros
+    # adicionales + vendedor + liquidacion + modalidad. El bloque "socio/cobranza"
+    # (comprador, cuotas, historial, planilla, cobrador, especiales) NO se mueve:
+    # se queda en B1, que es la boleta que conserva su id y sus referencias.
+    # Decision (Sergio 15/08/2026): el vendedor viaja con el NUMERO, porque el
+    # que entrego fisicamente el 8978 es el que corresponde acreditar al socio.
     from .taloneras import calcular_numeros
 
     old_tal_id = b1.talonera_id
     old_num    = b1.numero_principal
     old_adic   = b1.numeros_adicionales
+    old_vend   = b1.vendedor_id
+    old_liq    = b1.liquidacion_vendedor_id
+    old_modal  = b1.modalidad_liquidacion
+    old_cond   = b1.condicion
+
+    # Si la boleta destino NO tiene vendedor (numero fantasma / nunca entregado),
+    # NO se intercambia nada de esto: el socio conserva el vendedor que ya tenia.
+    # Solo se mueve cuando hay un vendedor real del otro lado.
+    _swap_vend = b2.vendedor_id is not None or b2.liquidacion_vendedor_id is not None
+    nuevo_vend = b2.vendedor_id             if _swap_vend else old_vend
+    nuevo_liq  = b2.liquidacion_vendedor_id if _swap_vend else old_liq
+    nuevo_mod  = b2.modalidad_liquidacion   if _swap_vend else old_modal
+    if not _swap_vend:
+        old_vend, old_liq, old_modal = None, None, None
 
     # B2 toma la identidad VIEJA (libre, en el lugar viejo)
-    b2.talonera_id        = old_tal_id
-    b2.numero_principal   = old_num
-    b2.numeros_adicionales = old_adic
+    b2.talonera_id             = old_tal_id
+    b2.numero_principal        = old_num
+    b2.numeros_adicionales     = old_adic
+    b2.vendedor_id             = old_vend
+    b2.liquidacion_vendedor_id = old_liq
+    b2.modalidad_liquidacion   = old_modal
+    # Normaliza el estado del que vuelve al stock: nunca queda VENDIDO sin socio.
+    b2.comprador_id    = None
+    b2.cobrador_id     = None
+    b2.fecha_venta     = None
+    b2.historial_cuotas = None
+    b2.mes_baja        = None
+    b2.cuotas_pagadas  = 0
+    b2.condicion = (
+        CondicionBoleta.CAJA if (old_vend or old_liq) else CondicionBoleta.SIN_VENDER
+    )
 
     # B1 toma la identidad NUEVA y mantiene todos sus datos de socio
     b1.talonera_id      = nueva_talonera_id
@@ -1388,6 +1441,23 @@ async def reasignar_talonera(
     b1.numeros_adicionales = (
         calcular_numeros(nuevo_numero, nueva_t.num_series or 1, nueva_t.offset_series or 0) or None
     )
+    b1.vendedor_id             = nuevo_vend
+    b1.liquidacion_vendedor_id = nuevo_liq
+    b1.modalidad_liquidacion   = nuevo_mod
+    if old_cond in (None, CondicionBoleta.SIN_VENDER):
+        b1.condicion = CondicionBoleta.VENDIDO
+
+    # Aviso si el intercambio cruza PATAs con distinto multiplicador y hay
+    # liquidaciones de por medio: los totales persistidos de esas liquidaciones
+    # se calcularon con el multiplicador viejo.
+    aviso = ""
+    vieja_t = db.query(models.Talonera).get(old_tal_id) if old_tal_id else None
+    if (old_liq or nuevo_liq) and vieja_t and nueva_t and \
+       float(vieja_t.multiplicador or 1) != float(nueva_t.multiplicador or 1):
+        aviso = (f"Ojo: {vieja_t.nombre} y {nueva_t.nombre} tienen distinto multiplicador. "
+                 f"Revisá la liquidación del vendedor por las dudas.")
+
+    _vend_obj = db.query(models.Vendedor).get(nuevo_vend) if nuevo_vend else None
 
     db.commit()
 
@@ -1397,6 +1467,9 @@ async def reasignar_talonera(
         "nuevo_numero": nuevo_numero,
         "talonera_nombre": nueva_t.nombre,
         "numeros_adicionales": b1.numeros_adicionales or "",
+        "vendedor_id": nuevo_vend,
+        "vendedor_nombre": (_vend_obj.nombre if _vend_obj else ""),
+        "aviso": aviso,
     })
 
 

@@ -272,8 +272,16 @@
           const resp = await fetch(url, { method: 'POST', body: fd, credentials: 'include' });
           const data = await resp.json();
           if (data.ok) {
-            status.innerHTML = '<i class="bi bi-check-circle text-success"></i> ¡Listo! Recargando…';
-            setTimeout(() => location.reload(), 500);
+            let extra = '';
+            if (data.vendedor_nombre) {
+              extra = ` Vendedor del número nuevo: <strong>${data.vendedor_nombre}</strong>.`;
+            }
+            status.innerHTML = `<i class="bi bi-check-circle text-success"></i> ¡Listo!${extra} Recargando…`;
+            if (data.aviso) {
+              status.innerHTML += `<div class="text-danger mt-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>${data.aviso}</div>`;
+              alert(data.aviso);
+            }
+            setTimeout(() => location.reload(), data.aviso ? 1500 : 500);
           } else {
             status.innerHTML = `<i class="bi bi-x-circle text-danger"></i> ${data.error || 'No se pudo reasignar.'}`;
             btn.disabled = false;

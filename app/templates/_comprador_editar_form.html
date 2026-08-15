@@ -35,9 +35,18 @@
   .nums-grid .badge { font-size: .78rem; }
   .datos-socio-inline {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    /* El VENDEDOR es dato clave: se le da más ancho que a la fecha para que
+       nunca quede cortado en una sola letra (15/08/2026). */
+    grid-template-columns: minmax(120px, 130px) minmax(150px, 1fr);
     gap: .4rem .5rem;
     align-content: start;
+  }
+  .datos-socio-inline select[name="vendedor_id"] {
+    font-weight: 600;
+    text-overflow: ellipsis;
+  }
+  @media (max-width: 767.98px) {
+    .datos-socio-inline { grid-template-columns: 1fr; }
   }
   @media (max-width: 575.98px) {
     .boleta-head { grid-template-columns: 1fr; }
@@ -181,6 +190,8 @@
           <strong>Reasignar a otra talonera/número.</strong>
           El número viejo (<strong>{{ "%04d" % b.numero_principal }} {{ b.talonera.nombre if b.talonera else "" }}</strong>)
           quedará libre y disponible para otro socio.
+          <br>El <strong>vendedor y la liquidación viajan con el número</strong>: el socio queda con
+          el vendedor que entregó el número nuevo.
         </div>
         <div class="row g-2 align-items-end">
           <div class="col-5">
