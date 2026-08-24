@@ -1,0 +1,138 @@
+[INFO] DATABASE_URL detectada -> postgresql://postgres:***@tramway.proxy.rlwy.net:57548/railway
+Trayendo liquidaciones...
+  70 liquidacion(es). Trayendo boletas liquidadas...
+  862 boleta(s) atada(s) a alguna liquidacion.
+
+==============================================================================
+AUDITORIA DE LIQUIDACIONES
+==============================================================================
+
+[DESFASAJE]  liq #6  10/05/2026 09:00  ARIEL
+    boletas atadas: 13
+    comision_cuotas      guardado:          0.0   real:     540000.0
+
+[DESFASAJE]  liq #7  10/05/2026 09:00  HUGO
+    boletas atadas: 25
+    cuotas_vendidas      guardado:           26   real:           25
+    cuota_1_total        guardado:     525000.0   real:     510000.0  <-- PLATA
+    monto_cuotas         guardado:     525000.0   real:     510000.0
+    comision_cuotas      guardado:          0.0   real:     510000.0
+
+[DESFASAJE]  liq #8  10/05/2026 09:00  PAJARO
+    boletas atadas: 7
+    comision_cuotas      guardado:          0.0   real:     150000.0
+
+[DESFASAJE]  liq #9  10/05/2026 09:00  VICTOR
+    boletas atadas: 7
+    comision_cuotas      guardado:          0.0   real:     105000.0
+
+[DESFASAJE]  liq #10  14/05/2026 23:31  PAJARO
+    boletas atadas: 12  |  tiene cuotas extras cargadas
+    comision_cuotas      guardado:          0.0   real:     195000.0
+
+[DESFASAJE]  liq #11  14/05/2026 23:37  VICTOR
+    boletas atadas: 14
+    comision_cuotas      guardado:          0.0   real:     210000.0
+
+[DESFASAJE]  liq #12  14/05/2026 23:54  ARIEL
+    boletas atadas: 24
+    comision_cuotas      guardado:          0.0   real:     570000.0
+
+[DESFASAJE]  liq #13  14/05/2026 23:56  PAJARO
+    boletas atadas: 1
+    cuotas_vendidas      guardado:            0   real:            1
+    cuotas_equiv         guardado:          0.0   real:          1.0
+    cuota_1_total        guardado:          0.0   real:      15000.0  <-- PLATA
+    monto_cuotas         guardado:          0.0   real:      15000.0
+    comision_cuotas      guardado:          0.0   real:      15000.0
+    contados_vendidos    guardado:            1   real:            0
+    contados_equiv       guardado:          1.0   real:          0.0
+    monto_contados       guardado:     180000.0   real:          0.0  <-- PLATA
+    comision_contados    guardado:      54000.0   real:          0.0  <-- PLATA
+    total_a_rendir       guardado:     126000.0   real:          0.0  <-- PLATA
+
+[DESFASAJE]  liq #14  16/05/2026 13:47  HUGO
+    boletas atadas: 25
+    comision_cuotas      guardado:          0.0   real:     525000.0
+
+[DESFASAJE]  liq #15  21/05/2026 10:20  PAJARO
+    boletas atadas: 1
+    comision_cuotas      guardado:          0.0   real:      10000.0
+
+[DESFASAJE]  liq #16  21/05/2026 17:38  PAJARO
+    boletas atadas: 28  |  tiene cuotas extras cargadas
+    cuotas_vendidas      guardado:           29   real:           28
+    cuota_1_total        guardado:     300000.0   real:     285000.0  <-- PLATA
+    monto_cuotas         guardado:     300000.0   real:     285000.0
+    comision_cuotas      guardado:          0.0   real:     285000.0
+
+[DESFASAJE]  liq #17  21/05/2026 18:14  VICTOR
+    boletas atadas: 19
+    comision_cuotas      guardado:          0.0   real:     200000.0
+
+[DESFASAJE]  liq #18  21/05/2026 20:16  ARIEL
+    boletas atadas: 17
+    comision_cuotas      guardado:          0.0   real:     270000.0
+
+[DESFASAJE]  liq #19  22/05/2026 17:17  PAJARO
+    boletas atadas: 1
+    comision_cuotas      guardado:          0.0   real:      15000.0
+
+[DESFASAJE]  liq #35  13/06/2026 13:24  HUGO
+    boletas atadas: 16
+    cuotas_vendidas      guardado:           17   real:           16
+    cuota_1_total        guardado:     245000.0   real:     235000.0  <-- PLATA
+    monto_cuotas         guardado:     245000.0   real:     235000.0
+    comision_cuotas      guardado:     245000.0   real:     235000.0
+
+[DESFASAJE]  liq #39  18/06/2026 17:24  ARIEL
+    boletas atadas: 8
+    cuotas_vendidas      guardado:            8   real:            7
+    cuota_1_total        guardado:     150000.0   real:     135000.0  <-- PLATA
+    monto_cuotas         guardado:     150000.0   real:     135000.0
+    comision_cuotas      guardado:     150000.0   real:     135000.0
+
+[DESFASAJE]  liq #61  01/08/2026 15:45  ARIEL
+    boletas atadas: 29
+    monto_contados       guardado:     180000.0   real:     165000.0  <-- PLATA
+    comision_contados    guardado:      54000.0   real:      49500.0  <-- PLATA
+    total_a_rendir       guardado:     126000.0   real:     115500.0  <-- PLATA
+
+[FANTASMA]  liq #67  07/08/2026 11:17  VICTOR
+    boletas atadas: 0
+    cuotas_vendidas      guardado:           11   real:            0
+    cuotas_equiv         guardado:          9.0   real:          0.0
+    cuota_1_total        guardado:     135000.0   real:          0.0  <-- PLATA
+    monto_cuotas         guardado:     135000.0   real:          0.0
+    comision_cuotas      guardado:     135000.0   real:          0.0
+
+[FANTASMA]  liq #75  24/08/2026 18:45  PAJARO
+    boletas atadas: 0
+    cuotas_vendidas      guardado:           11   real:            0
+    cuotas_equiv         guardado:        10.67   real:          0.0
+    cuota_1_total        guardado:     110000.0   real:          0.0  <-- PLATA
+    monto_cuotas         guardado:     110000.0   real:          0.0
+    comision_cuotas      guardado:     110000.0   real:          0.0
+    contados_vendidos    guardado:            2   real:            0
+    contados_equiv       guardado:          3.0   real:          0.0
+    monto_contados       guardado:     495000.0   real:          0.0  <-- PLATA
+    comision_contados    guardado:     148500.0   real:          0.0  <-- PLATA
+    total_a_rendir       guardado:     346500.0   real:          0.0  <-- PLATA
+
+------------------------------------------------------------------------------
+[DUPLICADA?] HUGO el 2026-06-06: #29 con boletas, #30 SIN boletas (a rendir: $126.000,00 / $0,00)
+[DUPLICADA?] PAJARO el 2026-06-18: #40 con boletas, #41 SIN boletas (a rendir: $0,00 / $38.250,00)
+[DUPLICADA?] HUGO el 2026-06-27: #43 con boletas, #44 SIN boletas (a rendir: $252.000,00 / $0,00)
+[DUPLICADA?] ARIEL el 2026-07-13: #52 con boletas, #53 SIN boletas (a rendir: $1.260.000,00 / $0,00)
+[DUPLICADA?] HUGO el 2026-07-25: #59 con boletas, #60 SIN boletas (a rendir: $504.000,00 / $0,00)
+[DUPLICADA?] VICTOR el 2026-08-07: #68 con boletas, #67 SIN boletas (a rendir: $0,00 / $0,00)
+[DUPLICADA?] PAJARO el 2026-08-24: #76 con boletas, #75 SIN boletas (a rendir: $346.500,00 / $346.500,00)
+
+==============================================================================
+RESUMEN: 70 liquidaciones | 17 desfasadas | 2 fantasma
+Diferencia acumulada en 'total a rendir': $483.000,00 (de mas en el sistema)
+==============================================================================
+
+Solo lectura: NO se escribio nada.
+Para corregir los totales:      py -3.12 auditar_liquidaciones.py --reparar
+Para ademas borrar las vacias:  py -3.12 auditar_liquidaciones.py --reparar --borrar-fantasmas

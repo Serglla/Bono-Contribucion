@@ -3080,7 +3080,13 @@ function renderDetalleLiq(d) {
     return t;
   }
 
+  // El evento "online" y el boton Sincronizar pueden dispararse casi juntos:
+  // sin este candado salen dos POST con la misma liquidacion.
+  let replayEnCurso = false;
+
   async function replayDraftVD(draft) {
+    if (replayEnCurso) return false;
+    replayEnCurso = true;
     try {
       const fd = new FormData();
       for (const { name, value } of draft.entries) fd.append(name, value);
@@ -3094,22 +3100,45 @@ function renderDetalleLiq(d) {
         localStorage.removeItem(DRAFT_KEY_VD);
         showToastVD("OK - Liquidacion sincronizada.", "#198754");
         setTimeout(() => location.reload(), 1800);
-        return true;
+        return true;   // queda trabado a proposito: la pagina se recarga
       }
     } catch (e) {}
+    replayEnCurso = false;   // solo se libera si NO se llego a guardar
     return false;
   }
 
   const formLiq = document.getElementById("formLiquidar");
   if (formLiq) {
+    // Un envio y nada mas. Dos POST simultaneos del mismo formulario (doble
+    // click, Enter + click) leen las mismas boletas antes de que el primero
+    // guarde: los dos crean liquidacion, las boletas quedan atadas a una sola
+    // y la otra queda con los numeros colgados. En el historial se ve el doble
+    // de boletas y de plata que en el detalle.
+    let enviandoLiq = false;
     formLiq.addEventListener("submit", async function(e) {
+      if (enviandoLiq) { e.preventDefault(); return; }
       if (!navigator.onLine) {
         e.preventDefault();
         saveDraftVD(this);
         const modal = document.getElementById("modalLiquidar");
         if (modal) bootstrap.Modal.getInstance(modal) && bootstrap.Modal.getInstance(modal).hide();
         showToastVD("Sin conexion - liquidacion guardada localmente. Se enviara al reconectarse.");
+        return;
       }
+      enviandoLiq = true;
+      const btn = document.getElementById("btnConfirmar");
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Guardando…';
+      }
+      // Red de seguridad: si el POST falla y la pagina no navega, se vuelve a habilitar.
+      setTimeout(() => {
+        enviandoLiq = false;
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-check-circle me-1"></i>Confirmar liquidación';
+        }
+      }, 15000);
     });
   }
 
