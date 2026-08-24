@@ -2432,6 +2432,47 @@ function descartarAvisoSocio(boletaId) {
   renderDetalleLiq(dlDetalleData);
 }
 
+// ── Corregir la FECHA de la liquidación ────────────────────────────────
+// De la fecha salen las cuotas que vale cada boleta (ago → 11, sep → 10,
+// oct → 9), el monto al contado y la fecha con la que el modal de Nuevo Socio
+// prellena el alta. Si el vendedor rindió el 28 y la liquidación se cargó el 2
+// del mes siguiente, corregirla acá arregla toda la cadena de una.
+async function guardarFechaLiq() {
+  if (!dlCurrentLiqId) return;
+  const inp = document.getElementById('dl-fecha-input');
+  if (!inp || !inp.value) return;
+  const re  = document.getElementById('dl-fecha-reestampar');
+  const fd  = new FormData();
+  fd.append('fecha', inp.value);
+  if (re && re.checked) fd.append('re_estampar_cargadas', '1');
+  inp.disabled = true;
+  try {
+    const r = await fetch(`/vendedores/liquidaciones/${dlCurrentLiqId}/cambiar-fecha`,
+                          { method:'POST', body:fd, credentials:'include' });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) {
+      dlDirty = true;
+      if (data.sin_cambios) {
+        refetchDetalleLiq({ t:'success', m:'La liquidación ya tenía esa fecha.' });
+        return;
+      }
+      let m = `Fecha cambiada de ${data.anterior} a ${data.fecha}.`;
+      if (data.boletas_tocadas) m += ` Se recalcularon las cuotas de ${data.boletas_tocadas} boleta/s.`;
+      if (data.boletas_pendientes) {
+        m += ` Quedaron ${data.boletas_pendientes} boleta/s con socio cargado sin tocar` +
+             ` (tildá la casilla y guardá de nuevo si también las querés corregir).`;
+      }
+      refetchDetalleLiq({ t: data.boletas_pendientes ? 'warning' : 'success', m });
+    } else {
+      inp.disabled = false;
+      refetchDetalleLiq({ t:'danger', m: data.error || 'No se pudo cambiar la fecha.' });
+    }
+  } catch (e) {
+    inp.disabled = false;
+    refetchDetalleLiq({ t:'danger', m:'Error de red.' });
+  }
+}
+
 function renderDetalleLiq(d) {
   const body = document.getElementById('dl-body');
   const fechaLbl = document.getElementById('dl-fecha');
@@ -2468,10 +2509,41 @@ function renderDetalleLiq(d) {
   if (dlEditMode) {
     html += `<div class="alert alert-primary py-2 small mb-3" style="border-left:3px solid #0d6efd;">
       <i class="bi bi-pencil-square me-1"></i><strong>Modo edición.</strong>
+      Cambiá la fecha de la liquidación acá abajo si el vendedor rindió otro día.
       Corregí la modalidad de cualquier número con el selector
       <span class="badge bg-light text-dark border">Cuo / Co / Co2</span> (funciona aunque ya tenga socio).
       Sacá un número con la <i class="bi bi-x-circle-fill text-danger"></i> (solo los que todavía no tienen socio)
       o agregá abajo un número olvidado. Tocá «Listo» al terminar.</div>`;
+  }
+
+  // ── Fecha de la liquidación (editable) ──
+  // Va primero porque es lo que arrastra todo lo demás: cuotas de cada boleta,
+  // monto al contado y el prellenado del alta del socio.
+  if (dlEditMode && dlCurrentLiqId) {
+    html += `<div class="card border-primary-subtle border mb-3">
+      <div class="card-body py-2">
+        <div class="small fw-semibold text-primary mb-2">
+          <i class="bi bi-calendar-event me-1"></i>Fecha de la liquidación
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <input type="date" id="dl-fecha-input" class="form-control form-control-sm"
+                 style="width:auto;" value="${d.fecha_iso || ''}">
+          <button type="button" class="btn btn-primary btn-sm py-0 px-2" style="font-size:.75rem;"
+                  onclick="guardarFechaLiq()">
+            <i class="bi bi-check2 me-1"></i>Guardar fecha</button>
+          <div class="form-check mb-0 ms-1">
+            <input class="form-check-input" type="checkbox" id="dl-fecha-reestampar">
+            <label class="form-check-label small text-muted" for="dl-fecha-reestampar"
+                   title="Les mueve la fecha de venta y recalcula las cuotas pactadas. Nunca baja por debajo de lo ya cobrado.">
+              corregir también las boletas que ya tienen socio</label>
+          </div>
+        </div>
+        <div class="text-muted mt-1" style="font-size:.72rem;">
+          De esta fecha salen las cuotas que vale cada boleta (agosto 11, septiembre 10, octubre 9…),
+          el monto al contado y la fecha con la que se prellena el alta del socio.
+        </div>
+      </div>
+    </div>`;
   }
 
   // Avisos: la modalidad se corrigió pero las cuotas del socio quedaron al revés.

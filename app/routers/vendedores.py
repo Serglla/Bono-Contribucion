@@ -355,6 +355,8 @@ async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depen
         "vendedor_id": liq_vid,
         "disponibles": disponibles,
         "fecha": liq.fecha.strftime("%d/%m/%Y %H:%M") if liq.fecha else "",
+        # ISO para el <input type="date"> del modo edición
+        "fecha_iso": liq.fecha.strftime("%Y-%m-%d") if liq.fecha else "",
         "cuotas_vendidas":         int(liq.cuotas_vendidas or 0),
         "cuotas_equiv":            _cuotas_equiv,
         "contados_vendidos":       int(liq.contados_vendidos or 0),
@@ -2194,8 +2196,11 @@ def modalidad_de_boleta(b):
     return "cuotas"
 
 
-def _monto_contado_boleta(b, liq):
+def _monto_contado_boleta(b, liq, fecha=None):
     """Cuánto vale al contado la boleta `b` DENTRO de la liquidación `liq`.
+
+    `fecha` permite simular otra fecha sin tocar `liq` (lo usa cambiar-fecha
+    para calcular la diferencia entre la fecha vieja y la nueva).
 
     Usa `cuotas_vigentes` a la FECHA DE LA LIQUIDACIÓN, igual que `liquidar`
     (ver app/cuotas.py: las últimas cuotas se regalan, así que un contado de
@@ -2207,7 +2212,8 @@ def _monto_contado_boleta(b, liq):
         return 0.0
     valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
     num_cuotas  = (b.talonera.num_cuotas if b.talonera else None)
-    fecha       = liq.fecha if liq is not None else None
+    if fecha is None:
+        fecha = liq.fecha if liq is not None else None
     return cuotas_vigentes(num_cuotas, fecha) * valor_cuota
 
 
@@ -2450,6 +2456,119 @@ async def liquidacion_cambiar_modalidad(liq_id: int, request: Request, db: Sessi
         "anterior": anterior, "modalidad": nueva,
         "total_a_rendir": float(getattr(liq, "total_a_rendir", 0) or 0),
         "socio": _info_socio(b, nueva),
+    })
+
+
+@router.post("/liquidaciones/{liq_id}/cambiar-fecha", response_class=JSONResponse)
+async def liquidacion_cambiar_fecha(liq_id: int, request: Request, db: Session = Depends(get_db)):
+    """Corrige la FECHA de una liquidación ya registrada.
+
+    La fecha no es un dato decorativo: define **cuántas cuotas vale la boleta**
+    (ver app/cuotas.py — las últimas van de regalo: ago-2026 → 11, sep → 10,
+    oct → 9). De ella salen:
+      · el monto al contado de la liquidación (cuotas vigentes × valor de cuota),
+      · el `cuotas_pactadas` que se estampa en cada boleta,
+      · la fecha con la que el modal de Nuevo Socio prellena el alta.
+
+    Si el vendedor rindió el 28 y la liquidación se cargó el 2 del mes siguiente,
+    todo eso queda corrido un mes. Acá se corrige de raíz.
+
+    Qué recalcula:
+      · `monto_contados` por la diferencia real entre la fecha vieja y la nueva
+        (delta por boleta contado, no un recálculo total: así no se pierde ningún
+        ajuste manual previo), y de ahí `comision_contados` y `total_a_rendir`.
+      · `cuotas_pactadas` de las boletas **sin socio cargado**.
+
+    Las boletas que YA tienen socio no se tocan por defecto: su `fecha_venta` la
+    fijó el operador en el alta y manda sobre la de la liquidación. Con
+    `re_estampar_cargadas=1` se las actualiza también (nunca por debajo de las
+    cuotas ya cobradas) y se les mueve la `fecha_venta` a la fecha nueva.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+    liq = db.query(models.LiquidacionVendedor).get(liq_id)
+    if not liq:
+        raise HTTPException(404, "Liquidacion no encontrada")
+
+    form = await request.form()
+    _raw = (form.get("fecha") or "").strip()
+    try:
+        nueva_d = date.fromisoformat(_raw[:10])
+    except (ValueError, TypeError):
+        return JSONResponse({"ok": False, "error": "Fecha inválida."}, status_code=400)
+
+    re_estampar = str(form.get("re_estampar_cargadas") or "").strip() in ("1", "true", "on", "si")
+
+    vieja = liq.fecha
+    vieja_d = vieja.date() if isinstance(vieja, datetime) else vieja
+    if vieja_d == nueva_d:
+        return JSONResponse({
+            "ok": True, "sin_cambios": True,
+            "fecha": nueva_d.strftime("%d/%m/%Y"), "fecha_iso": nueva_d.isoformat(),
+        })
+
+    # Se conserva la hora original: varias liquidaciones del mismo día a un mismo
+    # vendedor se ordenan por hora y no queremos alterar ese orden.
+    hora = vieja.time() if isinstance(vieja, datetime) else ahora_ar().time()
+    nueva_f = datetime.combine(nueva_d, hora)
+
+    boletas = db.query(models.Boleta).filter_by(liquidacion_vendedor_id=liq_id).all()
+
+    # ── Monto al contado: delta por boleta entre fecha vieja y nueva ──────
+    delta = 0.0
+    for b in boletas:
+        if modalidad_de_boleta(b) in ("contado", "contado2"):
+            delta += (_monto_contado_boleta(b, liq, nueva_f)
+                      - _monto_contado_boleta(b, liq, vieja))
+    if delta:
+        liq.monto_contados = max(0.0, round(float(liq.monto_contados or 0) + delta, 2))
+        pct = float(liq.comision_contados_pct or 0) or 30.0
+        liq.comision_contados = round(float(liq.monto_contados or 0) * pct / 100, 2)
+
+    liq.fecha = nueva_f
+    _recalc_liq_totales(liq)
+
+    # ── Re-estampar cuotas_pactadas en las boletas ───────────────────────
+    tocadas, con_socio, pendientes = 0, 0, 0
+    for b in boletas:
+        nominal = b.talonera.num_cuotas if b.talonera else None
+        nueva_pact = cuotas_vigentes(nominal, nueva_f)
+        if b.comprador_id is None:
+            if int(b.cuotas_pactadas or 0) != nueva_pact:
+                b.cuotas_pactadas = nueva_pact
+                tocadas += 1
+            continue
+        con_socio += 1
+        if not re_estampar:
+            if int(b.cuotas_pactadas or 0) != nueva_pact:
+                pendientes += 1
+            continue
+        # Nunca por debajo de lo ya cobrado: si el socio pagó 5, no se pactan 4.
+        pagadas   = int(b.cuotas_pagadas or 0)
+        era_paga  = pagadas >= int(b.cuotas_pactadas or 0) > 0
+        objetivo  = max(nueva_pact, pagadas, 1)
+        if int(b.cuotas_pactadas or 0) != objetivo:
+            b.cuotas_pactadas = objetivo
+            tocadas += 1
+        if era_paga:
+            # Contado / boleta cerrada: se mantiene toda paga con el nuevo total.
+            b.cuotas_anticipadas = objetivo
+            b.cuotas_pagadas     = objetivo
+        b.fecha_venta = nueva_d
+
+    db.commit()
+
+    return JSONResponse({
+        "ok": True, "sin_cambios": False,
+        "fecha": nueva_d.strftime("%d/%m/%Y"),
+        "fecha_iso": nueva_d.isoformat(),
+        "anterior": vieja_d.strftime("%d/%m/%Y") if vieja_d else "",
+        "boletas_tocadas": tocadas,
+        "boletas_con_socio": con_socio,
+        "boletas_pendientes": pendientes,
+        "monto_contados": float(liq.monto_contados or 0),
+        "total_a_rendir": float(getattr(liq, "total_a_rendir", 0) or 0),
     })
 
 
