@@ -2103,6 +2103,7 @@ async function verDetalleLiq(liqId) {
   dlDetalleData  = null;
   dlEditMode     = false;
   dlPendingMsg   = null;
+  dlAvisosSocio  = [];
   setEditLiqBtn();
   const body = document.getElementById('dl-body');
   const fechaLbl = document.getElementById('dl-fecha');
@@ -2194,6 +2195,7 @@ async function verDetalleDiaCombinado(ids) {
   dlDetalleData  = null;
   dlEditMode     = false;
   dlPendingMsg   = null;
+  dlAvisosSocio  = [];
   _dlSetControls(false);
   const body = document.getElementById('dl-body');
   const fechaLbl = document.getElementById('dl-fecha');
@@ -2360,6 +2362,76 @@ async function agregarBoletaLiq() {
   }
 }
 
+// ── Corregir la modalidad de un número YA liquidado ────────────────────
+// Es el error más común al liquidar: un número se marca contado cuando en
+// realidad va en cuotas (o al revés). Antes la única salida era sacarlo y
+// volver a agregarlo, imposible si ya tenía socio cargado — justo cuando el
+// error se descubre. Ahora se corrige en el lugar y el back recalcula la plata.
+const MOD_NOMBRE = { cuotas: 'EN CUOTAS', contado: 'CONTADO', contado2: 'CONTADO 2 VECES' };
+
+// Avisos pendientes: modalidad corregida cuyas cuotas del socio quedaron
+// contradictorias. El ajuste de cobranza NO es automático: lo decide el operador.
+let dlAvisosSocio = [];
+
+async function cambiarModalidadLiq(boletaId, sel) {
+  if (!dlCurrentLiqId) return;
+  const nueva = sel.value;
+  sel.disabled = true;
+  const fd = new FormData();
+  fd.append('boleta_id', boletaId);
+  fd.append('modalidad', nueva);
+  try {
+    const r = await fetch(`/vendedores/liquidaciones/${dlCurrentLiqId}/cambiar-modalidad`,
+                          { method:'POST', body:fd, credentials:'include' });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) {
+      dlDirty = true;
+      const s = data.socio;
+      dlAvisosSocio = dlAvisosSocio.filter(x => x.boleta_id !== boletaId);
+      if (s && s.sugerencia) {
+        s.modalidad = data.modalidad;
+        dlAvisosSocio.push(s);
+      }
+      const nom = MOD_NOMBRE[data.modalidad] || data.modalidad;
+      refetchDetalleLiq(data.sin_cambios
+        ? { t:'success', m:`El número ya figuraba como ${nom}.` }
+        : { t:'success', m:`Número pasado a ${nom}. Se recalculó el total a rendir.` });
+    } else {
+      sel.disabled = false;
+      refetchDetalleLiq({ t:'danger', m: data.error || 'No se pudo cambiar la modalidad.' });
+    }
+  } catch (e) {
+    sel.disabled = false;
+    refetchDetalleLiq({ t:'danger', m:'Error de red.' });
+  }
+}
+
+async function ajustarCuotasSocio(boletaId) {
+  if (!dlCurrentLiqId) return;
+  const fd = new FormData();
+  fd.append('boleta_id', boletaId);
+  try {
+    const r = await fetch(`/vendedores/liquidaciones/${dlCurrentLiqId}/ajustar-cuotas-socio`,
+                          { method:'POST', body:fd, credentials:'include' });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) {
+      dlDirty = true;
+      dlAvisosSocio = dlAvisosSocio.filter(x => x.boleta_id !== boletaId);
+      refetchDetalleLiq({ t:'success',
+        m:`Cuotas del socio ajustadas: ${data.cuotas_pagadas}/${data.cuotas_pactadas} cobradas.` });
+    } else {
+      refetchDetalleLiq({ t:'danger', m: data.error || 'No se pudieron ajustar las cuotas del socio.' });
+    }
+  } catch (e) {
+    refetchDetalleLiq({ t:'danger', m:'Error de red.' });
+  }
+}
+
+function descartarAvisoSocio(boletaId) {
+  dlAvisosSocio = dlAvisosSocio.filter(x => x.boleta_id !== boletaId);
+  renderDetalleLiq(dlDetalleData);
+}
+
 function renderDetalleLiq(d) {
   const body = document.getElementById('dl-body');
   const fechaLbl = document.getElementById('dl-fecha');
@@ -2396,9 +2468,36 @@ function renderDetalleLiq(d) {
   if (dlEditMode) {
     html += `<div class="alert alert-primary py-2 small mb-3" style="border-left:3px solid #0d6efd;">
       <i class="bi bi-pencil-square me-1"></i><strong>Modo edición.</strong>
+      Corregí la modalidad de cualquier número con el selector
+      <span class="badge bg-light text-dark border">Cuo / Co / Co2</span> (funciona aunque ya tenga socio).
       Sacá un número con la <i class="bi bi-x-circle-fill text-danger"></i> (solo los que todavía no tienen socio)
       o agregá abajo un número olvidado. Tocá «Listo» al terminar.</div>`;
   }
+
+  // Avisos: la modalidad se corrigió pero las cuotas del socio quedaron al revés.
+  // La liquidación es plata del vendedor; las cuotas del socio son plata de la
+  // cobranza. Se ofrecen por separado, número por número.
+  dlAvisosSocio.forEach(av => {
+    const bo  = (d.boletas || []).find(x => x.id === av.boleta_id);
+    const num = bo ? bo.num_str : ('#' + av.boleta_id);
+    const aContado = (av.sugerencia === 'contado');
+    html += `<div class="alert alert-warning py-2 px-3 small mb-2" style="border-left:3px solid #ffc107;">
+      <div class="mb-1">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+        El <strong>${escapeHtml(num)}</strong> quedó como <strong>${MOD_NOMBRE[av.modalidad] || av.modalidad}</strong>,
+        pero el socio ${escapeHtml(av.comprador || '')} figura con
+        <strong>${av.cuotas_anticipadas}/${av.cuotas_pactadas}</strong> cuotas cobradas.
+      </div>
+      <div class="text-muted mb-2">${aContado
+        ? 'Ajustar lo deja como pago total (queda fuera de cobranza).'
+        : 'Ajustar lo vuelve a 1 cuota cobrada y lo manda a cobranza con el cobrador de la zona.'}</div>
+      <button type="button" class="btn btn-warning btn-sm py-0 px-2" style="font-size:.72rem;"
+              onclick="ajustarCuotasSocio(${av.boleta_id})">
+        <i class="bi bi-check2 me-1"></i>Ajustar cuotas del socio</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 ms-1" style="font-size:.72rem;"
+              onclick="descartarAvisoSocio(${av.boleta_id})">Dejar así</button>
+    </div>`;
+  });
 
   // ── Resumen ──
   html += `
@@ -2478,13 +2577,31 @@ function renderDetalleLiq(d) {
       const ponderado = g.boletas.reduce((acc, b) => acc + (parseFloat(b.multiplicador) || 1), 0);
       let badges = '';
       g.boletas.forEach(b => {
-        const opaco = (b.condicion === 'VENDIDO') ? 'opacity:.55;' : '';
-        const tipBase = `${escapeHtml(b.condicion || '')}${b.comprador ? ' · ' + escapeHtml(b.comprador) : ''}`;
+        const opaco  = (b.condicion === 'VENDIDO') ? 'opacity:.55;' : '';
+        const mod    = b.modalidad || 'cuotas';
+        const esCont = (mod !== 'cuotas');
+        // Color por modalidad, igual que el modal Liquidar: azul = en cuotas,
+        // ámbar = contado. Así el error salta a la vista sin abrir nada.
+        const badgeCls = esCont ? 'bg-warning text-dark' : 'bg-primary';
+        const tipBase = `${escapeHtml(b.condicion || '')} · ${MOD_NOMBRE[mod] || mod}` +
+                        `${b.comprador ? ' · ' + escapeHtml(b.comprador) : ''}`;
         // Control de edición: × para sacar (si no tiene socio) o candado (si ya tiene socio).
-        let ctrl = '';
+        // El selector de modalidad va SIEMPRE en modo edición: es lo único que se
+        // puede corregir cuando la boleta ya tiene socio cargado.
+        let ctrl = '', modSel = '';
         if (dlEditMode) {
+          modSel = `<select class="form-select form-select-sm dl-mod-sel"
+                            style="width:auto;font-size:.66rem;padding:.05rem .85rem .05rem .25rem;height:auto;
+                                   min-width:0;border:0;border-left:1px solid #00000022;border-radius:0;
+                                   background-color:transparent;background-position:right .08rem center;background-size:9px 7px;"
+                            title="Modalidad con la que se liquidó este número — cambiala si se liquidó mal"
+                            onchange="cambiarModalidadLiq(${b.id}, this)">
+            <option value="cuotas"${mod === 'cuotas' ? ' selected' : ''}>Cuo</option>
+            <option value="contado"${mod === 'contado' ? ' selected' : ''}>Co</option>
+            <option value="contado2"${mod === 'contado2' ? ' selected' : ''}>Co2</option>
+          </select>`;
           if (b.comprador) {
-            ctrl = `<span class="px-1 text-muted" title="Ya cargado con socio (${escapeHtml(b.comprador)}): no se puede sacar">
+            ctrl = `<span class="px-1 text-muted" title="Ya cargado con socio (${escapeHtml(b.comprador)}): no se puede sacar, pero sí corregir la modalidad">
                       <i class="bi bi-lock-fill" style="font-size:.65rem;"></i></span>`;
           } else {
             ctrl = `<button type="button" class="btn btn-sm btn-link text-danger p-0 px-1"
@@ -2498,20 +2615,20 @@ function renderDetalleLiq(d) {
           badges += `<span class="d-inline-flex align-items-center me-1 mb-1"
                           style="font-size:.78rem;border:1px solid #0d6efd55;border-radius:.25rem;overflow:hidden;${opaco}"
                           title="${tipReas}">
-            <span class="badge bg-primary rounded-0" style="font-size:.78rem;">${escapeHtml(b.num_str)}</span>
+            <span class="badge ${badgeCls} rounded-0" style="font-size:.78rem;">${escapeHtml(b.num_str)}</span>
             <span class="px-2 py-1 text-primary fw-semibold" style="background:#0d6efd15;">
               <i class="bi bi-arrow-right" style="font-size:.7rem;"></i>
               ${escapeHtml(b.reasignado_a_nombre)}
-            </span>${ctrl}
+            </span>${modSel}${ctrl}
           </span>`;
         } else if (dlEditMode) {
           badges += `<span class="d-inline-flex align-items-center me-1 mb-1"
-                          style="font-size:.78rem;border:1px solid #0d6efd44;border-radius:.25rem;${opaco}"
+                          style="font-size:.78rem;border:1px solid #0d6efd44;border-radius:.25rem;overflow:hidden;${opaco}"
                           title="${tipBase}">
-            <span class="badge bg-primary" style="font-size:.78rem;border-radius:.25rem 0 0 .25rem;">${escapeHtml(b.num_str)}</span>${ctrl}
+            <span class="badge ${badgeCls}" style="font-size:.78rem;border-radius:.25rem 0 0 .25rem;">${escapeHtml(b.num_str)}</span>${modSel}${ctrl}
           </span>`;
         } else {
-          badges += `<span class="badge bg-primary me-1 mb-1" style="font-size:.78rem;${opaco}"
+          badges += `<span class="badge ${badgeCls} me-1 mb-1" style="font-size:.78rem;${opaco}"
                           title="${tipBase}">${escapeHtml(b.num_str)}</span>`;
         }
       });

@@ -286,6 +286,11 @@ async def liquidacion_detalle(liq_id: int, request: Request, db: Session = Depen
             "multiplicador": float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0),
             "reasignado_a_id":     reasignado_a_id,
             "reasignado_a_nombre": reasignado_a_nombre,
+            # Modalidad con la que entró a la liquidación (corregible en el modal)
+            "modalidad":           modalidad_de_boleta(b),
+            "cuotas_pactadas":     int(b.cuotas_pactadas or 0),
+            "cuotas_anticipadas":  int(b.cuotas_anticipadas or 0),
+            "cuotas_pagadas":      int(b.cuotas_pagadas or 0),
         })
     boletas_out.sort(key=lambda x: (x["pata"], x["num"]))
 
@@ -2168,30 +2173,96 @@ def _recalc_liq_totales(liq):
     )
 
 
-def _quitar_boleta_de_liq(liq, b):
-    """Descuenta de la liquidación TODO lo que aportaba la boleta `b` (snapshots
-    ponderados cuotas_equiv/contados_equiv + montos + comisiones) y recalcula los
-    totales. Se usa cuando una boleta SALE de la liquidación, ya sea por "sacar
-    número" (quitar-boleta) o por "liberar boleta" (desde Socios). Mantener esto
-    en un solo lugar evita el "drift" de los snapshots (que el dashboard usa para
-    el Total liquidados). Espeja la suma que hace agregar-boleta.
+MODALIDADES_LIQ = ("cuotas", "contado", "contado2")
 
-    Clasifica contado/cuotas por `modalidad_liquidacion`; para boletas viejas sin
-    modalidad (NULL) infiere CONTADO si tienen numero_especial asignado.
+
+def modalidad_de_boleta(b):
+    """Modalidad con la que la boleta `b` entró a su liquidación.
+
+    Las boletas anteriores al campo `modalidad_liquidacion` lo tienen en NULL:
+    ahí se infiere CONTADO si ya tienen número especial asignado (el único
+    rastro que dejaba el sistema viejo). Una sola fuente de verdad para todos
+    los cálculos de la liquidación.
+    """
+    if b is None:
+        return "cuotas"
+    m = (b.modalidad_liquidacion or "").strip().lower()
+    if m in MODALIDADES_LIQ:
+        return m
+    if (b.numero_especial is not None) or (b.numero_especial_2 is not None):
+        return "contado"
+    return "cuotas"
+
+
+def _monto_contado_boleta(b, liq):
+    """Cuánto vale al contado la boleta `b` DENTRO de la liquidación `liq`.
+
+    Usa `cuotas_vigentes` a la FECHA DE LA LIQUIDACIÓN, igual que `liquidar`
+    (ver app/cuotas.py: las últimas cuotas se regalan, así que un contado de
+    agosto vale 11 cuotas y uno de octubre 9). Antes acá se usaba el nominal de
+    la talonera (12) y cada número agregado o sacado después descuadraba la
+    liquidación en una cuota contra lo que había calculado el liquidar original.
+    """
+    if b is None:
+        return 0.0
+    valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
+    num_cuotas  = (b.talonera.num_cuotas if b.talonera else None)
+    fecha       = liq.fecha if liq is not None else None
+    return cuotas_vigentes(num_cuotas, fecha) * valor_cuota
+
+
+def _aporte_boleta(liq, b, modalidad):
+    """(mult, valor_cuota, monto_contado, comision_contado, pct) de una boleta."""
+    mult        = float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
+    valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
+    pct         = float(liq.comision_contados_pct or 0) or 30.0
+    monto       = _monto_contado_boleta(b, liq) if modalidad in ("contado", "contado2") else 0.0
+    com         = round(monto * pct / 100, 2)
+    return mult, valor_cuota, monto, com, pct
+
+
+def _sumar_boleta_a_liq(liq, b, modalidad):
+    """Suma a la liquidación lo que aporta `b` con `modalidad`. Espejo exacto
+    de `_restar_boleta_de_liq`: si cambian los números, cambian en los dos."""
+    if liq is None or b is None:
+        return
+    if modalidad not in MODALIDADES_LIQ:
+        modalidad = "cuotas"
+    mult, valor_cuota, monto, com, pct = _aporte_boleta(liq, b, modalidad)
+    if modalidad in ("contado", "contado2"):
+        liq.contados_vendidos = int(liq.contados_vendidos or 0) + 1
+        liq.contados_equiv    = float(liq.contados_equiv or 0) + mult
+        liq.monto_contados    = round(float(liq.monto_contados or 0) + monto, 2)
+        liq.comision_contados = round(float(liq.comision_contados or 0) + com, 2)
+        if not liq.comision_contados_pct:
+            liq.comision_contados_pct = pct
+    else:
+        liq.cuotas_vendidas = int(liq.cuotas_vendidas or 0) + 1
+        liq.cuotas_equiv    = float(liq.cuotas_equiv or 0) + mult
+        liq.cuota_1_total   = round(float(liq.cuota_1_total or 0) + valor_cuota, 2)
+        liq.monto_cuotas    = round(float(liq.monto_cuotas or 0) + valor_cuota, 2)
+        liq.comision_cuotas = round(float(liq.comision_cuotas or 0) + valor_cuota, 2)
+    _recalc_liq_totales(liq)
+
+
+def _restar_boleta_de_liq(liq, b, modalidad=None):
+    """Descuenta de la liquidación TODO lo que aportaba `b` (snapshots ponderados
+    cuotas_equiv/contados_equiv + montos + comisiones) y recalcula los totales.
+
+    Se usa cuando una boleta SALE de la liquidación ("sacar número", "liberar
+    boleta" desde Socios) y también como primer paso al CORREGIR la modalidad.
+    Mantenerlo en un solo lugar evita el "drift" de los snapshots (el dashboard
+    usa esos snapshots para el Total liquidados).
+
+    `modalidad` permite forzar con cuál se había sumado; por defecto la deduce
+    de la boleta con `modalidad_de_boleta`.
     """
     if liq is None or b is None:
         return
-    m = (b.modalidad_liquidacion or "").strip().lower()
-    es_contado = m in ("contado", "contado2") or (
-        m == "" and ((b.numero_especial is not None) or (b.numero_especial_2 is not None))
-    )
-    mult        = float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
-    valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
-    if es_contado:
-        num_cuotas = int((b.talonera.num_cuotas or 12) if b.talonera else 12)
-        pct        = float(liq.comision_contados_pct or 0) or 30.0
-        monto      = num_cuotas * valor_cuota
-        com        = round(monto * pct / 100, 2)
+    if modalidad not in MODALIDADES_LIQ:
+        modalidad = modalidad_de_boleta(b)
+    mult, valor_cuota, monto, com, _pct = _aporte_boleta(liq, b, modalidad)
+    if modalidad in ("contado", "contado2"):
         liq.contados_vendidos = max(0, int(liq.contados_vendidos or 0) - 1)
         liq.contados_equiv    = max(0.0, float(liq.contados_equiv or 0) - mult)
         liq.monto_contados    = max(0.0, round(float(liq.monto_contados or 0) - monto, 2))
@@ -2203,6 +2274,11 @@ def _quitar_boleta_de_liq(liq, b):
         liq.monto_cuotas    = max(0.0, round(float(liq.monto_cuotas or 0) - valor_cuota, 2))
         liq.comision_cuotas = max(0.0, round(float(liq.comision_cuotas or 0) - valor_cuota, 2))
     _recalc_liq_totales(liq)
+
+
+# Alias histórico: `compradores.py` (liberar boleta) lo importa con este nombre.
+def _quitar_boleta_de_liq(liq, b):
+    _restar_boleta_de_liq(liq, b)
 
 
 @router.post("/liquidaciones/{liq_id}/agregar-boleta", response_class=JSONResponse)
@@ -2235,25 +2311,7 @@ async def liquidacion_agregar_boleta(liq_id: int, request: Request, db: Session 
     if b.condicion != CondicionBoleta.CAJA or b.liquidacion_vendedor_id is not None:
         return JSONResponse({"ok": False, "error": "El número no está en caja sin liquidar."}, status_code=400)
 
-    mult        = float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
-    valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
-    if modalidad in ("contado", "contado2"):
-        num_cuotas = int((b.talonera.num_cuotas or 12) if b.talonera else 12)
-        pct        = float(liq.comision_contados_pct or 0) or 30.0
-        monto      = num_cuotas * valor_cuota
-        com        = round(monto * pct / 100, 2)
-        liq.contados_vendidos = int(liq.contados_vendidos or 0) + 1
-        liq.contados_equiv    = float(liq.contados_equiv or 0) + mult
-        liq.monto_contados    = round(float(liq.monto_contados or 0) + monto, 2)
-        liq.comision_contados = round(float(liq.comision_contados or 0) + com, 2)
-        if not liq.comision_contados_pct:
-            liq.comision_contados_pct = pct
-    else:
-        liq.cuotas_vendidas = int(liq.cuotas_vendidas or 0) + 1
-        liq.cuotas_equiv    = float(liq.cuotas_equiv or 0) + mult
-        liq.cuota_1_total   = round(float(liq.cuota_1_total or 0) + valor_cuota, 2)
-        liq.monto_cuotas    = round(float(liq.monto_cuotas or 0) + valor_cuota, 2)
-        liq.comision_cuotas = round(float(liq.comision_cuotas or 0) + valor_cuota, 2)
+    _sumar_boleta_a_liq(liq, b, modalidad)
 
     b.liquidacion_vendedor_id = liq.id
     b.condicion = CondicionBoleta.VENDIDO
@@ -2289,13 +2347,181 @@ async def liquidacion_quitar_boleta(liq_id: int, request: Request, db: Session =
 
     # Descontar de la liquidación lo que aportaba esta boleta (snapshots + montos).
     # Mismo helper que usa "liberar boleta", así no hay drift de cuotas_equiv.
-    _quitar_boleta_de_liq(liq, b)
+    _restar_boleta_de_liq(liq, b)
 
     b.liquidacion_vendedor_id = None
     b.condicion = CondicionBoleta.CAJA
     b.modalidad_liquidacion = None
     db.commit()
     return JSONResponse({"ok": True})
+
+
+def _sugerencia_socio(b, modalidad):
+    """¿Las cuotas del socio contradicen la modalidad de liquidación?
+
+    Devuelve 'contado' / 'cuotas' si hay que ofrecer el ajuste, o None si la
+    boleta ya es coherente (o todavía no tiene socio cargado).
+
+    La liquidación es plata del VENDEDOR; las cuotas del socio son plata de la
+    COBRANZA. Corregir una no corrige la otra, así que el ajuste se ofrece
+    aparte y lo decide el operador número por número.
+    """
+    if b is None or b.comprador_id is None:
+        return None
+    pactadas = int(b.cuotas_pactadas or 0)
+    ant      = int(b.cuotas_anticipadas or 0)
+    if pactadas <= 0:
+        return None
+    toda_paga = ant >= pactadas
+    if modalidad in ("contado", "contado2") and not toda_paga:
+        return "contado"
+    if modalidad == "cuotas" and toda_paga:
+        return "cuotas"
+    return None
+
+
+def _info_socio(b, modalidad):
+    """Bloque JSON con el estado del socio de `b` (para el aviso del modal)."""
+    if b is None or b.comprador_id is None:
+        return None
+    return {
+        "boleta_id":          b.id,
+        "comprador":          b.comprador.apellido_nombre if b.comprador else "",
+        "cuotas_pactadas":    int(b.cuotas_pactadas or 0),
+        "cuotas_anticipadas": int(b.cuotas_anticipadas or 0),
+        "cuotas_pagadas":     int(b.cuotas_pagadas or 0),
+        "sugerencia":         _sugerencia_socio(b, modalidad),
+    }
+
+
+@router.post("/liquidaciones/{liq_id}/cambiar-modalidad", response_class=JSONResponse)
+async def liquidacion_cambiar_modalidad(liq_id: int, request: Request, db: Session = Depends(get_db)):
+    """Corrige la modalidad de un número YA liquidado: cuotas ↔ contado ↔ contado2.
+
+    Por qué existe: al liquidar es común marcar mal un número (se liquida como
+    contado uno que en realidad va en cuotas, o al revés). Antes la única salida
+    era sacar el número y volver a agregarlo, y eso NO se puede si la boleta ya
+    tiene socio cargado — justo el caso en que el error se descubre.
+
+    Recalcula la plata de la liquidación restando el aporte viejo y sumando el
+    nuevo (monto contado, comisión, cuota 1, ponderados). NO toca las cuotas del
+    socio: si quedan contradictorias, la respuesta lo avisa en `socio` y el
+    modal ofrece el ajuste aparte (ver `ajustar-cuotas-socio`).
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+    liq = db.query(models.LiquidacionVendedor).get(liq_id)
+    if not liq:
+        raise HTTPException(404, "Liquidacion no encontrada")
+
+    form = await request.form()
+    try:
+        boleta_id = int(form.get("boleta_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "Boleta inválida."}, status_code=400)
+    nueva = (form.get("modalidad") or "").strip().lower()
+    if nueva not in MODALIDADES_LIQ:
+        return JSONResponse({"ok": False, "error": "Modalidad inválida."}, status_code=400)
+
+    b = db.query(models.Boleta).get(boleta_id)
+    if not b or b.liquidacion_vendedor_id != liq_id:
+        return JSONResponse({"ok": False, "error": "El número no pertenece a esta liquidación."}, status_code=400)
+
+    anterior = modalidad_de_boleta(b)
+    if anterior == nueva:
+        # No-op monetario, pero dejamos la modalidad explícita: las boletas
+        # viejas la tenían en NULL (se infería) y así deja de inferirse.
+        b.modalidad_liquidacion = nueva
+        db.commit()
+        return JSONResponse({
+            "ok": True, "sin_cambios": True,
+            "anterior": anterior, "modalidad": nueva,
+            "socio": _info_socio(b, nueva),
+        })
+
+    _restar_boleta_de_liq(liq, b, anterior)
+    _sumar_boleta_a_liq(liq, b, nueva)
+    b.modalidad_liquidacion = nueva
+    db.commit()
+
+    return JSONResponse({
+        "ok": True, "sin_cambios": False,
+        "anterior": anterior, "modalidad": nueva,
+        "total_a_rendir": float(getattr(liq, "total_a_rendir", 0) or 0),
+        "socio": _info_socio(b, nueva),
+    })
+
+
+@router.post("/liquidaciones/{liq_id}/ajustar-cuotas-socio", response_class=JSONResponse)
+async def liquidacion_ajustar_cuotas_socio(liq_id: int, request: Request, db: Session = Depends(get_db)):
+    """Alinea las cuotas del socio con la modalidad de liquidación de la boleta.
+
+    Se llama SOLO a pedido del operador, después de corregir la modalidad:
+
+      → contado / contado2: la boleta queda toda paga (anticipadas = pagadas =
+        cuotas pactadas) y sale de cobranza (condición VENDIDO). No se le borra
+        el cobrador histórico: los filtros de cobranza ya excluyen las pagas
+        (ver el fix del 18/05/2026 en cobranza.py).
+      → cuotas: vuelve a 1 anticipada (y pagadas a 1 si estaba forzada como
+        contado), se le reasigna el cobrador de la zona si no tiene, y vuelve a
+        EN_COBRANZA. Espeja lo que hace compradores.py al cargar el socio.
+    """
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+    liq = db.query(models.LiquidacionVendedor).get(liq_id)
+    if not liq:
+        raise HTTPException(404, "Liquidacion no encontrada")
+
+    form = await request.form()
+    try:
+        boleta_id = int(form.get("boleta_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "Boleta inválida."}, status_code=400)
+
+    b = db.query(models.Boleta).get(boleta_id)
+    if not b or b.liquidacion_vendedor_id != liq_id:
+        return JSONResponse({"ok": False, "error": "El número no pertenece a esta liquidación."}, status_code=400)
+    if b.comprador_id is None:
+        return JSONResponse({"ok": False, "error": "La boleta no tiene socio cargado."}, status_code=400)
+    if b.condicion == CondicionBoleta.BAJA:
+        return JSONResponse({"ok": False, "error": "La boleta está dada de baja."}, status_code=400)
+
+    modalidad = modalidad_de_boleta(b)
+    pactadas  = int(b.cuotas_pactadas or 0)
+    if pactadas <= 0:
+        return JSONResponse({"ok": False, "error": "La boleta no tiene cuotas pactadas."}, status_code=400)
+
+    if modalidad in ("contado", "contado2"):
+        b.cuotas_anticipadas = pactadas
+        b.cuotas_pagadas     = pactadas
+        b.condicion          = CondicionBoleta.VENDIDO
+    else:
+        b.cuotas_anticipadas = 1
+        if int(b.cuotas_pagadas or 0) >= pactadas:
+            b.cuotas_pagadas = 1
+        # Cobrador por zona del socio, igual que al cargar el socio.
+        if not b.cobrador_id and b.comprador and b.comprador.zona_id:
+            z = db.query(models.Zona).get(b.comprador.zona_id)
+            if z and z.cobrador_id:
+                b.cobrador_id = z.cobrador_id
+        _es_contado_esp = (b.numero_especial is not None) or (b.numero_especial_2 is not None)
+        _pendientes = int(b.cuotas_pagadas or 0) < pactadas
+        b.condicion = (
+            CondicionBoleta.EN_COBRANZA
+            if (b.cobrador_id and _pendientes and not _es_contado_esp)
+            else CondicionBoleta.VENDIDO
+        )
+
+    db.commit()
+    return JSONResponse({
+        "ok": True,
+        "modalidad": modalidad,
+        "cuotas_anticipadas": int(b.cuotas_anticipadas or 0),
+        "cuotas_pagadas":     int(b.cuotas_pagadas or 0),
+        "cuotas_pactadas":    pactadas,
+    })
 
 
 @router.post("/{vid}/toggle")
