@@ -1423,6 +1423,51 @@ async def liquidar(
             and cuotas_extras_cantidad == 0 and cuotas_extras_p0_cantidad == 0):
         return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
 
+    # ── RESERVA ATOMICA DE LOS NUMEROS (guarda contra la doble liquidación) ──
+    #
+    # El problema: dos POST de la misma liquidación (doble click, el reenvío de
+    # la cola offline, dos pestañas) leen las boletas como libres ANTES de que
+    # la primera transacción confirme. Las dos creaban liquidación con los
+    # mismos números; las boletas quedaban atadas a una sola y la otra quedaba
+    # con los totales colgados: en el historial se veía el doble de boletas y
+    # de plata que en el detalle. Pasó al menos 7 veces entre mayo y agosto de
+    # 2026 (ver auditar_liquidaciones.py).
+    #
+    # La solución: crear la liquidación PRIMERO y reclamar los números con un
+    # UPDATE condicional. En PostgreSQL, la segunda transacción queda esperando
+    # el lock de esas filas y, cuando la primera confirma, vuelve a evaluar el
+    # WHERE contra la fila nueva: ya no dice NULL, así que se lleva 0 filas.
+    # Después se calcula SOLO sobre lo que efectivamente se reclamó.
+    liq = models.LiquidacionVendedor(
+        vendedor_id=vid,
+        fecha=fecha_liq,
+        observacion=observacion or None,
+    )
+    db.add(liq)
+    db.flush()          # necesitamos liq.id para reclamar
+    _liq_id = liq.id
+
+    if boletas_sel:
+        db.flush()      # persistir los pull (vendedor_id / condicion) antes del claim
+        _sel_ids = [b.id for b in boletas_sel]
+        db.query(models.Boleta).filter(
+            models.Boleta.id.in_(_sel_ids),
+            models.Boleta.liquidacion_vendedor_id.is_(None),   # <-- la condición que decide
+        ).update({"liquidacion_vendedor_id": _liq_id}, synchronize_session=False)
+        db.expire_all()   # el UPDATE masivo no actualiza los objetos en memoria
+        boletas_sel = db.query(models.Boleta).filter(
+            models.Boleta.liquidacion_vendedor_id == _liq_id
+        ).all()
+
+    # Si otra petición se llevó TODO y acá no queda nada que liquidar, esta
+    # liquidación no existe: se borra y se avisa. Es el caso que antes dejaba
+    # la liquidación fantasma.
+    if (not boletas_sel and not pool_ids
+            and cuotas_extras_cantidad == 0 and cuotas_extras_p0_cantidad == 0):
+        db.delete(liq)
+        db.commit()
+        return RedirectResponse(f"/vendedores/{vid}/detalle?msg=sin_pendientes", status_code=302)
+
     # Modalidad por boleta: 'cuotas' (default) | 'contado' | 'contado2'
     cuotas, contados_b = [], []
     for b in boletas_sel:
@@ -1485,33 +1530,29 @@ async def liquidar(
     # total_comision (legacy) = suma de comisiones que se queda el vendedor (sin cuota 1)
     total_comision_legacy = round(com_cuotas + com_contados + com_cuotas_extras + com_cuotas_extras_p0, 2)
 
-    liq = models.LiquidacionVendedor(
-        vendedor_id=vid,
-        fecha=fecha_liq,
-        cuotas_vendidas=len(cuotas),
-        cuotas_equiv=cuotas_equiv,
-        cuota_1_total=cuota_1_total,
-        monto_cuotas=monto_cuotas,
-        comision_cuotas_pct=comision_cuotas_pct,
-        comision_cuotas=com_cuotas,
-        contados_vendidos=contados_count,
-        contados_equiv=contados_equiv,
-        monto_contados=monto_contados,
-        comision_contados_pct=comision_contados_pct,
-        comision_contados=com_contados,
-        cuotas_extras_cantidad=cuotas_extras_cantidad,
-        cuotas_extras_valor=cuotas_extras_valor,
-        cuotas_extras_monto=cuotas_extras_monto,
-        comision_cuotas_extras=com_cuotas_extras,
-        cuotas_extras_p0_cantidad=cuotas_extras_p0_cantidad,
-        cuotas_extras_p0_valor=cuotas_extras_p0_valor,
-        cuotas_extras_p0_monto=cuotas_extras_p0_monto,
-        comision_cuotas_extras_p0=com_cuotas_extras_p0,
-        total_comision=total_comision_legacy,
-        total_a_rendir=total_rendir,
-        observacion=observacion or None,
-    )
-    db.add(liq)
+    # La liquidación ya existe (se creó arriba para reclamar los números): acá
+    # se le completan los totales, calculados sobre lo que realmente se reclamó.
+    liq.cuotas_vendidas           = len(cuotas)
+    liq.cuotas_equiv              = cuotas_equiv
+    liq.cuota_1_total             = cuota_1_total
+    liq.monto_cuotas              = monto_cuotas
+    liq.comision_cuotas_pct       = comision_cuotas_pct
+    liq.comision_cuotas           = com_cuotas
+    liq.contados_vendidos         = contados_count
+    liq.contados_equiv            = contados_equiv
+    liq.monto_contados            = monto_contados
+    liq.comision_contados_pct     = comision_contados_pct
+    liq.comision_contados         = com_contados
+    liq.cuotas_extras_cantidad    = cuotas_extras_cantidad
+    liq.cuotas_extras_valor       = cuotas_extras_valor
+    liq.cuotas_extras_monto       = cuotas_extras_monto
+    liq.comision_cuotas_extras    = com_cuotas_extras
+    liq.cuotas_extras_p0_cantidad = cuotas_extras_p0_cantidad
+    liq.cuotas_extras_p0_valor    = cuotas_extras_p0_valor
+    liq.cuotas_extras_p0_monto    = cuotas_extras_p0_monto
+    liq.comision_cuotas_extras_p0 = com_cuotas_extras_p0
+    liq.total_comision            = total_comision_legacy
+    liq.total_a_rendir            = total_rendir
     db.flush()
 
     # Al liquidar, TODAS las boletas (cuotas y contado) pasan a VENDIDO. La decisión
@@ -2181,10 +2222,23 @@ MODALIDADES_LIQ = ("cuotas", "contado", "contado2")
 def modalidad_de_boleta(b):
     """Modalidad con la que la boleta `b` entró a su liquidación.
 
-    Las boletas anteriores al campo `modalidad_liquidacion` lo tienen en NULL:
-    ahí se infiere CONTADO si ya tienen número especial asignado (el único
-    rastro que dejaba el sistema viejo). Una sola fuente de verdad para todos
-    los cálculos de la liquidación.
+    Las boletas anteriores al campo `modalidad_liquidacion` lo tienen en NULL y
+    hay que inferirla. Dos rastros, y hacen falta los DOS:
+
+    1. Tiene número especial (`numero_especial` / `_2`) — el sorteo extra solo
+       se da al que paga al contado.
+    2. Entró pagando todo: `cuotas_anticipadas >= cuotas_pactadas`.
+
+    El punto 2 no es redundante: los números especiales vienen en talonarios de
+    5 y se cargan recién cuando se cierra el talonario, así que una boleta al
+    contado pasa semanas SIN número especial. Mirando solo el punto 1 esas
+    boletas se leen como "en cuotas" y la liquidación parece desfasada cuando
+    no lo está. Es el mismo criterio del badge "Al contado" de Socios
+    (ver el fix del 18/05/2026 en cobranza.py).
+
+    OJO: se usa `cuotas_anticipadas` (lo que cobró el vendedor en el acto), NO
+    `cuotas_pagadas` (que crece con la cobranza mes a mes). Una boleta que
+    terminó de pagarse en cobranza NO es un contado.
     """
     if b is None:
         return "cuotas"
@@ -2192,6 +2246,9 @@ def modalidad_de_boleta(b):
     if m in MODALIDADES_LIQ:
         return m
     if (b.numero_especial is not None) or (b.numero_especial_2 is not None):
+        return "contado"
+    pactadas = int(b.cuotas_pactadas or 0)
+    if pactadas > 0 and int(b.cuotas_anticipadas or 0) >= pactadas:
         return "contado"
     return "cuotas"
 

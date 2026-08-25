@@ -74,21 +74,35 @@ import io
 import os
 import sys
 from collections import defaultdict
+from datetime import date, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload, undefer
 
 from app.database import SessionLocal
 from app import models
+from app.models import CondicionBoleta
 from app.cuotas import cuotas_vigentes
 from app.routers.vendedores import modalidad_de_boleta
 
 TOL = 0.51  # tolerancia en pesos: diferencias por redondeo no son desfasaje
 INFORME = "auditoria_liquidaciones.txt"
+
+# Desde esta fecha el contado se cobra por cuotas_vigentes (las ultimas van de
+# regalo, ver app/cuotas.py). ANTES se cobraba el nominal de la talonera (12).
+# Una liquidacion del 01/08 se hizo con la regla vieja y su monto guardado es
+# el correcto: recalcularla con la regla nueva seria reescribir la historia.
+CUTOFF_CUOTAS_VIGENTES = date(2026, 8, 3)
+
+# Campos que son espejo de otro y no mueven un peso del total a rendir. Se
+# recalculan igual, pero no cuentan como desfasaje: las liquidaciones viejas
+# los tienen en 0 y contabilidad.py ya lo compensa al leerlas.
+CAMPOS_COSMETICOS = ("monto_cuotas", "comision_cuotas")
 
 
 class _Tee:
@@ -156,10 +170,15 @@ def _recalcular(liq, boletas):
     def vc(b):
         return float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
 
-    monto_contados = sum(
-        cuotas_vigentes(b.talonera.num_cuotas if b.talonera else None, liq.fecha) * vc(b)
-        for b in contados
-    )
+    def cuotas_contado(b):
+        """Cuotas que se cobraron al contado en ESTA liquidacion."""
+        nominal = (b.talonera.num_cuotas if b.talonera else None) or 12
+        f = liq.fecha.date() if isinstance(liq.fecha, datetime) else liq.fecha
+        if f and f < CUTOFF_CUOTAS_VIGENTES:
+            return int(nominal)           # regla vieja: se cobraban las 12
+        return cuotas_vigentes(nominal, liq.fecha)
+
+    monto_contados = sum(cuotas_contado(b) * vc(b) for b in contados)
     pct = float(liq.comision_contados_pct or 0) or 30.0
     com_contados = round(monto_contados * pct / 100, 2)
     cuota_1_total = round(sum(vc(b) for b in cuotas), 2)
@@ -183,7 +202,8 @@ def _recalcular(liq, boletas):
 
 
 def _diferencias(liq, real):
-    """Campos guardados que no coinciden con lo recalculado."""
+    """Campos guardados que no coinciden con lo recalculado.
+    Devuelve (reales, cosmeticas)."""
     difs = []
     for campo, valor_real in real.items():
         guardado = getattr(liq, campo, 0) or 0
@@ -196,7 +216,83 @@ def _diferencias(liq, real):
         else:
             if abs(float(guardado) - float(valor_real)) > TOL:
                 difs.append((campo, round(float(guardado), 2), round(float(valor_real), 2)))
-    return difs
+    reales = [d for d in difs if d[0] not in CAMPOS_COSMETICOS]
+    cosmeticas = [d for d in difs if d[0] in CAMPOS_COSMETICOS]
+    return reales, cosmeticas
+
+
+def _cuadre(db, liqs, boletas_liq, titulo):
+    """Cuadre global: lo que dicen los totales guardados contra las boletas.
+
+    Es el control de fondo: la cantidad de boletas que declaran TODAS las
+    liquidaciones tiene que ser igual a la cantidad de boletas realmente
+    atadas a alguna. Y esas boletas son las que ya tienen socio cargado mas
+    las que estan pendientes de cargar.
+    """
+    B = models.Boleta
+    declaradas = sum(int(l.cuotas_vendidas or 0) + int(l.contados_vendidos or 0)
+                     for l in liqs)
+    atadas = len(boletas_liq)
+    con_socio = sum(1 for b in boletas_liq if b.comprador_id is not None)
+    sin_socio = atadas - con_socio
+
+    def _c(*filtros):
+        return db.query(func.count(B.id)).filter(*filtros).scalar() or 0
+
+    socio_sin_liq = _c(B.comprador_id.isnot(None), B.liquidacion_vendedor_id.is_(None))
+    caja_sin_liq  = _c(B.condicion == CondicionBoleta.CAJA,
+                       B.liquidacion_vendedor_id.is_(None))
+    sin_vender    = _c(B.condicion == CondicionBoleta.SIN_VENDER)
+    baja          = _c(B.condicion == CondicionBoleta.BAJA)
+    total         = _c()
+
+    print("\n" + "=" * 78)
+    print(f"CUADRE GENERAL {titulo}")
+    print("=" * 78)
+    print(f"  Boletas atadas a una liquidacion ............... {atadas:>6}")
+    print(f"     con socio ya cargado ....................... {con_socio:>6}")
+    print(f"     pendientes de cargar el socio .............. {sin_socio:>6}")
+    print(f"  Boletas que DECLARAN los totales guardados ..... {declaradas:>6}"
+          + ("   <-- deberia ser igual a las atadas" if declaradas != atadas else "   OK"))
+    if declaradas != atadas:
+        d = declaradas - atadas
+        print(f"  Diferencia .................................... {d:>+6}"
+              f"   ({'de mas' if d > 0 else 'de menos'} en el sistema)")
+    print()
+    print(f"  Contexto (no entran en el cuadre de arriba):")
+    print(f"     con socio pero SIN liquidacion ............. {socio_sin_liq:>6}")
+    print(f"     en caja del vendedor, sin liquidar ......... {caja_sin_liq:>6}")
+    print(f"     sin vender ................................. {sin_vender:>6}")
+    print(f"     de baja .................................... {baja:>6}")
+    print(f"     total de boletas del sistema ............... {total:>6}")
+    print("=" * 78)
+
+    # Boletas con socio que nunca pasaron por una liquidacion: el vendedor
+    # nunca las rindio, asi que esa cuota 1 no figura cobrada por nadie.
+    # Son pocas: se listan una por una para poder revisarlas a mano.
+    if socio_sin_liq:
+        huerfanas = (db.query(B)
+                       .options(joinedload(B.talonera).undefer("*"),
+                                joinedload(B.vendedor), joinedload(B.comprador))
+                       .filter(B.comprador_id.isnot(None),
+                               B.liquidacion_vendedor_id.is_(None))
+                       .order_by(B.numero_principal).limit(50).all())
+        print(f"\nBOLETAS CON SOCIO PERO SIN LIQUIDACION ({socio_sin_liq})")
+        print("-" * 78)
+        print("  Nadie las rindio: la cuota 1 de estas boletas no figura cobrada")
+        print("  por ningun vendedor. Revisalas a mano.")
+        for b in huerfanas:
+            nd = (b.talonera.num_digitos or 4) if b.talonera else 4
+            num = str(b.numero_principal or 0).zfill(nd)
+            print(f"    {num:<6} {(b.talonera.nombre if b.talonera else '?'):<8}"
+                  f" vend: {(b.vendedor.nombre if b.vendedor else '- sin vendedor -'):<10}"
+                  f" cond: {(b.condicion.value if b.condicion else '?'):<12}"
+                  f" socio: {(b.comprador.apellido_nombre if b.comprador else '?')[:28]}")
+        if socio_sin_liq > len(huerfanas):
+            print(f"    ... y {socio_sin_liq - len(huerfanas)} mas")
+        print("-" * 78)
+
+    return declaradas, atadas
 
 
 def main():
@@ -260,7 +356,7 @@ def main():
 
         nombres = {v.id: v.nombre for v in db.query(models.Vendedor).all()}
 
-        desfasadas, fantasmas = [], []
+        desfasadas, fantasmas, solo_cosmeticas, vacias = [], [], [], []
         drift_rendir = 0.0
 
         print("\n" + "=" * 78)
@@ -270,19 +366,28 @@ def main():
         for liq in liqs:
             boletas = por_liq.get(liq.id, [])
             real = _recalcular(liq, boletas)
-            difs = _diferencias(liq, real)
+            difs, cosmeticas = _diferencias(liq, real)
 
             tiene_extras = (int(liq.cuotas_extras_cantidad or 0) > 0
                             or int(getattr(liq, "cuotas_extras_p0_cantidad", 0) or 0) > 0)
-            es_fantasma = (not boletas and not tiene_extras
-                           and pool_por_liq.get(liq.id, 0) == 0
-                           and (int(liq.cuotas_vendidas or 0) > 0
-                                or int(liq.contados_vendidos or 0) > 0
-                                or float(liq.monto_contados or 0) > 0))
+            sin_nada = (not boletas and not tiene_extras
+                        and pool_por_liq.get(liq.id, 0) == 0)
+            con_numeros = (int(liq.cuotas_vendidas or 0) > 0
+                           or int(liq.contados_vendidos or 0) > 0
+                           or float(liq.monto_contados or 0) > 0)
+            es_fantasma = sin_nada and con_numeros
+            # VACIA: no tiene absolutamente nada. Suele ser el segundo intento de
+            # una liquidacion doble que no llego a agarrar ninguna boleta. No
+            # ensucia la plata, pero deja una fila de mas en el historial.
+            if sin_nada and not con_numeros:
+                vacias.append((liq, real, boletas))
 
             if not difs and not es_fantasma:
+                if cosmeticas:
+                    solo_cosmeticas.append((liq, real, boletas))
                 if todas:
-                    print(f"\n[OK]  liq #{liq.id}  {liq.fecha:%d/%m/%Y}  "
+                    estado = "OK-cosmetico" if cosmeticas else "OK"
+                    print(f"\n[{estado}]  liq #{liq.id}  {liq.fecha:%d/%m/%Y}  "
                           f"{nombres.get(liq.vendedor_id, '?')}  "
                           f"({len(boletas)} boletas)")
                 continue
@@ -297,6 +402,21 @@ def main():
                 marca = "  <-- PLATA" if campo in ("monto_contados", "comision_contados",
                                                    "cuota_1_total", "total_a_rendir") else ""
                 print(f"    {campo:<20} guardado: {guardado:>12}   real: {valor_real:>12}{marca}")
+
+            # Si no coinciden los contados, mostrar POR QUE: que dice cada boleta.
+            # Sin esto no hay forma de saber si el desfasaje es real o si la
+            # modalidad quedo mal inferida en una boleta vieja.
+            if boletas and any(c in ("contados_vendidos", "contados_equiv") for c, _g, _r in difs):
+                print("    detalle de las boletas (numero: modalidad):")
+                linea = []
+                for b in sorted(boletas, key=lambda x: x.numero_principal or 0):
+                    mod = modalidad_de_boleta(b)
+                    marca_b = "" if mod == "cuotas" else "*"
+                    esp = "" if (b.numero_especial is None and b.numero_especial_2 is None) else "e"
+                    linea.append(f"{b.numero_principal}:{mod[:4]}{marca_b}{esp}")
+                for i in range(0, len(linea), 6):
+                    print("      " + "  ".join(linea[i:i + 6]))
+                print("      (* = contado | e = tiene numero especial cargado)")
 
             drift_rendir += (float(liq.total_a_rendir or 0) - float(real["total_a_rendir"]))
             (fantasmas if es_fantasma else desfasadas).append((liq, real, boletas))
@@ -322,6 +442,22 @@ def main():
         if not hubo_dup:
             print("[OK] No se detectaron pares duplicados (mismo vendedor y dia).")
 
+        if vacias:
+            print(f"\n[VACIAS] {len(vacias)} liquidacion(es) sin boletas, sin plata y sin")
+            print("         cuotas extras: " + ", ".join(f"#{l.id}" for l, _r, _b in vacias))
+            print("         No afectan ningun total, solo ocupan una fila en el historial.")
+            print("         Se borran con --borrar-fantasmas.")
+
+        if solo_cosmeticas:
+            print(f"\n[NOTA] {len(solo_cosmeticas)} liquidacion(es) vieja(s) tienen "
+                  f"comision_cuotas/monto_cuotas en 0.")
+            print("       Es como las guardaba el sistema anterior. NO afecta el total a")
+            print("       rendir ni lo que gano el vendedor (contabilidad.py ya lo compensa).")
+            print("       Se normalizan solas si alguna vez se repara esa liquidacion.")
+
+        _cuadre(db, liqs, boletas_liq, "(antes de reparar)" if (desfasadas or fantasmas)
+                else "")
+
         print("\n" + "=" * 78)
         print(f"RESUMEN: {len(liqs)} liquidaciones | "
               f"{len(desfasadas)} desfasadas | {len(fantasmas)} fantasma")
@@ -336,13 +472,16 @@ def main():
                 print("Para ademas borrar las vacias:  py -3.12 auditar_liquidaciones.py --reparar --borrar-fantasmas")
             return
 
-        if not desfasadas and not (borrar and fantasmas):
+        borrables = (fantasmas + vacias) if borrar else []
+        if not desfasadas and not borrables:
             print("\nNada para reparar.")
             return
 
         if not sin_pedir:
             print(f"\nSe van a reescribir los totales de {len(desfasadas)} liquidacion(es)"
-                  + (f" y BORRAR {len(fantasmas)} fantasma(s)." if borrar and fantasmas else ".")
+                  + (f" y BORRAR {len(borrables)} liquidacion(es) sin boletas"
+                     f" ({len(fantasmas)} fantasma + {len(vacias)} vacia)."
+                     if borrables else ".")
                   + "\nLas boletas NO se tocan.")
             if input("Escribi SI para aplicar: ").strip().upper() != "SI":
                 print("Cancelado. No se escribio nada.")
@@ -357,13 +496,19 @@ def main():
                 + float(getattr(liq, "comision_cuotas_extras_p0", 0) or 0), 2)
         print(f"[OK] {len(desfasadas)} liquidacion(es) recalculada(s).")
 
-        if borrar and fantasmas:
-            for liq, _real, _bol in fantasmas:
+        if borrables:
+            for liq, _real, _bol in borrables:
                 db.delete(liq)
-            print(f"[OK] {len(fantasmas)} liquidacion(es) fantasma borrada(s).")
+            print(f"[OK] {len(borrables)} liquidacion(es) sin boletas borrada(s): "
+                  + ", ".join(f"#{l.id}" for l, _r, _b in borrables))
 
         db.commit()
         print("[OK] Cambios guardados.")
+
+        # Cuadre final: con los totales recalculados, lo declarado tiene que
+        # coincidir exactamente con las boletas atadas.
+        liqs_post = (db.query(models.LiquidacionVendedor).options(undefer("*")).all())
+        _cuadre(db, liqs_post, boletas_liq, "(despues de reparar)")
 
     finally:
         db.close()

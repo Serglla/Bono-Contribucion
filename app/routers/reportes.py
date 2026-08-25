@@ -443,8 +443,15 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             (models.Boleta.comprador_id.isnot(None)) &
             ~_es_contado
         ),
-        # Al contado — tienen número especial Y/O pagaron todas las cuotas anticipadas
-        "contado": _sum_mult(_es_contado),
+        # Al contado — con socio cargado, y con número especial Y/O todas las cuotas
+        # anticipadas. El filtro `comprador_id IS NOT NULL` NO es opcional: sin él
+        # entraban boletas liquidadas al contado a las que todavía no se les cargó
+        # el socio, y entonces EN CUOTAS + AL CONTADO daba más que VENDIDAS
+        # (las otras dos tarjetas sí exigen socio).
+        "contado": _sum_mult(
+            (models.Boleta.comprador_id.isnot(None)) &
+            _es_contado
+        ),
         # Baja — boletas con condición BAJA (Socios) o marcadas de baja en cobranza
         "baja": _sum_mult(or_(models.Boleta.condicion == CondicionBoleta.BAJA,
                               models.Boleta.mes_baja.isnot(None))),
@@ -454,9 +461,47 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             (models.Boleta.liquidacion_vendedor_id.isnot(None)) &
             (models.Boleta.comprador_id.is_(None))
         ),
+        # Con socio cargado pero SIN pasar por ninguna liquidación: nadie las
+        # rindió. Ponderado, para poder cuadrar contra "Liquidado por vendedor".
+        "sin_liquidar": _sum_mult(
+            (models.Boleta.comprador_id.isnot(None)) &
+            (models.Boleta.liquidacion_vendedor_id.is_(None))
+        ),
         # Compradores — personas únicas (no se pondera)
         "compradores": db.query(func.count(models.Comprador.id)).scalar(),
     }
+
+    # ── Las tres tarjetas de arriba tienen que sumar ───────────────────────
+    # Se muestran redondeadas y las PATA pesan fracciones (X0 = 0,67). Al
+    # redondear cada una por su cuenta, EN CUOTAS + AL CONTADO podía dar uno más
+    # (o uno menos) que VENDIDAS y parecía un error de datos. El total manda: se
+    # redondean VENDIDAS y AL CONTADO, y EN CUOTAS absorbe la fracción. Vale
+    # porque "al contado" ya es un subconjunto de "vendidas" (las dos exigen
+    # socio cargado).
+    _vendidas_i = int(round(float(totales["vendidas"] or 0)))
+    _contado_i  = int(round(float(totales["contado"] or 0)))
+    totales["vendidas"] = _vendidas_i
+    totales["contado"]  = _contado_i
+    totales["cuotas"]   = max(0, _vendidas_i - _contado_i)
+
+    # ── Cuadre entre las tarjetas y "Liquidado por vendedor" ───────────────
+    # Miden universos DISTINTOS y por eso nunca dan igual:
+    #   · las tarjetas cuentan boletas CON SOCIO cargado (liquidadas o no),
+    #   · la tabla cuenta lo LIQUIDADO (con socio cargado o todavía sin).
+    # La diferencia es exactamente: − las que tienen socio pero nadie liquidó,
+    # + las liquidadas a las que falta cargarles el socio. Se muestra al pie de
+    # la tabla para que no parezca un error.
+    cuadre = {
+        "vendidas":     int(round(float(totales["vendidas"] or 0))),
+        "sin_liquidar": int(round(float(totales["sin_liquidar"] or 0))),
+        "sin_cargar":   int(round(float(totales["sin_cargar"] or 0))),
+        "liquidado":    int(vendedores_liq_total["total"]),
+    }
+    cuadre["esperado"] = (cuadre["vendidas"] - cuadre["sin_liquidar"]
+                          + cuadre["sin_cargar"])
+    # Si queda una diferencia de 1-2 es el redondeo de PATA 0 (×0.67): cada
+    # vendedor se redondea por separado antes de sumarse.
+    cuadre["redondeo"] = cuadre["liquidado"] - cuadre["esperado"]
 
     # Zonas trabajadas = cantidad de zonas distintas donde hay números vendidos
     # (boletas con comprador asignado). Una sola consulta, en vez del detalle por zona.
@@ -475,6 +520,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         "cobradores_resumen": cobradores_resumen,
         "cobradores_total": cobradores_total,
         "totales": totales,
+        "cuadre": cuadre,
         "zonas_trabajadas": zonas_trabajadas})
 
 

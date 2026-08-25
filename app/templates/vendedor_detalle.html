@@ -17,6 +17,19 @@
     break-inside: avoid;     /* un número nunca se parte entre dos columnas */
     margin: 0 0 .25rem 0;
   }
+  /* MODO EDICIÓN: cada número lleva pegado su selector de modalidad y el botón
+     de sacar, así que mide ~9rem. En columnas de 3.5rem se desborda y se pisa
+     con la columna de al lado (se veía "8949 Cu( 9044 Cu( 9049..."). Ahí se
+     abandona el layout en columnas y se pasa a filas que envuelven. */
+  .num-edit {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem .4rem;
+  }
+  .num-edit > * {
+    margin: 0;
+    white-space: nowrap;
+  }
   /* Ítem de número del modal de liquidar (badge + selector oculto): bloque que
      no se parte entre columnas, para que el grid se lea de arriba hacia abajo. */
   .liq-num-item {
@@ -1288,7 +1301,7 @@ function renderPatas() {
         ${bulkBtns}
       </div>
       <div class="card-body py-2">
-        <div class="num-cols">`;
+        <div class="num-edit">`;
 
     data.boletas.forEach(b => {
       if (b.pool === true) {
@@ -2694,7 +2707,8 @@ function renderDetalleLiq(d) {
             </span>${modSel}${ctrl}
           </span>`;
         } else if (dlEditMode) {
-          badges += `<span class="d-inline-flex align-items-center me-1 mb-1"
+          // Sin me-1/mb-1: el espaciado lo pone el gap de .num-edit
+          badges += `<span class="d-inline-flex align-items-center"
                           style="font-size:.78rem;border:1px solid #0d6efd44;border-radius:.25rem;overflow:hidden;${opaco}"
                           title="${tipBase}">
             <span class="badge ${badgeCls}" style="font-size:.78rem;border-radius:.25rem 0 0 .25rem;">${escapeHtml(b.num_str)}</span>${modSel}${ctrl}
@@ -2717,7 +2731,7 @@ function renderDetalleLiq(d) {
             </span>
           </div>
           <div class="card-body py-2">
-            <div class="num-cols">${badges}</div>
+            <div class="${dlEditMode ? 'num-edit' : 'num-cols'}">${badges}</div>
           </div>
         </div>`;
     });
@@ -2824,7 +2838,7 @@ function renderDetalleLiq(d) {
               </div>
             </div>
             <div class="card-body py-2">
-              <div class="num-cols">${badges}</div>
+              <div class="num-edit">${badges}</div>
             </div>
           </div>`;
       });

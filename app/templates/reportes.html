@@ -112,6 +112,24 @@
       {% endif %}
     </table>
   </div>
+  {% if cuadre %}
+  {# Las tarjetas de arriba cuentan boletas CON SOCIO; esta tabla cuenta lo
+     LIQUIDADO. Son universos distintos y nunca dan igual: se explica acá para
+     que la diferencia no parezca un error. #}
+  <div class="px-3 py-2 border-top" style="font-size:.75rem;color:#6c757d;background:#f8f9fa;">
+    <i class="bi bi-info-circle me-1"></i>
+    <strong>Por qué no coincide con «Vendidas»:</strong>
+    las tarjetas cuentan las boletas <em>con socio cargado</em>; esta tabla, lo <em>liquidado por el vendedor</em>.
+    <span class="text-nowrap">{{ cuadre.vendidas }} vendidas</span>
+    <span class="text-nowrap">− {{ cuadre.sin_liquidar }} con socio que nadie liquidó</span>
+    <span class="text-nowrap">+ {{ cuadre.sin_cargar }} liquidadas sin cargar el socio</span>
+    = <strong>{{ cuadre.esperado }}</strong>.
+    {% if cuadre.redondeo %}
+      La tabla muestra <strong>{{ cuadre.liquidado }}</strong>: {{ cuadre.redondeo }} de diferencia
+      por el redondeo de X0 (×0,67), que se redondea por vendedor antes de sumarse.
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 
 <!-- Resumen de cobradores -->

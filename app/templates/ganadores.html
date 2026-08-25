@@ -55,7 +55,7 @@
         <span class="badge bg-warning text-dark ms-1">{{ grupo.ganadores_reales }} ganador{{ "es" if grupo.ganadores_reales != 1 else "" }}</span>
       {% endif %}
       {% if grupo.posteriores > 0 %}
-        <span class="badge bg-secondary ms-1" title="Boletas con socio pero compradas el día del sorteo o después: no cuentan como ganadores">
+        <span class="badge bg-secondary ms-1" title="Boletas con socio pero compradas DESPUÉS del sorteo: no cuentan como ganadores. El mismo día del sorteo sí cuenta.">
           <i class="bi bi-clock-history me-1"></i>{{ grupo.posteriores }} comprada{{ "s" if grupo.posteriores != 1 else "" }} tras el sorteo
         </span>
       {% endif %}

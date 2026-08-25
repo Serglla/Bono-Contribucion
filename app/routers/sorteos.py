@@ -112,7 +112,12 @@ async def extracto_mes(
     db: Session = Depends(get_db),
 ):
     """Genera el extracto del mes: cruza los premios de cada sorteo con las boletas
-    cuyo `fecha_venta < fecha_sorteo` y arma la lista de ganadores.
+    cuyo `fecha_venta <= fecha_sorteo` y arma la lista de ganadores.
+
+    REGLA (24/08/2026): la boleta comprada EL MISMO DÍA del sorteo SÍ participa.
+    El socio compró antes de que se sorteara, así que el número juega. Solo
+    quedan afuera las compradas DESPUÉS. Antes el corte era estricto (`<`) y
+    dejaba afuera ventas del propio día del sorteo.
     """
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'sorteos', 'ver'):
@@ -150,7 +155,7 @@ async def extracto_mes(
     ).filter(
         models.Boleta.comprador_id.isnot(None),
         models.Boleta.fecha_venta.isnot(None),
-        models.Boleta.fecha_venta < fecha_max,
+        models.Boleta.fecha_venta <= fecha_max,   # el día del sorteo cuenta
     ).all()
 
     # Overrides manuales de habilitación del mes (clave (sorteo_id, boleta_id))
@@ -201,10 +206,10 @@ async def extracto_mes(
             cifras_list = sorted([int(c) for c in str(s.cifras).split(",")], reverse=True)
             cifras_set.update(cifras_list)
 
-            # Boletas anteriores a este sorteo
+            # Boletas vendidas hasta el día del sorteo, ese día incluido
             boletas_anteriores = [
                 b for b in boletas
-                if b.fecha_venta and b.fecha_venta < s.fecha
+                if b.fecha_venta and b.fecha_venta <= s.fecha
             ]
 
             # Recorrer los N primeros premios
@@ -538,7 +543,8 @@ def _habilitacion_boleta(boleta, sorteo, override=None):
     mes si se cumple AL MENOS UNA de estas condiciones:
       1) Pagó al menos una cuota en el mes del sorteo (aunque deba meses
          anteriores) → figura en `historial_cuotas` un pago con mes == mes sorteo.
-      2) Se vendió en el mismo mes del sorteo, antes de la fecha del sorteo.
+      2) Se vendió en el mismo mes del sorteo, hasta el día del sorteo
+         inclusive (comprar el día del sorteo cuenta — regla del 24/08/2026).
 
     Un `override` (fila HabilitacionSorteo) reemplaza el cálculo automático por
     excepción manual.
@@ -561,18 +567,18 @@ def _habilitacion_boleta(boleta, sorteo, override=None):
         except Exception:
             pago_mes = False
 
-    # 2) Vendida en el mismo mes/año del sorteo, antes de la fecha del sorteo
+    # 2) Vendida en el mismo mes/año del sorteo, hasta el día del sorteo inclusive
     vendida_en_mes = (
         boleta.fecha_venta is not None
         and boleta.fecha_venta.year == sorteo.fecha.year
         and boleta.fecha_venta.month == mes_sorteo
-        and boleta.fecha_venta < sorteo.fecha
+        and boleta.fecha_venta <= sorteo.fecha
     )
 
     if pago_mes:
         auto_ok, auto_motivo = True, "Pagó cuota del mes"
     elif vendida_en_mes:
-        auto_ok, auto_motivo = True, "Vendida en el mes (antes del sorteo)"
+        auto_ok, auto_motivo = True, "Vendida en el mes (hasta el día del sorteo)"
     else:
         auto_ok, auto_motivo = False, "No registra pago en el mes del sorteo"
 
@@ -916,9 +922,12 @@ def _calcular_grupos_ganadores(s, db):
     de ganadores (uno por premio × cifra). Devuelve (grupos, cifras_list).
 
     Cada fila marca si es un ganador VÁLIDO: tiene socio (comprador) y la boleta
-    se vendió ANTES del sorteo (`fecha_venta < s.fecha`). Si tiene socio pero se
-    compró el día del sorteo o después (o sin fecha), se marca `posterior` y NO
-    cuenta como ganador.
+    se vendió HASTA EL DÍA DEL SORTEO inclusive (`fecha_venta <= s.fecha`).
+
+    REGLA (24/08/2026): comprar el mismo día del sorteo SÍ da derecho a jugar —
+    la venta es anterior al sorteo aunque caiga la misma fecha. Solo se marca
+    `posterior` (y no cuenta) si se compró DESPUÉS del sorteo, o si no tiene
+    fecha de venta cargada.
     """
     num_premios = s.num_premios or 20
     numeros_ganadores = json.loads(s.resultado_json)[:num_premios]  # respetar el límite del sorteo
@@ -976,13 +985,13 @@ def _calcular_grupos_ganadores(s, db):
                 otros = [str(x).zfill(4) for x in _numeros_boleta(boleta) if x != num_match]
 
                 tiene_socio = boleta.comprador is not None
-                # Ganador válido: tiene socio Y la boleta se vendió ANTES del sorteo.
+                # Ganador válido: tiene socio Y se vendió hasta el día del sorteo.
                 es_valido = (
                     tiene_socio
                     and boleta.fecha_venta is not None
-                    and boleta.fecha_venta < s.fecha
+                    and boleta.fecha_venta <= s.fecha
                 )
-                # Tiene socio pero comprada el día del sorteo o después (o sin fecha): no cuenta.
+                # Tiene socio pero comprada DESPUÉS del sorteo (o sin fecha): no cuenta.
                 posterior = tiene_socio and not es_valido
 
                 # Habilitación para cobrar (control de pago del mes / venta en el mes)
@@ -991,7 +1000,7 @@ def _calcular_grupos_ganadores(s, db):
                         boleta, s, overrides.get(boleta.id)
                     )
                 else:
-                    habilitado, hab_motivo, hab_manual = False, "Comprada el día del sorteo o después", False
+                    habilitado, hab_motivo, hab_manual = False, "Comprada después del sorteo", False
 
                 filas.append({
                     "boleta_id": boleta.id,
