@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>{{ planilla_label }} — {{ cobrador.nombre }}</title>
+<style>
+  /* xhtml2pdf soporta un subconjunto chico de CSS: tablas sí, flex no, y los
+     anchos van en el <th> de la primera fila (ignora <colgroup>). */
+  @page { size: A4 portrait; margin: 5mm 6mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 7pt; color: #000; }
+
+  table.doc-header { width: 100%; border-collapse: collapse; border: 1pt solid #000;
+                     margin-bottom: 1.5mm; }
+  table.doc-header td { border: 0.5pt solid #000; padding: 1mm 1.5mm; }
+  .hd-label { font-size: 5pt; color: #666; }
+  .hd-val { font-size: 8pt; font-weight: bold; }
+  .hd-p { font-size: 17pt; font-weight: bold; color: #c00; }
+
+  table.main-table { width: 100%; border-collapse: collapse; border: 1pt solid #000; }
+  table.main-table th { border: 0.5pt solid #888; text-align: center;
+                        font-size: 5pt; font-weight: bold; padding: 0.3mm 0; }
+  table.main-table td { border: 0.5pt solid #ccc; text-align: center;
+                        font-size: 5.5pt; padding: 0.25mm 0; }
+  .td-num { font-weight: bold; font-size: 6pt; }
+  .sep { background: #333; border: none; }
+  .venta { font-weight: bold; }
+  .mes-otro { color: #555; font-weight: bold; }
+  .mes-actual { background: #f8d7da; color: #c00; font-weight: bold; }
+  .num-baja { background: #ffd6d6; color: #c00; }
+  .td-baja { background: #fff4f4; color: #c00; font-size: 5pt; }
+  .td-paso { background: #eef4ff; color: #0d5bbd; font-size: 4.5pt; }
+
+  table.res-table { width: 100%; border-collapse: collapse; border: 1pt solid #000;
+                    margin-top: 2mm; }
+  table.res-table th { background: #dc3545; color: #fff; border: 0.5pt solid #000;
+                       font-size: 5.5pt; padding: 0.5mm 0.5mm; text-align: center; }
+  table.res-table td { border: 0.5pt solid #999; font-size: 6pt;
+                       padding: 0.45mm 0.5mm; text-align: center; }
+  .td-mes { background: #dc3545; color: #fff; font-weight: bold; text-align: left;
+            padding-left: 1.5mm; }
+  .num { text-align: right; padding-right: 1.5mm; }
+  .fila-tot td { background: #222; color: #fff; font-weight: bold; }
+  .pie { font-size: 6pt; color: #555; margin-top: 1mm; }
+</style>
+</head>
+<body>
+
+{# Anchos: N° = 5.4% cada uno (3), separadores 1.2% (2), el resto repartido
+   entre las 3 × num_cuotas celdas de cuota. #}
+{% set nq = cuota_nums | length %}
+{% set wq = (100.0 - (3 * 5.4) - (2 * 1.2)) / (3 * nq) %}
+
+<table class="doc-header">
+  <tr>
+    <td width="34%"><span class="hd-label">INSTITUCIÓN</span><br>
+        <span class="hd-val">Bomberos Voluntarios CDELU</span></td>
+    <td width="13%"><span class="hd-label">AÑO</span><br>
+        <span class="hd-val">2026-2027</span></td>
+    <td width="15%"><span class="hd-label">ENTREGA</span><br>
+        <span class="hd-val">{{ mes_nombre }} {{ anio }}</span></td>
+    <td width="26%"><span class="hd-label">COBRADOR</span><br>
+        <span class="hd-val">{{ cobrador.nombre }}</span></td>
+    <td width="12%" align="center"><span class="hd-p">{{ planilla_label }}</span></td>
+  </tr>
+  <tr>
+    <td colspan="5" align="center" style="font-size:8pt; font-weight:bold;">
+      Concepción del Uruguay — Entre Ríos
+    </td>
+  </tr>
+</table>
+
+<table class="main-table">
+  <tr>
+    <th class="td-num" width="5.4%"{% if col1_color %} style="background-color:{{ col1_color }};"{% endif %}>{{ col1_label }}</th>
+    {% for n in cuota_nums %}<th width="{{ "%.3f"|format(wq) }}%"{% if col1_color %} style="background-color:{{ col1_color }};"{% endif %}>{{ n }}</th>{% endfor %}
+    <th class="sep" width="1.2%"></th>
+    <th class="td-num" width="5.4%"{% if col2_color %} style="background-color:{{ col2_color }};"{% endif %}>{{ col2_label }}</th>
+    {% for n in cuota_nums %}<th width="{{ "%.3f"|format(wq) }}%"{% if col2_color %} style="background-color:{{ col2_color }};"{% endif %}>{{ n }}</th>{% endfor %}
+    <th class="sep" width="1.2%"></th>
+    <th class="td-num" width="5.4%"{% if col3_color %} style="background-color:{{ col3_color }};"{% endif %}>{{ col3_label }}</th>
+    {% for n in cuota_nums %}<th width="{{ "%.3f"|format(wq) }}%"{% if col3_color %} style="background-color:{{ col3_color }};"{% endif %}>{{ n }}</th>{% endfor %}
+  </tr>
+
+  {%- macro celda(b) -%}
+    {% if b is mapping %}
+      <td class="td-num" style="background-color:{{ b.color }};"><b>{{ b.pata }}</b></td>
+      {% for n in cuota_nums %}<td style="background-color:{{ b.color }};"></td>{% endfor %}
+    {% elif b %}
+      {% set ant = b.cuotas_anticipadas if b.cuotas_anticipadas else 1 %}
+      {% set hist = historial_map.get(b.id, {}) %}
+      {% set _bm = b.mes_baja %}
+      {% set _bd = (b.cuotas_pagadas or ant) + 1 %}
+      {% set _bh = b.cuotas_pactadas or nq %}
+      {% set _bmid = ((_bd + _bh) // 2) %}
+      {% set _pa = paso_map.get(b.id) if paso_map else None %}
+      {% set _pc = (_pa.cuota if _pa else 0) %}
+      {% set _pmid = (((_pc + 1) + _bh) // 2) %}
+      <td class="td-num{% if _bm %} num-baja{% endif %}">{{ "%04d"|format(b.numero_principal) }}</td>
+      {% for n in cuota_nums %}
+        {% set hmes = hist.get(n | string, 0) %}
+        {% if _bm and _bd <= _bh and n >= _bd and n <= _bh %}
+          <td class="td-baja">{% if n == _bmid %}{{ "%02d"|format(_bm) }}{% endif %}</td>
+        {% elif n <= ant %}
+          <td class="venta">X</td>
+        {% elif _pa and n > _pc and n <= _bh %}
+          <td class="td-paso">{% if n == _pmid %}PASÓ{% endif %}</td>
+        {% elif hmes %}
+          <td class="{% if n in hist_act.get(b.id, []) %}mes-actual{% else %}mes-otro{% endif %}">{{ hmes }}</td>
+        {% else %}
+          <td></td>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <td class="td-num">&nbsp;</td>{% for n in cuota_nums %}<td></td>{% endfor %}
+    {% endif %}
+  {%- endmacro -%}
+
+  {% for b1, b2, b3 in rows %}
+  <tr>
+    {{ celda(b1) }}
+    <td class="sep"></td>
+    {{ celda(b2) }}
+    <td class="sep"></td>
+    {{ celda(b3) }}
+  </tr>
+  {% endfor %}
+</table>
+
+<table class="res-table">
+  <tr>
+    {# Sin anchos explícitos: xhtml2pdf reparte mal los % y los mm en esta
+       tabla; dejándolo auto, dimensiona por el contenido más ancho de cada
+       columna, que es lo que se quiere acá. #}
+    <th style="text-align:left; padding-left:1.5mm;">MES</th>
+    <th>COL. 1</th>
+    <th>COL. 2</th>
+    <th>COL. 3</th>
+    <th>TOTAL</th>
+    <th>DINERO TC.</th>
+    <th>COMISIÓN</th>
+    <th>NETO</th>
+  </tr>
+  {% for r in resumen_rows %}
+  <tr>
+    <td class="td-mes">{{ r.nombre }} ({{ r.num }})</td>
+    <td>{% if r.c1 %}{{ r.c1 | fmtcuota }}{% else %}&nbsp;{% endif %}</td>
+    <td>{% if r.c2 %}{{ r.c2 | fmtcuota }}{% else %}&nbsp;{% endif %}</td>
+    <td>{% if r.c3 %}{{ r.c3 | fmtcuota }}{% else %}&nbsp;{% endif %}</td>
+    <td>{% if r.tot %}<b>{{ r.tot | fmtcuota }}</b>{% else %}&nbsp;{% endif %}</td>
+    <td class="num">{% if r.tot %}{{ r.dinero | pesos }}{% else %}&nbsp;{% endif %}</td>
+    <td class="num">{% if r.tot %}{{ r.comision | pesos }}{% else %}&nbsp;{% endif %}</td>
+    <td class="num">{% if r.tot %}<b>{{ r.neto | pesos }}</b>{% else %}&nbsp;{% endif %}</td>
+  </tr>
+  {% endfor %}
+  {% if resumen_totales and resumen_totales.tot %}
+  <tr class="fila-tot">
+    <td class="td-mes" style="background-color:#222222;">TOTAL</td>
+    <td>{{ resumen_totales.c1 | fmtcuota }}</td>
+    <td>{{ resumen_totales.c2 | fmtcuota }}</td>
+    <td>{{ resumen_totales.c3 | fmtcuota }}</td>
+    <td>{{ resumen_totales.tot | fmtcuota }}</td>
+    <td class="num">{{ resumen_totales.dinero | pesos }}</td>
+    <td class="num">{{ resumen_totales.comision | pesos }}</td>
+    <td class="num">{{ resumen_totales.neto | pesos }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<div class="pie">
+  Comisión cobrador: <b>{{ (comision_pct or 0) | round(1) }}%</b> &nbsp;·&nbsp;
+  Valor cuota: <b>{{ valor_cuota | pesos }}</b> &nbsp;·&nbsp;
+  Emitido el {{ hoy }}
+</div>
+
+</body>
+</html>

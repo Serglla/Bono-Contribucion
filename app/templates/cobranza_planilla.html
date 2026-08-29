@@ -25,6 +25,7 @@
     }
     .btn-back  { background: #555; color: #fff; }
     .btn-print { background: #c00; color: #fff; font-weight: 700; }
+    .btn-pdf   { background: #333; color: #fff; font-weight: 700; }
     .toolbar-info { color: #bbb; font-size: 11px; margin-left: 6px; }
 
     /* ── Hoja A4 ── */
@@ -241,6 +242,10 @@
      linkea manda ?volver=<ruta>; si no viene, se cae al destino de siempre. #}
   {% if not embed %}<a href="{{ volver_seguro(request.query_params.get('volver'), '/cobranza/?mes=' ~ mes ~ '&anio=' ~ anio) }}" class="btn-back">← Volver</a>{% endif %}
   <button onclick="window.print()" class="btn-print">🖨 Imprimir</button>
+  {# Descarga directa de ESTA planilla en PDF (A4, mismo contenido que la hoja).
+     Solo si la planilla existe: la vista previa sin armar no tiene id. #}
+  {% if planilla %}<a href="/cobranza/planilla/{{ planilla.id }}/pdf" class="btn-pdf"
+     target="_blank" rel="noopener">⬇ PDF</a>{% endif %}
   {% if planilla %}
   {# target="_top": liquidar es una pantalla completa del sistema. Si se abre
      dentro del iframe del modal queda la app anidada y al cerrar el modal la

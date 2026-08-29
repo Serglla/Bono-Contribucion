@@ -1573,11 +1573,22 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     else:
         # Después de la última planilla viene la hoja resumen del mes.
         _siguiente = {"tipo": "resumen", "destino": "resumen", "label": "Hoja resumen"}
+    # Selector de hojas: P1, P2, P3 … + la hoja del mes. Cada chip guarda y
+    # salta (mismo camino que las flechas: modo "ir" + destino).
+    _pend = {c["id"]: c["pendiente"] for c in cola}
+    hojas_sel = [
+        {"destino": str(p.id), "label": f"P{p.numero}",
+         "activa": p.id == planilla_id, "pendiente": bool(_pend.get(p.id))}
+        for p in planillas_cob
+    ]
+    hojas_sel.append({"destino": "resumen", "label": "Hoja del mes",
+                      "activa": False, "pendiente": False})
     nav_hojas = {
         "pos": _idx + 1,
         "total": len(_ids) + 1,          # +1 por la hoja resumen
         "anterior": _anterior,
         "siguiente": _siguiente,
+        "hojas": hojas_sel,
     }
 
     entregas_mes = []
@@ -2764,6 +2775,84 @@ async def consolidado_hoja_pdf(request: Request, cobrador_id: int,
         raise HTTPException(500, "No se pudo generar el PDF de la hoja de liquidación")
     nombre = (f"liquidacion_{cobrador.nombre}_{MESES[mes - 1].lower()}_{anio}.pdf"
               .replace(" ", "_"))
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
+
+
+@router.get("/planilla/{planilla_id}/pdf")
+async def planilla_pdf(request: Request, planilla_id: int,
+                       db: Session = Depends(get_db)):
+    """La planilla en PDF (hoja A4), para archivar o mandar por WhatsApp.
+
+    Misma información que la vista de impresión (`planilla_ver` +
+    cobranza_planilla.html) pero con el CSS acotado que entiende xhtml2pdf:
+    anchos en el <th> de la primera fila, sin flex y sin mm en el resumen.
+    Si cambia el armado de la grilla allá, hay que reflejarlo acá."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+
+    planilla_obj = db.query(models.Planilla).get(planilla_id)
+    if not planilla_obj:
+        raise HTTPException(404)
+    cobrador = db.query(models.Cobrador).get(planilla_obj.cobrador_id)
+
+    # Las boletas de la planilla + las que salieron de ella (con la línea
+    # "PASÓ A ..."), igual que en la vista de impresión.
+    boletas = (db.query(models.Boleta)
+               .filter(or_(models.Boleta.planilla_id == planilla_id,
+                           models.Boleta.paso_origen_planilla_id == planilla_id))
+               .join(models.Comprador, isouter=True)
+               .order_by(models.Boleta.numero_principal)
+               .all())
+
+    _grid = _armar_grid_patas(boletas)
+    historial_map, hist_act = _hist_maps_display(boletas)
+    paso_map = _build_paso_map(boletas, planilla_id)
+
+    num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
+    num_cuotas = max(num_cuotas, 10)
+    meses_campana = _meses_campana_desde(
+        planilla_obj.mes, _meses_con_cobros(boletas, paso_map), planilla_obj.anio)
+
+    comision_pct = float(planilla_obj.comision_pct
+                         or (cobrador.comision_pct if cobrador else 0) or 0)
+    resumen_rows, resumen_totales, valor_cuota = _resumen_mensual_rows(
+        boletas, _grid, meses_campana, comision_pct, paso_map)
+
+    col1_label, col2_label, col3_label = _grid["labels"]
+    col1_color, col2_color, col3_color = _grid["colors"]
+
+    html = templates.get_template("cobranza_planilla_pdf.html").render(
+        request=request,
+        cobrador=cobrador,
+        planilla=planilla_obj,
+        planilla_label=f"P{planilla_obj.numero}",
+        mes_nombre=MESES[planilla_obj.mes - 1],
+        anio=planilla_obj.anio,
+        cuota_nums=list(range(1, num_cuotas + 1)),
+        rows=_grid["rows"],
+        historial_map=historial_map,
+        hist_act=hist_act,
+        paso_map=paso_map,
+        col1_label=col1_label, col2_label=col2_label, col3_label=col3_label,
+        col1_color=col1_color, col2_color=col2_color, col3_color=col3_color,
+        resumen_rows=resumen_rows,
+        resumen_totales=resumen_totales,
+        valor_cuota=valor_cuota,
+        comision_pct=comision_pct,
+        hoy=hoy_ar().strftime("%d/%m/%Y"),
+    )
+    buf = BytesIO()
+    if pisa.CreatePDF(html, dest=buf, encoding="utf-8").err:
+        raise HTTPException(500, "No se pudo generar el PDF de la planilla")
+    nombre = (f"planilla_P{planilla_obj.numero}"
+              f"_{cobrador.nombre if cobrador else ''}"
+              f"_{MESES[planilla_obj.mes - 1].lower()}_{planilla_obj.anio}.pdf"
+              ).replace(" ", "_")
     return Response(
         content=buf.getvalue(),
         media_type="application/pdf",

@@ -2,6 +2,11 @@
 {% block title %}Liquidar Planilla{% endblock %}
 {% block content %}
 
+{# Número de planilla en grande, en el margen izquierdo. Es una ayuda visual
+   para saber en qué hoja estás mientras cargás: NO sale impreso ni en el PDF,
+   y se esconde en pantallas angostas para no taparse con la grilla. #}
+<div class="lq-pgrande d-print-none" aria-hidden="true">P{{ planilla.numero }}</div>
+
 <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
   <a href="/cobranza/"
      class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
@@ -279,6 +284,13 @@
     <button type="button" class="btn btn-outline-secondary" onclick="imprimirLiquidacion()">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
+    {# Exporta ESTA planilla (grilla + resumen) a un PDF A4. Descarga directa,
+       no pasa por el diálogo de impresión del navegador. #}
+    <a class="btn btn-outline-dark" href="/cobranza/planilla/{{ planilla.id }}/pdf"
+       target="_blank" rel="noopener"
+       title="Descargar la planilla P{{ planilla.numero }} en PDF">
+      <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+    </a>
 
     <div class="d-flex align-items-center gap-2 ms-2">
       {% if nav_hojas and nav_hojas.anterior %}
@@ -311,6 +323,28 @@
       Hoja <strong>{{ nav_hojas.pos }}</strong> de {{ nav_hojas.total }}
       {% if nav_hojas.siguiente %}· sigue <strong>{{ nav_hojas.siguiente.label }}</strong>{% endif %}
     </span>
+    {% endif %}
+
+    {# Selector directo de hoja: P1, P2, P3 … y la hoja del mes. Igual que las
+       flechas, GUARDA antes de saltar (modo "ir" + destino), así no se pierde
+       lo marcado. El punto naranja marca las que todavía tienen pendientes en
+       el período que se está liquidando. #}
+    {% if nav_hojas and nav_hojas.hojas and nav_hojas.hojas | length > 1 %}
+    <div class="w-100 d-flex justify-content-center align-items-center gap-1 flex-wrap mt-2 d-print-none">
+      <span class="text-muted small me-1">Ir a:</span>
+      {% for h in nav_hojas.hojas %}
+        {% if h.activa %}
+        <button type="button" class="btn btn-sm btn-danger px-2 fw-bold" disabled
+                title="Estás en esta hoja">{{ h.label }}</button>
+        {% else %}
+        <button type="button" class="btn btn-sm btn-outline-danger px-2 btn-guardar-liq"
+                onclick="guardarLiquidacion('ir', '{{ h.destino }}')"
+                title="Guardar y pasar a {{ h.label }}{% if h.pendiente %} (tiene cuotas sin liquidar){% endif %}">
+          {{ h.label }}{% if h.pendiente %} <span style="color:#fd7e14;">&bull;</span>{% endif %}
+        </button>
+        {% endif %}
+      {% endfor %}
+    </div>
     {% endif %}
   </div>
   {% else %}
@@ -416,7 +450,26 @@
 {% endif %}
 
 <style>
+  /* Marca grande de la hoja (P1, P2, ...) fijada al margen izquierdo. */
+  .lq-pgrande {
+    position: fixed;
+    left: 10px;
+    top: 150px;
+    z-index: 3;
+    font-size: 3.6rem;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.05em;
+    color: #dc3545;
+    opacity: 0.85;
+    pointer-events: none;
+    user-select: none;
+  }
+  /* En pantallas angostas la grilla usa todo el ancho: la marca estorbaría. */
+  @media (max-width: 1400px) { .lq-pgrande { display: none; } }
+
   @media print {
+    .lq-pgrande { display: none !important; }
     @page { size: A4 portrait; margin: 8mm; }
     html { zoom: 77%; }
 
