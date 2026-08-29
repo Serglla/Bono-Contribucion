@@ -1,10 +1,12 @@
 from fastapi import HTTPException, APIRouter, Depends, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, and_, or_
 from typing import Optional
 from datetime import date, datetime
+from io import BytesIO
 import json
+from xhtml2pdf import pisa
 from .. import models, auth as auth_module
 from ..models import CondicionBoleta
 from ..templates_config import templates
@@ -651,17 +653,10 @@ async def historial_liquidaciones(request: Request, db: Session = Depends(get_db
     })
 
 
-@router.get("/historial-liquidaciones/informe", response_class=HTMLResponse)
-async def historial_liquidaciones_informe(
-    request: Request, tipo: str = "semana", key: str = "",
-    db: Session = Depends(get_db),
-):
-    """Informe imprimible (PDF) de liquidaciones de un período: un mes (tipo=mes,
-    key=YYYY-MM) o una semana (tipo=semana, key=YYYY-MM-DD del lunes)."""
-    user = await auth_module.require_user(request, db)
-    if not auth_module.has_permission(user, "vendedores", "ver"):
-        raise HTTPException(403, "Sin permiso")
-
+def _informe_datos(db, tipo: str, key: str):
+    """(meses, titulo, subtitulo) del informe de un período: un mes
+    (tipo=mes, key=YYYY-MM) o una semana (tipo=semana, key=YYYY-MM-DD del lunes).
+    Lo comparten el informe imprimible y el PDF, para que no se desfasen."""
     from datetime import timedelta as _td, date as _date
     nombres = {v.id: v.nombre for v in db.query(models.Vendedor).all()}
     liqs = db.query(models.LiquidacionVendedor).all()
@@ -686,11 +681,57 @@ async def historial_liquidaciones_informe(
         except Exception:
             titulo = key
         subtitulo = "Informe semanal de liquidaciones"
+    return meses, titulo, subtitulo
 
+
+@router.get("/historial-liquidaciones/informe", response_class=HTMLResponse)
+async def historial_liquidaciones_informe(
+    request: Request, tipo: str = "semana", key: str = "",
+    db: Session = Depends(get_db),
+):
+    """Informe imprimible (PDF) de liquidaciones de un período: un mes (tipo=mes,
+    key=YYYY-MM) o una semana (tipo=semana, key=YYYY-MM-DD del lunes)."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "ver"):
+        raise HTTPException(403, "Sin permiso")
+
+    meses, titulo, subtitulo = _informe_datos(db, tipo, key)
     return templates.TemplateResponse(request, "liquidaciones_informe.html", {
         "user": user, "meses": meses, "tipo": tipo,
         "titulo": titulo, "subtitulo": subtitulo,
     })
+
+
+@router.get("/historial-liquidaciones/informe.pdf")
+async def historial_liquidaciones_informe_pdf(
+    request: Request, tipo: str = "semana", key: str = "",
+    db: Session = Depends(get_db),
+):
+    """El mismo informe en PDF, para compartirlo (WhatsApp, mail) desde el
+    botón Compartir del historial. Contenido idéntico al imprimible, con el
+    CSS acotado que entiende xhtml2pdf."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "ver"):
+        raise HTTPException(403, "Sin permiso")
+
+    meses, titulo, subtitulo = _informe_datos(db, tipo, key)
+    html = templates.get_template("liquidaciones_informe_pdf.html").render(
+        request=request, meses=meses, tipo=tipo,
+        titulo=titulo, subtitulo=subtitulo,
+        hoy=hoy_ar().strftime("%d/%m/%Y"),
+    )
+    buf = BytesIO()
+    if pisa.CreatePDF(html, dest=buf, encoding="utf-8").err:
+        raise HTTPException(500, "No se pudo generar el PDF del informe")
+    nombre = (f"liquidaciones_{'mes' if tipo == 'mes' else 'semana'}_{key}.pdf"
+              .replace(" ", "_"))
+    # inline: así se puede abrir en una pestaña y además el fetch() del botón
+    # Compartir lo levanta como blob para el menú nativo del celular.
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{nombre}"'},
+    )
 
 
 

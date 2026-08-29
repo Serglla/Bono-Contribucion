@@ -107,7 +107,12 @@
     <div id="mesC{{ mi }}" class="accordion-collapse collapse {% if mes_open %}show{% endif %}"
          aria-labelledby="mesH{{ mi }}">
       <div class="accordion-body">
-        <div class="d-flex justify-content-end mb-2">
+        <div class="d-flex justify-content-end gap-2 mb-2">
+          <button type="button" class="btn btn-sm btn-outline-success"
+                  onclick="compartirInforme(this, '/vendedores/historial-liquidaciones/informe.pdf?tipo=mes&key={{ mes.key }}', 'Liquidaciones {{ mes.label }}')"
+                  title="Genera el informe en PDF y lo manda por WhatsApp, mail, etc.">
+            <i class="bi bi-share me-1"></i>Compartir
+          </button>
           <a class="btn btn-sm btn-outline-danger" target="_blank"
              href="/vendedores/historial-liquidaciones/informe?tipo=mes&key={{ mes.key }}">
             <i class="bi bi-printer me-1"></i>Imprimir informe del mes
@@ -150,7 +155,12 @@
             <div id="semC{{ mi }}_{{ si }}" class="accordion-collapse collapse {% if is_open %}show{% endif %}"
                  aria-labelledby="semH{{ mi }}_{{ si }}">
               <div class="accordion-body p-0">
-                <div class="d-flex justify-content-end p-2">
+                <div class="d-flex justify-content-end gap-2 p-2">
+                  <button type="button" class="btn btn-sm btn-outline-success"
+                          onclick="compartirInforme(this, '/vendedores/historial-liquidaciones/informe.pdf?tipo=semana&key={{ sem.key }}', 'Liquidaciones semana {{ sem.label }}')"
+                          title="Genera el informe en PDF y lo manda por WhatsApp, mail, etc.">
+                    <i class="bi bi-share me-1"></i>Compartir
+                  </button>
                   <a class="btn btn-sm btn-outline-danger" target="_blank"
                      href="/vendedores/historial-liquidaciones/informe?tipo=semana&key={{ sem.key }}">
                     <i class="bi bi-printer me-1"></i>Imprimir informe de la semana
@@ -175,3 +185,48 @@
   </div>
 </div>
 {% endif %}
+
+
+{# ── Compartir informe ────────────────────────────────────────────────────
+   Baja el informe en PDF y lo pasa al menú nativo de compartir del celular
+   (WhatsApp, mail, Drive...). En escritorio ese menú no acepta archivos, así
+   que descarga el PDF y abre WhatsApp Web para adjuntarlo a mano.
+   El guard evita redefinir la función si el partial se incluye dos veces. #}
+<script>
+if (!window.compartirInforme) {
+  window.compartirInforme = async function (btn, url, titulo) {
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Preparando…';
+    try {
+      const resp = await fetch(url, { credentials: 'same-origin' });
+      if (!resp.ok) throw new Error('El servidor respondió ' + resp.status);
+      const blob = await resp.blob();
+      const nombre = (titulo || 'informe').replace(/[^\wáéíóúñÁÉÍÓÚÑ]+/g, '_')
+                       .replace(/^_+|_+$/g, '') + '.pdf';
+      const file = new File([blob], nombre, { type: 'application/pdf' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: titulo, text: titulo });
+      } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = nombre;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        window.open('https://web.whatsapp.com/', '_blank', 'noopener');
+      }
+    } catch (e) {
+      // Cancelar el menú de compartir tira AbortError: no es un error real.
+      if (!e || e.name !== 'AbortError') {
+        alert('No se pudo preparar el informe para compartir.\n' + ((e && e.message) || e));
+      }
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = original;
+    }
+  };
+}
+</script>

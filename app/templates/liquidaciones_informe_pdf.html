@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>{{ subtitulo }} — {{ titulo }}</title>
+<style>
+  /* xhtml2pdf: subconjunto chico de CSS. Sin flex, sin colgroup; las columnas
+     se dimensionan por contenido (los % y mm dan columnas colapsadas acá). */
+  @page { size: A4 portrait; margin: 12mm 10mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 8pt; color: #1a1a1a; }
+  h1 { font-size: 13pt; margin: 0 0 1mm; color: #1a2a4a; }
+  .sub { font-size: 9pt; color: #444; margin: 0 0 1mm; }
+  .meta { font-size: 6.5pt; color: #777; margin: 0 0 4mm; }
+  h2.mes { font-size: 10pt; color: #1a2a4a; margin: 5mm 0 1mm;
+           border-bottom: 1pt solid #1a2a4a; padding-bottom: 0.6mm; }
+  h3.sem { font-size: 8.5pt; color: #333; margin: 4mm 0 1mm; }
+  table { width: 100%; border-collapse: collapse; font-size: 7.5pt; margin-bottom: 2mm; }
+  th, td { border: 0.5pt solid #bbb; padding: 1.1mm 1.5mm; text-align: center; }
+  th { background: #eef1f5; font-size: 7pt; }
+  .left { text-align: left; }
+  .right { text-align: right; }
+  .tot td { background: #f2f5f8; font-weight: bold; }
+  .crudo { color: #888; font-size: 6pt; }
+  table.mes-total th { background: #1a2a4a; color: #fff; }
+  .vacio { color: #888; font-size: 9pt; }
+  .pie { font-size: 6.5pt; color: #777; margin-top: 4mm; }
+</style>
+</head>
+<body>
+
+{% macro tabla(filas, tot, label_total) %}
+<table>
+  <tr>
+    <th class="left">Vendedor</th>
+    <th>Cuotas</th>
+    <th>Contados</th>
+    <th>Total vend.</th>
+    <th>Cuotas extras</th>
+    <th>Total a rendir</th>
+    <th>Liq.</th>
+  </tr>
+  {% for fila in filas %}
+  <tr>
+    <td class="left">{{ fila.nombre }}</td>
+    <td>{{ fila.cuotas_eq | round(0) | int }} <span class="crudo">({{ fila.cuotas_crudo }} bol.)</span></td>
+    <td>{{ fila.contados_eq | round(0) | int }} <span class="crudo">({{ fila.contados_crudo }} bol.)</span></td>
+    <td><b>{{ (fila.cuotas_eq + fila.contados_eq) | round(0) | int }}</b> <span class="crudo">({{ fila.cuotas_crudo + fila.contados_crudo }} bol.)</span></td>
+    <td>{{ fila.extras }}</td>
+    <td class="right">{{ fila.rinde | pesos }}</td>
+    <td>{{ fila.n_liquidaciones }}</td>
+  </tr>
+  {% endfor %}
+  <tr class="tot">
+    <td class="left">{{ label_total }}</td>
+    <td>{{ tot.cuotas_eq | round(0) | int }} <span class="crudo">({{ tot.cuotas_crudo }} bol.)</span></td>
+    <td>{{ tot.contados_eq | round(0) | int }} <span class="crudo">({{ tot.contados_crudo }} bol.)</span></td>
+    <td>{{ (tot.cuotas_eq + tot.contados_eq) | round(0) | int }} <span class="crudo">({{ tot.cuotas_crudo + tot.contados_crudo }} bol.)</span></td>
+    <td>{{ tot.extras }}</td>
+    <td class="right">{{ tot.rinde | pesos }}</td>
+    <td>{{ tot.n_liquidaciones }}</td>
+  </tr>
+</table>
+{% endmacro %}
+
+<h1>{{ titulo }}</h1>
+<div class="sub">{{ subtitulo }}</div>
+<div class="meta">
+  Bomberos Voluntarios CDELU — CUOTAS y CONTADOS ponderados por multiplicador de PATA
+  (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, ...); entre paréntesis, el conteo real de boletas.
+</div>
+
+{% if not meses %}
+<p class="vacio">No hay liquidaciones registradas en este período.</p>
+{% endif %}
+
+{% for mes in meses %}
+  {% if tipo == 'mes' and meses | length > 1 %}<h2 class="mes">{{ mes.label }}</h2>{% endif %}
+
+  {% for sem in mes.semanas %}
+  <h3 class="sem">{% if tipo == 'mes' %}Semana {{ sem.label }} — {% endif %}{{ sem.n_liquidaciones }} liquidación(es) · {{ sem.vendedores | length }} vendedor(es)</h3>
+  {{ tabla(sem.vendedores, {'cuotas_eq': sem.tot_cuotas_eq, 'cuotas_crudo': sem.tot_cuotas_crudo,
+                            'contados_eq': sem.tot_contados_eq, 'contados_crudo': sem.tot_contados_crudo,
+                            'extras': sem.tot_extras, 'rinde': sem.tot_rinde,
+                            'n_liquidaciones': sem.n_liquidaciones}, 'Total semana') }}
+  {% endfor %}
+
+  {% if tipo == 'mes' %}
+  <table class="mes-total">
+    <tr>
+      <th class="left">TOTAL DEL MES — {{ mes.label }}</th>
+      <th>Cuotas</th><th>Contados</th><th>Total vend.</th>
+      <th>Cuotas extras</th><th>Total a rendir</th><th>Liq.</th>
+    </tr>
+    <tr>
+      <td class="left">{{ mes.n_vendedores }} vendedor(es)</td>
+      <td>{{ mes.tot_cuotas_eq | round(0) | int }} <span class="crudo">({{ mes.tot_cuotas_crudo }} bol.)</span></td>
+      <td>{{ mes.tot_contados_eq | round(0) | int }} <span class="crudo">({{ mes.tot_contados_crudo }} bol.)</span></td>
+      <td><b>{{ (mes.tot_cuotas_eq + mes.tot_contados_eq) | round(0) | int }}</b> <span class="crudo">({{ mes.tot_cuotas_crudo + mes.tot_contados_crudo }} bol.)</span></td>
+      <td>{{ mes.tot_extras }}</td>
+      <td class="right">{{ mes.tot_rinde | pesos }}</td>
+      <td>{{ mes.n_liquidaciones }}</td>
+    </tr>
+  </table>
+  {% endif %}
+{% endfor %}
+
+<div class="pie">Emitido el {{ hoy }}</div>
+
+</body>
+</html>
