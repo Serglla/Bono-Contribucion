@@ -41,14 +41,75 @@ MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
 
 _MESES_UPPER = [m.upper() for m in MESES]
 
-def _meses_campana_desde(mes_planilla: int, num_cuotas: int):
-    """Genera la lista de (nombre, num_mes) para la tabla de cuotas.
-    Cuota 1 = mes siguiente al mes de la planilla (ej: planilla Mayo → cuota 1 = Junio)."""
-    inicio = mes_planilla % 12  # 5 → 5 (índice 0-based de Junio)
-    return [
-        (_MESES_UPPER[(inicio + i) % 12], (inicio + i) % 12 + 1)
-        for i in range(num_cuotas)
-    ]
+# Ventana de la campaña de cobranza: JULIO 2026 → JUNIO 2027.
+# La última cuota cobrable cae en el mes del SORTEO FINAL (junio 2027, ver
+# app/cuotas.py). La tabla del resumen NUNCA pasa de ahí.
+CAMPANA_ORDEN = [7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6]
+CAMPANA_INICIO = (2026, 7)
+CAMPANA_FIN = (2027, 6)
+
+
+def _idx_campana(mes, anio=None):
+    """Posición del mes dentro de la ventana de campaña (0 = julio 2026,
+    11 = junio 2027). Con año conocido, lo de antes del inicio se ancla al
+    inicio y lo de después del final al final — así una planilla armada en
+    junio 2026 arranca en JULIO y no en el JUNIO de 2027, que es la última
+    fila. Sin año (historial legacy) se usa el orden de la campaña."""
+    if not mes or mes not in CAMPANA_ORDEN:
+        return 0
+    if anio:
+        if (anio, mes) <= CAMPANA_INICIO:
+            return 0
+        if (anio, mes) >= CAMPANA_FIN:
+            return 11
+    return CAMPANA_ORDEN.index(mes)
+
+
+def _meses_con_cobros(boletas, paso_map=None):
+    """Períodos (anio|None, mes) en los que esta planilla tiene al menos una
+    cuota cobrada. Aplica el mismo corte por `paso_map` que el resumen: de una
+    boleta que PASÓ a otro cobrador solo cuentan las cuotas cobradas ACÁ."""
+    periodos = set()
+    for b in boletas:
+        try:
+            hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+        except (ValueError, TypeError):
+            hist = {}
+        _corte = None
+        if paso_map and b.id in paso_map:
+            _corte = int(paso_map[b.id].get("cuota") or 0)
+        for k, v in hist.items():
+            if _corte is not None:
+                try:
+                    if int(k) > _corte:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            per = parse_periodo(v)
+            if per:
+                periodos.add(per)
+    return periodos
+
+
+def _meses_campana_desde(mes_planilla: int, periodos_con_datos=(), anio_planilla=None):
+    """Filas (nombre, num_mes) del resumen mensual, en orden CRONOLÓGICO de la
+    campaña: desde el primer mes de cobranza de esta planilla hasta JUNIO 2027.
+
+    Por qué (29/08/2026): antes arrancaba en `mes_planilla + 1` y daba la vuelta
+    completa de 12 meses, así que una planilla armada en agosto listaba
+    SEPTIEMBRE … JUNIO + JULIO + AGOSTO, y esas dos últimas filas ya serían de
+    2027. Como el resumen indexa por número de mes (sin año), el cobro de agosto
+    2026 terminaba dibujado en el casillero de agosto 2027, al pie de la tabla, y
+    cada hoja del mismo talonario arrancaba en un mes distinto.
+
+    Ahora el inicio es el período MÁS VIEJO entre la planilla y los meses que ya
+    tienen cobros, así ninguna fila con datos queda afuera, y el final es siempre
+    junio 2027. La cantidad de filas varía por planilla (primera cobranza en
+    julio → 12 filas; en agosto → 11)."""
+    idxs = [_idx_campana(mes_planilla, anio_planilla)]
+    idxs += [_idx_campana(m, a) for a, m in periodos_con_datos]
+    ini = min(idxs) if idxs else 0
+    return [(_MESES_UPPER[m - 1], m) for m in CAMPANA_ORDEN[ini:]]
 
 
 def _pata_valor(boleta) -> float:
@@ -662,10 +723,13 @@ async def index(request: Request, db: Session = Depends(get_db),
         # emplanilladas-liquidadas, sin importar cuándo entró su planilla. Los
         # números de un P3 entregado en junio hundían el % de junio, cuando
         # todavía no estaban en cobranza.
-        # La cobranza de una planilla ARRANCA EL MES SIGUIENTE al de entrega
-        # (mismo criterio que _meses_campana_desde: planilla de mayo → cuota 1
-        # en junio), así que la comparación es ESTRICTA: una planilla entregada
-        # en junio recién suma al denominador de julio.
+        # Acá la cobranza de una planilla ARRANCA EL MES SIGUIENTE al de
+        # entrega, así que la comparación es ESTRICTA: una planilla entregada en
+        # junio recién suma al denominador de julio.
+        # OJO (29/08/2026): el resumen mensual de la planilla ya NO usa este
+        # criterio — arranca en el primer mes con cobros reales (ver
+        # _meses_campana_desde). Si en la práctica una planilla armada en agosto
+        # ya cobra en agosto, este denominador también habría que correrlo.
         _anio_ref = min(_anios_vistos) if _anios_vistos else hoy.year
 
         def _ordp(anio_p, mes_p):
@@ -1392,8 +1456,9 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     #     real ($10.000). No se aplica el 0.67 (regla pedida por el negocio).
     columna_de_boleta, multiplicador_de_boleta, valor_cuota = _columna_mult_valor(boletas, _grid)
 
-    # ── Meses de la campaña (cuota 1 = mes siguiente al mes de la planilla) ──
-    meses_campana = _meses_campana_desde(planilla.mes, num_cuotas)
+    # ── Meses de la campaña (primer mes cobrado → junio 2027) ───────────────
+    meses_campana = _meses_campana_desde(
+        planilla.mes, _meses_con_cobros(boletas, paso_map), planilla.anio)
 
     # ── Resumen inicial por MES CALENDARIO en que se cobró y columna ────────
     # Cada fila del resumen representa el mes (calendario) en que se cobraron
@@ -1853,7 +1918,7 @@ async def planilla_ver(request: Request, planilla_id: int,
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
     num_cuotas = max(num_cuotas, 10)
     cuota_nums = list(range(1, num_cuotas + 1))
-    meses_campana = _meses_campana_desde(mes, num_cuotas)
+    meses_campana = _meses_campana_desde(mes, _meses_con_cobros(boletas, paso_map), anio)
 
     # Resumen mensual REAL (cuotas liquidadas + informe de dinero/comisión/neto
     # mes a mes), para que el preview no muestre la tabla en blanco.
@@ -1946,8 +2011,8 @@ async def planilla(request: Request, cobrador_id: int,
     num_cuotas = max(num_cuotas, 10)
     cuota_nums = list(range(1, num_cuotas + 1))
 
-    # Meses de la campaña (cuota 1 = mes siguiente al mes de la planilla)
-    meses_campana = _meses_campana_desde(mes, num_cuotas)
+    # Meses de la campaña (primer mes cobrado → junio 2027)
+    meses_campana = _meses_campana_desde(mes, _meses_con_cobros(boletas, paso_map), anio)
 
     planilla_label = f"P{planilla_obj.numero}" if planilla_obj else None
 

@@ -50,3 +50,13 @@ backups/
 # backup.bat lleva adentro la contraseña de Postgres de Railway.
 # Si esto se sube a GitHub, la credencial queda publicada.
 backup.bat
+
+# Journals de SQLite (acompañan a *.db, que ya está ignorado)
+*.db-journal
+
+# Informes que generan los scripts operativos (se regeneran al correrlos)
+auditoria_liquidaciones.txt
+asignar_huerfanas.txt
+
+# Cajón de lo que sobra, para revisar y borrar a mano
+_to_delete/
