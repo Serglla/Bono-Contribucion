@@ -261,8 +261,13 @@ async def extracto_mes(
         # Ordenar premios por fecha y posición
         premios.sort(key=lambda p: (p["fecha"], p["posicion"]))
 
-        # Ganadores ordenados alfabéticamente por apellido y nombre
-        ganadores_lista = sorted(ganadores_dict.values(), key=lambda g: g["nombre"])
+        # Ganadores ordenados por importancia del premio y despues alfabetico:
+        # primero los que pegaron mas cifras (4 antes que 3 = premio mayor), y
+        # dentro de cada nivel por apellido y nombre.
+        ganadores_lista = sorted(
+            ganadores_dict.values(),
+            key=lambda g: (-int(g["cifras_match"] or 0), g["nombre"]),
+        )
 
         cifras_label = " Y ".join(str(c) for c in sorted(cifras_set, reverse=True))
 
