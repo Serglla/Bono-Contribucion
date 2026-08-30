@@ -72,6 +72,21 @@
                   <div class="col-md-6">
                     <label class="form-label fw-semibold">Nombre *</label>
                     <input type="text" name="nombre" class="form-control" value="{{ c.nombre }}" required>
+                    <div class="form-text">Como se lo conoce en el sistema (CARO, MABEL...).</div>
+                  </div>
+                  {# Nombre real + tratamiento: solo se usan en el recibo de premio,
+                     que dice "Entregado por la Cobradora Carolina Moyano". #}
+                  <div class="col-md-8">
+                    <label class="form-label">Nombre y apellido (para recibos)</label>
+                    <input type="text" name="nombre_completo" class="form-control"
+                           value="{{ c.nombre_completo or '' }}" placeholder="Ej: Carolina Moyano">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label">Tratamiento</label>
+                    <select name="tratamiento" class="form-select">
+                      <option value="Cobrador" {% if (c.tratamiento or 'Cobrador') == 'Cobrador' %}selected{% endif %}>Cobrador</option>
+                      <option value="Cobradora" {% if c.tratamiento == 'Cobradora' %}selected{% endif %}>Cobradora</option>
+                    </select>
                   </div>
                   <div class="col-md-4">
                     <label class="form-label">Teléfono</label>
@@ -149,6 +164,18 @@
           <div class="col-md-6">
             <label class="form-label fw-semibold">Nombre *</label>
             <input type="text" name="nombre" class="form-control" required autofocus>
+            <div class="form-text">Como se lo conoce en el sistema (CARO, MABEL...).</div>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Nombre y apellido (para recibos)</label>
+            <input type="text" name="nombre_completo" class="form-control" placeholder="Ej: Carolina Moyano">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Tratamiento</label>
+            <select name="tratamiento" class="form-select">
+              <option value="Cobrador">Cobrador</option>
+              <option value="Cobradora">Cobradora</option>
+            </select>
           </div>
           <div class="col-md-4">
             <label class="form-label">Teléfono</label>

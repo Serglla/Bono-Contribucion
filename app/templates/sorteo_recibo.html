@@ -35,7 +35,7 @@
       font-size: 11pt; line-height: 1.5;
     }
     .recibo-hoja .dato { font-weight: bold; }
-    .recibo-hoja .firmas { display: flex; justify-content: center; margin-top: 16mm; }
+    .recibo-hoja .firmas { display: flex; justify-content: center; gap: 12mm; margin-top: 16mm; }
     .recibo-hoja .firma { width: 75mm; text-align: center; }
     .recibo-hoja .firma .linea { border-top: 1px solid #000; margin-bottom: 2mm; }
     .recibo-hoja .firma small { font-size: 9pt; }
@@ -146,21 +146,23 @@
     <div class="cuerpo">
       <p>
         En la ciudad de Concepción del Uruguay, a los {{ fecha_entrega or "____________" }},
-        el/la Sr./Sra. <span class="dato">{{ socio.apellido_nombre if socio else "____________________" }}</span>
-        {% if socio and socio.direccion %}, con domicilio en <span class="dato">{{ socio.direccion }}</span>{% endif %},
+        el/la Sr./Sra. <span class="dato">{{ socio.apellido_nombre if socio else "____________________" }}</span>{% if socio and socio.direccion %},
+        con domicilio en <span class="dato">{{ socio.direccion }}</span>{% endif %},
         declara haber recibido de conformidad de la {{ institucion }} el premio que se detalla a continuación,
         correspondiente al sorteo del Bono Contribución.
       </p>
 
       <div class="premio-box">
-        <div><span class="dato">Premio:</span> {{ premio.descripcion }}{% if premio.clase == "ORDEN" and premio.monto %} (valor ${{ premio.monto|round(0)|int }}){% endif %}</div>
+        <div><span class="dato">Premio:</span> {{ premio.descripcion }}{% if premio.clase == "ORDEN" and premio.monto %} (valor {{ premio.monto | pesos }}){% endif %}</div>
         <div><span class="dato">Sorteo:</span> {{ tipo_label }} del {{ sorteo.fecha.strftime("%d/%m/%Y") }}</div>
         <div><span class="dato">Número favorecido:</span> {{ numero }}</div>
         {% if boleta %}<div><span class="dato">Talonera / Boleta:</span> {{ (boleta.talonera.nombre if boleta.talonera else "—") | replace('PATA ', 'X') }} · {{ "%04d"|format(boleta.numero_principal) }}</div>{% endif %}
+        {% if cobrador %}<div><span class="dato">Entregado por:</span> {{ cobrador.nombre_recibo }}</div>{% endif %}
       </div>
 
       <p>
-        Recibiendo el premio detallado en perfectas condiciones, no teniendo nada más que reclamar
+        Recibiendo el premio detallado en perfectas condiciones{% if entregado_por %}, de manos de
+        {{ entregado_por }}{% endif %}, no teniendo nada más que reclamar
         por ningún concepto a la institución.
       </p>
     </div>
@@ -170,6 +172,10 @@
         <div class="linea">&nbsp;</div>
         <small>Firma del ganador</small><br>
         <small>Aclaración / DNI</small>
+      </div>
+      <div class="firma">
+        <div class="linea">&nbsp;</div>
+        <small>{{ ("Firma de " ~ cobrador.nombre_recibo) if cobrador else "Firma de quien entrega" }}</small>
       </div>
     </div>
   </div>

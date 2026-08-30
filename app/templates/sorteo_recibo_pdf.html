@@ -1,11 +1,16 @@
-{# Recibo de entrega de premio — versión para PDF (xhtml2pdf / pisa).
+{# Recibo(s) de entrega de premio — versión para PDF (xhtml2pdf / pisa).
+
+   Sirve para UNO o para MUCHOS: siempre recibe `recibos`, una lista de contextos
+   armados por `_ctx_recibo()`. El botón de un recibo suelto manda una lista de
+   uno; el botón "Recibos del cobrador" manda todos los de ese cobrador, uno por
+   hoja. Así el texto legal vive en un solo lugar de este lado.
 
    Es un gemelo de sorteo_recibo.html SIN toolbar, sin Bootstrap y sin JS:
    pisa no ejecuta scripts ni entiende hojas de estilo externas, así que todo el
    CSS va inline y acotado a lo que soporta (nada de flex ni grid).
-   Se usa para el botón "PDF / Compartir" — el cobrador lo recibe por WhatsApp.
 
-   OJO: si cambia el texto legal del recibo, hay que tocarlo en LOS DOS archivos.
+   OJO: si cambia el texto legal del recibo, hay que tocarlo en LOS DOS archivos
+   (este y sorteo_recibo.html).
 
    Notas de pisa (11/08/2026) — por qué el PDF salía distinto a la pantalla:
    · Un <div> con borde que contiene varios <div> hijos se dibuja como UN RECUADRO
@@ -37,22 +42,23 @@
        espaciador vacío, y el ancho de la línea se fija con el atributo
        HTML `width` de la tabla (el `width` CSS tampoco se respeta). */
     .espaciador { font-size: 11pt; line-height: 1.4; }
-    .firmas { text-align: center; }
     .linea { border-top: 1px solid #000; font-size: 1pt; line-height: 1pt; }
     small { font-size: 9pt; }
   </style>
 </head>
 <body>
-  <div class="inst">{{ institucion }}</div>
+{% for r in recibos %}
+<div{% if not loop.first %} style="page-break-before: always;"{% endif %}>
+  <div class="inst">{{ r.institucion }}</div>
   <div class="sub">Bono Contribución 2026 – 2027</div>
   <h1>RECIBO DE ENTREGA DE PREMIO</h1>
 
   <div class="cuerpo">
     <p>
-      En la ciudad de Concepción del Uruguay, a los {{ fecha_entrega or "____________" }},
-      el/la Sr./Sra. <span class="dato">{{ socio.apellido_nombre if socio else "____________________" }}</span>
-      {% if socio and socio.direccion %}, con domicilio en <span class="dato">{{ socio.direccion }}</span>{% endif %},
-      declara haber recibido de conformidad de la {{ institucion }} el premio que se detalla a continuación,
+      En la ciudad de Concepción del Uruguay, a los {{ r.fecha_entrega or "____________" }},
+      el/la Sr./Sra. <span class="dato">{{ r.socio.apellido_nombre if r.socio else "____________________" }}</span>{% if r.socio and r.socio.direccion %},
+      con domicilio en <span class="dato">{{ r.socio.direccion }}</span>{% endif %},
+      declara haber recibido de conformidad de la {{ r.institucion }} el premio que se detalla a continuación,
       correspondiente al sorteo del Bono Contribución.
     </p>
 
@@ -60,30 +66,46 @@
     <table class="premio-tabla" cellpadding="0" cellspacing="0">
       <tr>
         <td class="premio-celda">
-          <span class="dato">Premio:</span> {{ premio.descripcion }}{% if premio.clase == "ORDEN" and premio.monto %} (valor ${{ premio.monto|round(0)|int }}){% endif %}<br>
-          <span class="dato">Sorteo:</span> {{ tipo_label }} del {{ sorteo.fecha.strftime("%d/%m/%Y") }}<br>
-          <span class="dato">Número favorecido:</span> {{ numero }}{% if boleta %}<br>
-          <span class="dato">Talonera / Boleta:</span> {{ (boleta.talonera.nombre if boleta.talonera else "—") | replace('PATA ', 'X') }} · {{ "%04d"|format(boleta.numero_principal) }}{% endif %}
+          <span class="dato">Premio:</span> {{ r.premio.descripcion }}{% if r.premio.clase == "ORDEN" and r.premio.monto %} (valor {{ r.premio.monto | pesos }}){% endif %}<br>
+          <span class="dato">Sorteo:</span> {{ r.tipo_label }} del {{ r.sorteo.fecha.strftime("%d/%m/%Y") }}<br>
+          <span class="dato">Número favorecido:</span> {{ r.numero }}{% if r.boleta %}<br>
+          <span class="dato">Talonera / Boleta:</span> {{ (r.boleta.talonera.nombre if r.boleta.talonera else "—") | replace('PATA ', 'X') }} · {{ "%04d"|format(r.boleta.numero_principal) }}{% endif %}{% if r.cobrador %}<br>
+          <span class="dato">Entregado por:</span> {{ r.cobrador.nombre_recibo }}{% endif %}
         </td>
       </tr>
     </table>
 
     <p>
-      Recibiendo el premio detallado en perfectas condiciones, no teniendo nada más que reclamar
+      Recibiendo el premio detallado en perfectas condiciones{% if r.entregado_por %}, de manos de
+      {{ r.entregado_por }}{% endif %}, no teniendo nada más que reclamar
       por ningún concepto a la institución.
     </p>
   </div>
 
   <div class="espaciador">&nbsp;<br>&nbsp;</div>
 
-  <div class="firmas">
-    {# 75mm ≈ 213pt #}
-    <table width="213" cellpadding="0" cellspacing="0" align="center">
-      <tr><td class="linea">&nbsp;</td></tr>
-      <tr><td>&nbsp;</td></tr>
-      <tr><td align="center"><small>Firma del ganador</small></td></tr>
-      <tr><td align="center"><small>Aclaración / DNI</small></td></tr>
-    </table>
-  </div>
+  {# Dos firmas lado a lado: el ganador que recibe y el cobrador que entrega.
+     Va en una tabla de 2 columnas porque pisa no soporta flex. La del medio es
+     solo separación. #}
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      <td width="45%" class="linea">&nbsp;</td>
+      <td width="10%">&nbsp;</td>
+      <td width="45%" class="linea">&nbsp;</td>
+    </tr>
+    <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    <tr>
+      <td align="center"><small>Firma del ganador</small></td>
+      <td>&nbsp;</td>
+      <td align="center"><small>{{ ("Firma de " ~ r.cobrador.nombre_recibo) if r.cobrador else "Firma de quien entrega" }}</small></td>
+    </tr>
+    <tr>
+      <td align="center"><small>Aclaración / DNI</small></td>
+      <td>&nbsp;</td>
+      <td>&nbsp;</td>
+    </tr>
+  </table>
+</div>
+{% endfor %}
 </body>
 </html>

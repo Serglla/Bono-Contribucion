@@ -60,6 +60,8 @@ def _actualizar_zonas(cobrador_id: int, zona_ids: List[int], db: Session):
 async def crear(
     request: Request,
     nombre: str = Form(...),
+    nombre_completo: str = Form(""),
+    tratamiento: str = Form("Cobrador"),
     telefono: str = Form(""),
     comision_pct: float = Form(10.0),
     db: Session = Depends(get_db)
@@ -70,7 +72,10 @@ async def crear(
     form_data = await request.form()
     zona_ids = [int(v) for v in form_data.getlist("zona_ids") if v]
     c = models.Cobrador(nombre=nombre.strip().upper(), telefono=telefono.strip() or None,
-                        comision_pct=comision_pct)
+                        comision_pct=comision_pct,
+                        # Para el recibo de premio: nombre real + como nombrarlo
+                        nombre_completo=nombre_completo.strip() or None,
+                        tratamiento=(tratamiento if tratamiento in ("Cobrador", "Cobradora") else "Cobrador"))
     db.add(c)
     db.flush()
     _actualizar_zonas(c.id, zona_ids, db)
@@ -94,6 +99,8 @@ async def toggle(cid: int, request: Request, db: Session = Depends(get_db)):
 async def editar(
     cid: int, request: Request,
     nombre: str = Form(...),
+    nombre_completo: str = Form(""),
+    tratamiento: str = Form("Cobrador"),
     telefono: str = Form(""),
     comision_pct: float = Form(10.0),
     db: Session = Depends(get_db)
@@ -106,6 +113,8 @@ async def editar(
     c = db.query(models.Cobrador).get(cid)
     if c:
         c.nombre = nombre.strip().upper()
+        c.nombre_completo = nombre_completo.strip() or None
+        c.tratamiento = tratamiento if tratamiento in ("Cobrador", "Cobradora") else "Cobrador"
         c.telefono = telefono.strip() or None
         c.comision_pct = comision_pct
         _actualizar_zonas(cid, zona_ids, db)

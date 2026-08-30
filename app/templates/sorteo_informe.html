@@ -29,6 +29,29 @@
   </div>
 </div>
 
+
+{# Recibos por cobrador (30/08/2026): un PDF por cobrador con todos los recibos
+   de sus ganadores, uno por hoja, para mandarselo por WhatsApp. Solo aparecen
+   los cobradores que tienen ganadores HABILITADOS con premio asignado. #}
+{% if recibos_por_cobrador %}
+<div class="card border-0 shadow-sm mb-3 d-print-none">
+  <div class="card-body py-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span class="fw-semibold small">
+        <i class="bi bi-file-earmark-person me-1"></i>Recibos por cobrador:
+      </span>
+      {% for g in recibos_por_cobrador %}
+      <a href="/sorteos/recibos/{{ year }}/{{ month }}/{{ g.cobrador_id }}/pdf" class="btn btn-sm btn-outline-dark"
+         title="Todos los recibos de {{ g.nombre }} en un PDF">
+        {{ g.nombre }}
+        <span class="badge bg-dark ms-1">{{ g.entregas|length }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if vacio %}
   <div class="alert alert-warning d-print-none">
     <i class="bi bi-exclamation-triangle me-2"></i>

@@ -638,6 +638,27 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion num_digitos taloneras: {e}")
 
+        # Migrar nombre_completo / tratamiento en cobradores (30/08/2026).
+        # Para los recibos de premio: "Entregado por la Cobradora Carolina Moyano".
+        # El `nombre` de siempre es el apodo (CARO, MABEL) y se sigue usando en
+        # todo el resto del sistema.
+        try:
+            _dialect = engine.dialect.name
+            if _dialect == "postgresql":
+                db.execute(text("ALTER TABLE cobradores ADD COLUMN IF NOT EXISTS nombre_completo VARCHAR"))
+                db.execute(text("ALTER TABLE cobradores ADD COLUMN IF NOT EXISTS tratamiento VARCHAR DEFAULT 'Cobrador'"))
+            else:
+                cols_cob = [c["name"] for c in inspector.get_columns("cobradores")]
+                if "nombre_completo" not in cols_cob:
+                    db.execute(text("ALTER TABLE cobradores ADD COLUMN nombre_completo VARCHAR"))
+                if "tratamiento" not in cols_cob:
+                    db.execute(text("ALTER TABLE cobradores ADD COLUMN tratamiento VARCHAR DEFAULT 'Cobrador'"))
+            db.commit()
+            print("Migracion nombre_completo/tratamiento cobradores: OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion nombre_completo/tratamiento cobradores: {e}")
+
         # Corregir num_digitos para taloneras COMUN: deben ser 4 cifras (0001-9999).
         # El DEFAULT 3 fue incorrecto — solo las taloneras CONTADO usan 3 cifras.
         try:

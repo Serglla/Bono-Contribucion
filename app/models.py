@@ -165,9 +165,27 @@ class Cobrador(Base):
     __tablename__ = "cobradores"
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, unique=True, nullable=False)
+    # Nombre y apellido reales, para los recibos de premio (el `nombre` de arriba
+    # es el apodo con el que se lo conoce en el sistema: CARO, MABEL...).
+    # deferred: la columna puede no existir todavia en la DB al primer SELECT.
+    nombre_completo = deferred(Column(String))
+    # "Cobrador" | "Cobradora" — solo para redactar el recibo en femenino o masculino
+    tratamiento = deferred(Column(String, default="Cobrador"))
     telefono = Column(String)
     activo = Column(Boolean, default=True)
     comision_pct = Column(Float, default=10.0)
+
+    @property
+    def nombre_recibo(self):
+        """Como se lo nombra en un recibo: 'Cobradora Carolina Moyano'.
+
+        Si todavia no se cargo el nombre completo, cae al apodo para no dejar el
+        recibo en blanco.
+        """
+        trato = (self.tratamiento or "Cobrador").strip()
+        completo = (self.nombre_completo or "").strip()
+        return f"{trato} {completo or self.nombre}"
+
     zona_cobradores = relationship(
         "ZonaCobrador", back_populates="cobrador", cascade="all, delete-orphan"
     )

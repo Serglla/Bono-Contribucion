@@ -482,6 +482,8 @@ async def informe_mes(
         "bloques": bloques,
         "total_ganadores_mes": total_ganadores_mes,
         "vacio": len(sorteos) == 0,
+        # Un boton por cobrador con todos sus recibos del MES (todos los sorteos)
+        "recibos_por_cobrador": _entregas_de_sorteos(sorteos, db),
     })
 
 
@@ -1407,6 +1409,8 @@ async def entregas_form(sid: int, request: Request, db: Session = Depends(get_db
         "total_candidatos": len(candidatos),
         "con_resultado": bool(s.resultado_json),
         "hoy": date_type.today().isoformat(),
+        # Un boton por cobrador para bajar TODOS sus recibos en un PDF (30/08/2026)
+        "recibos_por_cobrador": _entregas_de_sorteos([s], db),
     })
 
 
@@ -1521,6 +1525,14 @@ def _ctx_recibo(eid: int, db, user):
     s = p.sorteo
     b = e.boleta
     c = b.comprador if b else None
+    # Quien le entrega el premio al socio: el cobrador de la boleta (30/08/2026).
+    # `nombre_recibo` arma "Cobradora Carolina Moyano" y cae al apodo si todavia
+    # no se cargo el nombre completo en el ABM de cobradores.
+    cob = b.cobrador if b else None
+    entregado_por = ""
+    if cob is not None:
+        _art = "la" if (cob.tratamiento or "Cobrador") == "Cobradora" else "el"
+        entregado_por = f"{_art} {cob.nombre_recibo}"
     # No se emite recibo de un ganador NO habilitado para cobrar
     habilitado, hab_motivo, _man = (True, "", False)
     if b is not None:
@@ -1534,11 +1546,111 @@ def _ctx_recibo(eid: int, db, user):
         "tipo_label": _TIPO_LABEL_PLURAL.get(s.tipo.value, s.tipo.value),
         "socio": c,
         "boleta": b,
+        "cobrador": cob,
+        "entregado_por": entregado_por,
         "numero": e.numero_ganador or "",
         "fecha_entrega": e.fecha_entrega.strftime("%d/%m/%Y") if e.fecha_entrega else "",
         "habilitado": habilitado,
         "habilitado_motivo": hab_motivo,
     }
+
+
+def _entregas_de_sorteos(sorteos, db):
+    """Entregas asignadas de esos sorteos, agrupadas por cobrador de la boleta.
+
+    Devuelve [{"cobrador": Cobrador|None, "cobrador_id": int, "nombre": str,
+    "entregas": [EntregaPremio]}] ordenado por nombre. Los ganadores sin cobrador
+    (contado, o boleta sin cobrador asignado) caen en un grupo con id 0 para que
+    su recibo igual se pueda sacar.
+
+    Solo entran los ganadores HABILITADOS: de los otros no se emite recibo.
+    """
+    if not sorteos:
+        return []
+    entregas = (db.query(models.EntregaPremio)
+                .join(models.PremioSorteo,
+                      models.EntregaPremio.premio_id == models.PremioSorteo.id)
+                .filter(models.PremioSorteo.sorteo_id.in_([s.id for s in sorteos]))
+                .all())
+    por_sorteo = {s.id: s for s in sorteos}
+    grupos = {}
+    for e in entregas:
+        b = e.boleta
+        if b is None:
+            continue
+        s = por_sorteo.get(e.premio.sorteo_id)
+        if s is None:
+            continue
+        hab, _m, _man = _boleta_habilitada(b, s, db)
+        if not hab:
+            continue
+        cob = b.cobrador
+        cid = cob.id if cob else 0
+        g = grupos.setdefault(cid, {
+            "cobrador": cob,
+            "cobrador_id": cid,
+            "nombre": cob.nombre if cob else "Sin cobrador",
+            "entregas": [],
+        })
+        g["entregas"].append(e)
+    salida = sorted(grupos.values(), key=lambda g: (g["cobrador_id"] == 0, g["nombre"]))
+    for g in salida:
+        g["entregas"].sort(key=lambda e: (e.premio.sorteo.fecha,
+                                          (e.boleta.comprador.apellido_nombre
+                                           if e.boleta and e.boleta.comprador else "")))
+    return salida
+
+
+def _pdf_recibos(sorteos, cid: int, db, user, request, nombre_archivo: str):
+    """Arma el PDF con todos los recibos de un cobrador para esos sorteos."""
+    grupos = _entregas_de_sorteos(sorteos, db)
+    grupo = next((g for g in grupos if g["cobrador_id"] == cid), None)
+    if grupo is None or not grupo["entregas"]:
+        raise HTTPException(404, "Ese cobrador no tiene recibos para emitir acá")
+    recibos = []
+    for e in grupo["entregas"]:
+        ctx = _ctx_recibo(e.id, db, user)
+        if ctx and ctx["habilitado"]:
+            recibos.append(ctx)
+    if not recibos:
+        raise HTTPException(404, "No hay recibos habilitados para emitir")
+    html = templates.get_template("sorteo_recibo_pdf.html").render(
+        request=request, recibos=recibos)
+    return _pdf_response(html, nombre_archivo, "de los recibos")
+
+
+@router.get("/{sid}/recibos/{cid}/pdf")
+async def recibos_cobrador_sorteo_pdf(sid: int, cid: int, request: Request,
+                                      db: Session = Depends(get_db)):
+    """Todos los recibos de UN cobrador para UN sorteo, uno por hoja."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    s = db.query(models.Sorteo).get(sid)
+    if not s:
+        raise HTTPException(404, "Sorteo no encontrado")
+    cob = db.query(models.Cobrador).get(cid) if cid else None
+    nombre = f"recibos_{(cob.nombre if cob else 'sin_cobrador')}_{s.fecha.strftime('%d-%m-%Y')}.pdf"
+    return _pdf_recibos([s], cid, db, user, request, nombre)
+
+
+@router.get("/recibos/{year}/{month}/{cid}/pdf")
+async def recibos_cobrador_mes_pdf(year: int, month: int, cid: int, request: Request,
+                                   db: Session = Depends(get_db)):
+    """Todos los recibos de UN cobrador para TODOS los sorteos del mes."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'sorteos', 'ver'):
+        raise HTTPException(403, 'No tenés permiso para ver esta sección')
+    if month < 1 or month > 12:
+        raise HTTPException(400, 'Mes inválido')
+    sorteos = db.query(models.Sorteo).filter(
+        models.Sorteo.fecha >= date_type(year, month, 1),
+        models.Sorteo.fecha <= _ultimo_dia_mes(year, month),
+        models.Sorteo.resultado_json.isnot(None),
+    ).order_by(models.Sorteo.fecha.asc()).all()
+    cob = db.query(models.Cobrador).get(cid) if cid else None
+    nombre = f"recibos_{(cob.nombre if cob else 'sin_cobrador')}_{_MESES_ES[month - 1].lower()}_{year}.pdf"
+    return _pdf_recibos(sorteos, cid, db, user, request, nombre)
 
 
 @router.get("/entregas/{eid}/recibo.pdf")
@@ -1557,7 +1669,10 @@ async def entrega_recibo_pdf(eid: int, request: Request, db: Session = Depends(g
     if not ctx["habilitado"]:
         raise HTTPException(400, "El ganador no está habilitado para cobrar: no se emite recibo")
 
-    html = templates.get_template("sorteo_recibo_pdf.html").render(request=request, **ctx)
+    # La plantilla siempre recibe una LISTA de recibos (el lote por cobrador usa
+    # la misma): acá va uno solo.
+    html = templates.get_template("sorteo_recibo_pdf.html").render(
+        request=request, recibos=[ctx])
     buf = BytesIO()
     if pisa.CreatePDF(html, dest=buf, encoding="utf-8").err:
         raise HTTPException(500, "No se pudo generar el PDF del recibo")
@@ -1579,28 +1694,9 @@ async def entrega_recibo(eid: int, request: Request, db: Session = Depends(get_d
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'sorteos', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    e = db.query(models.EntregaPremio).get(eid)
-    if not e:
+    # Usa el MISMO contexto que el PDF (antes lo armaba a mano y las dos copias
+    # se podian desfasar — de hecho el cobrador iba a faltar en una de las dos).
+    ctx = _ctx_recibo(eid, db, user)
+    if ctx is None:
         return RedirectResponse("/sorteos/", status_code=302)
-    p = e.premio
-    s = p.sorteo
-    b = e.boleta
-    c = b.comprador if b else None
-    # No se emite recibo de un ganador NO habilitado para cobrar
-    habilitado, hab_motivo, _man = (True, "", False)
-    if b is not None:
-        habilitado, hab_motivo, _man = _boleta_habilitada(b, s, db)
-    return templates.TemplateResponse(request, "sorteo_recibo.html", {
-        "user": user,
-        "institucion": INSTITUCION_NOMBRE,
-        "entrega": e,
-        "premio": p,
-        "sorteo": s,
-        "tipo_label": _TIPO_LABEL_PLURAL.get(s.tipo.value, s.tipo.value),
-        "socio": c,
-        "boleta": b,
-        "numero": e.numero_ganador or "",
-        "fecha_entrega": e.fecha_entrega.strftime("%d/%m/%Y") if e.fecha_entrega else "",
-        "habilitado": habilitado,
-        "habilitado_motivo": hab_motivo,
-    })
+    return templates.TemplateResponse(request, "sorteo_recibo.html", ctx)
