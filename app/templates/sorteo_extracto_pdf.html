@@ -1,0 +1,106 @@
+{# Extracto del mes — versión para PDF (xhtml2pdf / pisa).
+
+   Es el gemelo de `sorteo_extracto.html` pero sin toolbar, sin JS y sin CSS
+   externo: pisa no ejecuta JavaScript ni baja hojas de estilo, y NO soporta
+   flexbox ni CSS multi-column. Por eso la grilla de copias (Columnas × Filas
+   de la barra de la pantalla) se arma acá con una <table>, que es lo único
+   que pisa maqueta bien.
+
+   Igual que en la impresión del navegador, SOLO salen los ganadores
+   habilitados, y los del nivel de cifras más alto del bloque van en negrita.
+
+   Recibe, además del contexto del extracto: cols, filas, size, multi.
+#}
+{% set ESCALAS = {
+     'sm': {'ganador': '7pt',  'premio': '7pt',   'seccion': '7.5pt', 'tipo': '6.5pt', 'pie': '7.5pt'},
+     'md': {'ganador': '9pt',  'premio': '8.5pt', 'seccion': '9pt',   'tipo': '8.5pt', 'pie': '9pt'},
+     'lg': {'ganador': '11pt', 'premio': '10pt',  'seccion': '11pt',  'tipo': '10.5pt','pie': '11pt'}
+   } %}
+{% set fs = ESCALAS.get(size, ESCALAS['md']) %}
+
+{% macro bloque_extracto(bloque) -%}
+  <div class="cab">
+    <div class="tit">BOMBEROS&nbsp;&nbsp;VOLUNTARIOS</div>
+    <div class="tit">CONCEPCION&nbsp;&nbsp;DEL&nbsp;&nbsp;URUGUAY</div>
+    <div class="sub">TOMBOLA NOCTURNA DE E. RIOS</div>
+    <div class="tipo">EXTRACTO {{ bloque.tipo_label }}</div>
+    <div class="mes">{{ mes_label }} {{ year }}</div>
+    <div class="mes">A {{ bloque.cifras_label }} CIFRAS.</div>
+  </div>
+
+  <div class="premios">
+    {% for p in bloque.premios %}{{ p.fecha.strftime("%d/%m/%y") }} {{ p.posicion }}&deg; PREMIO N&ordm;&nbsp;{{ p.numero }}{% if not loop.last %}&nbsp;&nbsp;&nbsp;{% endif %}{% endfor %}
+  </div>
+
+  <div class="seccion">GANADORES</div>
+
+  {% set habilitados = bloque.ganadores | selectattr('habilitado') | list %}
+  {% if habilitados %}
+    {% for g in habilitados %}
+      <div class="gan{% if bloque.cifras_max and g.cifras_match == bloque.cifras_max %} mayor{% endif %}">{{ g.nombre }}{% if g.direccion %} - {{ g.direccion }}{% endif %}</div>
+    {% endfor %}
+  {% else %}
+    <div class="gan vacio">&mdash; Sin ganadores habilitados en este bloque &mdash;</div>
+  {% endif %}
+
+  <div class="pie">PEDIDOS Y CONSULTAS AL 3442-484286</div>
+{%- endmacro %}
+
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page { size: a4 portrait; margin: 8mm 10mm; }
+    body { font-family: "Times New Roman", Times, serif; color: #000; }
+    /* pisa le mete margen propio a cada div: se anula para que el bloque quede
+       tan compacto como en la hoja de pantalla. */
+    div { margin: 0; padding: 0; }
+
+    /* Grilla de copias: una fila de la tabla = una fila de la barra de opciones */
+    table.grilla { width: 100%; }
+    td.celda { vertical-align: top; padding: 0 2mm 4mm 0; }
+    /* El borde de corte solo cuando hay más de una copia por hoja */
+    td.corte { border: 1px dashed #999; padding: 3mm 3mm 2mm; }
+
+    .cab  { text-align: center; }
+    .tit  { font-weight: bold; font-size: 10pt; line-height: 1.1; }
+    .sub  { font-weight: bold; font-size: 9.5pt; line-height: 1.2; padding-top: 1mm; }
+    .tipo { font-weight: bold; font-size: 8.5pt; line-height: 1.2; padding-top: 1mm; }
+    .mes  { font-weight: bold; font-size: {{ fs.tipo }}; line-height: 1.2; }
+
+    .premios {
+      text-align: center; font-family: Helvetica, Arial, sans-serif;
+      font-size: {{ fs.premio }}; font-weight: bold; line-height: 1.3;
+      padding-top: 3mm; padding-bottom: 1.5mm;
+    }
+    .seccion { font-weight: bold; font-size: {{ fs.seccion }}; text-align: center; padding: 1.5mm 0 1mm; }
+    .gan {
+      text-align: center; font-family: Helvetica, Arial, sans-serif;
+      font-size: {{ fs.ganador }}; font-weight: normal; line-height: 1.25;
+    }
+    .gan.mayor { font-weight: bold; }
+    .gan.vacio { font-style: italic; color: #666; }
+    .pie {
+      font-weight: bold; font-size: {{ fs.pie }}; text-align: center;
+      border-top: 1px solid #888; padding-top: 1.5mm; margin-top: 3mm;
+    }
+  </style>
+</head>
+<body>
+{% for bloque in bloques %}
+  <div{% if not loop.first %} style="page-break-before: always;"{% endif %}>
+    <table class="grilla">
+      {% for _f in range(filas) %}
+      <tr>
+        {% for _c in range(cols) %}
+        <td class="celda{% if multi %} corte{% endif %}" width="{{ (100 / cols) | round(2) }}%">
+          {{ bloque_extracto(bloque) }}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+{% endfor %}
+</body>
+</html>

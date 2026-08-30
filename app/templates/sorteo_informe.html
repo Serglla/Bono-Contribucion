@@ -15,6 +15,14 @@
     <a href="/sorteos/extracto/{{ year }}/{{ month }}" class="btn btn-sm btn-outline-warning">
       <i class="bi bi-file-earmark-text me-1"></i>Ver extracto
     </a>
+    <a href="/sorteos/informe/{{ year }}/{{ month }}/pdf" class="btn btn-sm btn-outline-danger"
+       title="Descargar el informe en PDF">
+      <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+    </a>
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="compartirInforme()"
+            title="Mandar el informe por WhatsApp">
+      <i class="bi bi-share me-1"></i>Compartir
+    </button>
     <button class="btn btn-sm btn-primary" onclick="window.print()">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
@@ -411,6 +419,30 @@
 
   function quitarCifras() {
     document.getElementById('formQuitarCifras').submit();
+  }
+
+  // Compartir: baja el PDF y lo pasa al menu nativo del celular (WhatsApp).
+  // En escritorio no hay navigator.share con archivos -> cae al link de wa.me
+  // con el resumen en texto.
+  async function compartirInforme() {
+    const url = "/sorteos/informe/{{ year }}/{{ month }}/pdf";
+    const nombreArchivo = "informe_sorteos_{{ mes_label|lower }}_{{ year }}.pdf";
+    const titulo = "Informe de sorteos {{ mes_label|title }} {{ year }}";
+    const texto = titulo + " — BOMBEROS VOLUNTARIOS CONCEPCION DEL URUGUAY\n" +
+      {% for b in bloques %}"{{ b.tipo_label }} {{ b.sorteo.fecha.strftime('%d/%m/%Y') }}: {{ b.total_habilitados }} habilitado(s) de {{ b.total_ganadores }} ganador(es)\n" +
+      {% endfor %}"";
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const file = new File([blob], nombreArchivo, { type: "application/pdf" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: titulo, text: texto });
+          return;
+        }
+      }
+    } catch (e) { /* sigue al fallback */ }
+    window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank");
   }
 </script>
 

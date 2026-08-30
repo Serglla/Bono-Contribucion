@@ -1,0 +1,108 @@
+{# Informe del mes — versión para PDF (xhtml2pdf / pisa).
+
+   Gemelo de `sorteo_informe.html` sin toolbar, sin JS y sin los controles de
+   edición (los lápices para habilitar / forzar cifras solo tienen sentido en
+   pantalla). Sale apaisado porque la tabla tiene 10 columnas.
+
+   A diferencia del extracto, acá SÍ salen los NO habilitados con su motivo:
+   el informe es la vista de control, y esa columna es justamente lo que se
+   revisa antes de imprimir el extracto.
+#}
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page { size: a4 landscape; margin: 10mm; }
+    body { font-family: Helvetica, Arial, sans-serif; color: #000; font-size: 7.5pt; }
+
+    .titulo { font-size: 12pt; font-weight: bold; text-align: center; }
+    .subtitulo { font-size: 8.5pt; text-align: center; color: #555; margin-bottom: 4mm; }
+
+    .sorteo-cab {
+      background-color: #eef2f7; border: 1px solid #c9d4e2;
+      padding: 1.5mm 2mm; margin-top: 3mm; font-weight: bold; font-size: 8.5pt;
+    }
+    .sorteo-meta { font-weight: normal; color: #555; font-size: 7.5pt; }
+
+    table.detalle { width: 100%; border-collapse: collapse; margin-top: 1mm; }
+    table.detalle th {
+      background-color: #f2f2f2; border: 1px solid #bbb;
+      padding: 1mm; font-size: 7pt; text-align: left;
+    }
+    table.detalle td { border: 1px solid #ddd; padding: 1mm; font-size: 7.5pt; }
+    td.num { font-family: Courier, monospace; font-weight: bold; }
+    tr.no-hab td { background-color: #fdecea; color: #7a1c12; }
+    .mayor { font-weight: bold; }
+    .motivo { color: #777; font-size: 6.5pt; }
+    .vacio { font-style: italic; color: #777; padding: 2mm; }
+    .pie-bloque { font-size: 7pt; color: #555; text-align: right; padding-top: 1mm; }
+  </style>
+</head>
+<body>
+  <div class="titulo">BOMBEROS VOLUNTARIOS CONCEPCION DEL URUGUAY</div>
+  <div class="subtitulo">
+    Informe de sorteos &middot; {{ mes_label|title }} {{ year }} &middot;
+    {{ bloques|length }} sorteo{% if bloques|length != 1 %}s{% endif %} &middot;
+    {{ total_ganadores_mes }} ganador{% if total_ganadores_mes != 1 %}es{% endif %}
+  </div>
+
+  {% for b in bloques %}
+  <div class="sorteo-cab">
+    {{ b.tipo_label }} &middot; {{ b.sorteo.fecha.strftime("%d/%m/%Y") }}
+    <span class="sorteo-meta">
+      &nbsp;&nbsp;A {{ b.cifras_label }} cifras &nbsp;&middot;&nbsp;
+      Números sorteados: {{ b.numeros_ganadores | join(" · ") }}
+    </span>
+  </div>
+
+  {% if b.ganadores %}
+  <table class="detalle">
+    {# repeat="1": pisa repite esta fila como encabezado en cada pagina nueva #}
+    <tr repeat="1">
+      <th width="4%">#</th>
+      <th width="21%">GANADOR</th>
+      <th width="8%">N&ordm;</th>
+      <th width="7%">CIFRAS</th>
+      <th width="8%">PREMIO</th>
+      <th width="8%">TALONERA</th>
+      <th width="9%">VENDEDOR</th>
+      <th width="10%">COBRADOR</th>
+      <th width="9%">F. VENTA</th>
+      <th width="16%">HABILITADO</th>
+    </tr>
+    {% for g in b.ganadores %}
+    <tr{% if not g.habilitado %} class="no-hab"{% endif %}>
+      <td>{{ loop.index }}</td>
+      <td{% if g.es_mayor %} class="mayor"{% endif %}>{{ g.nombre }}</td>
+      <td class="num">{{ g.numero }}</td>
+      <td>{{ g.cifras_efectivas }} cifras{% if g.cifras_manual %} *{% endif %}</td>
+      <td>{{ g.posicion }}&deg; premio</td>
+      <td>{{ g.talonera or "" }}</td>
+      <td>{{ g.vendedor or "" }}</td>
+      <td>{{ g.cobrador or "" }}</td>
+      <td>{% if g.fecha_venta %}{{ g.fecha_venta.strftime("%d/%m/%Y") if g.fecha_venta.strftime is defined else g.fecha_venta }}{% endif %}</td>
+      <td>
+        {% if g.habilitado %}SÍ{% else %}NO{% endif %}
+        <div class="motivo">{{ g.habilitado_motivo or "" }}</div>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="pie-bloque">
+    {{ b.total_habilitados }} habilitado{% if b.total_habilitados != 1 %}s{% endif %}
+    de {{ b.total_ganadores }} ganador{% if b.total_ganadores != 1 %}es{% endif %} en este sorteo
+  </div>
+  {% else %}
+  <div class="vacio">Sin ganadores en este sorteo.</div>
+  {% endif %}
+  {% endfor %}
+
+  {% if not bloques %}
+  <div class="vacio">No hay sorteos con resultado cargado en {{ mes_label|title }} {{ year }}.</div>
+  {% endif %}
+
+  <div class="subtitulo" style="margin-top:5mm;">
+    * el nivel de cifras fue forzado a mano desde el informe.
+  </div>
+</body>
+</html>

@@ -41,6 +41,14 @@
        title="Gestionar la habilitación de ganadores">
       <i class="bi bi-clipboard-data me-1"></i>Informe / habilitar
     </a>
+    <button type="button" class="btn btn-sm btn-outline-danger" onclick="descargarExtractoPdf()"
+            title="Descargar el extracto en PDF, con las columnas y filas elegidas">
+      <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="compartirExtracto()"
+            title="Mandar el extracto por WhatsApp">
+      <i class="bi bi-share me-1"></i>Compartir
+    </button>
     <button class="btn btn-sm btn-primary" onclick="window.print()">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
@@ -390,6 +398,43 @@
       activar('rows', String(filas));
     });
   })();
+</script>
+
+<script>
+  // PDF / Compartir — el PDF respeta la barra de opciones (Columnas × Filas ×
+  // Tamaño). Se lee del dataset de la hoja, que es lo mismo que se ve en
+  // pantalla y lo que quedo guardado en localStorage.
+  function _extractoPdfUrl() {
+    const hoja = document.getElementById('hojaExtracto');
+    const cols = hoja ? (hoja.dataset.cols || '1') : '1';
+    const filas = hoja ? (hoja.dataset.rows || '1') : '1';
+    const size = hoja ? (hoja.dataset.size || 'md') : 'md';
+    return "/sorteos/extracto/{{ year }}/{{ month }}/pdf?cols=" + cols +
+           "&filas=" + filas + "&size=" + size;
+  }
+
+  function descargarExtractoPdf() {
+    window.open(_extractoPdfUrl(), "_blank");
+  }
+
+  async function compartirExtracto() {
+    const nombreArchivo = "extracto_{{ mes_label|lower }}_{{ year }}.pdf";
+    const titulo = "Extracto {{ mes_label|title }} {{ year }}";
+    const texto = "{{ bloques[0].tipo_label if bloques else 'EXTRACTO' }} · {{ mes_label|title }} {{ year }} — BOMBEROS VOLUNTARIOS CONCEPCION DEL URUGUAY\n" +
+      "Pedidos y consultas al 3442-484286";
+    try {
+      const resp = await fetch(_extractoPdfUrl());
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const file = new File([blob], nombreArchivo, { type: "application/pdf" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: titulo, text: texto });
+          return;
+        }
+      }
+    } catch (e) { /* sigue al fallback */ }
+    window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank");
+  }
 </script>
 
 {% endblock %}

@@ -1,4 +1,4 @@
-from fastapi import HTTPException,  APIRouter, Depends, Request, Form
+from fastapi import HTTPException,  APIRouter, Depends, Request, Form, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
 from typing import Optional, List
 from datetime import date as date_type, timedelta
@@ -297,6 +297,77 @@ async def extracto_mes(
         "bloques": bloques,
         "vacio": False,
     })
+
+
+def _pdf_response(html: str, nombre: str, que: str) -> Response:
+    """Renderiza `html` con pisa y lo devuelve como adjunto. `que` solo se usa
+    en el mensaje de error."""
+    buf = BytesIO()
+    if pisa.CreatePDF(html, dest=buf, encoding="utf-8").err:
+        raise HTTPException(500, f"No se pudo generar el PDF {que}")
+    nombre = re.sub(r"[^A-Za-z0-9_.-]", "_", nombre)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
+
+
+@router.get("/extracto/{year}/{month}/pdf")
+async def extracto_mes_pdf(
+    year: int,
+    month: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    cols: int = Query(default=1),
+    filas: int = Query(default=1),
+    size: str = Query(default="md"),
+):
+    """El mismo extracto, en PDF, para mandarlo por WhatsApp.
+
+    `cols` / `filas` / `size` son los de la barra de opciones de la pantalla: el
+    boton Compartir manda lo que el usuario tenga elegido, asi el PDF sale igual
+    a lo que ve.
+
+    El contexto se toma de la vista HTML (`extracto_mes`) en vez de recalcular el
+    cruce: si manana cambia el criterio de ganadores o el orden, cambia en los dos
+    lados a la vez.
+    """
+    resp = await extracto_mes(year, month, request, db)
+    ctx = dict(getattr(resp, "context", {}) or {})
+    ctx.pop("request", None)
+    if not ctx or ctx.get("vacio"):
+        raise HTTPException(404, "No hay sorteos con resultado cargado en ese mes")
+
+    cols = min(3, max(1, cols))
+    filas = min(10, max(1, filas))
+    size = size if size in ("sm", "md", "lg") else "md"
+
+    html = templates.get_template("sorteo_extracto_pdf.html").render(
+        request=request, cols=cols, filas=filas, size=size,
+        multi=(cols * filas > 1), **ctx)
+    nombre = f"extracto_{_MESES_ES[month - 1].lower()}_{year}.pdf"
+    return _pdf_response(html, nombre, "del extracto")
+
+
+@router.get("/informe/{year}/{month}/pdf")
+async def informe_mes_pdf(
+    year: int,
+    month: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """El informe del mes en PDF (apaisado). Mismo criterio que el extracto:
+    reusa el contexto de la vista HTML."""
+    resp = await informe_mes(year, month, request, db)
+    ctx = dict(getattr(resp, "context", {}) or {})
+    ctx.pop("request", None)
+    if not ctx:
+        raise HTTPException(404, "No se pudo armar el informe de ese mes")
+
+    html = templates.get_template("sorteo_informe_pdf.html").render(request=request, **ctx)
+    nombre = f"informe_sorteos_{_MESES_ES[month - 1].lower()}_{year}.pdf"
+    return _pdf_response(html, nombre, "del informe")
 
 
 @router.get("/informe/{year}/{month}", response_class=HTMLResponse)
