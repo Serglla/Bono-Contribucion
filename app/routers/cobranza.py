@@ -906,6 +906,11 @@ async def armar_planilla_form(request: Request, cobrador_id: int,
         "disponibles": disponibles,
         "pata_info": pata_info,
         "siguiente_numero": ultimo_numero + 1,
+        # Para el selector de periodo del armado: una planilla se puede armar en
+        # agosto para que empiece a cobrarse en septiembre (cobrador nuevo, o
+        # trabajo adelantado). Antes quedaba pegada al mes en curso.
+        "meses": MESES,
+        "anios": list(range(hoy.year - 1, hoy.year + 2)),
     })
 
 
@@ -1226,18 +1231,24 @@ async def planilla_eliminar(request: Request, planilla_id: int,
     if not planilla:
         raise HTTPException(404)
 
+    # Una planilla YA LIQUIDADA no se borra (30/08/2026). Antes se dejaba la
+    # liquidacion huerfana (planilla_id = None): la plata seguia contada pero sin
+    # planilla que la respalde, y las cuotas cobradas quedaban en las boletas sin
+    # hoja de donde salieron. Si de verdad hay que deshacerla, primero se elimina
+    # la liquidacion desde la pantalla de liquidacion.
+    if planilla.liquidacion:
+        raise HTTPException(
+            400,
+            f"P{planilla.numero} ya tiene una liquidación cargada: no se puede "
+            f"eliminar. Eliminá primero la liquidación si necesitás deshacerla."
+        )
+
     mes, anio = planilla.mes, planilla.anio
 
     # Desvincular todas las boletas (quedan listas para re-emplanillar)
     (db.query(models.Boleta)
        .filter(models.Boleta.planilla_id == planilla_id)
        .update({"planilla_id": None}, synchronize_session=False))
-
-    # Orphanar la liquidación si existe (se conserva el historial y cuotas_pagadas en cada boleta)
-    liq = planilla.liquidacion
-    if liq:
-        liq.planilla_id = None
-        db.flush()
 
     db.delete(planilla)
     db.commit()

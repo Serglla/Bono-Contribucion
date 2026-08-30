@@ -21,12 +21,29 @@
 </div>
 
 <form method="post" action="/cobranza/{{ cobrador.id }}/planilla/armar">
-  <input type="hidden" name="mes" value="{{ mes }}">
-  <input type="hidden" name="anio" value="{{ anio }}">
 
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-3">
       <div class="row g-3 align-items-end">
+        {# El periodo es EDITABLE: la planilla que se arma hoy puede ser la del mes
+           que viene (cobrador nuevo que arranca en septiembre, o armado adelantado).
+           Antes se pegaba al mes en curso y la primera cuota caia en el mes
+           equivocado. #}
+        <div class="col-auto">
+          <label class="form-label fw-semibold small mb-1">Primer mes a cobrar</label>
+          <div class="input-group input-group-sm" style="width:230px;">
+            <select name="mes" class="form-select">
+              {% for m in meses %}
+              <option value="{{ loop.index }}" {% if loop.index == mes %}selected{% endif %}>{{ m }}</option>
+              {% endfor %}
+            </select>
+            <select name="anio" class="form-select" style="max-width:90px;">
+              {% for a in anios %}
+              <option value="{{ a }}" {% if a == anio %}selected{% endif %}>{{ a }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
         <div class="col-auto">
           <label class="form-label fw-semibold small mb-1">Comisión del cobrador</label>
           <div class="input-group input-group-sm" style="width:140px;">
