@@ -523,6 +523,12 @@ async def habilitar_manual(
     over.motivo = (motivo or "").strip() or None
     db.commit()
 
+    # Al habilitar a mano, el ganador recien entra como candidato: se le crea la
+    # entrega y le queda el recibo. Al DESHABILITAR no se borra la entrega que ya
+    # exista (puede estar marcada como entregada); el recibo igual se niega a
+    # emitirse mientras no este habilitado.
+    _reasignar_si_corresponde(db.query(models.Sorteo).get(sorteo_id), db)
+
     return RedirectResponse(_vista_redirect(vista, year, month), status_code=302)
 
 
@@ -546,6 +552,10 @@ async def habilitar_quitar(
         models.HabilitacionSorteo.boleta_id == boleta_id,
     ).delete()
     db.commit()
+
+    # Volver al automatico puede dejar habilitado a alguien que estaba forzado en
+    # NO: se recalcula igual que arriba.
+    _reasignar_si_corresponde(db.query(models.Sorteo).get(sorteo_id), db)
 
     return RedirectResponse(_vista_redirect(vista, year, month), status_code=302)
 
@@ -945,6 +955,9 @@ async def premio_crear(
     )
     db.add(p)
     db.commit()
+    # Si el sorteo ya tenia el resultado cargado, este premio recien creado deja
+    # a sus ganadores listos con recibo sin tener que volver a guardar el resultado.
+    _reasignar_si_corresponde(s, db)
     return RedirectResponse(f"/sorteos/{sid}/premios", status_code=302)
 
 
@@ -976,6 +989,8 @@ async def premio_editar(
     p.monto = max(0.0, monto)
     p.orden = max(1, orden)
     db.commit()
+    # Cambiar la modalidad o el nivel de cifras cambia a quien le toca este premio.
+    _reasignar_si_corresponde(p.sorteo, db)
     return RedirectResponse(f"/sorteos/{p.sorteo_id}/premios", status_code=302)
 
 
@@ -1238,6 +1253,29 @@ async def guardar_resultado(sid: int, payload: ResultadoPayload, request: Reques
         print(f"Autoasignación de entregas (sorteo {sid}): {e.__class__.__name__}: {e}")
 
     return JSONResponse({"ok": True, "numeros": nums_norm, "asignados": asignados})
+
+
+def _reasignar_si_corresponde(s, db) -> int:
+    """Vuelve a correr la autoasignacion de entregas para el sorteo `s`.
+
+    La autoasignacion original solo corria al guardar el resultado, y arranca con
+    `if not s.premios: return 0`. Consecuencia (detectada 30/08/2026): un sorteo
+    cuyo resultado se guardo ANTES de cargarle los premios se quedaba sin
+    entregas para siempre, y en el informe no aparecia el icono del recibo.
+    Ahora tambien se dispara cuando cambian los premios o la habilitacion.
+
+    Es idempotente (no duplica entregas ya cargadas) y va en try/except para que
+    un problema aca NO tumbe la accion que la disparo: cargar el premio o
+    habilitar al ganador tiene que quedar guardado igual.
+    """
+    if not s or not s.resultado_json:
+        return 0
+    try:
+        return _autoasignar_entregas(s, db)
+    except Exception as e:
+        db.rollback()
+        print(f"Reasignacion de entregas (sorteo {s.id}): {e.__class__.__name__}: {e}")
+        return 0
 
 
 def _autoasignar_entregas(s, db) -> int:
