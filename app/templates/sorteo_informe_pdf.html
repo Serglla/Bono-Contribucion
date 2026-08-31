@@ -101,6 +101,51 @@
   <div class="vacio">No hay sorteos con resultado cargado en {{ mes_label|title }} {{ year }}.</div>
   {% endif %}
 
+  {# Resumen de premios del mes: mismo cuadro que la pantalla. Arranca por el
+     premio mayor (mas cifras). Sale de las entregas asignadas, asi que coincide
+     con lo que suma Contabilidad. #}
+  {% if resumen_premios or resumen_totales.sin_premio %}
+  <div class="sorteo-cab" style="margin-top:5mm;">PREMIOS DEL MES</div>
+  <table class="detalle">
+    <tr repeat="1">
+      <th width="10%">NIVEL</th>
+      <th width="44%">PREMIO</th>
+      <th width="12%">PREMIOS</th>
+      <th width="17%">POR PREMIO</th>
+      <th width="17%">TOTAL</th>
+    </tr>
+    {% for f in resumen_premios %}
+    <tr>
+      <td><b>{{ f.cifras }} cifras</b></td>
+      <td>{{ f.descripcion }}{% if f.clase != "ORDEN" %} (físico){% endif %}</td>
+      <td align="right">{{ f.cantidad }}</td>
+      <td align="right">{{ f.monto | pesos }}</td>
+      <td align="right">{% if f.clase == "ORDEN" %}<b>{{ f.subtotal | pesos }}</b>{% else %}<i>{{ f.subtotal | pesos }} (ref.)</i>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    {% if resumen_totales.sin_premio %}
+    <tr>
+      <td colspan="2"><i>Ganadores habilitados sin premio asignado</i></td>
+      <td align="right">{{ resumen_totales.sin_premio }}</td>
+      <td align="right">—</td>
+      <td align="right">—</td>
+    </tr>
+    {% endif %}
+    <tr>
+      <td colspan="2"><b>TOTAL</b> — {{ resumen_totales.ganadores }} ganador(es) habilitado(s) en el mes</td>
+      <td align="right"><b>{{ resumen_totales.premios }}</b></td>
+      <td>&nbsp;</td>
+      <td align="right"><b>{{ resumen_totales.total_orden | pesos }}</b></td>
+    </tr>
+  </table>
+  {% if resumen_totales.fisicos %}
+  <div class="pie-bloque" style="text-align:left;">
+    {{ resumen_totales.fisicos }} premio(s) físico(s) no suman al total: el monto es de
+    referencia y el gasto real se carga al comprarlo.
+  </div>
+  {% endif %}
+  {% endif %}
+
   <div class="subtitulo" style="margin-top:5mm;">
     * el nivel de cifras fue forzado a mano desde el informe.
   </div>

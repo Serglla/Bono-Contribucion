@@ -189,6 +189,80 @@
   </div>
   {% endfor %}
 
+  {# ── Resumen de premios del mes ────────────────────────────────────────
+     Cuantos ganadores por nivel de cifras, cuanto cobra cada uno y el costo
+     total. Sale de las entregas ASIGNADAS, asi que da lo mismo que Contabilidad.
+     Arranca por el premio mayor (mas cifras). #}
+  {% if resumen_premios or resumen_totales.sin_premio %}
+  <div class="inf-resumen-premios">
+    <div class="inf-resumen-titulo">
+      <i class="bi bi-cash-coin me-1"></i>Premios del mes
+    </div>
+    <table class="table table-sm inf-tabla-premios mb-0">
+      <thead>
+        <tr>
+          <th>Nivel</th>
+          <th>Premio</th>
+          <th class="text-end">Premios</th>
+          <th class="text-end">Por premio</th>
+          <th class="text-end">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in resumen_premios %}
+        <tr>
+          <td class="fw-semibold">{{ f.cifras }} cifras</td>
+          <td>
+            {{ f.descripcion }}
+            {% if f.clase != "ORDEN" %}<span class="badge bg-secondary ms-1">Físico</span>{% endif %}
+          </td>
+          <td class="text-end">{{ f.cantidad }}</td>
+          <td class="text-end">{{ f.monto | pesos }}</td>
+          {# Los fisicos se marcan "ref." para que la vista no los sume con el ojo:
+             no entran en el TOTAL (el gasto real se carga al comprarlos). #}
+          <td class="text-end {% if f.clase == "ORDEN" %}fw-semibold{% else %}text-muted fst-italic{% endif %}">
+            {{ f.subtotal | pesos }}{% if f.clase != "ORDEN" %} <small>ref.</small>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if resumen_totales.sin_premio %}
+        <tr class="text-muted">
+          <td colspan="2" class="fst-italic">
+            Ganadores habilitados sin premio asignado
+            <i class="bi bi-exclamation-triangle text-warning ms-1"
+               title="Cargá el premio del sorteo para que se les asigne y salga el recibo"></i>
+          </td>
+          <td class="text-end">{{ resumen_totales.sin_premio }}</td>
+          <td class="text-end">—</td>
+          <td class="text-end">—</td>
+        </tr>
+        {% endif %}
+      </tbody>
+      <tfoot>
+        <tr class="inf-total">
+          <td colspan="2" class="fw-bold">
+            TOTAL
+            <span class="fw-normal text-muted ms-1">
+              · {{ resumen_totales.ganadores }} ganador{% if resumen_totales.ganadores != 1 %}es{% endif %} habilitado{% if resumen_totales.ganadores != 1 %}s{% endif %} en el mes
+            </span>
+          </td>
+          <td class="text-end fw-bold">{{ resumen_totales.premios }}</td>
+          <td></td>
+          <td class="text-end fw-bold">{{ resumen_totales.total_orden | pesos }}</td>
+        </tr>
+      </tfoot>
+    </table>
+    {% if resumen_totales.fisicos %}
+    <div class="inf-resumen-nota">
+      <i class="bi bi-info-circle me-1"></i>
+      {{ resumen_totales.fisicos }} premio{% if resumen_totales.fisicos != 1 %}s{% endif %}
+      físico{% if resumen_totales.fisicos != 1 %}s{% endif %} no suma{% if resumen_totales.fisicos == 1 %}{% else %}n{% endif %}
+      al total: el monto es de referencia y el gasto real se carga al comprarlo.
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <!-- Nota al pie: criterio de control de habilitación -->
   <div class="inf-nota">
     <i class="bi bi-shield-check me-1"></i>
@@ -350,6 +424,15 @@
   .inf-hab-badge { font-size: .68rem; }
   .inf-hab-motivo { display: block; color: #868e96; font-size: .66rem; line-height: 1.1; margin-top: .05rem; }
   .inf-hab-btn { font-size: .72rem; vertical-align: middle; }
+  .inf-resumen-premios {
+    border: 1px solid #cfe2d8; background: #f4faf6; border-radius: 8px;
+    padding: .6rem .8rem; margin-top: 1rem;
+  }
+  .inf-resumen-titulo { font-weight: 700; font-size: .85rem; margin-bottom: .4rem; }
+  .inf-tabla-premios { font-size: .8rem; }
+  .inf-tabla-premios thead th { font-size: .72rem; text-transform: uppercase; color: #5a6b62; border-bottom: 1px solid #cfe2d8; }
+  .inf-tabla-premios tfoot .inf-total td { border-top: 2px solid #9ec5b0; }
+  .inf-resumen-nota { font-size: .72rem; color: #5a6b62; margin-top: .3rem; }
   .inf-nota {
     margin-top: .6rem; font-size: .74rem; color: #343a40;
     background: #f1f8f4; border: 1px solid #d3e9dc; border-radius: 6px; padding: .4rem .6rem;

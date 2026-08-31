@@ -409,6 +409,11 @@ async def informe_mes(
     # Entregas ya asignadas del mes, para linkear el RECIBO directo desde el informe
     # (antes había que ir a Entregas del sorteo a buscarlo). Clave (sorteo, boleta).
     _entregas = {}
+    # Lista completa para el resumen de costos del pie: `_entregas` se queda con
+    # UNA entrega por (sorteo, boleta) para el link del recibo, pero un mismo
+    # ganador puede llevarse DOS premios (la orden de compra y la bicicleta) y el
+    # resumen tiene que contar los dos.
+    _todas_entregas = []
     if sorteos:
         for _e in (db.query(models.EntregaPremio)
                      .join(models.PremioSorteo,
@@ -416,6 +421,7 @@ async def informe_mes(
                      .filter(models.PremioSorteo.sorteo_id.in_([s.id for s in sorteos]))
                      .all()):
             _entregas.setdefault((_e.premio.sorteo_id, _e.boleta_id), _e.id)
+            _todas_entregas.append(_e)
 
     bloques = []
     total_ganadores_mes = 0
@@ -474,6 +480,55 @@ async def informe_mes(
         })
         total_ganadores_mes += len(ganadores)
 
+    # ── Resumen de premios del mes (pie del informe, 30/08/2026) ─────────────
+    # Cuantos ganadores hubo por nivel de cifras, cuanto cobra cada uno y cuanto
+    # sale en total. Se calcula desde las ENTREGAS ASIGNADAS, no desde los premios
+    # cargados: asi el numero coincide exactamente con lo que suma Contabilidad
+    # (contabilidad.py solo cuenta premios ORDEN con ganador asignado) y refleja
+    # lo que de verdad se va a pagar.
+    #
+    # El nivel es el `cifras_efectivas` que muestra la tabla de arriba (respeta el
+    # override manual "B"), para que el resumen no contradiga lo que se ve.
+    # Nivel de cifras de cada ganador habilitado, por (sorteo, boleta)
+    _nivel = {}
+    _sin_premio = 0
+    for _b in bloques:
+        _sid = _b["sorteo"].id
+        for _g in _b["ganadores"]:
+            if not _g["habilitado"]:
+                continue
+            _nivel[(_sid, _g["boleta_id"])] = _g["cifras_efectivas"]
+            if not _g["entrega_id"]:
+                _sin_premio += 1
+
+    _res = {}
+    for _e in _todas_entregas:
+        _cif = _nivel.get((_e.premio.sorteo_id, _e.boleta_id))
+        if _cif is None:      # ganador no habilitado: no se le paga
+            continue
+        _pr = _e.premio
+        _fila = _res.setdefault((_cif, _pr.id), {
+            "cifras": _cif,
+            "descripcion": _pr.descripcion,
+            "clase": _pr.clase,
+            "monto": float(_pr.monto or 0),
+            "cantidad": 0,
+        })
+        _fila["cantidad"] += 1
+    resumen_premios = sorted(_res.values(), key=lambda f: (-f["cifras"], -f["monto"]))
+    for _f in resumen_premios:
+        _f["subtotal"] = _f["monto"] * _f["cantidad"]
+    # Los FISICO (moto, TV, bici) NO suman al total en $: ese monto es de
+    # referencia y el gasto real se carga a mano al comprarlos (mismo criterio
+    # que usa contabilidad.py). Se muestran igual, con su aclaracion.
+    resumen_totales = {
+        "premios": sum(f["cantidad"] for f in resumen_premios),
+        "ganadores": sum(b["total_habilitados"] for b in bloques),
+        "sin_premio": _sin_premio,
+        "total_orden": sum(f["subtotal"] for f in resumen_premios if f["clase"] == "ORDEN"),
+        "fisicos": sum(f["cantidad"] for f in resumen_premios if f["clase"] != "ORDEN"),
+    }
+
     return templates.TemplateResponse(request, "sorteo_informe.html", {
         "user": user,
         "year": year,
@@ -481,6 +536,8 @@ async def informe_mes(
         "mes_label": mes_label,
         "bloques": bloques,
         "total_ganadores_mes": total_ganadores_mes,
+        "resumen_premios": resumen_premios,
+        "resumen_totales": resumen_totales,
         "vacio": len(sorteos) == 0,
         # Un boton por cobrador con todos sus recibos del MES (todos los sorteos)
         "recibos_por_cobrador": _entregas_de_sorteos(sorteos, db),
