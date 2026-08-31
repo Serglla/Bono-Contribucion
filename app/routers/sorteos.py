@@ -512,10 +512,13 @@ async def informe_mes(
             "descripcion": _pr.descripcion,
             "clase": _pr.clase,
             "monto": float(_pr.monto or 0),
+            "fecha": _pr.sorteo.fecha,
             "cantidad": 0,
         })
         _fila["cantidad"] += 1
-    resumen_premios = sorted(_res.values(), key=lambda f: (-f["cifras"], -f["monto"]))
+    # Primero el premio mayor (mas cifras) y dentro de cada nivel por fecha.
+    resumen_premios = sorted(_res.values(),
+                             key=lambda f: (-f["cifras"], f["fecha"], -f["monto"]))
     for _f in resumen_premios:
         _f["subtotal"] = _f["monto"] * _f["cantidad"]
     # Los FISICO (moto, TV, bici) NO suman al total en $: ese monto es de

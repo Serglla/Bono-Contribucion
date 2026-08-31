@@ -617,6 +617,14 @@ async def index(request: Request, db: Session = Depends(get_db),
     if not mes:  mes  = hoy.month
     if not anio: anio = hoy.year
 
+    # Periodo contra el que se cuentan las planillas pendientes de liquidar.
+    # ANTES `_cola_liquidacion` se llamaba sin periodo y usaba siempre el mes de
+    # HOY, aunque el selector de arriba estuviera en otro mes: en septiembre,
+    # mirando "Agosto", el boton contaba contra septiembre (30/08/2026).
+    # Se pasa por `_resolver_periodo_liq` para que un mes futuro caiga al actual
+    # y el conteo coincida con la ronda que abre el boton.
+    anio_liq, mes_liq, _, _ = _resolver_periodo_liq(mes, anio)
+
     cobradores = db.query(models.Cobrador).order_by(models.Cobrador.nombre).all()
 
     resumen = []
@@ -778,7 +786,8 @@ async def index(request: Request, db: Session = Depends(get_db),
         # Planillas de ESTE cobrador pendientes de liquidar en el mes en curso:
         # alimenta el botón "Liquidar pendientes" de la tarjeta. La ronda de
         # liquidación es por cobrador, no global.
-        pend_liq = sum(1 for c in _cola_liquidacion(db, cobrador_id=co.id) if c["pendiente"])
+        pend_liq = sum(1 for c in _cola_liquidacion(db, anio_liq, mes_liq,
+                                                    cobrador_id=co.id) if c["pendiente"])
 
         resumen.append({
             "cobrador": co,
@@ -840,6 +849,10 @@ async def index(request: Request, db: Session = Depends(get_db),
         "meses": MESES,
         "anios": list(range(hoy.year - 1, hoy.year + 2)),
         "pendientes_liquidar": pendientes_liquidar,
+        # El boton "Liquidar planillas de X" arranca la ronda en el mismo periodo
+        # contra el que se conto (si no, el conteo y la ronda podian discrepar).
+        "mes_liq": mes_liq,
+        "anio_liq": anio_liq,
     })
 
 

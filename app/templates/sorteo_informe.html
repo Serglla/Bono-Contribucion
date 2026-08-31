@@ -201,6 +201,7 @@
     <table class="table table-sm inf-tabla-premios mb-0">
       <thead>
         <tr>
+          <th>Sorteo</th>
           <th>Nivel</th>
           <th>Premio</th>
           <th class="text-end">Premios</th>
@@ -211,6 +212,7 @@
       <tbody>
         {% for f in resumen_premios %}
         <tr>
+          <td>{{ f.fecha.strftime("%d/%m/%Y") }}</td>
           <td class="fw-semibold">{{ f.cifras }} cifras</td>
           <td>
             {{ f.descripcion }}
@@ -227,7 +229,7 @@
         {% endfor %}
         {% if resumen_totales.sin_premio %}
         <tr class="text-muted">
-          <td colspan="2" class="fst-italic">
+          <td colspan="3" class="fst-italic">
             Ganadores habilitados sin premio asignado
             <i class="bi bi-exclamation-triangle text-warning ms-1"
                title="Cargá el premio del sorteo para que se les asigne y salga el recibo"></i>
@@ -240,7 +242,7 @@
       </tbody>
       <tfoot>
         <tr class="inf-total">
-          <td colspan="2" class="fw-bold">
+          <td colspan="3" class="fw-bold">
             TOTAL
             <span class="fw-normal text-muted ms-1">
               · {{ resumen_totales.ganadores }} ganador{% if resumen_totales.ganadores != 1 %}es{% endif %} habilitado{% if resumen_totales.ganadores != 1 %}s{% endif %} en el mes

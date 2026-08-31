@@ -113,7 +113,7 @@
 
       {# Ronda de liquidación DE ESTE COBRADOR: recorre sus planillas una a una. #}
       {% if r.pend_liq %}
-      <a href="/cobranza/liquidacion/siguiente?cobrador_id={{ r.cobrador.id }}"
+      <a href="/cobranza/liquidacion/siguiente?cobrador_id={{ r.cobrador.id }}&mes={{ mes_liq }}&anio={{ anio_liq }}"
          class="btn btn-sm btn-danger rounded-0 d-flex align-items-center justify-content-center gap-1">
         <i class="bi bi-cash-coin"></i>
         Liquidar planillas de {{ r.cobrador.nombre }} ({{ r.pend_liq }} pendiente{% if r.pend_liq != 1 %}s{% endif %})

@@ -108,14 +108,16 @@
   <div class="sorteo-cab" style="margin-top:5mm;">PREMIOS DEL MES</div>
   <table class="detalle">
     <tr repeat="1">
+      <th width="12%">SORTEO</th>
       <th width="10%">NIVEL</th>
-      <th width="44%">PREMIO</th>
+      <th width="32%">PREMIO</th>
       <th width="12%">PREMIOS</th>
       <th width="17%">POR PREMIO</th>
       <th width="17%">TOTAL</th>
     </tr>
     {% for f in resumen_premios %}
     <tr>
+      <td>{{ f.fecha.strftime("%d/%m/%Y") }}</td>
       <td><b>{{ f.cifras }} cifras</b></td>
       <td>{{ f.descripcion }}{% if f.clase != "ORDEN" %} (físico){% endif %}</td>
       <td align="right">{{ f.cantidad }}</td>
@@ -125,14 +127,14 @@
     {% endfor %}
     {% if resumen_totales.sin_premio %}
     <tr>
-      <td colspan="2"><i>Ganadores habilitados sin premio asignado</i></td>
+      <td colspan="3"><i>Ganadores habilitados sin premio asignado</i></td>
       <td align="right">{{ resumen_totales.sin_premio }}</td>
       <td align="right">—</td>
       <td align="right">—</td>
     </tr>
     {% endif %}
     <tr>
-      <td colspan="2"><b>TOTAL</b> — {{ resumen_totales.ganadores }} ganador(es) habilitado(s) en el mes</td>
+      <td colspan="3"><b>TOTAL</b> — {{ resumen_totales.ganadores }} ganador(es) habilitado(s) en el mes</td>
       <td align="right"><b>{{ resumen_totales.premios }}</b></td>
       <td>&nbsp;</td>
       <td align="right"><b>{{ resumen_totales.total_orden | pesos }}</b></td>
