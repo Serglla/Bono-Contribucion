@@ -65,10 +65,11 @@ def _idx_campana(mes, anio=None):
     return CAMPANA_ORDEN.index(mes)
 
 
-def _meses_con_cobros(boletas, paso_map=None):
+def _meses_con_cobros(boletas, paso_map=None, recibida_map=None):
     """Períodos (anio|None, mes) en los que esta planilla tiene al menos una
-    cuota cobrada. Aplica el mismo corte por `paso_map` que el resumen: de una
-    boleta que PASÓ a otro cobrador solo cuentan las cuotas cobradas ACÁ."""
+    cuota cobrada. Aplica los dos cortes del resumen: de una boleta que PASÓ a
+    otro cobrador solo cuentan las cuotas cobradas ACÁ (paso_map), y de una que
+    LLEGÓ desde otra planilla no cuentan las que ya traía pagas (recibida_map)."""
     periodos = set()
     for b in boletas:
         try:
@@ -78,13 +79,16 @@ def _meses_con_cobros(boletas, paso_map=None):
         _corte = None
         if paso_map and b.id in paso_map:
             _corte = int(paso_map[b.id].get("cuota") or 0)
+        _rec = int(recibida_map.get(b.id, 0)) if recibida_map else 0
         for k, v in hist.items():
-            if _corte is not None:
-                try:
-                    if int(k) > _corte:
-                        continue
-                except (TypeError, ValueError):
-                    continue
+            try:
+                _kn = int(k)
+            except (TypeError, ValueError):
+                continue
+            if _corte is not None and _kn > _corte:
+                continue
+            if _rec and _kn <= _rec:
+                continue
             per = parse_periodo(v)
             if per:
                 periodos.add(per)
@@ -161,7 +165,8 @@ def _columna_mult_valor(boletas, grid):
     return columna_de_boleta, multiplicador_de_boleta, valor_cuota
 
 
-def _resumen_mensual_rows(boletas, grid, meses_campana, comision_pct, paso_map=None):
+def _resumen_mensual_rows(boletas, grid, meses_campana, comision_pct, paso_map=None,
+                          recibida_map=None):
     """Arma las filas de la tabla 'MES / COL1 / COL2 / COL3 / TOTAL / DINERO /
     COMISIÓN / NETO' con datos REALES (todo lo que ya está en historial_cuotas),
     pensadas para el preview de SOLO LECTURA de la planilla (a diferencia de la
@@ -184,16 +189,21 @@ def _resumen_mensual_rows(boletas, grid, meses_campana, comision_pct, paso_map=N
         # planilla, pero al resumen solo aportan las cuotas que se cobraron ACÁ
         # (hasta paso_cuota). Las posteriores las cobra el destino y contarlas
         # sería duplicarlas entre las dos planillas.
+        # Boleta RECIBIDA de otra planilla: las cuotas que ya traía pagas las
+        # cobró el cobrador anterior — acá se muestran con X y no suman.
         _corte = None
         if paso_map and b.id in paso_map:
             _corte = int(paso_map[b.id].get("cuota") or 0)
+        _rec = int(recibida_map.get(b.id, 0)) if recibida_map else 0
         for k, v in hist.items():
-            if _corte is not None:
-                try:
-                    if int(k) > _corte:
-                        continue
-                except (TypeError, ValueError):
-                    continue
+            try:
+                _kn = int(k)
+            except (TypeError, ValueError):
+                continue
+            if _corte is not None and _kn > _corte:
+                continue
+            if _rec and _kn <= _rec:
+                continue
             m = mes_de(v)
             if m and 1 <= m <= 12:
                 counts[m][col] += mult
@@ -288,7 +298,9 @@ def _liquidacion_periodo_stats(planilla, anio_liq: int, mes_liq: int):
             hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
         except (ValueError, TypeError):
             hist = {}
-        n = sum(1 for v in hist.values() if match_periodo(v, anio_liq, mes_liq))
+        _rec = _recibida_de(b)
+        n = sum(1 for k, v in hist.items()
+                if match_periodo(v, anio_liq, mes_liq) and not _cuota_recibida(k, _rec))
         if n:
             cuotas += n
             boletas_con_cuotas += 1
@@ -313,7 +325,9 @@ def _planilla_tiene_pendientes(planilla, anio_liq: int, mes_liq: int) -> bool:
             hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
         except (ValueError, TypeError):
             hist = {}
-        if not any(match_periodo(v, anio_liq, mes_liq) for v in hist.values()):
+        _rec = _recibida_de(b)
+        if not any(match_periodo(v, anio_liq, mes_liq) and not _cuota_recibida(k, _rec)
+                   for k, v in hist.items()):
             return True
     return False
 
@@ -372,6 +386,48 @@ def _build_paso_map(boletas, planilla_id) -> dict:
                 "label": (b.paso_a or "OTRA PLANILLA"),
                 "cuota": int(b.paso_cuota or 0),
             }
+    return out
+
+
+def _cuota_recibida(clave, recibidas: int) -> bool:
+    """True si la cuota `clave` del historial es una de las que la boleta ya
+    traía pagas al entrar a la planilla (las cobró el cobrador anterior)."""
+    if not recibidas:
+        return False
+    try:
+        return int(clave) <= int(recibidas)
+    except (TypeError, ValueError):
+        return False
+
+
+def _recibida_de(b, planilla_id=None) -> int:
+    """Cuotas que la boleta YA TRAÍA PAGAS cuando entró a esta planilla.
+
+    Cuando un número se pasa de un cobrador a otro ("Pasar números"), las cuotas
+    que cobró el cobrador ANTERIOR viajan con la boleta (historial_cuotas). En la
+    planilla NUEVA esas cuotas no son cobranza suya: se dibujan con X (igual que
+    las anticipadas de la venta) y no suman en su resumen ni en su comisión.
+
+    Devuelve 0 si la boleta no vino de otra planilla."""
+    origen = getattr(b, "paso_origen_planilla_id", None)
+    if not origen:
+        return 0
+    pid = planilla_id if planilla_id is not None else b.planilla_id
+    if origen == pid:
+        return 0
+    return int(getattr(b, "paso_cuota", 0) or 0)
+
+
+def _build_recibida_map(boletas, planilla_id) -> dict:
+    """{boleta_id: cuotas_pagas_al_recibirla} para las boletas que ENTRARON a
+    esta planilla viniendo de otra (ver `_recibida_de`)."""
+    out = {}
+    for b in boletas:
+        if b.planilla_id != planilla_id:
+            continue
+        n = _recibida_de(b, planilla_id)
+        if n > 0:
+            out[b.id] = n
     return out
 
 
@@ -1417,6 +1473,9 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
                .order_by(models.Boleta.numero_principal)
                .all())
     paso_map = _build_paso_map(boletas, planilla_id)
+    # Boletas que ENTRARON acá desde otra planilla: las cuotas que ya traían
+    # pagas se muestran con X y no cuentan como cobranza de este cobrador.
+    recibida_map = _build_recibida_map(boletas, planilla_id)
 
     liq = planilla.liquidacion
 
@@ -1443,12 +1502,17 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         except (ValueError, TypeError):
             h = {}
         _otros, _actual, _full = {}, [], set()
+        _rec_b = recibida_map.get(b.id, 0)
         for k, v in h.items():
             try:
                 _cn = int(k)
             except (TypeError, ValueError):
                 continue
             _full.add(_cn)
+            # Cuotas que la boleta ya traía pagas de otro cobrador: no entran
+            # ni al historial azul ni a la selección del mes (se dibujan con X).
+            if _rec_b and _cn <= _rec_b:
+                continue
             if match_periodo(v, anio_liq, mes_liq):
                 _actual.append(_cn)
             else:
@@ -1482,7 +1546,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
 
     # ── Meses de la campaña (primer mes cobrado → junio 2027) ───────────────
     meses_campana = _meses_campana_desde(
-        planilla.mes, _meses_con_cobros(boletas, paso_map), planilla.anio)
+        planilla.mes, _meses_con_cobros(boletas, paso_map, recibida_map), planilla.anio)
 
     # ── Resumen inicial por MES CALENDARIO en que se cobró y columna ────────
     # Cada fila del resumen representa el mes (calendario) en que se cobraron
@@ -1513,9 +1577,14 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     # ── Info por boleta para validacion secuencial en JS ────────────────────
     # `historial` = cuotas pagas en OTROS periodos (cuota -> mes). Las del
     # periodo actual viajan en cuotas_mes_actual (fix C-1).
+    # `anticipadas` = cuotas ya pagas ANTES de esta planilla: las de la venta
+    # más las que la boleta traía pagas si vino de otro cobrador. Las dos se
+    # dibujan con X y habilitan la cuota siguiente.
     boletas_info = {
         b.id: {
-            "anticipadas": int(b.cuotas_anticipadas or 0),
+            "anticipadas": max(int(b.cuotas_anticipadas or 0),
+                               int(recibida_map.get(b.id, 0))),
+            "recibidas": int(recibida_map.get(b.id, 0)),
             "pactadas": int(b.cuotas_pactadas or 0),
             "historial": {int(k): v for k, v in historial_map[b.id].items()},
         }
@@ -1641,6 +1710,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "historial_map": historial_map,
         "cuotas_mes_actual": cuotas_mes_actual,
         "paso_map": paso_map,
+        "recibida_map": recibida_map,
         "liquidacion": liq,
         "mes_nombre": MESES[mes_liq - 1],
         "mes_actual": mes_liq,
@@ -1728,8 +1798,16 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
             historial = json.loads(boleta.historial_cuotas) if boleta.historial_cuotas else {}
         except (ValueError, TypeError):
             historial = {}
+        # Las cuotas que la boleta ya traía pagas de OTRO cobrador no se tocan:
+        # aunque se hayan cobrado en este mismo período, son de la liquidación
+        # de aquel cobrador. Si no se protegieran, guardar acá las borraría
+        # (no viajan en el form porque se dibujan con X, no como selección).
+        _rec_b = _recibida_de(boleta, planilla_id)
         historial = {k: v for k, v in historial.items()
-                     if not match_periodo(v, _anio_liq, _mes_liq)}
+                     if not match_periodo(v, _anio_liq, _mes_liq)
+                     or _cuota_recibida(k, _rec_b)}
+        cuotas_nuevas = [cn for cn in cuotas_nuevas
+                         if not _cuota_recibida(cn, _rec_b)]
         for cn in cuotas_nuevas:
             historial[str(cn)] = _per_liq
         boleta.historial_cuotas = json.dumps(historial)
@@ -1949,17 +2027,19 @@ async def planilla_ver(request: Request, planilla_id: int,
     historial_map, hist_act = _hist_maps_display(boletas)
     mes_actual = hoy_ar().month
     paso_map = _build_paso_map(boletas, planilla_id)
+    recibida_map = _build_recibida_map(boletas, planilla_id)
 
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
     num_cuotas = max(num_cuotas, 10)
     cuota_nums = list(range(1, num_cuotas + 1))
-    meses_campana = _meses_campana_desde(mes, _meses_con_cobros(boletas, paso_map), anio)
+    meses_campana = _meses_campana_desde(
+        mes, _meses_con_cobros(boletas, paso_map, recibida_map), anio)
 
     # Resumen mensual REAL (cuotas liquidadas + informe de dinero/comisión/neto
     # mes a mes), para que el preview no muestre la tabla en blanco.
     comision_pct = float(planilla_obj.comision_pct or (cobrador.comision_pct if cobrador else 0) or 0)
     resumen_rows, resumen_totales, valor_cuota = _resumen_mensual_rows(
-        boletas, _grid, meses_campana, comision_pct, paso_map)
+        boletas, _grid, meses_campana, comision_pct, paso_map, recibida_map)
 
     return templates.TemplateResponse(request, "cobranza_planilla.html", {
         "user": user,
@@ -1970,6 +2050,7 @@ async def planilla_ver(request: Request, planilla_id: int,
         "hist_act": hist_act,
         "mes_actual": mes_actual,
         "paso_map": paso_map,
+        "recibida_map": recibida_map,
         "boletas": boletas,
         "rows": rows,
         "col1_label": col1_label,
@@ -2040,6 +2121,7 @@ async def planilla(request: Request, cobrador_id: int,
     historial_map, hist_act = _hist_maps_display(boletas)
     mes_actual = hoy_ar().month
     paso_map = _build_paso_map(boletas, planilla_obj.id) if planilla_obj else {}
+    recibida_map = _build_recibida_map(boletas, planilla_obj.id) if planilla_obj else {}
 
     # Cantidad de cuotas (máximo entre todas las boletas, mínimo 10)
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
@@ -2047,7 +2129,8 @@ async def planilla(request: Request, cobrador_id: int,
     cuota_nums = list(range(1, num_cuotas + 1))
 
     # Meses de la campaña (primer mes cobrado → junio 2027)
-    meses_campana = _meses_campana_desde(mes, _meses_con_cobros(boletas, paso_map), anio)
+    meses_campana = _meses_campana_desde(
+        mes, _meses_con_cobros(boletas, paso_map, recibida_map), anio)
 
     planilla_label = f"P{planilla_obj.numero}" if planilla_obj else None
 
@@ -2056,7 +2139,7 @@ async def planilla(request: Request, cobrador_id: int,
     comision_pct = float((planilla_obj.comision_pct if planilla_obj else None)
                           or (cobrador.comision_pct if cobrador else 0) or 0)
     resumen_rows, resumen_totales, valor_cuota = _resumen_mensual_rows(
-        boletas, _grid, meses_campana, comision_pct, paso_map)
+        boletas, _grid, meses_campana, comision_pct, paso_map, recibida_map)
 
     return templates.TemplateResponse(request, "cobranza_planilla.html", {
         "user": user,
@@ -2067,6 +2150,7 @@ async def planilla(request: Request, cobrador_id: int,
         "hist_act": hist_act,
         "mes_actual": mes_actual,
         "paso_map": paso_map,
+        "recibida_map": recibida_map,
         "boletas": boletas,
         "rows": rows,
         "col1_label": col1_label,
@@ -2836,16 +2920,18 @@ async def planilla_pdf(request: Request, planilla_id: int,
     _grid = _armar_grid_patas(boletas)
     historial_map, hist_act = _hist_maps_display(boletas)
     paso_map = _build_paso_map(boletas, planilla_id)
+    recibida_map = _build_recibida_map(boletas, planilla_id)
 
     num_cuotas = max((b.cuotas_pactadas or 0) for b in boletas) if boletas else 10
     num_cuotas = max(num_cuotas, 10)
     meses_campana = _meses_campana_desde(
-        planilla_obj.mes, _meses_con_cobros(boletas, paso_map), planilla_obj.anio)
+        planilla_obj.mes,
+        _meses_con_cobros(boletas, paso_map, recibida_map), planilla_obj.anio)
 
     comision_pct = float(planilla_obj.comision_pct
                          or (cobrador.comision_pct if cobrador else 0) or 0)
     resumen_rows, resumen_totales, valor_cuota = _resumen_mensual_rows(
-        boletas, _grid, meses_campana, comision_pct, paso_map)
+        boletas, _grid, meses_campana, comision_pct, paso_map, recibida_map)
 
     col1_label, col2_label, col3_label = _grid["labels"]
     col1_color, col2_color, col3_color = _grid["colors"]
@@ -2862,6 +2948,7 @@ async def planilla_pdf(request: Request, planilla_id: int,
         historial_map=historial_map,
         hist_act=hist_act,
         paso_map=paso_map,
+        recibida_map=recibida_map,
         col1_label=col1_label, col2_label=col2_label, col3_label=col3_label,
         col1_color=col1_color, col2_color=col2_color, col3_color=col3_color,
         resumen_rows=resumen_rows,

@@ -151,6 +151,9 @@
           {# Boleta real #}
           {%- set hist = historial_map.get(b.id, {}) -%}
           {%- set ant  = b.cuotas_anticipadas if b.cuotas_anticipadas else 1 -%}
+          {#- Cuotas que la boleta ya traía pagas de otro cobrador: X, no editables -#}
+          {%- set _rec = (recibida_map.get(b.id, 0) if recibida_map else 0) -%}
+          {%- set ant  = [ant, _rec] | max -%}
           {%- set bj   = baja_info.get(b.id) -%}
           {# "Pasó a…": la boleta salió de esta planilla. Se sigue mostrando en
              su renglón (para que coincida con la planilla impresa) pero con la

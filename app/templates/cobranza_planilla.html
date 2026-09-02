@@ -335,6 +335,10 @@
         {% elif b %}
           {# Boleta normal #}
           {% set ant = b.cuotas_anticipadas if b.cuotas_anticipadas else 1 %}
+          {# Boleta recibida de otro cobrador: las cuotas que ya traía pagas se
+             dibujan con X igual que las de la venta (no las cobró este cobrador). #}
+          {% set _rec = (recibida_map.get(b.id, 0) if recibida_map else 0) %}
+          {% set ant = [ant, _rec] | max %}
           {% set hist = historial_map.get(b.id, {}) %}
           {# Baja (registro): línea desde la cuota siguiente a la última paga
              hasta la última cuota de la talonera, con el mes en el medio. #}

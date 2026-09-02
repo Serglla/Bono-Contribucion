@@ -87,6 +87,8 @@
       {% for n in cuota_nums %}<td style="background-color:{{ b.color }};"></td>{% endfor %}
     {% elif b %}
       {% set ant = b.cuotas_anticipadas if b.cuotas_anticipadas else 1 %}
+      {% set _rec = (recibida_map.get(b.id, 0) if recibida_map else 0) %}
+      {% set ant = [ant, _rec] | max %}
       {% set hist = historial_map.get(b.id, {}) %}
       {% set _bm = b.mes_baja %}
       {% set _bd = (b.cuotas_pagadas or ant) + 1 %}
