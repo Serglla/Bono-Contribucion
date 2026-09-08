@@ -634,6 +634,21 @@ def _resolver_zona_ex(zona_id: Optional[int], zona_nueva: str, db: Session):
     return (zona_id or None), None
 
 
+def _parse_cobrador_id(raw, db) -> Optional[int]:
+    """Valida el cobrador elegido a mano en el modal de alta.
+
+    Campo opcional (casos poco frecuentes): si viene vacío o basura devuelve
+    None y sigue mandando la lógica de siempre (el cobrador de la zona)."""
+    try:
+        cid = int(str(raw or "").strip())
+    except (ValueError, TypeError):
+        return None
+    if cid <= 0:
+        return None
+    cob = db.query(models.Cobrador).get(cid)
+    return cob.id if cob else None
+
+
 @router.post("/crear")
 async def crear(
     request: Request,
@@ -645,6 +660,7 @@ async def crear(
     fecha_compra: Optional[str] = Form(None),
     boleta_id: Optional[int] = Form(None),
     vendedor_id: Optional[int] = Form(None),
+    cobrador_id: Optional[str] = Form(None),   # opcional: pisa al cobrador de la zona
     cuotas_pactadas: Optional[int] = Form(None),
     cuotas_anticipadas: Optional[int] = Form(None),
     te1: Optional[str] = Form(None),   # talonera_especial_id   (CONTADO)
@@ -821,10 +837,16 @@ async def crear(
             # cobrador, aunque todavía no tengan numero_especial asignado
             # (se asigna recién al cerrarse el talonario especial).
             _toda_paga = (b.cuotas_pagadas or 0) >= (b.cuotas_pactadas or 0)
-            if c.zona_id and not _toda_paga:
-                z = db.query(models.Zona).get(c.zona_id)
-                if z and z.cobrador_id:
-                    b.cobrador_id = z.cobrador_id
+            # Cobrador elegido a mano en el modal (campo opcional, arranca vacío
+            # en cada socio): si vino, PISA al de la zona. Si no, manda la zona.
+            _cob_manual = _parse_cobrador_id(cobrador_id, db)
+            if not _toda_paga:
+                if _cob_manual:
+                    b.cobrador_id = _cob_manual
+                elif c.zona_id:
+                    z = db.query(models.Zona).get(c.zona_id)
+                    if z and z.cobrador_id:
+                        b.cobrador_id = z.cobrador_id
             # Transición de condición según el flujo correcto:
             #   EN_COBRANZA = solo cuotas pendientes con cobrador asignado y no contado.
             #   VENDIDO     = todo lo demás (contado, cuotas finalizadas, sin cobrador).
@@ -865,6 +887,13 @@ async def crear(
             "comprador_id": c.id,
             "zona_id": zona,
             "nueva_zona": nueva_zona_payload,
+            # Lo que REALMENTE quedó en la boleta (el backend recorta cuotas y
+            # puede resolver el cobrador por zona). El modal lo guarda en su
+            # historial para que las flechas ◀ ▶ muestren el estado real.
+            "boleta_id": _boleta.id,
+            "cuotas_pactadas": _boleta.cuotas_pactadas,
+            "cuotas_anticipadas": _boleta.cuotas_anticipadas,
+            "cobrador_id": _boleta.cobrador_id,
         })
     return RedirectResponse("/compradores/", status_code=302)
 
@@ -879,12 +908,22 @@ async def editar_basico(
     zona_id: Optional[str] = Form(None),
     zona_nueva: str = Form(""),
     fecha_compra: Optional[str] = Form(None),
+    boleta_id: Optional[int] = Form(None),
+    cuotas_pactadas: Optional[int] = Form(None),
+    cuotas_anticipadas: Optional[int] = Form(None),
+    cobrador_id: Optional[str] = Form(None),
+    cobrador_tocado: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
     """Edición RÁPIDA de un socio desde el modal de alta (flechas ◀ ▶).
-    Solo actualiza datos básicos: apellido/nombre, dirección, teléfono, zona y la
-    fecha de compra de sus boletas. NO toca vendedor, cobrador, condición, cuotas ni
-    los números de boleta — para eso está el editor completo."""
+
+    Actualiza datos básicos (apellido/nombre, dirección, teléfono, zona y fecha de
+    compra) y, si viene `boleta_id`, también las cuotas pactadas / al contado y el
+    cobrador de ESA boleta. NO toca vendedor ni los números de boleta — para eso
+    está el editor completo.
+
+    Las cuotas no se tocan en boletas liquidadas al contado (tienen número especial):
+    ahí las cuotas están cerradas por la liquidación, no por el operador."""
     _perm_user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(_perm_user, 'compradores', 'editar'):
         raise HTTPException(403, 'No tenés permiso para editar en esta sección')
@@ -904,6 +943,50 @@ async def editar_basico(
                 b.fecha_venta = _fv
         except ValueError:
             pass
+
+    # ── Cuotas y cobrador de la boleta que se está editando ──────────────────
+    # Solo la boleta que mandó el modal (un socio puede tener más de una).
+    b = None
+    if boleta_id:
+        b = db.query(models.Boleta).get(boleta_id)
+        if b is not None and b.comprador_id != c.id:
+            b = None   # no es de este socio: ignorar por seguridad
+
+    if b is not None:
+        _es_contado = (b.numero_especial is not None) or (b.numero_especial_2 is not None)
+        _nc_nominal = (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0) or 12
+        _fecha_ref = b.fecha_venta or getattr(b.liquidacion_vendedor, "fecha", None)
+        _cuotas_max = cuotas_vigentes(_nc_nominal, _fecha_ref)
+
+        if not _es_contado:
+            if cuotas_pactadas is not None and cuotas_pactadas > 0:
+                b.cuotas_pactadas = min(int(cuotas_pactadas), _cuotas_max)
+            if cuotas_anticipadas is not None and cuotas_anticipadas > 0:
+                ant = min(int(cuotas_anticipadas), b.cuotas_pactadas or _cuotas_max)
+                b.cuotas_anticipadas = ant
+                # En el alta las anticipadas SON las cuotas pagas; acá se corrige
+                # ese mismo dato recién cargado, así que van juntas.
+                b.cuotas_pagadas = ant
+
+        # Cobrador: solo si el modal lo mandó explícitamente (campo tocado).
+        if (cobrador_tocado or "").strip():
+            _cob = _parse_cobrador_id(cobrador_id, db)
+            _toda_paga = (b.cuotas_pagadas or 0) >= (b.cuotas_pactadas or 0)
+            b.cobrador_id = _cob if (_cob and not _toda_paga) else None
+
+        # Recalcular condición con el estado nuevo (misma regla que en el alta).
+        _cuotas_pendientes = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
+        _en_cobranza = bool(b.cobrador_id and _cuotas_pendientes and not _es_contado)
+        if b.condicion in (
+            CondicionBoleta.SIN_VENDER,
+            CondicionBoleta.CAJA,
+            CondicionBoleta.VENDIDO,
+            CondicionBoleta.EN_COBRANZA,
+        ):
+            b.condicion = (
+                CondicionBoleta.EN_COBRANZA if _en_cobranza else CondicionBoleta.VENDIDO
+            )
+
     db.commit()
 
     nueva_zona_payload = None
@@ -918,6 +1001,10 @@ async def editar_basico(
         "comprador_id": c.id,
         "zona_id": zona,
         "nueva_zona": nueva_zona_payload,
+        "boleta_id": b.id if b is not None else None,
+        "cuotas_pactadas": b.cuotas_pactadas if b is not None else None,
+        "cuotas_anticipadas": b.cuotas_anticipadas if b is not None else None,
+        "cobrador_id": b.cobrador_id if b is not None else None,
     })
 
 

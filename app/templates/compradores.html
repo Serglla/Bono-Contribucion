@@ -901,9 +901,23 @@ document.querySelectorAll('.input-upper').forEach(el => {
                      class="form-control form-control-sm text-center fw-bold" min="1" max="11" value="1"
                      style="width:80px;" title="Cuotas cobradas por el vendedor al momento de la venta">
             </div>
+            {# Cobrador opcional: casos poco frecuentes (zona sin cobrador fijo o
+               excepción puntual). Arranca SIEMPRE vacío y queda fuera del avance
+               con Enter para no meterse en la carga rápida de todos los días. #}
+            <div class="col-md-4 ms-auto">
+              <label class="form-label form-label-sm mb-1 fw-semibold text-primary">
+                Cobrador <span class="text-muted fw-normal" style="font-size:.7rem;">(opcional)</span>
+              </label>
+              <select name="cobrador_id" id="cobradorSelect" class="form-select form-select-sm" tabindex="-1">
+                <option value="">— Como siempre (por zona) —</option>
+                {% for cob in cobradores %}
+                <option value="{{ cob.id }}">{{ cob.nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
           </div>
           <div class="mt-1" style="font-size:.68rem; color:#6366f1;">
-            <i class="bi bi-arrow-repeat me-1"></i>Estos valores se recuerdan entre cargas · Enter para navegar entre ellos
+            <i class="bi bi-arrow-repeat me-1"></i>Cuotas, zona y vendedor se recuerdan entre cargas · Enter para navegar entre ellos · El cobrador arranca vacío y no entra en el Enter
           </div>
         </div>
 
@@ -913,8 +927,8 @@ document.querySelectorAll('.input-upper').forEach(el => {
           <!-- Banner modo edición rápida (flechas ◀ ▶) -->
           <div id="altaEditBanner" class="alert alert-warning py-2 px-3 mb-3 d-none" style="font-size:.82rem;">
             <i class="bi bi-pencil-fill me-1"></i>
-            Estás <strong>editando un socio ya cargado</strong> (solo datos básicos: nombre, dirección, teléfono, zona y fecha).
-            Para cambiar boleta, cobrador o cuotas usá el editor completo desde la lista.
+            Estás <strong>editando un socio ya cargado</strong>: nombre, dirección, teléfono, zona, fecha,
+            cuotas (pactadas y al contado) y cobrador. Para cambiar la boleta o el vendedor usá el editor completo desde la lista.
           </div>
 
           <!-- Boleta -->
@@ -1358,6 +1372,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
     if (window._resetContadoBlockNuevo) window._resetContadoBlockNuevo();
     // "Cuotas al contado" vuelve siempre a 1 para el próximo socio
     document.getElementById('anticipadasInput').value = '1';
+    // El cobrador NO se recuerda: es una excepción puntual, arranca vacío
+    const _cobSel = document.getElementById('cobradorSelect');
+    if (_cobSel) _cobSel.value = '';
     window._prefillContadoPrevio = null;
     // Ocultar badge de vendedor por boleta y restaurar el recordado (si zona no lo bloqueó)
     document.getElementById('vendedorBoletaBadge').classList.add('d-none');
@@ -1410,6 +1427,13 @@ document.querySelectorAll('.input-upper').forEach(el => {
     document.getElementById('telefonoInput').value  = s.telefono  || '';
     document.getElementById('zonaSelect').value     = s.zona_id   || '';
     document.getElementById('fechaInput').value     = s.fecha     || '';
+    // Cuotas y cobrador del socio que se está editando (se guardan al confirmar)
+    const cuotasInp = document.getElementById('cuotasInput');
+    cuotasInp.value = s.cuotas ?? cuotasInp.value;
+    cuotasInp.dispatchEvent(new Event('input'));      // reajusta el max de "al contado"
+    document.getElementById('anticipadasInput').value = s.anticipadas ?? '1';
+    const cobSel = document.getElementById('cobradorSelect');
+    if (cobSel) cobSel.value = s.cobrador_id || '';
     // Boleta: solo lectura (no se cambia en edición rápida)
     document.getElementById('nuevoBoleta_num').value = s.boleta_num || '';
     document.getElementById('nuevoBoletaBadges').innerHTML = s.badges || '';
@@ -1433,6 +1457,10 @@ document.querySelectorAll('.input-upper').forEach(el => {
     altaPos = altaHist.length;
     altaEditId = null;
     setBoletaReadonly(false);
+    // Las cuotas mostradas eran las del socio editado: volver a las recordadas
+    const _ci = document.getElementById('cuotasInput');
+    _ci.value = localStorage.getItem('bono_cuotas') ?? '11';
+    _ci.dispatchEvent(new Event('input'));
     document.getElementById('altaEditBanner').classList.add('d-none');
     document.getElementById('altaEditBadge').classList.add('d-none');
     document.getElementById('btnGuardar').innerHTML = '<i class="bi bi-check-lg me-1"></i>Guardar';
@@ -1459,6 +1487,13 @@ document.querySelectorAll('.input-upper').forEach(el => {
     fd.append('zona_id',    document.getElementById('zonaSelect').value);
     fd.append('zona_nueva', document.getElementById('zonaNuevaInput').value || '');
     fd.append('fecha_compra', document.getElementById('fechaInput').value);
+    // Cuotas y cobrador de ESTA boleta (el backend valida y recorta)
+    const _s = altaHist[altaPos] || {};
+    if (_s.boleta_id) fd.append('boleta_id', _s.boleta_id);
+    fd.append('cuotas_pactadas',    document.getElementById('cuotasInput').value);
+    fd.append('cuotas_anticipadas', document.getElementById('anticipadasInput').value);
+    fd.append('cobrador_id',     document.getElementById('cobradorSelect')?.value || '');
+    fd.append('cobrador_tocado', '1');   // en edición el select refleja lo guardado
     try {
       const resp = await fetch(`/compradores/${altaEditId}/editar-basico`, {
         method: 'POST', body: fd,
@@ -1485,6 +1520,14 @@ document.querySelectorAll('.input-upper').forEach(el => {
         s.telefono  = document.getElementById('telefonoInput').value;
         s.zona_id   = document.getElementById('zonaSelect').value;
         s.fecha     = document.getElementById('fechaInput').value;
+        // Lo que confirmó el backend (puede haber recortado cuotas)
+        s.cuotas      = (data && data.cuotas_pactadas    != null) ? data.cuotas_pactadas    : document.getElementById('cuotasInput').value;
+        s.anticipadas = (data && data.cuotas_anticipadas != null) ? data.cuotas_anticipadas : document.getElementById('anticipadasInput').value;
+        s.cobrador_id = (data && data.cobrador_id) ? String(data.cobrador_id) : '';
+        document.getElementById('cuotasInput').value = s.cuotas;
+        document.getElementById('anticipadasInput').value = s.anticipadas;
+        const _cs = document.getElementById('cobradorSelect');
+        if (_cs) _cs.value = s.cobrador_id;
       }
       const f = document.getElementById('flashGuardado');
       f.textContent = '✓ Actualizado'; f.classList.remove('d-none');
@@ -1550,6 +1593,13 @@ document.querySelectorAll('.input-upper').forEach(el => {
             boleta_num: document.getElementById('nuevoBoleta_num').value,
             talonera:   document.getElementById('nuevoBoletaTalonera').textContent,
             badges:     document.getElementById('nuevoBoletaBadges').innerHTML,
+            // Estado REAL que quedó en la boleta (el backend recorta cuotas y
+            // resuelve el cobrador por zona): así las flechas ◀ ▶ muestran lo
+            // que hay guardado y no lo que se tipeó.
+            boleta_id:  data.boleta_id ?? document.getElementById('nuevoBoleta_id').value,
+            cuotas:     data.cuotas_pactadas ?? document.getElementById('cuotasInput').value,
+            anticipadas: data.cuotas_anticipadas ?? document.getElementById('anticipadasInput').value,
+            cobrador_id: data.cobrador_id ? String(data.cobrador_id) : '',
           });
           altaPos = altaHist.length;
           actualizarNav();
