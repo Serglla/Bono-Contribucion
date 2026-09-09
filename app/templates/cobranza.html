@@ -71,30 +71,18 @@
 
 {% include "_cobranza_tabs.html" %}
 
-<!-- Selector de mes/año -->
-<div class="search-wrap mb-4">
-  <i class="bi bi-calendar3 text-muted" style="flex-shrink:0;"></i>
-  <form method="get" action="/cobranza/" class="d-flex align-items-center gap-2 flex-wrap w-100">
-    <select name="mes" class="form-select form-select-sm" style="width:130px;flex-shrink:0;">
-      {% for m in meses %}
-      <option value="{{ loop.index }}" {% if loop.index == mes %}selected{% endif %}>{{ m }}</option>
-      {% endfor %}
-    </select>
-    <select name="anio" class="form-select form-select-sm" style="width:90px;flex-shrink:0;">
-      {% for a in anios %}
-      <option value="{{ a }}" {% if a == anio %}selected{% endif %}>{{ a }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit" class="btn btn-sm btn-danger">Ver</button>
-    <span class="text-muted small ms-1 d-none d-sm-inline">Planillas: <strong>{{ mes_nombre }} {{ anio }}</strong></span>
-    {# Resumen del mes para la institución: todos los cobradores en una hoja.
-       Va acá porque depende del mes elegido en este mismo selector. #}
-    <button type="button" class="btn btn-sm btn-outline-dark ms-auto"
-            onclick="abrirResumenMes()"
-            title="Hoja con la cobranza de {{ mes_nombre }} {{ anio }} de todos los cobradores, para la institución">
-      <i class="bi bi-building me-1"></i>Resumen del mes
-    </button>
-  </form>
+{# Antes acá había un selector de mes/año. Se sacó: no filtraba nada de lo que
+   se ve (las tarjetas y la grilla de planillas son históricas) y se leía como
+   si fuera un filtro. El mes a liquidar se elige adentro de la liquidación,
+   que ya tiene su propio selector, y cada hoja navega entre meses sola. #}
+<div class="search-wrap mb-4 d-flex align-items-center gap-2">
+  <i class="bi bi-people text-muted" style="flex-shrink:0;"></i>
+  <span class="text-muted small">Cobranza por cobrador</span>
+  <button type="button" class="btn btn-sm btn-outline-dark ms-auto"
+          onclick="abrirResumenMes()"
+          title="Hoja con la cobranza de todos los cobradores, para la institución (adentro se navega entre meses)">
+    <i class="bi bi-building me-1"></i>Resumen del mes
+  </button>
 </div>
 
 <!-- Tarjetas por cobrador -->
@@ -117,6 +105,18 @@
          class="btn btn-sm btn-danger rounded-0 d-flex align-items-center justify-content-center gap-1">
         <i class="bi bi-cash-coin"></i>
         Liquidar planillas de {{ r.cobrador.nombre }} ({{ r.pend_liq }} pendiente{% if r.pend_liq != 1 %}s{% endif %})
+      </a>
+      {% endif %}
+      {# Ver las liquidaciones: entra por la P1 a la MISMA pantalla de liquidar.
+         Desde ahí se recorren las planillas con los chips P1/P2/… hasta la hoja
+         del mes, y el mes se elige con el selector "Liquidando:" de esa vista
+         (por eso se sacó el selector de mes de esta página). #}
+      {% if r.planillas %}
+      <a href="/cobranza/liquidacion/{{ r.planillas[0].id }}"
+         class="btn btn-sm btn-outline-secondary rounded-0 d-flex align-items-center justify-content-center gap-1"
+         title="Abrir las planillas de {{ r.cobrador.nombre }} para ver mes a mes lo liquidado">
+        <i class="bi bi-eye"></i>
+        Ver liquidaciones de {{ r.cobrador.nombre }}
       </a>
       {% endif %}
 
