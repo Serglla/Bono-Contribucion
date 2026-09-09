@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request, Query, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
-from sqlalchemy.orm import Session, undefer
+from sqlalchemy.orm import Session, undefer, joinedload
 from sqlalchemy import func, or_
 from datetime import date
 from io import BytesIO
@@ -759,14 +759,7 @@ async def index(request: Request, db: Session = Depends(get_db),
         activas_cob = 0       # boletas activas emplanilladas (denominador por mes)
         meses_baja = {}       # mes calendario -> bajas registradas ese mes
         bajas_tot = 0         # boletas dadas de baja (emplanilladas, liquidadas)
-        # Datos por boleta para calcular el denominador MES A MES (ver abajo).
-        infos_pct = []
-        _pl_periodo = {p.id: (int(p.anio or 0), int(p.mes or 0)) for p in planillas}
-        _anios_vistos = {a for (a, _m) in _pl_periodo.values() if a}
-        # Períodos en los que CADA planilla registró cobranza. Sirve para el
-        # denominador: una planilla entregada este mes entra al denominador de
-        # este mes solo si este mes ya se le cobró (ver _activas_en).
-        _pl_pagos = {}
+        _anios_vistos = {int(p.anio) for p in planillas if p.anio}
         for b in boletas:
             no_terminada = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
             pv = _pata_valor(b)
@@ -784,30 +777,17 @@ async def index(request: Request, db: Session = Depends(get_db),
                             _hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
                         except (ValueError, TypeError):
                             _hist = {}
-                        _pagos_b = []
+                        # Solo hace falta saber EN QUÉ meses hubo cobranza:
+                        # los números de cada mes los da _tasas_mensuales, que
+                        # lee la misma liquidación que la hoja.
                         for _k, _v in _hist.items():
                             # Valores "YYYY-MM" (nuevo) o int 1-12 (legacy, anio 0).
                             _p = parse_periodo(_v)
                             if _p is None:
                                 continue
-                            _key = (_p[0] or 0, _p[1])   # (anio, mes)
-                            _pagos_b.append(_key)
                             if _p[0]:
                                 _anios_vistos.add(_p[0])
-                        # El denominador del mes son BOLETAS activas, así que el
-                        # numerador también cuenta boletas: el socio que se pone
-                        # al día pagando 2 cuotas juntas suma 1, no 2. Antes
-                        # sumaba una por cuota y el mes daba más de 100%.
-                        for _key in set(_pagos_b):
-                            meses_cob[_key] = meses_cob.get(_key, 0) + 1
-                            _pl_pagos.setdefault(b.planilla_id, set()).add(_key)
-                        infos_pct.append({
-                            "desde": _pl_periodo.get(b.planilla_id, (0, 0)),
-                            "pl": b.planilla_id,
-                            "ant": int(b.cuotas_anticipadas or 0),
-                            "pact": int(b.cuotas_pactadas or 0),
-                            "pagos": _pagos_b,
-                        })
+                            meses_cob[(_p[0] or 0, _p[1])] = 1
                     else:
                         # Baja de cobranza: el socio se dio de baja en mes_baja.
                         bajas_tot += 1
@@ -819,56 +799,20 @@ async def index(request: Request, db: Session = Depends(get_db),
             elif no_terminada and b.numero_especial_2 is None:
                 pend_emplanillar += pv
 
-        # ── Denominador MES A MES (no uno solo para todos los meses) ─────────
-        # Bug viejo: la tasa de cada mes se dividía por TODAS las boletas
-        # emplanilladas-liquidadas, sin importar cuándo entró su planilla. Los
-        # números de un P3 entregado en junio hundían el % de junio, cuando
-        # todavía no estaban en cobranza.
-        # Acá la cobranza de una planilla ARRANCA EL MES SIGUIENTE al de
-        # entrega, así que la comparación es ESTRICTA: una planilla entregada en
-        # junio recién suma al denominador de julio.
-        # OJO (29/08/2026): el resumen mensual de la planilla ya NO usa este
-        # criterio — arranca en el primer mes con cobros reales (ver
-        # _meses_campana_desde). Si en la práctica una planilla armada en agosto
-        # ya cobra en agosto, este denominador también habría que correrlo.
+        # ── % del mes: los MISMOS números que la hoja de liquidación ────────
+        # Antes esto tenía su propia cuenta (cuotas cobradas ÷ boletas activas):
+        # contaba cuotas arriba y boletas abajo, y dejaba fuera del denominador
+        # a las planillas armadas ese mismo mes aunque ya hubieran entrado a la
+        # liquidación. De ahí los meses de 135%. Ahora el mes se mide como en la
+        # hoja: lo que entró en la liquidación sobre lo que se podía cobrar.
         _anio_ref = min(_anios_vistos) if _anios_vistos else hoy.year
-
-        def _ordp(anio_p, mes_p):
-            return (anio_p or _anio_ref) * 12 + (mes_p or 1)
-
-        def _activas_en(anio_p, mes_p):
-            _o = _ordp(anio_p, mes_p)
-            n = 0
-            for bi in infos_pct:
-                _od = _ordp(*bi["desde"])
-                if _od > _o:
-                    continue                      # entregada después de este mes
-                if _od == _o and (anio_p, mes_p) not in _pl_pagos.get(bi["pl"], ()):
-                    # Entregada ESTE mes: normalmente se cobra recién el que
-                    # viene, pero si ya se le cobró, sus boletas tienen que
-                    # entrar al denominador (si no, el mes pasa de 100%).
-                    continue
-                pagadas_antes = bi["ant"] + sum(1 for k in bi["pagos"] if _ordp(*k) < _o)
-                if bi["pact"] and pagadas_antes >= bi["pact"]:
-                    continue                      # ya había terminado de pagar
-                n += 1
-            return n
-
-        _rates = []
-        meses_detalle = []
-        for (y, m), cnt in sorted(meses_cob.items()):
-            _act = _activas_en(y, m)
-            if _act <= 0:
-                continue
-            _r = cnt / _act
-            _rates.append(_r)
-            meses_detalle.append({
-                "mes": (MESES[m - 1] + (f" {y}" if y else "")), "num": m,
-                "cobradas": cnt, "activas": _act, "pct": round(_r * 100),
-            })
+        meses_detalle = _tasas_mensuales(
+            db, co, {(y or _anio_ref, m) for (y, m) in meses_cob})
+        _rates = [x["pct"] / 100.0 for x in meses_detalle]
 
         cobranza_iniciada = bool(_rates)
-        pct_cobro = round(sum(_rates) / len(_rates) * 100) if _rates else 0
+        pct_cobro = (round(sum(x["pct"] for x in meses_detalle) / len(meses_detalle))
+                     if meses_detalle else 0)
 
         # % de baja (TOTAL ACUMULADO, no promedio mes a mes): a diferencia del
         # cobrado, una baja ocurre una sola vez por boleta (mes_baja), así que el
@@ -2545,6 +2489,35 @@ def _resumen_meses_cobrador(db, cobrador, solo_anio: int = 0, solo_mes: int = 0)
             "filtro": {"anio": int(solo_anio or 0), "mes": int(solo_mes or 0)}}
 
 
+def _tasas_mensuales(db, cobrador, periodos):
+    """% cobrado de cada mes, con LOS MISMOS números que la hoja del mes.
+
+    Por cada período (anio, mes) se pide el consolidado del cobrador y se mide
+    lo que entró en la liquidación de ese mes contra lo que se le podía cobrar:
+
+        % del mes = cobradas / (cobradas + sin cobrar)
+
+    No importa cuándo se armó la planilla: si sus cuotas entraron en la
+    liquidación del mes, cuentan arriba Y abajo. Antes las tarjetas hacían su
+    propia cuenta (cuotas cobradas ÷ boletas activas), que contaba cuotas arriba
+    y boletas abajo y dejaba fuera del denominador a las planillas armadas ese
+    mismo mes: por eso mostraban meses de 135%.
+    """
+    out = []
+    for (a, m) in sorted(periodos):
+        d = _consolidado_cobrador(db, cobrador, m, a)
+        cob = d["cuotas_pata"] + d["cuotas_x0"]
+        base = cob + d["sin_pata"] + d["sin_x0"]
+        if base <= 0:
+            continue
+        out.append({
+            "mes": f"{MESES[m - 1]} {a}", "num": m, "anio": a,
+            "cobradas": round(cob, 2), "activas": round(base, 2),
+            "pct": round(cob / base * 100),
+        })
+    return out
+
+
 def _consolidado_cobrador(db, cobrador, mes, anio):
     """Cobranza de UN mes de un cobrador, con un renglón por planilla.
 
@@ -2588,6 +2561,7 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
         # meses ya liquidados. Sin esto, mover un número en septiembre le
         # cambiaba el total de agosto y el saldo del cobrador dejaba de cerrar.
         boletas = (db.query(models.Boleta)
+                   .options(joinedload(models.Boleta.talonera))
                    .filter(or_(models.Boleta.planilla_id == p.id,
                                models.Boleta.paso_origen_planilla_id == p.id))
                    .all())
