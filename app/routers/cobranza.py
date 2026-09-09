@@ -126,6 +126,12 @@ def _pata_valor(boleta) -> float:
     return 1.0
 
 
+def _es_x0(boleta) -> bool:
+    """True si la boleta es de una talonera PATA 0 (las de importe chico, que no
+    se ponderan: se cuentan de a una). Las X1, X2, X3... se suman por PATA."""
+    return bool(boleta.talonera) and float(boleta.talonera.multiplicador or 1.0) < 1.0
+
+
 def _planilla_todo_pata0(boletas) -> bool:
     """True si TODAS las boletas (con talonera) de la planilla son PATA 0
     (multiplicador < 1). En ese caso las cuotas se cuentan ×1 y valen el importe
@@ -2539,6 +2545,10 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
     tot_cuotas = 0.0
     tot_sin = 0.0
     tot_bajas = 0
+    tot_cp = 0.0    # cobradas PATA (X1, X2...)
+    tot_cz = 0.0    # cobradas X0
+    tot_sp = 0.0    # sin cobrar PATA
+    tot_sz = 0.0    # sin cobrar X0
     _ord_mes = anio * 12 + mes
 
     def _ord_pago(v):
@@ -2574,39 +2584,66 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
         c_pl = 0.0
         s_pl = 0.0
         b_pl = 0
+        # Cuotas abiertas en dos: las que se suman por PATA (X1, X2, X3... una
+        # X2 cuenta 2, todas al mismo valor base) y las X0, que se cuentan de a
+        # una. Sumarlas en un solo número mezclaba unidades y no dejaba
+        # verificar el monto a ojo.
+        cp_pl = 0.0   # cobradas PATA
+        cz_pl = 0.0   # cobradas X0
+        sp_pl = 0.0   # sin cobrar PATA
+        sz_pl = 0.0   # sin cobrar X0
+        # Pre-pasada: el historial y las cuotas del mes de cada boleta. Hace
+        # falta saber ANTES si la planilla ya registró cobranza (ver abajo).
+        _hist = {}
+        _cuotas_mes = {}
         for b in boletas:
             try:
                 h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
             except (ValueError, TypeError):
                 h = {}
-            _mb = 0
-            try:
-                _mb = int(b.mes_baja) if b.mes_baja else 0
-            except (TypeError, ValueError):
-                _mb = 0
+            _hist[b.id] = h
             # Corte por "pasar números": de una boleta que SALIÓ solo cuentan
             # acá las cuotas hasta paso_cuota; de una que ENTRÓ no cuentan las
             # que ya traía pagas (esas las cobró el cobrador anterior).
             _salio = b.id in paso_map
             _corte = int(paso_map[b.id].get("cuota") or 0) if _salio else None
             _rec = int(recibida_map.get(b.id, 0) or 0)
+            # Cuotas cobradas en ESTE periodo (anio+mes). Antes comparaba solo
+            # el mes y mezclaba julio 2026 con julio 2027 (fix C-1).
+            _cuotas_mes[b.id] = sum(1 for k, v in h.items()
+                                    if _cuota_cuenta_aca(k, _corte, _rec)
+                                    and match_periodo(v, anio, mes))
+        # Una planilla entregada ESTE mes recién se cobra el mes que viene, así
+        # que lo no cobrado no es culpa del cobrador. Pero si ya registró
+        # cobranza, sí se estaba cobrando: mostrar "sin cobrar" vacío y 100%
+        # inflaba la efectividad del mes.
+        _cobrable = _entregada_antes or any(_cuotas_mes.values())
+        for b in boletas:
+            h = _hist[b.id]
+            _mb = 0
+            try:
+                _mb = int(b.mes_baja) if b.mes_baja else 0
+            except (TypeError, ValueError):
+                _mb = 0
+            _salio = b.id in paso_map
             if _mb == mes and not _salio:
                 b_pl += 1
             peso = 1.0 if todo0 else _pata_valor(b)
-            # Cuotas cobradas en ESTE periodo (anio+mes). Antes comparaba solo
-            # el mes y mezclaba julio 2026 con julio 2027 (fix C-1).
-            cM = sum(1 for k, v in h.items()
-                     if _cuota_cuenta_aca(k, _corte, _rec)
-                     and match_periodo(v, anio, mes))
+            _x0 = _es_x0(b)
+            cM = _cuotas_mes[b.id]
             if cM:
                 vc = float(b.talonera.valor_cuota) if (b.talonera and b.talonera.valor_cuota) else 0.0
                 m_pl += cM * vc
                 c_pl += cM * peso
+                if _x0:
+                    cz_pl += cM
+                else:
+                    cp_pl += cM * _pata_valor(b)
                 continue
             # ── No cobró nada este mes: ¿se le podía cobrar? ────────────────
             if _salio:
                 continue                       # ya no está en esta planilla
-            if not _entregada_antes:
+            if not _cobrable:
                 continue                       # planilla recién entregada
             if _mb and _mb <= mes:
                 continue                       # dada de baja en este mes o antes
@@ -2616,16 +2653,27 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
             if (b.cuotas_pactadas or 0) and _pagadas_antes >= (b.cuotas_pactadas or 0):
                 continue                       # ya había terminado de pagar
             s_pl += peso
+            if _x0:
+                sz_pl += 1
+            else:
+                sp_pl += _pata_valor(b)
         if m_pl or c_pl or s_pl or b_pl:
             com = round(m_pl * pct / 100.0, 2)
-            _base = c_pl + s_pl
+            _cobradas = cp_pl + cz_pl
+            _base = _cobradas + sp_pl + sz_pl
             detalle.append({
                 "numero": p.numero, "mes_planilla": p.mes, "anio_planilla": p.anio,
                 "cuotas": c_pl, "monto": round(m_pl, 2), "pct": pct,
                 "comision": com, "neto": round(m_pl - com, 2),
                 "sin_cobrar": round(s_pl, 2), "bajas": b_pl,
-                "efect": round(c_pl / _base * 100) if _base > 0 else 0,
+                "cuotas_pata": round(cp_pl, 2), "cuotas_x0": round(cz_pl, 2),
+                "sin_pata": round(sp_pl, 2), "sin_x0": round(sz_pl, 2),
+                "efect": round(_cobradas / _base * 100) if _base > 0 else 0,
             })
+            tot_cp += cp_pl
+            tot_cz += cz_pl
+            tot_sp += sp_pl
+            tot_sz += sz_pl
             tot_monto += m_pl
             tot_com += com
             tot_cuotas += c_pl
@@ -2652,8 +2700,12 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
                          if len({d["pct"] for d in detalle}) == 1 else None),
         "sin_cobrar": round(tot_sin, 2),
         "bajas": tot_bajas,
-        "efect": (round(tot_cuotas / (tot_cuotas + tot_sin) * 100)
-                  if (tot_cuotas + tot_sin) > 0 else 0),
+        "cuotas_pata": round(tot_cp, 2),
+        "cuotas_x0": round(tot_cz, 2),
+        "sin_pata": round(tot_sp, 2),
+        "sin_x0": round(tot_sz, 2),
+        "efect": (round((tot_cp + tot_cz) / (tot_cp + tot_cz + tot_sp + tot_sz) * 100)
+                  if (tot_cp + tot_cz + tot_sp + tot_sz) > 0 else 0),
         "monto": round(tot_monto, 2),
         "comision": round(tot_com, 2),
         "neto": neto,
@@ -2709,6 +2761,8 @@ def _resumen_institucion(db, mes: int, anio: int):
             "cobrador": c,
             "planillas": len(d["detalle"]),
             "cuotas": d["cuotas"],
+            "cuotas_pata": d["cuotas_pata"],
+            "cuotas_x0": d["cuotas_x0"],
             "monto": d["monto"],
             "comision": d["comision"],
             "neto": d["neto"],
@@ -2720,7 +2774,8 @@ def _resumen_institucion(db, mes: int, anio: int):
     totales = {
         k: round(sum(f[k] for f in filas), 2)
         for k in ("monto", "comision", "neto", "entregas",
-                  "adel_efectivo", "adel_premio", "saldo")
+                  "adel_efectivo", "adel_premio", "saldo",
+                  "cuotas_pata", "cuotas_x0")
     }
     totales["cuotas"] = sum(f["cuotas"] for f in filas)
     totales["planillas"] = sum(f["planillas"] for f in filas)

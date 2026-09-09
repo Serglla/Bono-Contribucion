@@ -108,23 +108,30 @@
   <div class="sec">COBRANZA POR PLANILLA</div>
   <table>
     <thead>
+      {# Cuotas abiertas en PATA (X1, X2, X3… sumadas por PATA) y X0 (de a una) #}
       <tr>
-        <th style="text-align:left;">Planilla</th>
-        <th>Cuotas cobradas</th>
-        <th>Sin cobrar</th>
-        <th>Bajas</th>
-        <th>% cobr.</th>
-        <th>Monto cobrado</th>
-        <th>Comisión</th>
-        <th>Neto</th>
+        <th style="text-align:left;" rowspan="2">Planilla</th>
+        <th colspan="2">Cuotas cobradas</th>
+        <th colspan="2">Sin cobrar</th>
+        <th rowspan="2">Bajas</th>
+        <th rowspan="2">% cobr.</th>
+        <th rowspan="2">Monto cobrado</th>
+        <th rowspan="2">Comisión</th>
+        <th rowspan="2">Neto</th>
+      </tr>
+      <tr>
+        <th>PATA</th><th>X0</th>
+        <th>PATA</th><th>X0</th>
       </tr>
     </thead>
     <tbody>
       {% for p in d.detalle %}
       <tr>
         <td>P{{ p.numero }}</td>
-        <td class="ctr">{{ p.cuotas | fmtcuota }}</td>
-        <td class="ctr">{% if p.sin_cobrar %}{{ p.sin_cobrar | fmtcuota }}{% else %}—{% endif %}</td>
+        <td class="ctr">{% if p.cuotas_pata %}{{ p.cuotas_pata | fmtcuota }}{% else %}—{% endif %}</td>
+        <td class="ctr">{% if p.cuotas_x0 %}{{ p.cuotas_x0 | fmtcuota }}{% else %}—{% endif %}</td>
+        <td class="ctr">{% if p.sin_pata %}{{ p.sin_pata | fmtcuota }}{% else %}—{% endif %}</td>
+        <td class="ctr">{% if p.sin_x0 %}{{ p.sin_x0 | fmtcuota }}{% else %}—{% endif %}</td>
         <td class="ctr">{% if p.bajas %}{{ p.bajas }}{% else %}—{% endif %}</td>
         <td class="ctr">{{ p.efect }}%</td>
         <td class="num">{{ p.monto | pesos }}</td>
@@ -132,14 +139,16 @@
         <td class="num">{{ p.neto | pesos }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="8" class="ctr">Sin cobranza registrada en {{ mes_nombre }} {{ anio }}</td></tr>
+      <tr><td colspan="10" class="ctr">Sin cobranza registrada en {{ mes_nombre }} {{ anio }}</td></tr>
       {% endfor %}
     </tbody>
     <tfoot>
       <tr style="font-weight:bold;">
         <td>TOTAL</td>
-        <td class="ctr">{{ d.cuotas_exact | fmtcuota }}</td>
-        <td class="ctr">{% if d.sin_cobrar %}{{ d.sin_cobrar | fmtcuota }}{% else %}—{% endif %}</td>
+        <td class="ctr">{% if d.cuotas_pata %}{{ d.cuotas_pata | fmtcuota }}{% else %}—{% endif %}</td>
+        <td class="ctr">{% if d.cuotas_x0 %}{{ d.cuotas_x0 | fmtcuota }}{% else %}—{% endif %}</td>
+        <td class="ctr">{% if d.sin_pata %}{{ d.sin_pata | fmtcuota }}{% else %}—{% endif %}</td>
+        <td class="ctr">{% if d.sin_x0 %}{{ d.sin_x0 | fmtcuota }}{% else %}—{% endif %}</td>
         <td class="ctr">{% if d.bajas %}{{ d.bajas }}{% else %}—{% endif %}</td>
         <td class="ctr">{{ d.efect }}%</td>
         <td class="num">{{ d.monto | pesos }}</td>
@@ -216,7 +225,7 @@
     const pdfUrl = "/cobranza/consolidado/{{ cobrador.id }}/hoja.pdf{{ _qs }}";
     const nombreArchivo = "liquidacion_{{ cobrador.nombre }}_{{ mes_nombre|lower }}_{{ anio }}.pdf".replace(/ /g, "_");
     const texto = "Liquidación {{ mes_nombre }} {{ anio }} — {{ cobrador.nombre }}\n" +
-      {% for p in d.detalle %}"P{{ p.numero }}: {{ p.cuotas | fmtcuota }} cuotas · {{ p.monto | pesos }}\n" +
+      {% for p in d.detalle %}"P{{ p.numero }}: {{ (p.cuotas_pata + p.cuotas_x0) | fmtcuota }} cuotas · {{ p.monto | pesos }}\n" +
       {% endfor %}"Cobrado {{ d.monto | pesos }} · comisión {{ d.comision | pesos }} · neto {{ d.neto | pesos }}\n" +
       "Entregado {{ d.total_adelantos | pesos }} · SALDO A ENTREGAR {{ d.saldo | pesos }}";
     try {
