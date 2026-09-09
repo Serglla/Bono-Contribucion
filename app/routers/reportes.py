@@ -286,6 +286,10 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
                                   models.Planilla.mes).all()
     }
     _anios_vistos = {a for (a, _m) in _pl_periodo.values() if a}
+    # Períodos en los que CADA planilla registró cobranza: una planilla
+    # entregada este mes entra al denominador de este mes solo si ya se le
+    # cobró (ver _activas_en).
+    _pl_pagos: dict = {}
     boletas_con_cob = db.query(models.Boleta).filter(
         models.Boleta.cobrador_id.isnot(None)
     ).all()
@@ -331,10 +335,16 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
                     _pagos_b.append(_pk)
                     if _p[0]:
                         _anios_vistos.add(_p[0])
+                # El denominador del mes son BOLETAS activas, así que el
+                # numerador también cuenta boletas: el socio que se pone al día
+                # pagando 2 cuotas juntas suma 1, no 2 (antes el mes daba +100%).
+                for _pk in set(_pagos_b):
                     acc["meses_cob"][_pk] = acc["meses_cob"].get(_pk, 0) + 1
                     _g_meses[_pk] = _g_meses.get(_pk, 0) + 1
+                    _pl_pagos.setdefault(b.planilla_id, set()).add(_pk)
                 _info_b = {
                     "desde": _pl_periodo.get(b.planilla_id, (0, 0)),
+                    "pl": b.planilla_id,
                     "ant": int(b.cuotas_anticipadas or 0),
                     "pact": int(b.cuotas_pactadas or 0),
                     "pagos": _pagos_b,
@@ -360,7 +370,12 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         _o = _ordp(anio_p, mes_p)
         n = 0
         for bi in infos:
-            if _ordp(*bi["desde"]) >= _o:
+            _od = _ordp(*bi["desde"])
+            if _od > _o:
+                continue                      # entregada después de este mes
+            if _od == _o and (anio_p, mes_p) not in _pl_pagos.get(bi.get("pl"), ()):
+                # Entregada ESTE mes: se cobra recién el que viene, salvo que ya
+                # se le haya cobrado — ahí sus boletas cuentan en el denominador.
                 continue
             pagadas_antes = bi["ant"] + sum(1 for k in bi["pagos"] if _ordp(*k) < _o)
             if bi["pact"] and pagadas_antes >= bi["pact"]:

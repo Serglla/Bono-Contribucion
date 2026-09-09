@@ -763,6 +763,10 @@ async def index(request: Request, db: Session = Depends(get_db),
         infos_pct = []
         _pl_periodo = {p.id: (int(p.anio or 0), int(p.mes or 0)) for p in planillas}
         _anios_vistos = {a for (a, _m) in _pl_periodo.values() if a}
+        # Períodos en los que CADA planilla registró cobranza. Sirve para el
+        # denominador: una planilla entregada este mes entra al denominador de
+        # este mes solo si este mes ya se le cobró (ver _activas_en).
+        _pl_pagos = {}
         for b in boletas:
             no_terminada = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
             pv = _pata_valor(b)
@@ -790,9 +794,16 @@ async def index(request: Request, db: Session = Depends(get_db),
                             _pagos_b.append(_key)
                             if _p[0]:
                                 _anios_vistos.add(_p[0])
+                        # El denominador del mes son BOLETAS activas, así que el
+                        # numerador también cuenta boletas: el socio que se pone
+                        # al día pagando 2 cuotas juntas suma 1, no 2. Antes
+                        # sumaba una por cuota y el mes daba más de 100%.
+                        for _key in set(_pagos_b):
                             meses_cob[_key] = meses_cob.get(_key, 0) + 1
+                            _pl_pagos.setdefault(b.planilla_id, set()).add(_key)
                         infos_pct.append({
                             "desde": _pl_periodo.get(b.planilla_id, (0, 0)),
+                            "pl": b.planilla_id,
                             "ant": int(b.cuotas_anticipadas or 0),
                             "pact": int(b.cuotas_pactadas or 0),
                             "pagos": _pagos_b,
@@ -829,8 +840,14 @@ async def index(request: Request, db: Session = Depends(get_db),
             _o = _ordp(anio_p, mes_p)
             n = 0
             for bi in infos_pct:
-                if _ordp(*bi["desde"]) >= _o:
-                    continue                      # entregada este mes o después
+                _od = _ordp(*bi["desde"])
+                if _od > _o:
+                    continue                      # entregada después de este mes
+                if _od == _o and (anio_p, mes_p) not in _pl_pagos.get(bi["pl"], ()):
+                    # Entregada ESTE mes: normalmente se cobra recién el que
+                    # viene, pero si ya se le cobró, sus boletas tienen que
+                    # entrar al denominador (si no, el mes pasa de 100%).
+                    continue
                 pagadas_antes = bi["ant"] + sum(1 for k in bi["pagos"] if _ordp(*k) < _o)
                 if bi["pact"] and pagadas_antes >= bi["pact"]:
                     continue                      # ya había terminado de pagar
