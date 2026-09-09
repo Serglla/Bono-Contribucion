@@ -400,6 +400,26 @@ def _cuota_recibida(clave, recibidas: int) -> bool:
         return False
 
 
+def _cuota_cuenta_aca(clave, corte, recibidas) -> bool:
+    """¿La cuota `clave` del historial es cobranza de ESTA planilla?
+
+    Mismo criterio que el resumen de la planilla y la hoja de liquidación:
+      - `corte` (paso_cuota) → la boleta SALIÓ de acá: solo cuentan las cuotas
+        hasta el corte; las de después las cobra la planilla destino.
+      - `recibidas` → la boleta ENTRÓ desde otra planilla: las cuotas que ya
+        traía pagas las cobró el cobrador anterior y acá no suman.
+    """
+    try:
+        kn = int(clave)
+    except (TypeError, ValueError):
+        return False
+    if corte is not None and kn > corte:
+        return False
+    if recibidas and kn <= recibidas:
+        return False
+    return True
+
+
 def _recibida_de(b, planilla_id=None) -> int:
     """Cuotas que la boleta YA TRAÍA PAGAS cuando entró a esta planilla.
 
@@ -2535,8 +2555,19 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
                  .all())
     for p in planillas:
         pct = float(p.comision_pct or 0)
-        boletas = db.query(models.Boleta).filter_by(planilla_id=p.id).all()
-        todo0 = _planilla_todo_pata0(boletas)
+        # Además de las boletas que ESTÁN en la planilla se traen las que
+        # SALIERON de ella ("pasar números"): las cuotas cobradas ACÁ antes del
+        # pase son cobranza de ESTE cobrador y tienen que seguir contando en los
+        # meses ya liquidados. Sin esto, mover un número en septiembre le
+        # cambiaba el total de agosto y el saldo del cobrador dejaba de cerrar.
+        boletas = (db.query(models.Boleta)
+                   .filter(or_(models.Boleta.planilla_id == p.id,
+                               models.Boleta.paso_origen_planilla_id == p.id))
+                   .all())
+        propias = [b for b in boletas if b.planilla_id == p.id]
+        paso_map = _build_paso_map(boletas, p.id)          # se fueron de acá
+        recibida_map = _build_recibida_map(boletas, p.id)  # llegaron de otra
+        todo0 = _planilla_todo_pata0(propias or boletas)
         # La cobranza arranca el mes siguiente al de entrega de la planilla.
         _entregada_antes = (int(p.anio or 0) * 12 + int(p.mes or 0)) < _ord_mes
         m_pl = 0.0
@@ -2553,18 +2584,28 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
                 _mb = int(b.mes_baja) if b.mes_baja else 0
             except (TypeError, ValueError):
                 _mb = 0
-            if _mb == mes:
+            # Corte por "pasar números": de una boleta que SALIÓ solo cuentan
+            # acá las cuotas hasta paso_cuota; de una que ENTRÓ no cuentan las
+            # que ya traía pagas (esas las cobró el cobrador anterior).
+            _salio = b.id in paso_map
+            _corte = int(paso_map[b.id].get("cuota") or 0) if _salio else None
+            _rec = int(recibida_map.get(b.id, 0) or 0)
+            if _mb == mes and not _salio:
                 b_pl += 1
             peso = 1.0 if todo0 else _pata_valor(b)
             # Cuotas cobradas en ESTE periodo (anio+mes). Antes comparaba solo
             # el mes y mezclaba julio 2026 con julio 2027 (fix C-1).
-            cM = sum(1 for v in h.values() if match_periodo(v, anio, mes))
+            cM = sum(1 for k, v in h.items()
+                     if _cuota_cuenta_aca(k, _corte, _rec)
+                     and match_periodo(v, anio, mes))
             if cM:
                 vc = float(b.talonera.valor_cuota) if (b.talonera and b.talonera.valor_cuota) else 0.0
                 m_pl += cM * vc
                 c_pl += cM * peso
                 continue
             # ── No cobró nada este mes: ¿se le podía cobrar? ────────────────
+            if _salio:
+                continue                       # ya no está en esta planilla
             if not _entregada_antes:
                 continue                       # planilla recién entregada
             if _mb and _mb <= mes:
