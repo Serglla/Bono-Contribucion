@@ -608,6 +608,21 @@ def create_default_admin():
             db.rollback()
             print(f"Migracion paso_* boletas: {e}")
 
+        # Migrar orden_llegada en boletas (10/09/2026): un número PASADO a otra
+        # planilla va al final de su pata, en el orden en que se pasó.
+        try:
+            if engine.dialect.name == "postgresql":
+                db.execute(text("ALTER TABLE boletas ADD COLUMN IF NOT EXISTS orden_llegada INTEGER"))
+            else:
+                cols_boletas = [c["name"] for c in inspector.get_columns("boletas")]
+                if "orden_llegada" not in cols_boletas:
+                    db.execute(text("ALTER TABLE boletas ADD COLUMN orden_llegada INTEGER"))
+            db.commit()
+            print("Migracion orden_llegada boletas: OK")
+        except Exception as e:
+            db.rollback()
+            print(f"Migracion orden_llegada boletas: {e}")
+
         # Migrar num_cuotas en taloneras
         try:
             _dialect = engine.dialect.name

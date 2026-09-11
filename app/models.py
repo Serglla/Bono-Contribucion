@@ -325,6 +325,11 @@ class Boleta(Base):
     paso_origen_planilla_id = deferred(Column(Integer, nullable=True, index=True))
     paso_a = deferred(Column(String, nullable=True))
     paso_cuota = deferred(Column(Integer, nullable=True))
+    # Orden de llegada (10/09/2026): cuando un número se PASA a una planilla, no
+    # se reordena por número: va al FINAL de su pata, en el orden en que se pasó.
+    # Solo vale para la planilla actual de la boleta (planilla_id). NULL = orden
+    # normal por número (todas las planillas viejas quedan exactamente igual).
+    orden_llegada = deferred(Column(Integer, nullable=True))
     created_at = Column(DateTime, server_default=func.now())
 
     talonera = relationship("Talonera", back_populates="boletas",

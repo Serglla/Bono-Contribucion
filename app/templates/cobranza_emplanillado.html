@@ -24,6 +24,11 @@
       </select>
       <button type="submit" class="btn btn-sm btn-danger">Ver</button>
       <span class="text-muted small ms-2">Emplanillando para <strong>{{ mes_nombre }} {{ anio }}</strong></span>
+      <button type="button" class="btn btn-sm btn-primary ms-auto"
+              data-bs-toggle="modal" data-bs-target="#modalPasarNumero"
+              title="El cobrador dejó de cobrar un número → pasarlo a otro cobrador / planilla">
+        <i class="bi bi-arrow-left-right me-1"></i>Pasar número
+      </button>
     </form>
   </div>
 </div>
@@ -70,13 +75,6 @@
                class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:.75rem;">
               <i class="bi bi-pencil"></i>
             </a>
-            <button class="btn btn-sm btn-outline-primary py-0 px-2"
-                    style="font-size:.75rem;"
-                    title="El cobrador dejó de cobrar números de P{{ pl.numero }} → pasarlos a otro lado"
-                    data-bs-toggle="modal"
-                    data-bs-target="#modalPasar{{ pl.id }}">
-              <i class="bi bi-arrow-left-right"></i>
-            </button>
             {# Una planilla ya liquidada no se elimina: la liquidacion quedaria
                huerfana y las cuotas cobradas sin hoja que las respalde. El server
                tambien lo rechaza (cobranza.py: planilla_eliminar). #}
@@ -115,73 +113,6 @@
     </div>
   </div>
 
-  <!-- Modales para PASAR números a otro cobrador / planilla nueva -->
-  {% for pl in r.planillas %}
-  <div class="modal fade" id="modalPasar{{ pl.id }}" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
-      <div class="modal-content">
-        <form method="post" action="/cobranza/planilla/{{ pl.id }}/pasar-numeros">
-          <div class="modal-header">
-            <h6 class="modal-title text-primary"><i class="bi bi-arrow-left-right me-1"></i>Pasar números — P{{ pl.numero }} de {{ r.cobrador.nombre }}</h6>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <p class="small text-muted">
-              Usá esto cuando el cobrador <strong>deja de cobrar</strong> algunos números.
-              Los elegidos pasan al destino conservando las cuotas pagadas y el mes de cada pago.
-              En esta planilla quedan marcados con la línea <strong>"PASÓ A …"</strong> (la liquidación ya hecha no se toca).
-            </p>
-
-            <input type="hidden" name="destino" value="cobrador">
-            <div class="row g-2 mb-3">
-              <div class="col-12">
-                <label class="fw-semibold small mb-1">Cobrador destino</label>
-                <select name="cobrador_destino_id" id="selCob{{ pl.id }}"
-                        class="form-select form-select-sm"
-                        data-origen-planilla="{{ pl.id }}"
-                        onchange="poblarPlanillasDestino({{ pl.id }})">
-                  {% for co in cobradores_todos %}
-                  <option value="{{ co.id }}" {% if co.id == r.cobrador.id %}selected{% endif %}>{{ co.nombre }}{% if co.id == r.cobrador.id %} (mismo cobrador){% endif %}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <div class="col-12">
-                <label class="fw-semibold small mb-1">Planilla destino</label>
-                <select name="planilla_destino_id" id="selPlan{{ pl.id }}"
-                        class="form-select form-select-sm">
-                  {# Se puebla por JS según el cobrador elegido. #}
-                </select>
-                <div class="form-text small">Se preselecciona la que más lugar tiene. Si no entra, se crea una nueva.</div>
-              </div>
-            </div>
-
-            <label class="fw-semibold small mb-1">Números a pasar</label>
-            <div class="border rounded p-2" style="max-height:240px;overflow:auto;">
-              {% set nums = planilla_numeros.get(pl.id, []) %}
-              {% if nums %}
-                <div class="d-flex flex-wrap gap-2">
-                  {% for b in nums %}
-                  <label class="form-check d-flex align-items-center gap-1 mb-0" style="width:auto;">
-                    <input class="form-check-input mt-0" type="checkbox" name="boleta_ids" value="{{ b.id }}">
-                    <span class="small">{{ b.numero }}</span>
-                  </label>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <span class="text-muted small">No quedan números activos en esta planilla.</span>
-              {% endif %}
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-arrow-left-right me-1"></i>Pasar números</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
-  {% endfor %}
-
   <!-- Modales para eliminar cada planilla (solo las que NO estan liquidadas) -->
   {% for pl in r.planillas if not pl.liquidacion %}
   <div class="modal fade" id="modalEliminar{{ pl.id }}" tabindex="-1">
@@ -213,52 +144,177 @@
 {% else %}
 <div class="text-center text-muted py-5">No hay cobradores con boletas activas.</div>
 {% endif %}
+
+<!-- Modal PASAR NÚMERO: el origen se detecta solo al escribir el número -->
+<div class="modal fade" id="modalPasarNumero" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title text-primary"><i class="bi bi-arrow-left-right me-1"></i>Pasar número</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">
+          Escribí el número y dale <strong>Enter</strong>: aparece solo de qué planilla sale.
+          Podés cargar varios. En la planilla de origen queda la línea <strong>"PASÓ A …"</strong>;
+          en la de destino va <strong>al final de su pata</strong>, en el orden en que los cargues.
+        </p>
+
+        <label class="fw-semibold small mb-1">Número</label>
+        <div class="input-group input-group-sm mb-1">
+          <input type="text" inputmode="numeric" id="pnNumero" class="form-control"
+                 placeholder="Ej: 8535" autocomplete="off">
+          <button type="button" class="btn btn-outline-primary" id="pnBuscar">
+            <i class="bi bi-plus-lg"></i> Agregar
+          </button>
+        </div>
+        <div id="pnError" class="small text-danger mb-2" hidden></div>
+
+        <div id="pnLista" class="d-flex flex-column gap-1 mb-3"></div>
+
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="fw-semibold small mb-1">Cobrador destino</label>
+            <select id="pnCobrador" class="form-select form-select-sm">
+              <option value="">— Elegí —</option>
+              {% for co in cobradores_todos %}
+              <option value="{{ co.id }}">{{ co.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="fw-semibold small mb-1">Planilla destino</label>
+            <select id="pnPlanilla" class="form-select form-select-sm" disabled></select>
+            <div class="form-text small">Se preselecciona la última. «Planilla nueva» se arma para {{ mes_nombre }} {{ anio }}.</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" id="pnConfirmar" disabled>
+          <i class="bi bi-arrow-left-right me-1"></i>Pasar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Planillas del mes por cobrador, con su lugar libre. { cobrador_id: [{id, numero, libres, capacidad}] }
+// Todas las planillas de cada cobrador (más nueva primero), con su lugar libre.
+// { cobrador_id: [{id, numero, mes, anio, label, libres, capacidad}] }
 window.PLAN_CAP = {{ planillas_por_cobrador | tojson }};
+window.PN_MES = {{ mes }}; window.PN_ANIO = {{ anio }};
 
-// Puebla el select de planilla destino según el cobrador elegido en ese modal.
-// Excluye la planilla origen. Preselecciona la que más lugar tiene; si ninguna
-// tiene lugar, deja "Planilla nueva".
-function poblarPlanillasDestino(origenPlanillaId) {
-  var selCob  = document.getElementById('selCob'  + origenPlanillaId);
-  var selPlan = document.getElementById('selPlan' + origenPlanillaId);
-  if (!selCob || !selPlan) return;
-  var cobId = parseInt(selCob.value, 10);
-  var lista = (window.PLAN_CAP[cobId] || []).filter(function(p){ return p.id !== origenPlanillaId; });
+(function(){
+  var lista = [];   // boletas cargadas, en el orden en que se cargaron
+  var $num = document.getElementById('pnNumero');
+  var $err = document.getElementById('pnError');
+  var $lista = document.getElementById('pnLista');
+  var $cob = document.getElementById('pnCobrador');
+  var $plan = document.getElementById('pnPlanilla');
+  var $ok = document.getElementById('pnConfirmar');
 
-  selPlan.innerHTML = '';
-  var preseleccionada = null;
-  lista.forEach(function(p){
-    var opt = document.createElement('option');
-    opt.value = p.id;
-    var estado = p.libres > 0 ? (p.libres + ' libres') : 'llena';
-    opt.textContent = 'P' + p.numero + ' — ' + estado + ' (' + (p.capacidad - p.libres) + '/' + p.capacidad + ')';
-    if (p.libres <= 0) opt.disabled = true;
-    else if (preseleccionada === null) preseleccionada = p.id;  // 1° con lugar (lista viene ordenada por libres desc)
-    selPlan.appendChild(opt);
-  });
+  function error(msg){ $err.textContent = msg || ''; $err.hidden = !msg; }
 
-  // Opción "Planilla nueva" siempre disponible.
-  var optNueva = document.createElement('option');
-  optNueva.value = 'nueva';
-  optNueva.textContent = '➕ Planilla nueva';
-  selPlan.appendChild(optNueva);
+  function esc(t){ var d = document.createElement('div'); d.textContent = t == null ? '' : t; return d.innerHTML; }
 
-  selPlan.value = (preseleccionada !== null) ? String(preseleccionada) : 'nueva';
-}
-
-// Inicializar cada modal cuando se abre.
-document.addEventListener('DOMContentLoaded', function(){
-  document.querySelectorAll('[id^="modalPasar"]').forEach(function(modal){
-    modal.addEventListener('show.bs.modal', function(){
-      var sel = modal.querySelector('[id^="selCob"]');
-      if (sel) poblarPlanillasDestino(parseInt(sel.dataset.origenPlanilla, 10));
+  function pintarLista(){
+    $lista.innerHTML = '';
+    lista.forEach(function(b, i){
+      var row = document.createElement('div');
+      row.className = 'd-flex align-items-center gap-2 border rounded px-2 py-1 small';
+      row.innerHTML =
+        '<span class="fw-bold">' + esc(b.numero) + '</span>' +
+        '<span class="badge" style="background:' + esc(b.color) + ';color:#000;">' + esc(b.pata) + '</span>' +
+        '<span class="text-truncate" style="max-width:9rem;">' + esc(b.socio) + '</span>' +
+        '<span class="text-muted ms-auto text-nowrap">de <strong>' + esc(b.cobrador) + '</strong> – ' + esc(b.planilla_label) +
+        ' · ' + b.pagadas + '/' + b.pactadas + '</span>' +
+        '<button type="button" class="btn btn-sm btn-link text-danger p-0" title="Quitar"><i class="bi bi-x-lg"></i></button>';
+      row.querySelector('button').onclick = function(){ lista.splice(i, 1); pintarLista(); pintarPlanillas(); };
+      $lista.appendChild(row);
     });
+    actualizarBoton();
+  }
+
+  function pintarPlanillas(){
+    var cobId = parseInt($cob.value, 10);
+    var anterior = $plan.value;
+    $plan.innerHTML = '';
+    if (!cobId){ $plan.disabled = true; actualizarBoton(); return; }
+    $plan.disabled = false;
+    var origenes = lista.map(function(b){ return b.planilla_id; });
+    var primera = null;
+    (window.PLAN_CAP[cobId] || []).forEach(function(p){
+      var opt = document.createElement('option');
+      opt.value = p.id;
+      var esOrigen = origenes.indexOf(p.id) >= 0;
+      var estado = esOrigen ? 'es la de origen' : (p.libres > 0 ? p.libres + ' libres' : 'llena');
+      opt.textContent = 'P' + p.numero + ' · ' + p.label + ' — ' + estado;
+      if (esOrigen || p.libres <= 0) opt.disabled = true;
+      else if (primera === null) primera = p.id;   // la más nueva con lugar
+      $plan.appendChild(opt);
+    });
+    var nueva = document.createElement('option');
+    nueva.value = 'nueva';
+    nueva.textContent = '➕ Planilla nueva ({{ mes_nombre }} {{ anio }})';
+    $plan.appendChild(nueva);
+    var opAnt = anterior && $plan.querySelector('option[value="' + anterior + '"]');
+    $plan.value = (opAnt && !opAnt.disabled) ? anterior : (primera !== null ? String(primera) : 'nueva');
+    actualizarBoton();
+  }
+
+  function actualizarBoton(){
+    $ok.disabled = !(lista.length && $cob.value && $plan.value);
+  }
+
+  function buscar(){
+    var n = ($num.value || '').trim();
+    if (!n) return;
+    error('');
+    fetch('/cobranza/pasar-numero/buscar?numero=' + encodeURIComponent(n), {credentials: 'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok){ error(d.error); return; }
+        var nuevas = d.boletas.filter(function(b){
+          return !lista.some(function(x){ return x.id === b.id; });
+        });
+        if (!nuevas.length){ error('Ese número ya está en la lista.'); return; }
+        nuevas.forEach(function(b){ lista.push(b); });
+        $num.value = '';
+        pintarLista(); pintarPlanillas();
+      })
+      .catch(function(){ error('No se pudo buscar el número.'); })
+      .finally(function(){ $num.focus(); });
+  }
+
+  $num.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); buscar(); } });
+  document.getElementById('pnBuscar').onclick = buscar;
+  $cob.onchange = pintarPlanillas;
+  $plan.onchange = actualizarBoton;
+
+  $ok.onclick = function(){
+    var fd = new FormData();
+    lista.forEach(function(b){ fd.append('boleta_ids', b.id); });
+    fd.append('cobrador_destino_id', $cob.value);
+    fd.append('planilla_destino_id', $plan.value);
+    fd.append('mes', window.PN_MES); fd.append('anio', window.PN_ANIO);
+    $ok.disabled = true; error('');
+    fetch('/cobranza/pasar-numero', {method: 'POST', body: fd, credentials: 'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok){ error(d.error); $ok.disabled = false; return; }
+        location.reload();
+      })
+      .catch(function(){ error('No se pudo pasar el número.'); $ok.disabled = false; });
+  };
+
+  var modal = document.getElementById('modalPasarNumero');
+  modal.addEventListener('shown.bs.modal', function(){ $num.focus(); });
+  modal.addEventListener('hidden.bs.modal', function(){
+    lista = []; $num.value = ''; $cob.value = ''; error(''); pintarLista(); pintarPlanillas();
   });
-});
+})();
 </script>
 {% endblock %}
