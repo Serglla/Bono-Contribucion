@@ -1744,25 +1744,52 @@ function alertaBox(t, m) {
 
 // ── Rangos de todas las taloneras (COMUN + CONTADO): permiten detectar sola
 // la PATA a la que pertenece cada número cargado, sin selector manual.
+// Los rangos pueden solaparse (una talonera ★ CONTADO 001-500 pisa números de
+// PATA 1): en ese caso se prioriza la COMUN y la fila muestra un selector para
+// cambiarla a mano cuando lo entregado es realmente de la especial.
 const RANGOS_TAL = {{ rangos_taloneras | tojson }};
 
 function ec2TalDe(n) {
   return RANGOS_TAL.filter(t => n >= t.inicio && n <= t.fin);
 }
 
+// Candidatos válidos para el rango: nombres de talonera que contienen el Desde
+// y —si hay Hasta— también el Hasta. COMUN primero, ★ CONTADO al final.
+function ec2Candidatos(d, h) {
+  const vistos = new Map();
+  for (const t of ec2TalDe(d)) {
+    if (vistos.has(t.nombre)) continue;
+    if (h && h !== d) {
+      const ok = RANGOS_TAL.some(x => x.nombre === t.nombre && h >= x.inicio && h <= x.fin);
+      if (!ok) continue;
+    }
+    vistos.set(t.nombre, t);
+  }
+  const arr = [...vistos.values()];
+  arr.sort((a, b) => (a.tipo === 'CONTADO') - (b.tipo === 'CONTADO'));
+  return arr;
+}
+
 // Detecta la PATA de una fila a partir del Desde/Hasta.
 // estado: 'vacio' | 'nada' | 'invertido' | 'cruza' | 'ok'
-function ec2Detectar(d, h) {
+// elegida = nombre forzado por el usuario en el selector (si hay más de un candidato).
+function ec2Detectar(d, h, elegida) {
   if (!d) return { estado: 'vacio' };
-  const md = ec2TalDe(d);
-  if (!md.length) return { estado: 'nada' };
-  const t = md[0];
-  if (h && h !== d) {
-    if (h < d) return { estado: 'invertido' };
-    const mh = ec2TalDe(h);
-    if (!mh.length || mh[0].nombre !== t.nombre) return { estado: 'cruza', pata: t.nombre };
-  }
-  return { estado: 'ok', pata: t.nombre, tipo: t.tipo, nd: t.nd, esContado: t.tipo === 'CONTADO' };
+  if (!ec2TalDe(d).length) return { estado: 'nada' };
+  if (h && h < d) return { estado: 'invertido' };
+  const cand = ec2Candidatos(d, h);
+  if (!cand.length) return { estado: 'cruza' };
+  const t = cand.find(c => c.nombre === elegida) || cand[0];
+  return {
+    estado: 'ok', pata: t.nombre, tipo: t.tipo, nd: t.nd,
+    esContado: t.tipo === 'CONTADO', candidatos: cand,
+  };
+}
+
+function ec2BadgePata(t) {
+  return t.tipo === 'CONTADO'
+    ? `<span class="badge bg-warning text-dark"><i class="bi bi-star-fill me-1"></i>${t.nombre}</span>`
+    : `<span class="badge bg-danger">${t.nombre}</span>`;
 }
 
 // Recorre las filas, pinta PATA + cantidad de taloneras y devuelve los rangos
@@ -1775,7 +1802,7 @@ function ec2Pintar() {
     const h = parseInt(row.querySelector('.ec2-hasta').value) || 0;
     const cP = row.querySelector('.ec2-pata-cell');
     const cC = row.querySelector('.ec2-cant-cell');
-    const r  = ec2Detectar(d, h);
+    const r  = ec2Detectar(d, h, row.dataset.pataSel || '');
 
     if (r.estado === 'vacio') {
       cP.innerHTML = '<span class="badge bg-secondary-subtle text-secondary">—</span>';
@@ -1792,11 +1819,19 @@ function ec2Pintar() {
       return;
     }
 
+    // Si el número existe en más de una talonera, mostrar selector (COMUN por
+    // defecto) en lugar del badge fijo.
+    if (r.candidatos.length > 1) {
+      const opts = r.candidatos.map(c =>
+        `<option value="${c.nombre}" ${c.nombre === r.pata ? 'selected' : ''}>${c.tipo === 'CONTADO' ? '★ ' : ''}${c.nombre}</option>`
+      ).join('');
+      cP.innerHTML = `<select class="form-select form-select-sm ec2-pata-sel ${r.esContado ? 'border-warning text-warning-emphasis' : 'border-danger text-danger'} fw-semibold" style="padding:2px 4px;font-size:.78rem;">${opts}</select>`;
+    } else {
+      cP.innerHTML = ec2BadgePata({ nombre: r.pata, tipo: r.tipo });
+    }
+
     const hasta = h || d;
     const cant  = hasta - d + 1;
-    cP.innerHTML = r.esContado
-      ? `<span class="badge bg-warning text-dark"><i class="bi bi-star-fill me-1"></i>${r.pata}</span>`
-      : `<span class="badge bg-danger">${r.pata}</span>`;
     cC.innerHTML = `<span class="badge ${r.esContado ? 'bg-warning text-dark' : 'bg-primary'}">${cant}</span>`;
     total += cant;
     filas.push({ desde: d, hasta: hasta, pata: r.pata, esContado: r.esContado });
@@ -1949,6 +1984,19 @@ if (ec2RangosBox) {
   // Al escribir, asegurar la fila vacía de cola y recalcular PATA/cantidad.
   ec2RangosBox.addEventListener('input', e => {
     if (e.target.classList.contains('ec2-desde')) ec2EnsureTrailing();
+    // Cambiar Desde/Hasta invalida la PATA elegida a mano en esa fila.
+    if (e.target.classList.contains('ec2-desde') || e.target.classList.contains('ec2-hasta')) {
+      const row = e.target.closest('.ec2-rango');
+      if (row) delete row.dataset.pataSel;
+    }
+    ec2Pintar();
+  });
+
+  // Elección manual de PATA cuando el número existe en más de una talonera.
+  ec2RangosBox.addEventListener('change', e => {
+    if (!e.target.classList.contains('ec2-pata-sel')) return;
+    const row = e.target.closest('.ec2-rango');
+    if (row) row.dataset.pataSel = e.target.value;
     ec2Pintar();
   });
 
