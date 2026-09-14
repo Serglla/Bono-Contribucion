@@ -771,6 +771,22 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         })
     nombres_contado = sorted({g["nombre"] for g in grupos_contado})
 
+    # Rangos de todas las taloneras (COMUN y CONTADO) para que el modal de
+    # "Entregar a Caja" detecte sola la PATA a partir del número cargado.
+    # Se ordenan por inicio para que la búsqueda en JS sea directa.
+    rangos_taloneras = [
+        {
+            "nombre": t.nombre,
+            "inicio": int(t.numero_inicio or 0),
+            "fin": int(t.numero_fin or 0),
+            "tipo": (t.tipo or "COMUN"),
+            "nd": int(t.num_digitos or (3 if (t.tipo or "COMUN") == "CONTADO" else 4)),
+        }
+        for t in taloneras
+        if t.numero_inicio is not None and t.numero_fin is not None
+    ]
+    rangos_taloneras.sort(key=lambda r: (r["inicio"], r["fin"]))
+
     # Historial de entregas a caja para ESTE vendedor
     entregas_vendedor = db.query(models.EntregaCaja).filter_by(
         vendedor_id=vid
@@ -1277,6 +1293,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         "grupos_contado": grupos_contado,
         "nombres_contado": nombres_contado,
         "nd_por_talonera": nd_por_talonera,
+        "rangos_taloneras": rangos_taloneras,
         "entregas_vendedor": entregas_vendedor,
         "pata1_vc": pata1_vc,
         "pata0_vc": pata0_vc,

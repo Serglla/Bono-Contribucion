@@ -815,31 +815,34 @@
         </p>
         <div class="row g-2">
           <div class="col-12">
-            <label class="form-label small fw-semibold mb-1">PATA</label>
-            <select id="ec2-pata" class="form-select form-select-sm">
-              {% if grupos_talonera %}
-              <optgroup label="Comunes">
-                {% for g in grupos_talonera %}<option value="{{ g }}">{{ g }}</option>{% endfor %}
-              </optgroup>
-              {% endif %}
-              {% if grupos_contado %}
-              <optgroup label="★ Especiales — Contado">
-                {% for c in grupos_contado %}
-                <option value="{{ c.nombre }}" data-contado="1"
-                        data-inicio="{{ c.inicio }}" data-fin="{{ c.fin }}">★ {{ c.label }}</option>
-                {% endfor %}
-              </optgroup>
-              {% endif %}
-            </select>
-          </div>
-          <div class="col-12">
             <div class="d-flex justify-content-between align-items-end mb-1">
-              <label class="form-label small fw-semibold mb-0">Desde / Hasta</label>
+              <label class="form-label small fw-semibold mb-0">Números a entregar</label>
               <span class="text-muted fst-italic" style="font-size:.7rem;">
-                Cargá el <strong>Desde</strong> y aparece otro casillero. Sin <strong>Hasta</strong> = número suelto.
+                Cargá el <strong>Desde</strong> y aparece otro renglón. Sin <strong>Hasta</strong> = número suelto.
+                La <strong>PATA</strong> se detecta sola.
               </span>
             </div>
-            <div id="ec2-rangos"></div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr class="small">
+                    <th style="width:24%;">Desde</th>
+                    <th style="width:24%;">Hasta</th>
+                    <th style="width:30%;">PATA</th>
+                    <th class="text-center" style="width:16%;">Taloneras</th>
+                    <th style="width:6%;"></th>
+                  </tr>
+                </thead>
+                <tbody id="ec2-rangos"></tbody>
+                <tfoot>
+                  <tr class="small">
+                    <td colspan="3" class="text-end text-muted">Total a pasar</td>
+                    <td class="text-center"><span class="badge bg-primary" id="ec2-total">0</span></td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
         </div>
         <div id="ec2-resultado" class="mt-3"></div>
@@ -1739,29 +1742,80 @@ function alertaBox(t, m) {
   return `<div class="alert alert-${t} py-2 mb-0 small"><i class="bi bi-${i} me-1"></i>${m}</div>`;
 }
 
-async function entregarCajaVendedor() {
-  const pata  = document.getElementById('ec2-pata').value;
-  const btn   = document.getElementById('ec2-btn');
-  const res   = document.getElementById('ec2-resultado');
+// ── Rangos de todas las taloneras (COMUN + CONTADO): permiten detectar sola
+// la PATA a la que pertenece cada número cargado, sin selector manual.
+const RANGOS_TAL = {{ rangos_taloneras | tojson }};
 
-  // Recolectar todos los casilleros cargados. "Desde" sin "Hasta" = número
-  // suelto (no correlativo) → se entrega solo ese número (hasta = desde).
-  const rangos = [];
+function ec2TalDe(n) {
+  return RANGOS_TAL.filter(t => n >= t.inicio && n <= t.fin);
+}
+
+// Detecta la PATA de una fila a partir del Desde/Hasta.
+// estado: 'vacio' | 'nada' | 'invertido' | 'cruza' | 'ok'
+function ec2Detectar(d, h) {
+  if (!d) return { estado: 'vacio' };
+  const md = ec2TalDe(d);
+  if (!md.length) return { estado: 'nada' };
+  const t = md[0];
+  if (h && h !== d) {
+    if (h < d) return { estado: 'invertido' };
+    const mh = ec2TalDe(h);
+    if (!mh.length || mh[0].nombre !== t.nombre) return { estado: 'cruza', pata: t.nombre };
+  }
+  return { estado: 'ok', pata: t.nombre, tipo: t.tipo, nd: t.nd, esContado: t.tipo === 'CONTADO' };
+}
+
+// Recorre las filas, pinta PATA + cantidad de taloneras y devuelve los rangos
+// válidos. "Desde" sin "Hasta" = número suelto (hasta = desde).
+function ec2Pintar() {
+  const filas = [];
+  let total = 0, hayError = false;
   document.querySelectorAll('#ec2-rangos .ec2-rango').forEach(row => {
-    const d = parseInt(row.querySelector('.ec2-desde').value);
-    let   h = parseInt(row.querySelector('.ec2-hasta').value);
-    if (!d) return;
-    if (!h) h = d;
-    rangos.push({ desde: d, hasta: h });
-  });
+    const d = parseInt(row.querySelector('.ec2-desde').value) || 0;
+    const h = parseInt(row.querySelector('.ec2-hasta').value) || 0;
+    const cP = row.querySelector('.ec2-pata-cell');
+    const cC = row.querySelector('.ec2-cant-cell');
+    const r  = ec2Detectar(d, h);
 
-  if (!rangos.length) { res.innerHTML = alertaBox('warning','Ingresa el rango'); return; }
-  for (const rg of rangos) {
-    if (rg.hasta < rg.desde) {
-      res.innerHTML = alertaBox('warning', `Hasta debe ser >= Desde (en ${pN(rg.desde,pata)})`);
+    if (r.estado === 'vacio') {
+      cP.innerHTML = '<span class="badge bg-secondary-subtle text-secondary">—</span>';
+      cC.innerHTML = '<span class="text-muted">—</span>';
       return;
     }
-  }
+    if (r.estado !== 'ok') {
+      const msg = r.estado === 'nada' ? 'sin PATA'
+                : r.estado === 'invertido' ? 'Hasta &lt; Desde'
+                : 'cruza PATAs';
+      cP.innerHTML = `<span class="badge bg-danger-subtle text-danger border border-danger-subtle">${msg}</span>`;
+      cC.innerHTML = '<span class="text-muted">—</span>';
+      hayError = true;
+      return;
+    }
+
+    const hasta = h || d;
+    const cant  = hasta - d + 1;
+    cP.innerHTML = r.esContado
+      ? `<span class="badge bg-warning text-dark"><i class="bi bi-star-fill me-1"></i>${r.pata}</span>`
+      : `<span class="badge bg-danger">${r.pata}</span>`;
+    cC.innerHTML = `<span class="badge ${r.esContado ? 'bg-warning text-dark' : 'bg-primary'}">${cant}</span>`;
+    total += cant;
+    filas.push({ desde: d, hasta: hasta, pata: r.pata, esContado: r.esContado });
+  });
+
+  const tot = document.getElementById('ec2-total');
+  if (tot) tot.textContent = total;
+  const btn = document.getElementById('ec2-btn');
+  if (btn) { btn.disabled = hayError; btn.classList.toggle('opacity-50', hayError); }
+  return { filas, hayError, total };
+}
+
+async function entregarCajaVendedor() {
+  const btn = document.getElementById('ec2-btn');
+  const res = document.getElementById('ec2-resultado');
+
+  const { filas: rangos, hayError } = ec2Pintar();
+  if (hayError) { res.innerHTML = alertaBox('warning','Revisá las filas marcadas en rojo'); return; }
+  if (!rangos.length) { res.innerHTML = alertaBox('warning','Ingresa el rango'); return; }
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Procesando…';
@@ -1771,26 +1825,26 @@ async function entregarCajaVendedor() {
     const detalles = [];
     for (const rg of rangos) {
       const fd = new FormData();
-      fd.append('talonera_nombre', pata);
+      fd.append('talonera_nombre', rg.pata);
       fd.append('desde', rg.desde);
       fd.append('hasta', rg.hasta);
       fd.append('vendedor_id', VENDEDOR_ID);
       const r = await fetch('/vendedores/entrega-caja', { method:'POST', body:fd, credentials:'include' });
       const data = await r.json();
-      if (!data.ok) { errores.push(data.error || 'Error'); continue; }
+      if (!data.ok) { errores.push(`${rg.pata} ${pN(rg.desde,rg.pata)}: ${data.error || 'Error'}`); continue; }
       const total = (typeof data.total === 'number') ? data.total : data.actualizadas;
       totAll    += total;
       nuevasAll += data.nuevas ?? 0;
       reasAll   += data.reasignadas ?? 0;
       if (data.es_contado) esCont = true;
-      if (total > 0) agregarFilaEntrega(pata, rg.desde, rg.hasta, total, data.entrega_id, !!data.es_contado);
+      if (total > 0) agregarFilaEntrega(rg.pata, rg.desde, rg.hasta, total, data.entrega_id, !!data.es_contado);
       detalles.push(rg);
     }
 
     const rangoTxt = detalles.map(rg =>
-      `${pN(rg.desde,pata)}${rg.hasta !== rg.desde ? '–' + pN(rg.hasta,pata) : ''}`
+      `${rg.pata} ${pN(rg.desde,rg.pata)}${rg.hasta !== rg.desde ? '–' + pN(rg.hasta,rg.pata) : ''}`
     ).join(', ');
-    const rangoSpan = `<span class="text-muted">(${pata} · ${rangoTxt})</span>`;
+    const rangoSpan = rangoTxt ? `<span class="text-muted">(${rangoTxt})</span>` : '';
 
     if (totAll === 0 && errores.length) {
       res.innerHTML = alertaBox('danger', errores.join(' · '));
@@ -1807,11 +1861,10 @@ async function entregarCajaVendedor() {
       res.innerHTML = alertaBox('success', `${lbl} ${rangoSpan}`);
     }
 
-    // Reset a un solo casillero vacío.
+    // Reset a una sola fila vacía.
     ec2ResetRangos();
     // Si hubo cambios, refrescar la página para actualizar contadores,
     // paneles por PATA y badge de "Liquidar vendedor".
-    // Pequeño delay para que el usuario alcance a ver el alert de éxito.
     if (totAll > 0) {
       setTimeout(() => { window.location.reload(); }, 900);
     }
@@ -1849,31 +1902,29 @@ function agregarFilaEntrega(pata, desde, hasta, cant, id, esContado) {
   tb.prepend(tr);
 }
 
-// ════════ Casilleros dinámicos Desde/Hasta (números no correlativos) ════════
-// Cargar un "Desde" agrega automáticamente otro casillero igual, para poder
-// entregar varios números sueltos o rangos en una sola operación.
+// ════════ Filas dinámicas Desde/Hasta (números no correlativos) ════════
+// Cargar un "Desde" agrega automáticamente otra fila, para poder entregar
+// varios números sueltos o rangos —de distintas PATAS— en una sola operación.
 const ec2RangosBox = document.getElementById('ec2-rangos');
 
 function ec2NuevoRango(desde='', hasta='') {
-  const div = document.createElement('div');
-  div.className = 'row g-2 mb-2 ec2-rango';
-  div.innerHTML = `
-    <div class="col-6">
-      <input type="number" class="form-control form-control-sm text-center ec2-desde" min="1" placeholder="Desde" value="${desde}">
-    </div>
-    <div class="col-5">
-      <input type="number" class="form-control form-control-sm text-center ec2-hasta" min="1" placeholder="Hasta" value="${hasta}">
-    </div>
-    <div class="col-1 d-flex align-items-center justify-content-center px-0">
-      <button type="button" class="btn btn-sm btn-link text-danger p-0 ec2-rm" tabindex="-1" title="Quitar casillero">
+  const tr = document.createElement('tr');
+  tr.className = 'ec2-rango';
+  tr.innerHTML = `
+    <td class="p-1"><input type="number" class="form-control form-control-sm text-center ec2-desde" min="1" placeholder="Desde" value="${desde}"></td>
+    <td class="p-1"><input type="number" class="form-control form-control-sm text-center ec2-hasta" min="1" placeholder="Hasta" value="${hasta}"></td>
+    <td class="p-1 ec2-pata-cell"><span class="badge bg-secondary-subtle text-secondary">—</span></td>
+    <td class="p-1 text-center ec2-cant-cell"><span class="text-muted">—</span></td>
+    <td class="p-1 text-center">
+      <button type="button" class="btn btn-sm btn-link text-danger p-0 ec2-rm" tabindex="-1" title="Quitar fila">
         <i class="bi bi-x-lg"></i>
       </button>
-    </div>`;
-  return div;
+    </td>`;
+  return tr;
 }
 
-// Garantiza que siempre haya un casillero vacío al final: en cuanto se carga
-// el "Desde" del último, aparece otro idéntico debajo.
+// Garantiza que siempre haya una fila vacía al final: en cuanto se carga
+// el "Desde" de la última, aparece otra idéntica debajo.
 function ec2EnsureTrailing() {
   if (!ec2RangosBox) return;
   const rows = ec2RangosBox.querySelectorAll('.ec2-rango');
@@ -1888,18 +1939,20 @@ function ec2ResetRangos() {
   if (!ec2RangosBox) return;
   ec2RangosBox.innerHTML = '';
   ec2RangosBox.appendChild(ec2NuevoRango());
+  ec2Pintar();
   ec2RangosBox.querySelector('.ec2-desde')?.focus();
 }
 
 if (ec2RangosBox) {
   ec2ResetRangos();
 
-  // Al escribir en cualquier "Desde", asegurar el casillero vacío de cola.
+  // Al escribir, asegurar la fila vacía de cola y recalcular PATA/cantidad.
   ec2RangosBox.addEventListener('input', e => {
     if (e.target.classList.contains('ec2-desde')) ec2EnsureTrailing();
+    ec2Pintar();
   });
 
-  // Quitar un casillero (si es el único, lo limpia en vez de borrarlo).
+  // Quitar una fila (si es la única, la limpia en vez de borrarla).
   ec2RangosBox.addEventListener('click', e => {
     const rm = e.target.closest('.ec2-rm');
     if (!rm) return;
@@ -1912,9 +1965,10 @@ if (ec2RangosBox) {
       row.remove();
       ec2EnsureTrailing();
     }
+    ec2Pintar();
   });
 
-  // Enter: Desde → Hasta; Hasta → entregar.
+  // Enter: Desde → Hasta; Hasta → siguiente fila (y si no hay otra, entrega).
   ec2RangosBox.addEventListener('keydown', e => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
@@ -1922,21 +1976,13 @@ if (ec2RangosBox) {
     if (e.target.classList.contains('ec2-desde')) {
       row.querySelector('.ec2-hasta').focus();
     } else if (e.target.classList.contains('ec2-hasta')) {
-      entregarCajaVendedor();
+      ec2EnsureTrailing();
+      const next = row.nextElementSibling;
+      if (next) next.querySelector('.ec2-desde').focus();
+      else entregarCajaVendedor();
     }
   });
 }
-
-// Prefill rango si la PATA es CONTADO (especial): un solo casillero con el rango.
-document.getElementById('ec2-pata')?.addEventListener('change', function() {
-  const opt = this.options[this.selectedIndex];
-  if (!opt || !ec2RangosBox) return;
-  if (opt.dataset.contado === '1') {
-    ec2RangosBox.innerHTML = '';
-    ec2RangosBox.appendChild(ec2NuevoRango(opt.dataset.inicio || '', opt.dataset.fin || ''));
-    ec2EnsureTrailing();
-  }
-});
 
 // ════════════════ DETALLE DE LIQUIDACIÓN (doble-click) ════════════════
 function fmtMoney(n) {
