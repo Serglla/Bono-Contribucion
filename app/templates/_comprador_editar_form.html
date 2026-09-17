@@ -15,6 +15,20 @@
      data-cond-label="{{ _cond_label }}{% if cond_derivada == 'BAJA' and _mes_baja %} · mes {{ _mes_baja }}{% endif %}"
      data-cond-color="{{ _cond_color }}"></div>
 
+{# ── Compartir socio con el cobrador (pedido 16/09/2026) ──
+   El socio llama pidiendo que pase el cobrador: el botón "Compartir" del
+   encabezado del modal arma este texto y lo manda por WhatsApp o lo copia.
+   Se arma con los datos GUARDADOS (el botón solo se ve en modo lectura). #}
+{% set _cob0 = comprador.boletas[0].cobrador if comprador.boletas else None %}
+<div id="compartirSocioMeta" class="d-none"
+     data-cobrador="{{ _cob0.nombre if _cob0 else '' }}"
+     data-cobrador-tel="{{ (_cob0.telefono or '') if _cob0 else '' }}"></div>
+<textarea id="compartirSocioTexto" class="d-none" readonly>{% for b in comprador.boletas %}{% if not loop.first %} · {% endif %}{{ "%04d" % b.numero_principal }}{% if b.numeros_adicionales %}{% for n in b.numeros_adicionales.split(', ') %} · {{ "%04d" % n|int }}{% endfor %}{% endif %}{% endfor %}
+{{ comprador.apellido_nombre }}
+{{ comprador.direccion or '—' }}
+Tel: {{ comprador.telefono or '—' }}
+El socio avisó que pases a cobrar.</textarea>
+
 <style>
   /* Cabecera de cada boleta: números a la izquierda, datos del socio a la
      derecha (modelo A). En pantallas angostas se apila. */

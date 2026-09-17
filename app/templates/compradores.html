@@ -1834,6 +1834,21 @@ document.querySelectorAll('.input-upper').forEach(el => {
           <span id="editarModalCond" class="badge d-none" style="font-size:.72rem;padding:.4em .7em;"></span>
           {# Solo lectura por defecto: el modal se desbloquea con este botón o
              entrando directo por el lápiz de la fila. #}
+          {# Compartir datos del socio con el cobrador (WhatsApp / copiar). #}
+          <div class="dropdown d-none" id="compartirSocioWrap">
+            <button type="button" class="btn btn-sm btn-light dropdown-toggle" data-bs-toggle="dropdown"
+                    title="Pasarle los datos de este socio al cobrador">
+              <i class="bi bi-share me-1"></i>Compartir
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow">
+              <li><a class="dropdown-item" href="#" id="compartirWaCobrador">
+                <i class="bi bi-whatsapp text-success me-2"></i><span>WhatsApp al cobrador</span></a></li>
+              <li><a class="dropdown-item" href="#" id="compartirWaElegir">
+                <i class="bi bi-whatsapp text-success me-2"></i>WhatsApp (elegir contacto)</a></li>
+              <li><a class="dropdown-item" href="#" id="compartirCopiar">
+                <i class="bi bi-clipboard me-2"></i>Copiar texto</a></li>
+            </ul>
+          </div>
           <button type="button" class="btn btn-sm btn-light d-none" id="btnModoEditar"
                   onclick="desbloquearEdicionSocio()" title="Habilitar la edición de este socio">
             <i class="bi bi-pencil me-1"></i>Editar
@@ -1865,6 +1880,50 @@ document.querySelectorAll('.input-upper').forEach(el => {
   const inpNombreHdr  = document.getElementById('editarModalNombre');
   const spanNumero    = document.getElementById('editarModalNumero');
   const badgeCond     = document.getElementById('editarModalCond');
+
+  // ── Compartir socio con el cobrador ──────────────────────────────────────
+  // El texto lo arma el fragmento (#compartirSocioTexto). Si el cobrador tiene
+  // teléfono cargado, "WhatsApp al cobrador" abre el chat directo con él.
+  const compartirWrap = document.getElementById('compartirSocioWrap');
+  const waNumero = (tel) => {
+    let d = String(tel || '').replace(/\D/g, '');
+    if (!d) return '';
+    if (d.startsWith('00')) d = d.slice(2);
+    if (d.startsWith('54')) { d = d.slice(2); if (d.startsWith('9')) d = d.slice(1); }
+    if (d.startsWith('0')) d = d.slice(1);
+    if (d.length === 6) d = '3442' + d;                 // número local de C. del Uruguay
+    d = d.replace(/^(\d{2,4})15(\d{6,8})$/, (m, a, n) => (a + n).length === 10 ? a + n : m);
+    return d.length === 10 ? '549' + d : '';
+  };
+  const textoCompartir = () => (modalBody.querySelector('#compartirSocioTexto') || {}).value || '';
+  const abrirWa = (num) => window.open(
+    `https://wa.me/${num || ''}?text=${encodeURIComponent(textoCompartir())}`, '_blank', 'noopener');
+  compartirWrap.addEventListener('show.bs.dropdown', () => {
+    const m = modalBody.querySelector('#compartirSocioMeta');
+    const item = document.getElementById('compartirWaCobrador');
+    const nombre = m ? m.dataset.cobrador : '';
+    const num = waNumero(m && m.dataset.cobradorTel);
+    item.querySelector('span').textContent = nombre
+      ? (num ? `WhatsApp a ${nombre}` : `WhatsApp a ${nombre} (sin teléfono)`)
+      : 'WhatsApp al cobrador (sin cobrador)';
+    item.classList.toggle('disabled', !num);
+    item.dataset.num = num;
+  });
+  document.getElementById('compartirWaCobrador').addEventListener('click', (e) => {
+    e.preventDefault(); if (e.currentTarget.dataset.num) abrirWa(e.currentTarget.dataset.num);
+  });
+  document.getElementById('compartirWaElegir').addEventListener('click', (e) => { e.preventDefault(); abrirWa(''); });
+  document.getElementById('compartirCopiar').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const btn = compartirWrap.querySelector('.dropdown-toggle');
+    try {
+      await navigator.clipboard.writeText(textoCompartir());
+      const prev = btn.innerHTML;
+      btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copiado';
+      setTimeout(() => { btn.innerHTML = prev; }, 1500);
+    }
+    catch (err) { appAlert('No se pudo copiar: ' + err, 'error'); }
+  });
 
   // La condición se muestra en el encabezado (viene en los data-* del meta) y
   // el bloque equivalente del form se oculta. En la página standalone, que no
@@ -1961,6 +2020,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     montarNombreEnCabecera(lectura);
     montarCondicionEnCabecera();
     btnModoEditar.classList.toggle('d-none', !lectura);
+    compartirWrap.classList.toggle('d-none', !lectura || !modalBody.querySelector('#compartirSocioTexto'));
     iconoModal.className = lectura ? 'bi bi-eye me-1' : 'bi bi-pencil-square me-1';
   }
 
@@ -1971,6 +2031,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     titulo.textContent = 'Socio';
     modalBody.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-danger" role="status"></div></div>';
     btnModoEditar.classList.add('d-none');
+    compartirWrap.classList.add('d-none');
     badgeCond.classList.add('d-none');
     getModal().show();
 
