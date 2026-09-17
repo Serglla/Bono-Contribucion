@@ -30,14 +30,54 @@ Tel: {{ comprador.telefono or '—' }}
 El socio avisó que pases a cobrar.</textarea>
 
 <style>
-  /* Cabecera de cada boleta: números a la izquierda, datos del socio a la
-     derecha (modelo A). En pantallas angostas se apila. */
+  /* Cabecera de cada boleta — modelo "credencial" (17/09/2026):
+     izquierda un bloque recuadrado con los números y la PATA, derecha los
+     datos del socio, un renglón por dato. En pantallas angostas se apila. */
   .boleta-head {
     display: grid;
     grid-template-columns: auto 1fr;
     gap: .75rem 1rem;
     align-items: start;
   }
+  .cred-nums {
+    background: #fff;
+    border: 1px solid #e0d9d4;
+    border-radius: 7px;
+    padding: .4rem .5rem;
+    display: grid;
+    gap: 4px;
+    justify-items: center;
+  }
+  .cred-nums .badge { font-size: .85rem; }
+  .cred-nums .nums-extra .badge { font-size: .72rem; }
+  /* Un renglón por dato: rótulo chico a la izquierda, valor a la derecha. */
+  .dato-linea {
+    display: grid;
+    grid-template-columns: 104px 1fr;
+    gap: .5rem;
+    align-items: center;
+    padding: 2px 0;
+  }
+  .dato-linea > label {
+    font-size: .68rem;
+    font-weight: 600;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: #8a8580;
+    margin: 0;
+  }
+  @media (max-width: 575.98px) {
+    .dato-linea { grid-template-columns: 1fr; gap: .1rem; }
+  }
+  /* Pie de la boleta: estado, planilla, cuotas y el botón de acciones. */
+  .boleta-pie {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    flex-wrap: wrap;
+  }
+  .boleta-pie .btn-acciones-boleta { margin-left: auto; }
+  .boleta-pie .contado-resumen { flex-basis: 100%; }
   /* Los números van de a 2 por fila: una PATA 2 (6 números) ocupa 3 filas
      en vez de una tira larga que empuja el resto. */
   .nums-grid {
@@ -47,24 +87,18 @@ El socio avisó que pases a cobrar.</textarea>
     justify-content: start;
   }
   .nums-grid .badge { font-size: .78rem; }
+  /* Los datos del socio van uno por renglón, al costado de la credencial
+     (modelo elegido el 17/09/2026): dirección · fecha de compra · zona ·
+     teléfono. El vendedor y el cobrador ya no están acá: subieron al cabezal. */
   .datos-socio-inline {
     display: grid;
-    /* El VENDEDOR es dato clave: se le da más ancho que a la fecha para que
-       nunca quede cortado en una sola letra (15/08/2026). */
-    grid-template-columns: minmax(120px, 130px) minmax(150px, 1fr);
-    gap: .4rem .5rem;
+    grid-template-columns: 1fr;
+    gap: .15rem;
     align-content: start;
-  }
-  .datos-socio-inline select[name="vendedor_id"] {
-    font-weight: 600;
-    text-overflow: ellipsis;
-  }
-  @media (max-width: 767.98px) {
-    .datos-socio-inline { grid-template-columns: 1fr; }
+    min-width: 0;
   }
   @media (max-width: 575.98px) {
     .boleta-head { grid-template-columns: 1fr; }
-    .datos-socio-inline { grid-template-columns: 1fr; }
   }
 
   /* ══ Ficha de socio — modelo "lectura primero" (17/09/2026) ══
@@ -121,6 +155,35 @@ El socio avisó que pases a cobrar.</textarea>
   <input type="hidden" name="from_page" id="fromPageInput" value="">
   <input type="hidden" name="next" id="nextInput" value="">
 
+  {# ══ Datos de cabezal: vendedor y cobrador ══
+     Van arriba de todo porque son "de quién depende este socio", no un dato
+     más de la ficha. En el modal, el JS de compradores.html los sube al
+     encabezado rojo cuando se está en modo lectura y esconde esta fila. #}
+  {% if comprador.boletas %}
+  <div class="row g-2 mb-2" id="datosCabezal">
+    <div class="col-6 col-md-4">
+      <label class="form-label mb-1" style="font-size:.8rem;" for="vendedorSelectEdit">Vendedor</label>
+      {% set vendedor_actual = comprador.boletas[0].vendedor_id %}
+      <select name="vendedor_id" id="vendedorSelectEdit" class="form-select form-select-sm fw-semibold">
+        <option value="">— Sin vendedor —</option>
+        {% for v in vendedores %}
+        <option value="{{ v.id }}" {% if vendedor_actual == v.id %}selected{% endif %}>{{ v.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-md-4">
+      <label class="form-label mb-1" style="font-size:.8rem;" for="cobradorSelectEdit">Cobrador</label>
+      {% set cobrador_actual = comprador.boletas[0].cobrador_id %}
+      <select name="cobrador_id" id="cobradorSelectEdit" class="form-select form-select-sm fw-semibold">
+        <option value="">— Sin cobrador —</option>
+        {% for cb in cobradores %}
+        <option value="{{ cb.id }}" {% if cobrador_actual == cb.id %}selected{% endif %}>{{ cb.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- ══ Boletas asignadas ══ -->
   {% if comprador.boletas %}
   <div class="mb-3">
@@ -164,17 +227,57 @@ El socio avisó que pases a cobrar.</textarea>
       {# Modelo A: izquierda = números (grilla de 2 por fila) + badges;
          derecha = cuotas pagas y, en la primera boleta, fecha y vendedor. #}
       <div class="boleta-head px-2 py-2">
-      <div class="boleta-ident">
-        <div class="nums-grid mb-1">
-          <span class="badge bg-dark">{{ "%04d" % b.numero_principal }}</span>
-          {% if b.numeros_adicionales %}
-            {% for n in b.numeros_adicionales.split(', ') %}
-            <span class="badge bg-secondary">{{ "%04d" % n|int }}</span>
-            {% endfor %}
-          {% endif %}
+      <div class="boleta-ident cred-nums">
+        <span class="badge bg-dark">{{ "%04d" % b.numero_principal }}</span>
+        {% if b.numeros_adicionales %}
+        <div class="nums-grid nums-extra">
+          {% for n in b.numeros_adicionales.split(', ') %}
+          <span class="badge bg-secondary">{{ "%04d" % n|int }}</span>
+          {% endfor %}
         </div>
-        <div class="d-flex align-items-center gap-1 flex-wrap">
+        {% endif %}
         <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.65rem;">{{ b.talonera.nombre if b.talonera else "" }}</span>
+      </div>
+      {# Columna derecha: los datos del socio, un renglón por dato. #}
+      <div class="datos-socio-inline">
+        {% if loop.first %}
+        <div class="dato-linea">
+          <label for="inpDireccion">Dirección</label>
+          <input type="text" name="direccion" id="inpDireccion" class="form-control form-control-sm input-upper"
+                 value="{{ comprador.direccion or '' }}">
+        </div>
+        <div class="dato-linea">
+          <label for="inpFechaCompra">Fecha de compra</label>
+          <input type="date" name="fecha_compra" id="inpFechaCompra" class="form-control form-control-sm"
+                 value="{{ comprador.boletas[0].fecha_venta.isoformat() if comprador.boletas[0].fecha_venta else '' }}">
+        </div>
+        <div class="dato-linea">
+          <label for="zonaSelectEdit">Zona</label>
+          <div class="d-flex gap-1">
+            <select name="zona_id" id="zonaSelectEdit" class="form-select form-select-sm">
+              <option value="">— Sin zona —</option>
+              {% for z in zonas %}
+              <option value="{{ z.id }}" data-vendedor-id="{{ z.vendedor_id or '' }}"
+                      {% if comprador.zona_id == z.id %}selected{% endif %}>{{ z.nombre }}</option>
+              {% endfor %}
+              <option value="__nueva__">➕ Nueva zona...</option>
+            </select>
+            <input type="text" name="zona_nueva" id="zonaNuevaEdit"
+                   class="form-control form-control-sm input-upper d-none" placeholder="Nombre zona">
+          </div>
+        </div>
+        <div class="dato-linea">
+          <label for="inpTelefono">Teléfono</label>
+          <input type="text" name="telefono" id="inpTelefono" class="form-control form-control-sm"
+                 value="{{ comprador.telefono or '' }}">
+        </div>
+        {% endif %}
+      </div>
+      </div>
+
+      {# Pie de la boleta: estado, planilla, cuotas y acciones — todo lo que
+         describe CÓMO viene la boleta, en una sola tira. #}
+      <div class="boleta-pie px-2 pb-2">
         {# ── Estado de cobranza de ESTA boleta (mismo criterio que la columna
              ESTADO de la lista de socios — app/estado_socio.py). #}
         {% set _est = (estados_boleta | default({})).get(b.id) %}
@@ -211,7 +314,23 @@ El socio avisó que pases a cobrar.</textarea>
                 title="Reasignar o liberar esta boleta">
           <i class="bi bi-three-dots"></i>
         </button>
-        </div>
+        {% if comprador.boletas | length > 1 %}
+        <span class="d-flex align-items-center gap-2 ms-1">
+          <span class="small text-muted">Cuotas pagas</span>
+          <input type="number" name="cpag_{{ b.id }}"
+                 value="{{ b.cuotas_pagadas or 0 }}"
+                 min="0" max="{{ b.cuotas_pactadas or 12 }}"
+                 class="form-control form-control-sm text-center fw-bold"
+                 style="width:56px;">
+          <span class="small text-muted">/ {{ b.cuotas_pactadas }}</span>
+          {% set _pactb = b.cuotas_pactadas or 0 %}
+          {% set _pagb = b.cuotas_pagadas or 0 %}
+          {% set _pcb = (100 * _pagb / _pactb) | round(0, 'floor') | int if _pactb else 0 %}
+          <span class="cuotas-barra {{ 'cero' if _pagb == 0 else ('parcial' if _pcb < 100 else '') }}"
+                data-max="{{ _pactb }}"
+                title="{{ _pagb }} de {{ _pactb }} cuotas pagas"><i style="width:{{ _pcb }}%"></i></span>
+        </span>
+        {% endif %}
 
         {# Resumen CONTADO: sólo se ve en modo lectura (el bloque editable de
            abajo se esconde ahí). #}
@@ -229,45 +348,6 @@ El socio avisó que pases a cobrar.</textarea>
           {% endif %}
         </div>
         {% endif %}
-      </div>
-
-      {# Columna derecha: datos del socio que se leen junto con los números. #}
-      <div class="datos-socio-inline">
-        {% if loop.first %}
-        <div>
-          <label class="form-label mb-1" style="font-size:.75rem;">Fecha de compra</label>
-          <input type="date" name="fecha_compra" class="form-control form-control-sm"
-                 value="{{ comprador.boletas[0].fecha_venta.isoformat() if comprador.boletas[0].fecha_venta else '' }}">
-        </div>
-        <div>
-          <label class="form-label mb-1" style="font-size:.75rem;">Vendedor</label>
-          {% set vendedor_actual = comprador.boletas[0].vendedor_id %}
-          <select name="vendedor_id" id="vendedorSelectEdit" class="form-select form-select-sm">
-            <option value="">— Sin vendedor —</option>
-            {% for v in vendedores %}
-            <option value="{{ v.id }}" {% if vendedor_actual == v.id %}selected{% endif %}>{{ v.nombre }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        {% endif %}
-        {% if comprador.boletas | length > 1 %}
-        <div class="d-flex align-items-center gap-2" style="grid-column:1/-1;">
-          <span class="small text-muted">Cuotas pagas:</span>
-          <input type="number" name="cpag_{{ b.id }}"
-                 value="{{ b.cuotas_pagadas or 0 }}"
-                 min="0" max="{{ b.cuotas_pactadas or 12 }}"
-                 class="form-control form-control-sm text-center fw-bold"
-                 style="width:56px;">
-          <span class="small text-muted">/ {{ b.cuotas_pactadas }}</span>
-          {% set _pactb = b.cuotas_pactadas or 0 %}
-          {% set _pagb = b.cuotas_pagadas or 0 %}
-          {% set _pcb = (100 * _pagb / _pactb) | round(0, 'floor') | int if _pactb else 0 %}
-          <span class="cuotas-barra {{ 'cero' if _pagb == 0 else ('parcial' if _pcb < 100 else '') }}"
-                data-max="{{ _pactb }}"
-                title="{{ _pagb }} de {{ _pactb }} cuotas pagas"><i style="width:{{ _pcb }}%"></i></span>
-        </div>
-        {% endif %}
-      </div>
       </div>
 
       <!-- Acciones de la boleta (se abre con el botón ⋯) -->
@@ -382,19 +462,17 @@ El socio avisó que pases a cobrar.</textarea>
            data-current-ne2="{{ b.numero_especial_2 or '' }}"
            data-current-te2="{{ b.talonera_especial_2_id or '' }}">
         <div class="ficha-rotulo">Pago y sorteo</div>
-        <div class="d-flex align-items-center gap-3 flex-wrap small">
+        {# Los tres modos entran en una sola fila como grupo de botones: con
+           radios sueltos el tercero caía solo a una segunda línea. #}
+        <div class="d-flex align-items-center gap-2 flex-wrap small">
           <span class="text-muted fw-semibold">Modalidad de pago:</span>
-          <div class="form-check form-check-inline mb-0">
-            <input type="radio" class="form-check-input mod-radio" name="modalidad_{{ b.id }}" id="mod_c_{{ b.id }}" value="cuotas" {% if _mod == 'cuotas' %}checked{% endif %}>
-            <label class="form-check-label" for="mod_c_{{ b.id }}">En cuotas</label>
-          </div>
-          <div class="form-check form-check-inline mb-0">
-            <input type="radio" class="form-check-input mod-radio" name="modalidad_{{ b.id }}" id="mod_1_{{ b.id }}" value="1pago" {% if _mod == '1pago' %}checked{% endif %}>
-            <label class="form-check-label" for="mod_1_{{ b.id }}">1 sólo pago <span class="text-muted">(CONTADO + CONTADO 2 VECES)</span></label>
-          </div>
-          <div class="form-check form-check-inline mb-0">
-            <input type="radio" class="form-check-input mod-radio" name="modalidad_{{ b.id }}" id="mod_2_{{ b.id }}" value="2pagos" {% if _mod == '2pagos' %}checked{% endif %}>
-            <label class="form-check-label" for="mod_2_{{ b.id }}">2 pagos <span class="text-muted">(CONTADO 2 VECES)</span></label>
+          <div class="btn-group btn-group-sm modalidad-group" role="group" aria-label="Modalidad de pago">
+            <input type="radio" class="btn-check mod-radio" name="modalidad_{{ b.id }}" id="mod_c_{{ b.id }}" value="cuotas" autocomplete="off" {% if _mod == 'cuotas' %}checked{% endif %}>
+            <label class="btn btn-outline-secondary" for="mod_c_{{ b.id }}">En cuotas</label>
+            <input type="radio" class="btn-check mod-radio" name="modalidad_{{ b.id }}" id="mod_1_{{ b.id }}" value="1pago" autocomplete="off" {% if _mod == '1pago' %}checked{% endif %}>
+            <label class="btn btn-outline-secondary" for="mod_1_{{ b.id }}" title="CONTADO + CONTADO 2 VECES">1 sólo pago</label>
+            <input type="radio" class="btn-check mod-radio" name="modalidad_{{ b.id }}" id="mod_2_{{ b.id }}" value="2pagos" autocomplete="off" {% if _mod == '2pagos' %}checked{% endif %}>
+            <label class="btn btn-outline-secondary" for="mod_2_{{ b.id }}" title="CONTADO 2 VECES">2 pagos</label>
           </div>
         </div>
         <div class="row g-2 mt-1 selectores-contado d-none">
@@ -463,15 +541,17 @@ El socio avisó que pases a cobrar.</textarea>
     </div>
   </div>
 
-  <!-- Dirección + Zona + Cobrador + Teléfono, todo en una fila -->
+  {# Sin boletas no hay caja de credencial donde poner los datos del socio:
+     para esos casos (socio cargado sin boleta) se muestran acá sueltos. #}
+  {% if not comprador.boletas %}
   <div class="ficha-rotulo">Socio</div>
   <div class="row g-2 mb-3">
-    <div class="col-4">
+    <div class="col-5">
       <label class="form-label mb-1" style="font-size:.8rem;">Dirección</label>
       <input type="text" name="direccion" class="form-control form-control-sm input-upper"
              value="{{ comprador.direccion or '' }}">
     </div>
-    <div class="col-3">
+    <div class="col-4">
       <label class="form-label mb-1" style="font-size:.8rem;">Zona</label>
       <div class="d-flex gap-1">
         <select name="zona_id" id="zonaSelectEdit" class="form-select form-select-sm">
@@ -487,23 +567,12 @@ El socio avisó que pases a cobrar.</textarea>
       </div>
     </div>
     <div class="col-3">
-      <label class="form-label mb-1" style="font-size:.8rem;">Cobrador</label>
-      {% set cobrador_actual = comprador.boletas[0].cobrador_id if comprador.boletas else None %}
-      <select name="cobrador_id" id="cobradorSelectEdit" class="form-select form-select-sm">
-        <option value="">— Sin cobrador —</option>
-        {% for cb in cobradores %}
-        <option value="{{ cb.id }}" {% if cobrador_actual == cb.id %}selected{% endif %}>{{ cb.nombre }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    {# 4 + 3 + 3 + 2 = 12 columnas Bootstrap. Si se toca algún ancho, la suma
-       tiene que seguir dando 12 o la fila se parte en dos. #}
-    <div class="col-2">
       <label class="form-label mb-1" style="font-size:.8rem;">Teléfono</label>
       <input type="text" name="telefono" class="form-control form-control-sm"
              value="{{ comprador.telefono or '' }}">
     </div>
   </div>
+  {% endif %}
 
   <div class="d-flex align-items-center gap-2 flex-wrap">
     <button type="submit" class="btn btn-danger btn-sm px-4">Guardar Cambios</button>

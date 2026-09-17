@@ -1715,6 +1715,69 @@ document.querySelectorAll('.input-upper').forEach(el => {
   #editarModalBody .modo-lectura .ficha-rotulo {
     margin-top: .25rem;
   }
+
+  /* ── Cabezal del modal: el MISMO formato en lectura y en edición ──────────
+     Antes el nombre pasaba a ser una caja blanca de formulario y el estado un
+     badge de color: el encabezado quedaba como una pancarta. Ahora el nombre
+     se edita sobre el mismo texto (subrayado punteado = editable) y el estado
+     es siempre el mismo chip, con un punto de color como única señal. */
+  #modalEditar .modal-title { font-size: 1rem; font-weight: 600; }
+  #editarModalNombre.form-control {
+    background: transparent;
+    border: 0;
+    border-bottom: 1px dashed rgba(255, 255, 255, .65);
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0 .1rem;
+    height: auto;
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+  #editarModalNombre.form-control:focus {
+    border-bottom-color: #fff;
+    border-bottom-style: solid;
+    background: rgba(255, 255, 255, .12);
+  }
+  #editarModalNombre.form-control::placeholder { color: rgba(255, 255, 255, .6); }
+  #editarModalNombre.form-control.is-invalid {
+    border-bottom-color: #ffe08a;
+    background-image: none;
+  }
+  #editarModalCond.cond-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .4em;
+    background: rgba(255, 255, 255, .18);
+    border: 1px solid rgba(255, 255, 255, .45);
+    color: #fff;
+    font-weight: 600;
+  }
+  #editarModalSub {
+    background: #a62020;
+    color: #fff;
+    padding: .3rem .85rem;
+    display: flex;
+    gap: 1.1rem;
+    flex-wrap: wrap;
+    font-size: .78rem;
+  }
+  #editarModalSub .k {
+    opacity: .72;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-size: .66rem;
+    margin-right: .3rem;
+  }
+  #editarModalSub b { font-weight: 600; }
+  #editarModalCond .cond-dot {
+    width: .5em;
+    height: .5em;
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .15);
+  }
 </style>
 
 <script>
@@ -1864,6 +1927,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
       </div>
+      {# Segunda franja del cabezal: de quién depende el socio. Sólo en modo
+         lectura — en edición los dos selects viven en el cuerpo (#datosCabezal). #}
+      <div id="editarModalSub" class="d-none"></div>
       <div class="modal-body" id="editarModalBody">
         <div class="text-center py-4"><div class="spinner-border text-danger" role="status"></div></div>
       </div>
@@ -1871,7 +1937,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
   </div>
 </div>
 
-<script src="/static/editar_socio.js?v=20260917"></script>
+<script src="/static/editar_socio.js?v=20260917d"></script>
 <script>
 (function () {
   const modalEl   = document.getElementById('modalEditar');
@@ -1942,10 +2008,14 @@ document.querySelectorAll('.input-upper').forEach(el => {
     if (bloque) bloque.classList.add('d-none');
     if (!meta || !meta.dataset.condLabel) { badgeCond.classList.add('d-none'); return; }
     const color = meta.dataset.condColor || 'secondary';
-    badgeCond.className = `badge bg-${color}-subtle text-${color}-emphasis border border-${color}`;
+    badgeCond.className = 'badge cond-chip';
     badgeCond.style.fontSize = '.72rem';
-    badgeCond.style.padding = '.4em .7em';
-    badgeCond.textContent = meta.dataset.condLabel;
+    badgeCond.style.padding = '.35em .7em';
+    badgeCond.textContent = '';
+    const dot = document.createElement('span');
+    dot.className = `cond-dot bg-${color}`;
+    badgeCond.appendChild(dot);
+    badgeCond.appendChild(document.createTextNode(meta.dataset.condLabel));
     badgeCond.classList.remove('d-none');
   }
 
@@ -1974,6 +2044,41 @@ document.querySelectorAll('.input-upper').forEach(el => {
       inpNombreHdr.classList.remove('d-none');
       inpNombreHdr.oninput = () => { real.value = inpNombreHdr.value; };
     }
+  }
+
+  // Vendedor y cobrador: en lectura suben a la franja del encabezado; en
+  // edición vuelven a ser los dos selects del cuerpo.
+  const subCabezal = document.getElementById('editarModalSub');
+  function montarVendedorCobradorEnCabecera(lectura, form) {
+    const fila = form.querySelector('#datosCabezal');
+    if (fila) fila.classList.toggle('d-none', lectura);
+    if (!lectura || !fila) { subCabezal.classList.add('d-none'); return; }
+
+    const textoDe = (sel) => {
+      const el = form.querySelector(sel);
+      if (!el) return '';
+      const opt = el.options[el.selectedIndex];
+      const t = opt ? opt.textContent.trim() : '';
+      return (!t || t.startsWith('—')) ? '' : t;
+    };
+    const partes = [
+      ['Vendedor', textoDe('#vendedorSelectEdit')],
+      ['Cobrador', textoDe('#cobradorSelectEdit')],
+    ];
+    subCabezal.textContent = '';
+    for (const [rotulo, valor] of partes) {
+      const wrap = document.createElement('span');
+      const k = document.createElement('span');
+      k.className = 'k';
+      k.textContent = rotulo;
+      const v = document.createElement('b');
+      v.textContent = valor || '—';
+      if (!valor) v.style.opacity = '.7';
+      wrap.appendChild(k);
+      wrap.appendChild(v);
+      subCabezal.appendChild(wrap);
+    }
+    subCabezal.classList.remove('d-none');
   }
 
   function setModoLectura(lectura) {
@@ -2039,6 +2144,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
 
     montarNombreEnCabecera(lectura);
     montarCondicionEnCabecera();
+    montarVendedorCobradorEnCabecera(lectura, form);
     btnModoEditar.classList.toggle('d-none', !lectura);
     compartirWrap.classList.toggle('d-none', !lectura || !modalBody.querySelector('#compartirSocioTexto'));
     iconoModal.className = lectura ? 'bi bi-eye me-1' : 'bi bi-pencil-square me-1';
@@ -2053,6 +2159,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     btnModoEditar.classList.add('d-none');
     compartirWrap.classList.add('d-none');
     badgeCond.classList.add('d-none');
+    document.getElementById('editarModalSub').classList.add('d-none');
     getModal().show();
 
     let html;

@@ -80,47 +80,31 @@
       }
     }
 
-    /* El "sin libres" a secas no alcanza: un número CONTADO aparece sólo si
-     * el vendedor lo tiene entregado Y ya lo rindió en una liquidación Y
-     * todavía no está cargado en otro socio. Cuando la lista sale vacía, acá
-     * se dice cuál de los tres filtros lo cortó. */
+    /* Resumen del pool en UNA línea. Un número CONTADO aparece sólo si el
+     * vendedor lo tiene entregado Y ya lo rindió Y no está cargado en otro
+     * socio; cuando no hay ninguno se dice en dos palabras cuál filtro cortó,
+     * sin el listado largo (ocupaba media ficha por algo que casi siempre es
+     * informativo). El detalle fino sale de diagnosticar_contado.py. */
     function renderPool(data) {
       const tals = data.taloneras_contado || [];
       const libres = tals.reduce((a, t) => a + (t.numeros_libres || []).length, 0);
       let html = `<i class="bi bi-person-fill"></i> Pool de <strong>${data.vendedor_nombre || ''}</strong>`;
-      html += libres
-        ? ` · <span class="text-success fw-semibold">${libres} número${libres === 1 ? '' : 's'} para asignar</span>`
-        : ' · <span class="text-warning-emphasis fw-semibold">sin números para asignar</span>';
-
-      const detalle = tals
-        .filter(t => (t.entregados || 0) || (t.liquidados || 0) || (t.numeros_libres || []).length)
-        .map(t => {
-          const n = (t.numeros_libres || []).length;
-          let li = `<li><strong>${t.nombre}</strong>: entregados ${t.entregados || 0}`
-                 + ` · rendidos ${t.liquidados || 0}`
-                 + ` · ya cargados en otro socio ${t.asignados || 0}`
-                 + ` · <strong>libres ${n}</strong>`;
-          if (!n && (t.sin_rendir || 0)) {
-            li += `<br><span class="text-warning-emphasis">`
-                + `${t.sin_rendir} número${t.sin_rendir === 1 ? '' : 's'} entregado${t.sin_rendir === 1 ? '' : 's'} `
-                + `pero todavía sin rendir: se habilitan acá cuando ${data.vendedor_nombre || 'el vendedor'} `
-                + `los carga en una liquidación.</span>`;
-          } else if (!n && !(t.entregados || 0)) {
-            li += `<br><span class="text-warning-emphasis">`
-                + `${data.vendedor_nombre || 'El vendedor'} no tiene números de esta talonera entregados a caja.</span>`;
-          } else if (!n) {
-            li += `<br><span class="text-muted">Todos los números rendidos ya están cargados en otro socio.</span>`;
-          }
-          return li + '</li>';
-        }).join('');
-
-      if (detalle) {
-        html += `<ul class="mb-0 mt-1 ps-3 small">${detalle}</ul>`;
-        if (data.vendedor_id) {
-          html += `<div class="mt-1"><a href="/vendedores/${data.vendedor_id}/detalle" target="_blank"`
-                + ` class="link-primary small">Abrir la ficha de ${data.vendedor_nombre || 'este vendedor'}</a></div>`;
-        }
+      if (libres) {
+        html += ` · <span class="text-success fw-semibold">${libres} número${libres === 1 ? '' : 's'} para asignar</span>`;
+        return html;
       }
+      const sinRendir = tals.reduce((a, t) => a + (t.sin_rendir || 0), 0);
+      const entregados = tals.reduce((a, t) => a + (t.entregados || 0), 0);
+      let motivo;
+      if (sinRendir) {
+        motivo = `${sinRendir} entregado${sinRendir === 1 ? '' : 's'} sin rendir todavía`;
+      } else if (!entregados) {
+        motivo = 'no tiene números entregados a caja';
+      } else {
+        motivo = 'los rendidos ya están cargados en otros socios';
+      }
+      html += ` · <span class="text-warning-emphasis fw-semibold">sin números para asignar</span>`
+            + ` <span class="text-muted">(${motivo})</span>`;
       return html;
     }
 
@@ -142,6 +126,10 @@
 
       function applyModal() {
         const mod = block.querySelector('.mod-radio:checked')?.value || 'cuotas';
+        // En cuotas no hay sorteo CONTADO: el bloque queda en una sola línea y
+        // ni siquiera se consulta el pool del vendedor.
+        status.classList.toggle('d-none', mod === 'cuotas');
+        if (mod !== 'cuotas') cargarPool();
         if (mod === 'cuotas') {
           selectores.classList.add('d-none');
         } else if (mod === '1pago') {
@@ -154,41 +142,49 @@
           slot2.classList.remove('d-none');
         }
       }
+      // El pool se pide una sola vez, y recién cuando hace falta.
+      let poolPedido = false;
+      async function cargarPool() {
+        if (poolPedido) return;
+        poolPedido = true;
+
+        status.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Cargando pool del vendedor…';
+        let data;
+        try {
+          const r = await fetch(`/compradores/boleta/${bid}/contado-disponibles`, { credentials: 'include' });
+          data = await r.json();
+        } catch (e) {
+          status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error de red cargando pool';
+          poolPedido = false;
+          return;
+        }
+        if (!data.ok) {
+          status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error: ' + (data.error || '');
+          return;
+        }
+        if (!data.vendedor_id) {
+          status.innerHTML = '<i class="bi bi-info-circle"></i> Esta boleta no tiene vendedor — no puede asignarse CONTADO.';
+          return;
+        }
+        status.innerHTML = renderPool(data);
+
+        const tCONTADO  = data.taloneras_contado.filter(t => t.rol === 'CONTADO' || t.rol === 'OTRO');
+        const tCONTADO2 = data.taloneras_contado.filter(t => t.rol === 'CONTADO_2');
+
+        fillTaloneras(sel1Tal, tCONTADO);
+        fillTaloneras(sel2Tal, tCONTADO2);
+
+        if (curTe)  sel1Tal.value = String(curTe);
+        if (curTe2) sel2Tal.value = String(curTe2);
+
+        sel1Tal.addEventListener('change', () => refreshNumbers(sel1Tal, sel1Num, tCONTADO,  curNe));
+        sel2Tal.addEventListener('change', () => refreshNumbers(sel2Tal, sel2Num, tCONTADO2, curNe2));
+        refreshNumbers(sel1Tal, sel1Num, tCONTADO,  curNe);
+        refreshNumbers(sel2Tal, sel2Num, tCONTADO2, curNe2);
+      }
+
       block.querySelectorAll('.mod-radio').forEach(r => r.addEventListener('change', applyModal));
       applyModal();
-
-      status.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Cargando pool del vendedor…';
-      let data;
-      try {
-        const r = await fetch(`/compradores/boleta/${bid}/contado-disponibles`, { credentials: 'include' });
-        data = await r.json();
-      } catch (e) {
-        status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error de red cargando pool';
-        return;
-      }
-      if (!data.ok) {
-        status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error: ' + (data.error || '');
-        return;
-      }
-      if (!data.vendedor_id) {
-        status.innerHTML = '<i class="bi bi-info-circle"></i> Esta boleta no tiene vendedor — no puede asignarse CONTADO.';
-        return;
-      }
-      status.innerHTML = renderPool(data);
-
-      const tCONTADO  = data.taloneras_contado.filter(t => t.rol === 'CONTADO' || t.rol === 'OTRO');
-      const tCONTADO2 = data.taloneras_contado.filter(t => t.rol === 'CONTADO_2');
-
-      fillTaloneras(sel1Tal, tCONTADO);
-      fillTaloneras(sel2Tal, tCONTADO2);
-
-      if (curTe)  sel1Tal.value = String(curTe);
-      if (curTe2) sel2Tal.value = String(curTe2);
-
-      sel1Tal.addEventListener('change', () => refreshNumbers(sel1Tal, sel1Num, tCONTADO,  curNe));
-      sel2Tal.addEventListener('change', () => refreshNumbers(sel2Tal, sel2Num, tCONTADO2, curNe2));
-      refreshNumbers(sel1Tal, sel1Num, tCONTADO,  curNe);
-      refreshNumbers(sel2Tal, sel2Num, tCONTADO2, curNe2);
     }
     $$('.contado-block').forEach(initContadoBlock);
 
