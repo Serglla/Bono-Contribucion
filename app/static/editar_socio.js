@@ -80,6 +80,50 @@
       }
     }
 
+    /* El "sin libres" a secas no alcanza: un número CONTADO aparece sólo si
+     * el vendedor lo tiene entregado Y ya lo rindió en una liquidación Y
+     * todavía no está cargado en otro socio. Cuando la lista sale vacía, acá
+     * se dice cuál de los tres filtros lo cortó. */
+    function renderPool(data) {
+      const tals = data.taloneras_contado || [];
+      const libres = tals.reduce((a, t) => a + (t.numeros_libres || []).length, 0);
+      let html = `<i class="bi bi-person-fill"></i> Pool de <strong>${data.vendedor_nombre || ''}</strong>`;
+      html += libres
+        ? ` · <span class="text-success fw-semibold">${libres} número${libres === 1 ? '' : 's'} para asignar</span>`
+        : ' · <span class="text-warning-emphasis fw-semibold">sin números para asignar</span>';
+
+      const detalle = tals
+        .filter(t => (t.entregados || 0) || (t.liquidados || 0) || (t.numeros_libres || []).length)
+        .map(t => {
+          const n = (t.numeros_libres || []).length;
+          let li = `<li><strong>${t.nombre}</strong>: entregados ${t.entregados || 0}`
+                 + ` · rendidos ${t.liquidados || 0}`
+                 + ` · ya cargados en otro socio ${t.asignados || 0}`
+                 + ` · <strong>libres ${n}</strong>`;
+          if (!n && (t.sin_rendir || 0)) {
+            li += `<br><span class="text-warning-emphasis">`
+                + `${t.sin_rendir} número${t.sin_rendir === 1 ? '' : 's'} entregado${t.sin_rendir === 1 ? '' : 's'} `
+                + `pero todavía sin rendir: se habilitan acá cuando ${data.vendedor_nombre || 'el vendedor'} `
+                + `los carga en una liquidación.</span>`;
+          } else if (!n && !(t.entregados || 0)) {
+            li += `<br><span class="text-warning-emphasis">`
+                + `${data.vendedor_nombre || 'El vendedor'} no tiene números de esta talonera entregados a caja.</span>`;
+          } else if (!n) {
+            li += `<br><span class="text-muted">Todos los números rendidos ya están cargados en otro socio.</span>`;
+          }
+          return li + '</li>';
+        }).join('');
+
+      if (detalle) {
+        html += `<ul class="mb-0 mt-1 ps-3 small">${detalle}</ul>`;
+        if (data.vendedor_id) {
+          html += `<div class="mt-1"><a href="/vendedores/${data.vendedor_id}/detalle" target="_blank"`
+                + ` class="link-primary small">Abrir la ficha de ${data.vendedor_nombre || 'este vendedor'}</a></div>`;
+        }
+      }
+      return html;
+    }
+
     async function initContadoBlock(block) {
       const bid    = block.dataset.boleta;
       const curNe  = block.dataset.currentNe  ? parseInt(block.dataset.currentNe)  : null;
@@ -130,7 +174,7 @@
         status.innerHTML = '<i class="bi bi-info-circle"></i> Esta boleta no tiene vendedor — no puede asignarse CONTADO.';
         return;
       }
-      status.innerHTML = `<i class="bi bi-person-fill"></i> Pool de <strong>${data.vendedor_nombre || ''}</strong>`;
+      status.innerHTML = renderPool(data);
 
       const tCONTADO  = data.taloneras_contado.filter(t => t.rol === 'CONTADO' || t.rol === 'OTRO');
       const tCONTADO2 = data.taloneras_contado.filter(t => t.rol === 'CONTADO_2');
@@ -147,6 +191,37 @@
       refreshNumbers(sel2Tal, sel2Num, tCONTADO2, curNe2);
     }
     $$('.contado-block').forEach(initContadoBlock);
+
+    // ── Acciones de la boleta (botón ⋯) ──
+    // Panel inline: adentro del modal con scroll un menú flotante se corta.
+    $$('.btn-acciones-boleta').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const panel = root.querySelector(
+          `.acciones-boleta-panel[data-boleta-id="${btn.dataset.boletaId}"]`);
+        if (!panel) return;
+        const abierto = !panel.classList.contains('d-none');
+        panel.classList.toggle('d-none', abierto);
+        btn.setAttribute('aria-expanded', abierto ? 'false' : 'true');
+        btn.classList.toggle('btn-secondary', !abierto);
+        btn.classList.toggle('btn-outline-secondary', abierto);
+      });
+    });
+
+    // ── Barra de cuotas pagas: sigue al input mientras se escribe ──
+    $$('input[name^="cpag_"]').forEach(inp => {
+      const barra = inp.closest('div')?.querySelector('.cuotas-barra');
+      if (!barra) return;
+      const pintar = () => {
+        const max = parseInt(barra.dataset.max) || 0;
+        const val = Math.max(0, Math.min(parseInt(inp.value) || 0, max || 999));
+        const pc = max ? Math.floor(100 * val / max) : 0;
+        barra.querySelector('i').style.width = pc + '%';
+        barra.classList.toggle('cero', val === 0);
+        barra.classList.toggle('parcial', val > 0 && pc < 100);
+        barra.title = `${val} de ${max} cuotas pagas`;
+      };
+      inp.addEventListener('input', pintar);
+    });
 
     // ════════════════ REASIGNAR TALONERA / NUMERO ════════════════
     $$('.btn-reasignar').forEach(btn => {

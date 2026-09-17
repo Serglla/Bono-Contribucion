@@ -1707,6 +1707,14 @@ document.querySelectorAll('.input-upper').forEach(el => {
     text-align: left !important;
     min-width: 1.5rem;
   }
+  /* En lectura la ficha respira un poco más entre bloques y los rótulos
+     (BOLETA · SOCIO) marcan la separación sin necesidad de recuadros. */
+  #editarModalBody .modo-lectura .boleta-wrap {
+    background: #fbfaf9 !important;
+  }
+  #editarModalBody .modo-lectura .ficha-rotulo {
+    margin-top: .25rem;
+  }
 </style>
 
 <script>
@@ -2004,6 +2012,18 @@ document.querySelectorAll('.input-upper').forEach(el => {
     // CONTADO). En lectura no aportan nada — el badge de estado ya dice
     // CONTADO / CONTADO X2 — y ensucian la ficha.
     form.querySelectorAll('.contado-block').forEach(el => el.classList.toggle('d-none', lectura));
+
+    // En su lugar, en lectura se muestra la línea con los números CONTADO ya
+    // asignados (si los hay). El panel de acciones ⋯ vuelve a cerrarse.
+    form.querySelectorAll('.contado-resumen').forEach(el => el.classList.toggle('d-none', !lectura));
+    if (lectura) {
+      form.querySelectorAll('.acciones-boleta-panel').forEach(el => el.classList.add('d-none'));
+      form.querySelectorAll('.btn-acciones-boleta').forEach(b => {
+        b.setAttribute('aria-expanded', 'false');
+        b.classList.add('btn-outline-secondary');
+        b.classList.remove('btn-secondary');
+      });
+    }
 
     // En lectura el form se lee como una ficha: sin recuadros (lo hace el CSS
     // de .modo-lectura) y con "—" donde no hay dato cargado.

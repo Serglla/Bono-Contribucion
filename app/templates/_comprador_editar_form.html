@@ -66,6 +66,55 @@ El socio avisó que pases a cobrar.</textarea>
     .boleta-head { grid-template-columns: 1fr; }
     .datos-socio-inline { grid-template-columns: 1fr; }
   }
+
+  /* ══ Ficha de socio — modelo "lectura primero" (17/09/2026) ══
+     La ficha se lee de arriba abajo en tres bloques: BOLETA · SOCIO ·
+     PAGO Y SORTEO. Cada bloque arranca con un rótulo chiquito en versalita.
+     Las acciones que rompen algo (reasignar / liberar) salen del cuerpo y
+     viven detrás del botón "⋯" de la boleta. */
+  .ficha-rotulo {
+    font-size: .7rem;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: #8a8580;
+    margin-bottom: .35rem;
+  }
+  /* Los números de boleta se comparan de un vistazo: monoespaciados y con
+     cifras de ancho fijo, para que 0287 y 1788 alineen dígito con dígito. */
+  .nums-grid .badge {
+    font-family: ui-monospace, "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .03em;
+  }
+  /* Barra de cuotas pagas: 10/10 se lee sin contar. */
+  .cuotas-barra {
+    display: inline-block;
+    width: 62px;
+    height: 6px;
+    border-radius: 99px;
+    background: #e3ded9;
+    overflow: hidden;
+    vertical-align: middle;
+  }
+  .cuotas-barra > i {
+    display: block;
+    height: 100%;
+    background: #198754;
+    transition: width .15s ease-out;
+  }
+  .cuotas-barra.parcial > i { background: #0d6efd; }
+  .cuotas-barra.cero    > i { background: #adb5bd; }
+  /* Panel de acciones de la boleta (se abre con el botón ⋯). Inline, no
+     flotante: adentro de un modal con scroll un menú flotante se corta. */
+  .acciones-boleta-panel { background: #fbfaf9; }
+  /* Resumen CONTADO para el modo lectura: el bloque editable entero se
+     esconde y en su lugar queda esta línea. */
+  .contado-resumen { font-size: .75rem; }
+  .contado-resumen .cr-num {
+    font-family: ui-monospace, "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+    font-weight: 600;
+  }
 </style>
 
 <form method="post" action="/compradores/{{ comprador.id }}/editar" id="formEditar">
@@ -89,6 +138,12 @@ El socio avisó que pases a cobrar.</textarea>
                class="form-control form-control-sm text-center fw-bold"
                style="width:56px;">
         <span class="small text-muted">/ {{ _b0.cuotas_pactadas }}</span>
+        {% set _pact0 = _b0.cuotas_pactadas or 0 %}
+        {% set _pag0 = _b0.cuotas_pagadas or 0 %}
+        {% set _pc0 = (100 * _pag0 / _pact0) | round(0, 'floor') | int if _pact0 else 0 %}
+        <span class="cuotas-barra {{ 'cero' if _pag0 == 0 else ('parcial' if _pc0 < 100 else '') }}"
+              data-max="{{ _pact0 }}"
+              title="{{ _pag0 }} de {{ _pact0 }} cuotas pagas"><i style="width:{{ _pc0 }}%"></i></span>
       </div>
       {% endif %}
     </div>
@@ -145,21 +200,35 @@ El socio avisó que pases a cobrar.</textarea>
           <i class="bi bi-journal me-1"></i>Sin planilla
         </span>
         {% endif %}
+        {# Las acciones que rompen algo no van sueltas en la ficha: se abren
+           con este botón. Inline (no menú flotante) porque adentro del modal
+           con scroll un dropdown queda cortado. #}
         <button type="button"
-                class="btn btn-outline-warning btn-sm py-0 px-2 btn-reasignar"
+                class="btn btn-outline-secondary btn-sm py-0 px-2 btn-acciones-boleta"
                 style="font-size:.7rem;"
                 data-boleta-id="{{ b.id }}"
-                title="Si te equivocaste al cargar el número de talonera, podés reasignar este socio a otro número libre">
-          <i class="bi bi-arrow-repeat me-1"></i>Asignar nueva talonera
-        </button>
-        <button type="button"
-                class="btn btn-outline-danger btn-sm py-0 px-2 btn-liberar"
-                style="font-size:.7rem;"
-                data-boleta-id="{{ b.id }}"
-                title="Liberar esta boleta de la talonera — la deja disponible para vender a otro socio (acción con doble confirmación)">
-          <i class="bi bi-trash me-1"></i>Liberar boleta
+                aria-expanded="false"
+                title="Reasignar o liberar esta boleta">
+          <i class="bi bi-three-dots"></i>
         </button>
         </div>
+
+        {# Resumen CONTADO: sólo se ve en modo lectura (el bloque editable de
+           abajo se esconde ahí). #}
+        {% if b.numero_especial or b.numero_especial_2 %}
+        <div class="contado-resumen text-muted mt-1 d-none">
+          {% if b.numero_especial %}
+          <span class="me-2"><i class="bi bi-star-fill text-warning"></i>
+            <span class="cr-num">{{ "%0*d" % ((b.talonera_especial.num_digitos or 3) if b.talonera_especial else 3, b.numero_especial) }}</span>
+            {{ b.talonera_especial.nombre if b.talonera_especial else "" }}</span>
+          {% endif %}
+          {% if b.numero_especial_2 %}
+          <span><i class="bi bi-star-fill text-warning"></i><i class="bi bi-star-fill text-warning"></i>
+            <span class="cr-num">{{ "%0*d" % ((b.talonera_especial_2.num_digitos or 3) if b.talonera_especial_2 else 3, b.numero_especial_2) }}</span>
+            {{ b.talonera_especial_2.nombre if b.talonera_especial_2 else "" }}</span>
+          {% endif %}
+        </div>
+        {% endif %}
       </div>
 
       {# Columna derecha: datos del socio que se leen junto con los números. #}
@@ -190,9 +259,35 @@ El socio avisó que pases a cobrar.</textarea>
                  class="form-control form-control-sm text-center fw-bold"
                  style="width:56px;">
           <span class="small text-muted">/ {{ b.cuotas_pactadas }}</span>
+          {% set _pactb = b.cuotas_pactadas or 0 %}
+          {% set _pagb = b.cuotas_pagadas or 0 %}
+          {% set _pcb = (100 * _pagb / _pactb) | round(0, 'floor') | int if _pactb else 0 %}
+          <span class="cuotas-barra {{ 'cero' if _pagb == 0 else ('parcial' if _pcb < 100 else '') }}"
+                data-max="{{ _pactb }}"
+                title="{{ _pagb }} de {{ _pactb }} cuotas pagas"><i style="width:{{ _pcb }}%"></i></span>
         </div>
         {% endif %}
       </div>
+      </div>
+
+      <!-- Acciones de la boleta (se abre con el botón ⋯) -->
+      <div class="acciones-boleta-panel px-2 py-2 border-top d-none" data-boleta-id="{{ b.id }}">
+        <div class="d-flex gap-1 flex-wrap">
+          <button type="button"
+                  class="btn btn-outline-warning btn-sm py-0 px-2 btn-reasignar"
+                  style="font-size:.7rem;"
+                  data-boleta-id="{{ b.id }}"
+                  title="Si te equivocaste al cargar el número de talonera, podés reasignar este socio a otro número libre">
+            <i class="bi bi-arrow-repeat me-1"></i>Asignar nueva talonera
+          </button>
+          <button type="button"
+                  class="btn btn-outline-danger btn-sm py-0 px-2 btn-liberar"
+                  style="font-size:.7rem;"
+                  data-boleta-id="{{ b.id }}"
+                  title="Liberar esta boleta de la talonera — la deja disponible para vender a otro socio (acción con doble confirmación)">
+            <i class="bi bi-trash me-1"></i>Liberar boleta
+          </button>
+        </div>
       </div>
 
       <!-- Panel reasignacion talonera/numero (oculto por defecto) -->
@@ -286,6 +381,7 @@ El socio avisó que pases a cobrar.</textarea>
            data-current-te="{{ b.talonera_especial_id or '' }}"
            data-current-ne2="{{ b.numero_especial_2 or '' }}"
            data-current-te2="{{ b.talonera_especial_2_id or '' }}">
+        <div class="ficha-rotulo">Pago y sorteo</div>
         <div class="d-flex align-items-center gap-3 flex-wrap small">
           <span class="text-muted fw-semibold">Modalidad de pago:</span>
           <div class="form-check form-check-inline mb-0">
@@ -368,6 +464,7 @@ El socio avisó que pases a cobrar.</textarea>
   </div>
 
   <!-- Dirección + Zona + Cobrador + Teléfono, todo en una fila -->
+  <div class="ficha-rotulo">Socio</div>
   <div class="row g-2 mb-3">
     <div class="col-4">
       <label class="form-label mb-1" style="font-size:.8rem;">Dirección</label>

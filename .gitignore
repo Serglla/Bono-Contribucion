@@ -51,6 +51,9 @@ backups/
 # Si esto se sube a GitHub, la credencial queda publicada.
 backup.bat
 
+# diagnosticar_contado.bat tambien lleva la contrasena de Postgres adentro.
+diagnosticar_contado.bat
+
 # Journals de SQLite (acompañan a *.db, que ya está ignorado)
 *.db-journal
 

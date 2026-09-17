@@ -1903,6 +1903,7 @@ async def contado_disponibles(boleta_id: int, request: Request, db: Session = De
             if not asignados_aqui:
                 continue
             libres = sorted(asignados_aqui)
+            n_entregados = n_liquidados = n_asignados = 0
         else:
             # Numeros ya asignados a alguna boleta para esta talonera
             asignados_rows = db.query(
@@ -1935,6 +1936,12 @@ async def contado_disponibles(boleta_id: int, request: Request, db: Session = De
             if b.talonera_especial_2_id == t.id and b.numero_especial_2:
                 libres_base.add(int(b.numero_especial_2))
             libres = sorted(libres_base)
+            # Contadores para explicar en pantalla POR QUE no hay libres
+            # (17/09/2026): un "sin libres" mudo obliga a salir a buscar el
+            # dato a mano. Son tres filtros y hay que decir cual corto.
+            n_entregados = len(nums_entregados)
+            n_liquidados = len(nums_entregados & nums_liq_t)
+            n_asignados = len(nums_entregados & nums_liq_t & asignados_otros)
 
         out_taloneras.append({
             "id": t.id,
@@ -1943,6 +1950,13 @@ async def contado_disponibles(boleta_id: int, request: Request, db: Session = De
             "num_digitos": t.num_digitos or 3,
             "rol": _rol(t.nombre),
             "numeros_libres": libres,
+            # Diagnostico del pool: cuantos numeros de esta talonera tiene el
+            # vendedor entregados, cuantos de esos ya rindio, y cuantos de esos
+            # ya estan cargados en otro socio. libres = liquidados - asignados.
+            "entregados": n_entregados,
+            "liquidados": n_liquidados,
+            "asignados": n_asignados,
+            "sin_rendir": max(n_entregados - n_liquidados, 0),
         })
 
     # Orden: CONTADO primero, CONTADO_2 segundo, OTRO al final
