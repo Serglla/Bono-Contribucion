@@ -52,8 +52,13 @@ async def listar(request: Request, db: Session = Depends(get_db),
     # un segundo .join(Boleta) y SQL fallaba con "table name specified more than
     # once" → Internal Server Error. Ahora se joinea una vez y se acumulan los
     # filtros sobre ese mismo join.
+    # Opción "— Sin cobrador —" del filtro Cobrador (cob=sin): mismo criterio que
+    # el tab "Sin cobrador" (sin_cob=1). El dropdown conserva cob=sin para
+    # quedar seleccionado.
+    if cob == "sin":
+        sin_cob = "1"
     _cob_id = None
-    if cob:
+    if cob and cob != "sin":
         try:
             _cob_id = int(cob)
         except (TypeError, ValueError):
@@ -139,7 +144,10 @@ async def listar(request: Request, db: Session = Depends(get_db),
 
     if needs_boleta:
         query = query.distinct()
-    if zona:
+    if zona == "sin":
+        # Opción "— Sin zona —": socios sin zona asignada
+        query = query.filter(models.Comprador.zona_id.is_(None))
+    elif zona:
         # Filtro por zona — acepta id numérico o nombre exacto
         try:
             zona_id_int = int(zona)
@@ -212,7 +220,9 @@ async def listar(request: Request, db: Session = Depends(get_db),
         tabs_query = tabs_query.filter(sqlfunc.extract('month', models.Boleta.fecha_venta) == _mes)
     if _anio is not None:
         tabs_query = tabs_query.filter(sqlfunc.extract('year', models.Boleta.fecha_venta) == _anio)
-    if zona:
+    if zona == "sin":
+        tabs_query = tabs_query.filter(models.Comprador.zona_id.is_(None))
+    elif zona:
         try:
             zid = int(zona)
             tabs_query = tabs_query.filter(models.Comprador.zona_id == zid)

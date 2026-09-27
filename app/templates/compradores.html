@@ -219,6 +219,7 @@ function verContadoSinCargar(btn) {
     <div class="col-6 col-lg-2">
       <select id="filtroCobradorActual" class="form-select form-select-sm w-100" data-param="cob" title="Cobrador actual">
         <option value="">— Cobrador —</option>
+        <option value="sin" {% if filtro_cob == 'sin' or filtro_sin_cob %}selected{% endif %}>— Sin cobrador —</option>
         {% for c in cobradores %}
         <option value="{{ c.id }}" {% if filtro_cob == c.id|string %}selected{% endif %}>{{ c.nombre }}</option>
         {% endfor %}
@@ -227,6 +228,7 @@ function verContadoSinCargar(btn) {
     <div class="col-6 col-lg-2">
       <select id="filtroZona" class="form-select form-select-sm w-100" data-param="zona" title="Zona">
         <option value="">— Zona —</option>
+        <option value="sin" {% if filtro_zona == 'sin' %}selected{% endif %}>— Sin zona —</option>
         {% for z in zonas %}
         <option value="{{ z.id }}" {% if filtro_zona == z.id|string %}selected{% endif %}>{{ z.nombre }}</option>
         {% endfor %}
@@ -282,7 +284,7 @@ function verContadoSinCargar(btn) {
       if (el.value) url.searchParams.set(param, el.value);
       else url.searchParams.delete(param);
       // sin_cob es excluyente con los filtros de cobrador — al elegir uno, lo limpiamos
-      if (param === 'cob' && el.value) url.searchParams.delete('sin_cob');
+      if (param === 'cob') url.searchParams.delete('sin_cob');
       window.location.href = url.toString();
     });
   }
