@@ -120,8 +120,13 @@ async def listar(request: Request, db: Session = Depends(get_db), error: str = "
     for t in taloneras:
         if (t.tipo or "COMUN") == "CONTADO":
             # Calcular cuántos números fueron asignados a boletas comunes
+            # Ojo: el número puede estar en el slot 1 (CONTADO) o en el slot 2
+            # (CONTADO 2 VECES) de la boleta — hay que mirar los dos.
             asignados = db.query(models.Boleta).filter(
-                models.Boleta.talonera_especial_id == t.id
+                ((models.Boleta.talonera_especial_id == t.id) &
+                 models.Boleta.numero_especial.isnot(None)) |
+                ((models.Boleta.talonera_especial_2_id == t.id) &
+                 models.Boleta.numero_especial_2.isnot(None))
             ).count()
             grupos_contado.append({
                 "talonera": t,
@@ -613,7 +618,8 @@ async def eliminar_talonera(talonera_id: int, request: Request, db: Session = De
     # Talonera CONTADO: solo se puede eliminar si no hay números asignados
     if (t.tipo or "COMUN") == "CONTADO":
         asignados = db.query(models.Boleta).filter(
-            models.Boleta.talonera_especial_id == talonera_id
+            (models.Boleta.talonera_especial_id == talonera_id) |
+            (models.Boleta.talonera_especial_2_id == talonera_id)
         ).count()
         if asignados > 0:
             return RedirectResponse(f"/taloneras/?error=contado_asignados&nombre={t.nombre}", status_code=302)
