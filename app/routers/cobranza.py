@@ -1996,14 +1996,18 @@ async def liquidacion_entrega_crear(request: Request, planilla_id: int,
     except (ValueError, TypeError):
         _fecha = hoy_ar()
     _tipo = (tipo or "EFECTIVO").strip().upper()
-    if _tipo not in ("EFECTIVO", "PREMIO"):
+    if _tipo not in ("EFECTIVO", "PREMIO", "SALDO_ANT"):
         _tipo = "EFECTIVO"
-    if monto and monto > 0:
+    # SALDO_ANT = saldo que el cobrador quedó debiendo del mes anterior. Se guarda
+    # NEGATIVO: como el saldo es neto − Σ entregas, una "entrega" negativa lo SUBE.
+    # Se acepta el monto con o sin signo.
+    if monto and (monto > 0 or _tipo == "SALDO_ANT"):
+        _monto = -abs(float(monto)) if _tipo == "SALDO_ANT" else float(monto)
         db.add(models.EntregaCobrador(
             cobrador_id=planilla.cobrador_id,
             fecha=_fecha,
             mes=_mes, anio=_anio,
-            monto=float(monto),
+            monto=_monto,
             tipo=_tipo,
             observacion=(observacion or "").strip() or None,
         ))
@@ -2271,7 +2275,10 @@ async def adelantos_index(request: Request, db: Session = Depends(get_db),
     for a in adelantos:
         m = float(a.monto or 0)
         es_premio = (a.tipo or "EFECTIVO").upper() == "PREMIO"
+        es_saldo = (a.tipo or "").upper() == "SALDO_ANT"
         d = desglose_por_cob.setdefault(a.cobrador_id, {"efectivo": 0.0, "premio": 0.0, "total": 0.0})
+        if es_saldo:
+            continue          # saldo del mes anterior: no es plata entregada
         d["total"] += m
         total_general += m
         if es_premio:
@@ -2756,7 +2763,12 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
                  .all())
     tot_adel = sum(float(a.monto or 0) for a in adelantos)
     adel_premio = sum(float(a.monto or 0) for a in adelantos if (a.tipo or "EFECTIVO").upper() == "PREMIO")
-    adel_efectivo = round(tot_adel - adel_premio, 2)
+    # Saldo que quedó pendiente del mes anterior (tipo SALDO_ANT, guardado en
+    # negativo). Se muestra aparte: suma al saldo, no es plata entregada.
+    saldo_anterior = -sum(float(a.monto or 0) for a in adelantos
+                          if (a.tipo or "").upper() == "SALDO_ANT")
+    entregado_real = tot_adel + saldo_anterior
+    adel_efectivo = round(entregado_real - adel_premio, 2)
     return {
         "cobrador": cobrador,
         "detalle": detalle,
@@ -2782,6 +2794,12 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
         "total_adelantos": round(tot_adel, 2),
         "adel_efectivo": adel_efectivo,
         "adel_premio": round(adel_premio, 2),
+        "saldo_anterior": round(saldo_anterior, 2),
+        "entregado_real": round(entregado_real, 2),
+        "entregas_reales": [a for a in adelantos
+                            if (a.tipo or "").upper() != "SALDO_ANT"],
+        "saldos_anteriores": [a for a in adelantos
+                              if (a.tipo or "").upper() == "SALDO_ANT"],
         "saldo": round(neto - tot_adel, 2),
     }
 

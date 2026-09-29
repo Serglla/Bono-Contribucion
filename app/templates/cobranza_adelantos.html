@@ -82,6 +82,7 @@
           <td>{{ a.fecha.strftime('%d/%m/%Y') }}</td>
           <td>
             {% if _es_premio %}<span class="badge bg-warning text-dark"><i class="bi bi-trophy me-1"></i>Premio/Gasto</span>
+            {% elif (a.tipo or '')|upper == 'SALDO_ANT' %}<span class="badge bg-danger">Saldo mes ant.</span>
             {% else %}<span class="badge bg-success-subtle text-success border border-success-subtle">Efectivo</span>{% endif %}
           </td>
           <td class="text-end fw-semibold {% if _es_premio %}text-warning-emphasis{% else %}text-success{% endif %}">{{ a.monto | pesos }}</td>

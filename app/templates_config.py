@@ -26,7 +26,8 @@ _env.filters["zfill"] = lambda v, n: str(v).zfill(n)
 def _pesos(v):
     """Formatea un número como $1.234.567 (puntos como separador de miles)."""
     try:
-        return "$" + f"{int(round(float(v or 0))):,}".replace(",", ".")
+        n = int(round(float(v or 0)))
+        return ("−$" if n < 0 else "$") + f"{abs(n):,}".replace(",", ".")
     except Exception:
         return "$0"
 _env.filters["pesos"] = _pesos

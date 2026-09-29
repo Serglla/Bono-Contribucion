@@ -383,7 +383,10 @@
       <div>Cobrado del mes: <strong>{{ cob_mes.monto | pesos }}</strong></div>
       <div>Comisión: <strong class="text-danger">− {{ cob_mes.comision | pesos }}</strong></div>
       <div>Neto: <strong>{{ cob_mes.neto | pesos }}</strong></div>
-      <div>Entregado: <strong class="text-success">{{ cob_mes.total_adelantos | pesos }}</strong></div>
+      {% if cob_mes.saldo_anterior %}
+      <div>Saldo mes anterior: <strong class="text-danger">+ {{ cob_mes.saldo_anterior | pesos }}</strong></div>
+      {% endif %}
+      <div>Entregado: <strong class="text-success">{{ cob_mes.entregado_real | pesos }}</strong></div>
       <div class="ms-auto">Saldo a entregar:
         <strong style="font-size:1rem;{% if cob_mes.saldo > 0 %}color:#c00;{% else %}color:#198754;{% endif %}">{{ cob_mes.saldo | pesos }}</strong>
       </div>
@@ -398,8 +401,8 @@
         {% for e in entregas_mes %}
         <tr>
           <td>{{ e.fecha.strftime("%d/%m/%Y") if e.fecha else "" }}</td>
-          <td>{% if (e.tipo or 'EFECTIVO')|upper == 'PREMIO' %}<span class="badge bg-warning text-dark">Premio</span>{% else %}<span class="badge bg-success">Efectivo</span>{% endif %}</td>
-          <td class="text-end fw-semibold">{{ e.monto | pesos }}</td>
+          <td>{% if (e.tipo or 'EFECTIVO')|upper == 'PREMIO' %}<span class="badge bg-warning text-dark">Premio</span>{% elif (e.tipo or '')|upper == 'SALDO_ANT' %}<span class="badge bg-danger">Saldo mes ant.</span>{% else %}<span class="badge bg-success">Efectivo</span>{% endif %}</td>
+          <td class="text-end fw-semibold{% if (e.monto or 0) < 0 %} text-danger{% endif %}">{{ e.monto | pesos }}</td>
           <td class="text-muted">{{ e.observacion or "" }}</td>
           <td class="text-center">
             <form method="post" action="/cobranza/liquidacion/{{ planilla.id }}/entrega/{{ e.id }}/eliminar"
@@ -425,7 +428,7 @@
       </div>
       <div class="col-auto">
         <label class="form-label mb-0 text-muted">Monto entregado</label>
-        <input type="number" name="monto" step="0.01" min="0" required
+        <input type="number" name="monto" step="0.01" required
                placeholder="0,00" class="form-control form-control-sm fw-bold" style="width:130px;">
       </div>
       <div class="col-auto">
@@ -433,6 +436,7 @@
         <select name="tipo" class="form-select form-select-sm">
           <option value="EFECTIVO">Efectivo</option>
           <option value="PREMIO">Premio / gasto</option>
+          <option value="SALDO_ANT">Saldo mes anterior (suma)</option>
         </select>
       </div>
       <div class="col">

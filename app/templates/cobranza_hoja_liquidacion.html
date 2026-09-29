@@ -170,7 +170,7 @@
       </tr>
     </thead>
     <tbody>
-      {% for e in d.adelantos %}
+      {% for e in d.entregas_reales %}
       <tr>
         <td>{{ e.fecha.strftime("%d/%m/%Y") if e.fecha else "" }}</td>
         <td class="ctr">{% if (e.tipo or 'EFECTIVO')|upper == 'PREMIO' %}Premio{% else %}Efectivo{% endif %}</td>
@@ -184,7 +184,7 @@
     <tfoot>
       <tr style="font-weight:bold;">
         <td colspan="3">TOTAL ENTREGADO</td>
-        <td class="num">{{ d.total_adelantos | pesos }}</td>
+        <td class="num">{{ d.entregado_real | pesos }}</td>
       </tr>
     </tfoot>
   </table>
@@ -194,9 +194,15 @@
       <td>Neto de cobranza</td>
       <td class="num">{{ d.neto | pesos }}</td>
     </tr>
+    {% for s in d.saldos_anteriores %}
+    <tr>
+      <td>Más saldo pendiente mes anterior{% if s.observacion %} ({{ s.observacion }}){% endif %}</td>
+      <td class="num">+ {{ (-s.monto) | pesos }}</td>
+    </tr>
+    {% endfor %}
     <tr>
       <td>Menos entregas del mes</td>
-      <td class="num">− {{ d.total_adelantos | pesos }}</td>
+      <td class="num">− {{ d.entregado_real | pesos }}</td>
     </tr>
     <tr class="final">
       <td>SALDO A ENTREGAR</td>
