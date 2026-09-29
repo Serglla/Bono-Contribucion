@@ -41,8 +41,7 @@ async def listar(request: Request, db: Session = Depends(get_db)):
             "num_premios": s.num_premios or 20,
         }
 
-    # Agrupar sorteos por mes (mes-año). Se mantiene el orden cronológico:
-    # el mes actual y los meses futuros primero (más cercanos arriba), después los pasados.
+    # Agrupar sorteos por mes (mes-año), en orden cronológico.
     grupos = {}
     for s in sorteos:
         key = f"{s.fecha.year}-{s.fecha.month:02d}"
@@ -64,17 +63,9 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     hoy = date_type.today()
     mes_actual_key = f"{hoy.year}-{hoy.month:02d}"
 
-    # Orden: primero los del mes actual y futuros (cronológico), después los pasados (recientes arriba)
-    futuros = sorted(
-        [g for g in grupos.values() if g["key"] >= mes_actual_key],
-        key=lambda g: g["key"],
-    )
-    pasados = sorted(
-        [g for g in grupos.values() if g["key"] < mes_actual_key],
-        key=lambda g: g["key"],
-        reverse=True,
-    )
-    sorteos_por_mes = futuros + pasados
+    # Orden cronológico (29/09/2026, pedido de Sergio): el primer mes arriba y
+    # va bajando. El mes actual sigue abierto por defecto (ver sorteos.html).
+    sorteos_por_mes = sorted(grupos.values(), key=lambda g: g["key"])
 
     return templates.TemplateResponse(request, "sorteos.html", {
         "user": user,
