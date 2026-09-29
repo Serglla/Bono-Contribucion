@@ -86,9 +86,9 @@
         <span class="badge bg-secondary-subtle text-secondary border">Físico</span>
       {% endif %}
       <span class="badge bg-light text-dark border">
-        {% if p.modalidad == "POR_CIFRAS" %}Solo los de {{ p.cifras }} cifras
-        {% elif p.modalidad == "CADA_UNO" %}A cada uno
-        {% else %}Por posición{% endif %}
+        {% if p.modalidad == "POR_CIFRAS" %}Cada ganador a {{ p.cifras }} cifras
+        {% elif p.modalidad == "CADA_UNO" %}Todos los ganadores
+        {% else %}Uno solo{% endif %}
       </span>
     </div>
     <div class="card-body">
@@ -106,7 +106,7 @@
           <tr>
             <td class="fw-semibold">{{ e.socio }}</td>
             <td>{{ e.talonera | replace('PATA ', 'X') }}</td>
-            <td><span class="badge bg-dark">{{ e.numero }}</span></td>
+            <td><span class="badge bg-dark">{{ e.numero }}</span>{% if e.cifras %} <span class="text-muted small">pegó {{ e.cifras }} cifras</span>{% endif %}</td>
             <td>
               {% if e.entregado %}
                 <span class="badge bg-success">Entregado</span>

@@ -942,6 +942,25 @@ _CLASES_PREMIO = {"ORDEN", "FISICO"}
 _MODALIDADES_PREMIO = {"POSICION", "CADA_UNO", "POR_CIFRAS"}
 
 
+def _parse_modalidad(modalidad: str, cifras: int):
+    """El selector «A quién le toca» manda un solo valor: POSICION, CADA_UNO o
+    POR_CIFRAS:<n> (ej. POR_CIFRAS:3). Devuelve (modalidad, cifras|None).
+    Sigue aceptando el formato viejo (modalidad + campo cifras aparte)."""
+    m = (modalidad or "POSICION").strip().upper()
+    if m.startswith("POR_CIFRAS:"):
+        try:
+            cifras = int(m.split(":", 1)[1])
+        except ValueError:
+            cifras = 0
+        m = "POR_CIFRAS"
+    if m not in _MODALIDADES_PREMIO:
+        m = "POSICION"
+    c = int(cifras) if (m == "POR_CIFRAS" and cifras in (2, 3, 4)) else None
+    if m == "POR_CIFRAS" and c is None:
+        m = "CADA_UNO"   # sin nivel válido no se puede filtrar
+    return m, c
+
+
 def _candidatos_del_premio(premio, candidatos):
     """Filtra los ganadores que le corresponden a un premio.
 
@@ -1000,7 +1019,7 @@ async def premio_crear(
     if not desc:
         return RedirectResponse(f"/sorteos/{sid}/premios", status_code=302)
     clase = clase if clase in _CLASES_PREMIO else "ORDEN"
-    modalidad = modalidad if modalidad in _MODALIDADES_PREMIO else "POSICION"
+    modalidad, _cif = _parse_modalidad(modalidad, cifras)
     # orden por defecto = siguiente disponible
     if not orden or orden < 1:
         orden = (max([p.orden for p in s.premios], default=0) + 1)
@@ -1013,7 +1032,7 @@ async def premio_crear(
         modalidad=modalidad,
         # El nivel de cifras solo tiene sentido en POR_CIFRAS; en el resto queda NULL
         # para no dejar datos que confundan si después se cambia la modalidad.
-        cifras=(int(cifras) if modalidad == "POR_CIFRAS" and cifras in (2, 3, 4) else None),
+        cifras=_cif,
     )
     db.add(p)
     db.commit()
@@ -1045,9 +1064,7 @@ async def premio_editar(
     if desc:
         p.descripcion = desc
     p.clase = clase if clase in _CLASES_PREMIO else "ORDEN"
-    p.modalidad = modalidad if modalidad in _MODALIDADES_PREMIO else "POSICION"
-    # Se limpia el nivel si el premio deja de ser POR_CIFRAS (ver premio_crear)
-    p.cifras = (int(cifras) if p.modalidad == "POR_CIFRAS" and cifras in (2, 3, 4) else None)
+    p.modalidad, p.cifras = _parse_modalidad(modalidad, cifras)
     p.monto = max(0.0, monto)
     p.orden = max(1, orden)
     db.commit()
@@ -1354,20 +1371,29 @@ def _autoasignar_entregas(s, db) -> int:
     if not s.premios:
         return 0
     candidatos = _candidatos_ganadores(s, db)
-    if not candidatos:
-        return 0
     nuevos = 0
+    cambios = False
     for p in s.premios:
         if (p.modalidad or "POSICION") not in ("POR_CIFRAS", "CADA_UNO"):
             continue
+        les_toca = _candidatos_del_premio(p, candidatos)
+        validos = {(c["boleta_id"], c["numero"]) for c in les_toca}
+        # Limpieza (29/09/2026): si se cambió el nivel de cifras o la modalidad,
+        # quedaban asignados ganadores que ya no corresponden (ej. el de 3 cifras
+        # también en el premio de 4). Se sacan los que NO se entregaron todavía;
+        # un premio ya entregado nunca se toca.
+        for e in list(p.entregas):
+            if not e.entregado and (e.boleta_id, e.numero_ganador) not in validos:
+                db.delete(e)
+                cambios = True
         ya = {(e.boleta_id, e.numero_ganador) for e in p.entregas}
-        for c in _candidatos_del_premio(p, candidatos):
+        for c in les_toca:
             if (c["boleta_id"], c["numero"]) in ya:
                 continue
             db.add(models.EntregaPremio(
                 premio_id=p.id, boleta_id=c["boleta_id"], numero_ganador=c["numero"]))
             nuevos += 1
-    if nuevos:
+    if nuevos or cambios:
         db.commit()
     return nuevos
 
@@ -1420,7 +1446,13 @@ async def entregas_form(sid: int, request: Request, db: Session = Depends(get_db
     if not s:
         return RedirectResponse("/sorteos/", status_code=302)
 
+    # Deja las asignaciones al día con la configuración actual de los premios
+    # (agrega las que faltan y saca las que ya no corresponden, sin tocar entregados).
+    _reasignar_si_corresponde(s, db)
+    db.refresh(s)
+
     candidatos = _candidatos_ganadores(s, db)
+    _cif_de = {(c["boleta_id"], c["numero"]): c["cifras"] for c in candidatos}
 
     premios_view = []
     for p in s.premios:
@@ -1453,6 +1485,7 @@ async def entregas_form(sid: int, request: Request, db: Session = Depends(get_db
                 "fecha_entrega": e.fecha_entrega.strftime("%d/%m/%Y") if e.fecha_entrega else "",
                 "contado": _contado,
                 "cobrador": _cobrador,
+                "cifras": _cif_de.get((e.boleta_id, e.numero_ganador)),
             })
             ya.add((e.boleta_id, e.numero_ganador))
         # POR_CIFRAS: el desplegable solo ofrece los ganadores del nivel del premio,

@@ -48,7 +48,7 @@
           <th>Descripción</th>
           <th style="width:120px;">Tipo</th>
           <th style="width:140px;" class="text-end">Monto ($)</th>
-          <th style="width:150px;">Modalidad</th>
+          <th style="width:230px;">A quién le toca</th>
           <th style="width:160px;"></th>
         </tr>
       </thead>
@@ -76,22 +76,18 @@
                    class="form-control form-control-sm text-end">
           </td>
           <td>
-            <div class="d-flex gap-1">
-              <select form="{{ fid }}" name="modalidad" class="form-select form-select-sm">
-                <option value="POSICION" {% if p.modalidad == "POSICION" %}selected{% endif %}>Por posición</option>
-                <option value="CADA_UNO" {% if p.modalidad == "CADA_UNO" %}selected{% endif %}>A cada uno</option>
-                {% if cifras_sorteo|length > 1 or p.modalidad == "POR_CIFRAS" %}
-                <option value="POR_CIFRAS" {% if p.modalidad == "POR_CIFRAS" %}selected{% endif %}>Según las cifras</option>
-                {% endif %}
-              </select>
-              {# El nivel viaja siempre; el server lo ignora si la modalidad no es POR_CIFRAS #}
-              <select form="{{ fid }}" name="cifras" class="form-select form-select-sm"
-                      style="width:auto;" title="Nivel de cifras al que aplica este premio">
-                {% for c in cifras_sorteo %}
-                <option value="{{ c }}" {% if p.cifras == c %}selected{% endif %}>{{ c }}c</option>
-                {% endfor %}
-              </select>
-            </div>
+            {# Un solo selector: a quién le toca el premio (29/09/2026).
+               autocomplete=off: que el navegador no "recuerde" una opción vieja al recargar. #}
+            <select form="{{ fid }}" name="modalidad" class="form-select form-select-sm" autocomplete="off">
+              {% for c in cifras_sorteo %}
+              <option value="POR_CIFRAS:{{ c }}" {% if p.modalidad == "POR_CIFRAS" and p.cifras == c %}selected{% endif %}>Cada ganador a {{ c }} cifras</option>
+              {% endfor %}
+              {% if p.modalidad == "POR_CIFRAS" and p.cifras not in cifras_sorteo %}
+              <option value="POR_CIFRAS:{{ p.cifras }}" selected>Cada ganador a {{ p.cifras }} cifras</option>
+              {% endif %}
+              <option value="CADA_UNO" {% if p.modalidad == "CADA_UNO" %}selected{% endif %}>Todos los ganadores</option>
+              <option value="POSICION" {% if p.modalidad not in ("POR_CIFRAS", "CADA_UNO") %}selected{% endif %}>Uno solo (lo elijo a mano)</option>
+            </select>
           </td>
           <td class="text-end" style="white-space:nowrap;">
             <button form="{{ fid }}" class="btn btn-sm btn-outline-primary me-1" title="Guardar cambios">
@@ -148,24 +144,13 @@
                class="form-control form-control-sm text-end">
       </div>
       <div class="col-8 col-md-2">
-        <label class="form-label small mb-1">Modalidad</label>
-        <select name="modalidad" id="nuevoModalidad" class="form-select form-select-sm"
-                onchange="toggleCifrasNuevo()">
-          <option value="POSICION">Por posición</option>
-          <option value="CADA_UNO">A cada uno</option>
-          {% if cifras_sorteo|length > 1 %}
-          <option value="POR_CIFRAS">Según las cifras</option>
-          {% endif %}
-        </select>
-      </div>
-      {# Solo visible con modalidad POR_CIFRAS: a qué nivel aplica este premio.
-         Se ofrecen únicamente las cifras que juega este sorteo. #}
-      <div class="col-6 col-md-1 d-none" id="nuevoCifrasBox">
-        <label class="form-label small mb-1">Cifras</label>
-        <select name="cifras" class="form-select form-select-sm">
+        <label class="form-label small mb-1">A quién le toca</label>
+        <select name="modalidad" class="form-select form-select-sm" autocomplete="off">
           {% for c in cifras_sorteo %}
-          <option value="{{ c }}">{{ c }} cifras</option>
+          <option value="POR_CIFRAS:{{ c }}">Cada ganador a {{ c }} cifras</option>
           {% endfor %}
+          <option value="CADA_UNO">Todos los ganadores</option>
+          <option value="POSICION">Uno solo (lo elijo a mano)</option>
         </select>
       </div>
       <div class="col-4 col-md-1">
@@ -178,25 +163,14 @@
       <i class="bi bi-info-circle me-1"></i>
       <strong>Orden $</strong>: el monto suma al balance de costos apenas hay un ganador válido.
       <strong>Físico</strong>: el monto es solo referencia (cargás el gasto real al comprarlo).
-      <strong>A cada uno</strong>: todos los ganadores del sorteo reciben este premio.
-      {% if cifras_sorteo|length > 1 %}
-      <strong>Según las cifras</strong>: solo los ganadores que pegaron ese nivel
-      (cargá un premio por cada nivel — el de {{ cifras_sorteo[0] }} cifras y el de
-      {{ cifras_sorteo[-1] }} — y «Asignar todos» le da a cada uno el que le toca).
-      {% endif %}
+      <br><strong>Cada ganador a N cifras</strong>: cada número que pegó exactamente N cifras cobra este premio
+      {% if cifras_sorteo|length > 1 %}(en un sorteo a {{ cifras_sorteo|join(" y ") }} cifras cargá un premio por cada nivel;
+      el que pegó {{ cifras_sorteo[0] }} cobra solo el de {{ cifras_sorteo[0] }}, no los dos){% endif %}.
+      <strong>Todos los ganadores</strong>: todos cobran este premio, peguen las cifras que peguen.
+      <strong>Uno solo</strong>: premio único (ej. 1° premio final) — el ganador lo asignás vos en Entregas.
     </div>
   </div>
 </div>
 
-<script>
-  // El selector de cifras solo tiene sentido con modalidad POR_CIFRAS
-  function toggleCifrasNuevo() {
-    var m = document.getElementById('nuevoModalidad');
-    var box = document.getElementById('nuevoCifrasBox');
-    if (!m || !box) return;
-    box.classList.toggle('d-none', m.value !== 'POR_CIFRAS');
-  }
-  document.addEventListener('DOMContentLoaded', toggleCifrasNuevo);
-</script>
 
 {% endblock %}
