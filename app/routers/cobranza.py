@@ -1759,6 +1759,15 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
                                   models.EntregaCobrador.id)
                         .all())
         cob_mes = _consolidado_cobrador(db, cobrador_obj, mes_liq, anio_liq) if cobrador_obj else None
+        # Sugerencia: saldo con que cerró el mes anterior, para cargarlo con un clic.
+        if cobrador_obj and cob_mes is not None:
+            _pm, _pa = (mes_liq - 1, anio_liq) if mes_liq > 1 else (12, anio_liq - 1)
+            try:
+                _prev = _consolidado_cobrador(db, cobrador_obj, _pm, _pa)
+                cob_mes["saldo_mes_prev"] = _prev["saldo"] if (_prev["monto"] or _prev["total_adelantos"]) else 0
+            except Exception:
+                cob_mes["saldo_mes_prev"] = 0
+            cob_mes["mes_prev_nombre"] = MESES[_pm - 1]
 
     return templates.TemplateResponse(request, "cobranza_liquidacion_detalle.html", {
         "user": user,
@@ -1998,11 +2007,12 @@ async def liquidacion_entrega_crear(request: Request, planilla_id: int,
     _tipo = (tipo or "EFECTIVO").strip().upper()
     if _tipo not in ("EFECTIVO", "PREMIO", "SALDO_ANT"):
         _tipo = "EFECTIVO"
-    # SALDO_ANT = saldo que el cobrador quedó debiendo del mes anterior. Se guarda
-    # NEGATIVO: como el saldo es neto − Σ entregas, una "entrega" negativa lo SUBE.
-    # Se acepta el monto con o sin signo.
+    # SALDO_ANT = saldo con que el cobrador cerró el mes anterior, tal cual quedó:
+    #   positivo → quedó DEBIENDO (se suma al saldo a entregar de este mes)
+    #   negativo → entregó DE MÁS, saldo a su favor (se resta)
+    # Se guarda con el signo invertido porque el saldo es neto − Σ entregas.
     if monto and (monto > 0 or _tipo == "SALDO_ANT"):
-        _monto = -abs(float(monto)) if _tipo == "SALDO_ANT" else float(monto)
+        _monto = -float(monto) if _tipo == "SALDO_ANT" else float(monto)
         db.add(models.EntregaCobrador(
             cobrador_id=planilla.cobrador_id,
             fecha=_fecha,

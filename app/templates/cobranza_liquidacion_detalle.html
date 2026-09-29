@@ -384,7 +384,10 @@
       <div>Comisión: <strong class="text-danger">− {{ cob_mes.comision | pesos }}</strong></div>
       <div>Neto: <strong>{{ cob_mes.neto | pesos }}</strong></div>
       {% if cob_mes.saldo_anterior %}
-      <div>Saldo mes anterior: <strong class="text-danger">+ {{ cob_mes.saldo_anterior | pesos }}</strong></div>
+      <div>Saldo mes anterior:
+        {% if cob_mes.saldo_anterior > 0 %}<strong class="text-danger">+ {{ cob_mes.saldo_anterior | pesos }}</strong> <span class="text-muted">(debía)</span>
+        {% else %}<strong class="text-success">{{ cob_mes.saldo_anterior | pesos }}</strong> <span class="text-muted">(a favor)</span>{% endif %}
+      </div>
       {% endif %}
       <div>Entregado: <strong class="text-success">{{ cob_mes.entregado_real | pesos }}</strong></div>
       <div class="ms-auto">Saldo a entregar:
@@ -402,7 +405,12 @@
         <tr>
           <td>{{ e.fecha.strftime("%d/%m/%Y") if e.fecha else "" }}</td>
           <td>{% if (e.tipo or 'EFECTIVO')|upper == 'PREMIO' %}<span class="badge bg-warning text-dark">Premio</span>{% elif (e.tipo or '')|upper == 'SALDO_ANT' %}<span class="badge bg-danger">Saldo mes ant.</span>{% else %}<span class="badge bg-success">Efectivo</span>{% endif %}</td>
-          <td class="text-end fw-semibold{% if (e.monto or 0) < 0 %} text-danger{% endif %}">{{ e.monto | pesos }}</td>
+          {% if (e.tipo or '')|upper == 'SALDO_ANT' %}
+          {% set _s = -(e.monto or 0) %}
+          <td class="text-end fw-semibold {{ 'text-danger' if _s > 0 else 'text-success' }}">{{ '+ ' if _s > 0 }}{{ _s | pesos }}</td>
+          {% else %}
+          <td class="text-end fw-semibold">{{ e.monto | pesos }}</td>
+          {% endif %}
           <td class="text-muted">{{ e.observacion or "" }}</td>
           <td class="text-center">
             <form method="post" action="/cobranza/liquidacion/{{ planilla.id }}/entrega/{{ e.id }}/eliminar"
@@ -436,7 +444,7 @@
         <select name="tipo" class="form-select form-select-sm">
           <option value="EFECTIVO">Efectivo</option>
           <option value="PREMIO">Premio / gasto</option>
-          <option value="SALDO_ANT">Saldo mes anterior (suma)</option>
+          <option value="SALDO_ANT">Saldo mes anterior (+ debía / − a favor)</option>
         </select>
       </div>
       <div class="col">
@@ -448,6 +456,19 @@
         <button class="btn btn-sm btn-success"><i class="bi bi-plus-lg me-1"></i>Registrar entrega</button>
       </div>
     </form>
+    {% set _hay_saldo_ant = entregas_mes | selectattr('tipo', 'equalto', 'SALDO_ANT') | list %}
+    {% if cob_mes.saldo_mes_prev and not _hay_saldo_ant %}
+    <div class="alert alert-light border py-1 px-2 mt-2 mb-0 d-flex align-items-center gap-2" style="font-size:.8rem;">
+      <i class="bi bi-arrow-return-right"></i>
+      <span>{{ cob_mes.mes_prev_nombre }} cerró con saldo
+        <strong class="{{ 'text-danger' if cob_mes.saldo_mes_prev > 0 else 'text-success' }}">{{ cob_mes.saldo_mes_prev | pesos }}</strong>
+        {{ '(debía)' if cob_mes.saldo_mes_prev > 0 else '(a favor)' }}</span>
+      <button type="button" class="btn btn-sm btn-outline-secondary py-0"
+              onclick="(function(b){var f=b.closest('.card-body').querySelector('form[action$=&quot;/entrega&quot;]');f.monto.value='{{ '%.2f'|format(cob_mes.saldo_mes_prev) }}';f.tipo.value='SALDO_ANT';f.observacion.value='Saldo {{ cob_mes.mes_prev_nombre|lower }}';f.monto.focus();})(this)">
+        Cargar este saldo
+      </button>
+    </div>
+    {% endif %}
     <small class="text-muted d-block mt-1">
       Ojo: guardá primero la liquidación — registrar una entrega recarga la página.
     </small>

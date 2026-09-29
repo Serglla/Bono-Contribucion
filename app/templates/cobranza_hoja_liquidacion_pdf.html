@@ -127,8 +127,9 @@
   </tr>
   {% for s in d.saldos_anteriores %}
   <tr>
-    <td>Más saldo pendiente mes anterior{% if s.observacion %} ({{ s.observacion }}){% endif %}</td>
-    <td class="num">+ {{ (-s.monto) | pesos }}</td>
+    {% set _s = -(s.monto or 0) %}
+    <td>{{ 'Más saldo pendiente del mes anterior' if _s > 0 else 'Menos saldo a favor del mes anterior' }}{% if s.observacion %} ({{ s.observacion }}){% endif %}</td>
+    <td class="num">{{ '+' if _s > 0 else '−' }} {{ (_s|abs) | pesos }}</td>
   </tr>
   {% endfor %}
   <tr>
