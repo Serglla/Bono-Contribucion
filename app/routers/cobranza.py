@@ -140,7 +140,23 @@ def _planilla_todo_pata0(boletas) -> bool:
     return bool(bs) and all((b.talonera.multiplicador or 1.0) < 1.0 for b in bs)
 
 
-def _columna_mult_valor(boletas, grid):
+def _cobro_algo_aca(b, corte) -> bool:
+    """¿La boleta que PASÓ a otra planilla tiene alguna cuota cobrada acá
+    (historial con número de cuota <= corte)?"""
+    try:
+        h = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
+    except (ValueError, TypeError):
+        return False
+    for k in h:
+        try:
+            if int(k) <= int(corte or 0):
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _columna_mult_valor(boletas, grid, paso_map=None):
     """A partir del grid de 3 columnas físicas, devuelve:
       - columna_de_boleta: {boleta_id: 1|2|3} según en qué columna física cayó.
       - multiplicador_de_boleta: {boleta_id: ponderación por PATA} (ver _pata_valor).
@@ -155,11 +171,21 @@ def _columna_mult_valor(boletas, grid):
             if cell and not isinstance(cell, dict):
                 columna_de_boleta[cell.id] = col_num
 
-    todo_pata0 = _planilla_todo_pata0(boletas)
+    # Para decidir si la planilla es "toda PATA 0" (y el valor de la cuota) no
+    # cuentan las boletas que PASARON a otra planilla sin haber cobrado nada
+    # acá: siguen dibujadas con la línea "PASÓ A …" pero ya no son de esta
+    # planilla. Sin esto, sacar un X1 de una planilla de X0 la seguía tratando
+    # como mixta (cuotas ×0,67 a $15.000 en vez de ×1 a $10.000).
+    paso_map = paso_map or {}
+    decisoras = [b for b in boletas
+                 if b.id not in paso_map
+                 or _cobro_algo_aca(b, paso_map[b.id].get("cuota"))] or list(boletas)
+
+    todo_pata0 = _planilla_todo_pata0(decisoras)
     multiplicador_de_boleta = {b.id: (1.0 if todo_pata0 else _pata_valor(b)) for b in boletas}
 
     valor_cuota = 0.0
-    for b in boletas:
+    for b in decisoras:
         if b.talonera and b.talonera.valor_cuota:
             vc = float(b.talonera.valor_cuota)
             if todo_pata0:
@@ -179,7 +205,7 @@ def _resumen_mensual_rows(boletas, grid, meses_campana, comision_pct, paso_map=N
     grilla interactiva de liquidación, acá se incluye también el mes actual,
     porque no hay nada más que seguir marcando: es una foto de lo ya cobrado).
     Devuelve (rows, totales, valor_cuota)."""
-    columna_de_boleta, multiplicador_de_boleta, valor_cuota = _columna_mult_valor(boletas, grid)
+    columna_de_boleta, multiplicador_de_boleta, valor_cuota = _columna_mult_valor(boletas, grid, paso_map)
 
     counts = {m: {1: 0.0, 2: 0.0, 3: 0.0} for m in range(1, 13)}
     for b in boletas:
@@ -1613,7 +1639,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     #     Así PATA 0 da 0.67 × $15.000 = $10.000 y PATA 2 da 2 × $15.000 = $30.000.
     #   - Planilla ÚNICAMENTE PATA 0: cada cuota cuenta ×1 y el valor es el uniforme
     #     real ($10.000). No se aplica el 0.67 (regla pedida por el negocio).
-    columna_de_boleta, multiplicador_de_boleta, valor_cuota = _columna_mult_valor(boletas, _grid)
+    columna_de_boleta, multiplicador_de_boleta, valor_cuota = _columna_mult_valor(boletas, _grid, paso_map)
 
     # ── Meses de la campaña (primer mes cobrado → junio 2027) ───────────────
     meses_campana = _meses_campana_desde(
