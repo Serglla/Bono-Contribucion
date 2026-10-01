@@ -1567,6 +1567,11 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
             h = {}
         _otros, _actual, _full = {}, [], set()
         _rec_b = recibida_map.get(b.id, 0)
+        # Boleta que PASÓ a otro cobrador: las cuotas posteriores al corte las
+        # cobra el destino. No van a la selección del mes (sino el resumen y
+        # "Cuotas marcadas" las sumaban acá aunque la celda muestre la línea
+        # "PASÓ A …"). El guardado ya las ignoraba (planilla_id != esta).
+        _corte_b = int(paso_map[b.id].get("cuota") or 0) if b.id in paso_map else None
         for k, v in h.items():
             try:
                 _cn = int(k)
@@ -1576,6 +1581,8 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
             # Cuotas que la boleta ya traía pagas de otro cobrador: no entran
             # ni al historial azul ni a la selección del mes (se dibujan con X).
             if _rec_b and _cn <= _rec_b:
+                continue
+            if _corte_b is not None and _cn > _corte_b:
                 continue
             if match_periodo(v, anio_liq, mes_liq):
                 _actual.append(_cn)

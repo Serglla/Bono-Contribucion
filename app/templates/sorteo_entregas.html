@@ -199,4 +199,33 @@
 
 {% endif %}
 
+{% if con_resultado and no_cobran %}
+<div class="card shadow-sm mt-3 border-secondary-subtle">
+  <div class="card-header py-2 bg-light">
+    <i class="bi bi-slash-circle me-1 text-secondary"></i>
+    <span class="fw-semibold">Coincidieron con el número pero NO ganaron</span>
+    <span class="badge bg-secondary ms-1">{{ no_cobran|length }}</span>
+    <span class="text-muted small ms-2">— si alguno tiene que cobrar igual, habilitalo a mano desde Ganadores</span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm align-middle mb-0" style="font-size:.85rem;">
+      <thead class="table-light">
+        <tr><th>Socio</th><th>Talonera</th><th>N°</th><th>Cobrador</th><th>Motivo</th></tr>
+      </thead>
+      <tbody>
+        {% for n in no_cobran %}
+        <tr class="text-muted">
+          <td>{{ n.socio }}</td>
+          <td>{{ n.talonera }}</td>
+          <td><span class="badge bg-secondary">{{ n.numero }}</span> <span class="small">{{ n.cifras }} cifras</span></td>
+          <td>{{ n.cobrador or "—" }}</td>
+          <td class="text-danger">{{ n.motivo }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}

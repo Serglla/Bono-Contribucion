@@ -719,7 +719,9 @@ def _habilitacion_boleta(boleta, sorteo, override=None):
     elif vendida_en_mes:
         auto_ok, auto_motivo = True, "Vendida en el mes (hasta el día del sorteo)"
     else:
-        auto_ok, auto_motivo = False, "No registra pago en el mes del sorteo"
+        auto_ok, auto_motivo = False, (
+            f"No ganó por falta de pago: no pagó la cuota de "
+            f"{_MESES_ES[mes_sorteo - 1].lower()}")
 
     # Override manual (excepción) tiene prioridad
     if override is not None:
@@ -1428,6 +1430,42 @@ def _candidatos_ganadores(s, db):
     return cand
 
 
+def _coincidencias_que_no_cobran(s, db):
+    """Números que SÍ coinciden con el resultado y tienen socio, pero no cobran
+    (comprados después del sorteo o sin pago en el mes). Se muestran en Entregas
+    con el motivo, para que no parezca que el sistema "no encontró" a nadie."""
+    if not s.resultado_json:
+        return []
+    try:
+        grupos, _ = _calcular_grupos_ganadores(s, db)
+    except Exception:
+        return []
+    out, vistos = [], set()
+    for g in grupos:
+        for f in g["filas"]:
+            if not f["comprador"] or f["habilitado"]:
+                continue
+            key = (f["boleta_id"], f["num_match"])
+            if key in vistos:
+                continue
+            vistos.add(key)
+            if f["posterior"]:
+                motivo = "No ganó: comprada después del sorteo" + (f" ({f['fecha_venta']})" if f["fecha_venta"] else " (sin fecha de venta)")
+            else:
+                motivo = f["habilitado_motivo"] or "No habilitado"
+            out.append({
+                "boleta_id": f["boleta_id"],
+                "numero": f["num_match"],
+                "cifras": g["cifras"],
+                "socio": f["comprador"],
+                "talonera": f["talonera"],
+                "cobrador": f["cobrador"] or "",
+                "motivo": motivo,
+            })
+    out.sort(key=lambda x: (-x["cifras"], x["socio"] or ""))
+    return out
+
+
 @router.get("/{sid}/entregas", response_class=HTMLResponse)
 async def entregas_form(sid: int, request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
@@ -1492,6 +1530,7 @@ async def entregas_form(sid: int, request: Request, db: Session = Depends(get_db
         "tipo_label": _TIPO_LABEL_PLURAL.get(s.tipo.value, s.tipo.value),
         "total_candidatos": len(candidatos),
         "con_resultado": bool(s.resultado_json),
+        "no_cobran": _coincidencias_que_no_cobran(s, db),
         "hoy": date_type.today().isoformat(),
         # Un boton por cobrador para bajar TODOS sus recibos en un PDF (30/08/2026)
         "recibos_por_cobrador": _entregas_de_sorteos([s], db),

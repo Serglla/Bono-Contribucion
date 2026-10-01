@@ -103,6 +103,10 @@
                 <div class="small text-danger" style="font-size:0.72rem;">
                   <i class="bi bi-exclamation-circle-fill me-1"></i>Comprado tras el sorteo{% if f.fecha_venta %} ({{ f.fecha_venta }}){% endif %} — no cuenta
                 </div>
+              {% elif f.comprador and not f.habilitado %}
+                <div class="small text-danger" style="font-size:0.72rem;">
+                  <i class="bi bi-slash-circle me-1"></i>{{ f.habilitado_motivo }}
+                </div>
               {% endif %}
             </td>
             <td class="text-muted">{{ f.vendedor or "—" }}</td>
