@@ -321,6 +321,15 @@ async def listar(request: Request, db: Session = Depends(get_db),
     )
     sin_emplanillar = sum(x["cantidad"] for x in sin_emplanillar_por_cob)
 
+    # Boletas que el vendedor ya liquidó pero todavía SIN socio cargado
+    # (mismo criterio que la tarjeta "Sin cargar" del Dashboard).
+    boletas_sin_socio = (
+        db.query(func_count.count(models.Boleta.id))
+        .filter(models.Boleta.liquidacion_vendedor_id.isnot(None),
+                models.Boleta.comprador_id.is_(None))
+        .scalar() or 0
+    )
+
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
     cobradores = db.query(models.Cobrador).filter(models.Cobrador.activo == True).order_by(models.Cobrador.nombre).all()
@@ -364,6 +373,7 @@ async def listar(request: Request, db: Session = Depends(get_db),
         "sin_cobrador": sin_cobrador,
         "contado_sin_cargar": contado_sin_cargar,
         "sin_emplanillar": sin_emplanillar,
+        "boletas_sin_socio": boletas_sin_socio,
         "sin_emplanillar_por_cob": sin_emplanillar_por_cob,
         "filtro_sin_cob": sin_cob in ("1", "true", "yes"),
         "filtro_cob": cob,
@@ -376,6 +386,38 @@ async def listar(request: Request, db: Session = Depends(get_db),
         "total_filtrado": total_filtrado,
         "total_filtrado_pond": total_filtrado_pond,
     })
+
+
+@router.get("/sin-socio-lista")
+async def sin_socio_lista(request: Request, db: Session = Depends(get_db)):
+    """Boletas liquidadas por el vendedor pero SIN socio cargado todavía, para
+    el aviso de Socios. Cada item trae el número principal para abrir
+    "Nuevo Socio" con esa boleta ya buscada."""
+    await auth_module.require_user(request, db)
+    rows = (
+        db.query(models.Vendedor.nombre, models.Talonera.nombre,
+                 models.Talonera.num_digitos, models.Boleta.numero_principal,
+                 models.LiquidacionVendedor.fecha)
+        .select_from(models.Boleta)
+        .join(models.Talonera, models.Talonera.id == models.Boleta.talonera_id)
+        .outerjoin(models.LiquidacionVendedor,
+                   models.LiquidacionVendedor.id == models.Boleta.liquidacion_vendedor_id)
+        .outerjoin(models.Vendedor,
+                   models.Vendedor.id == models.LiquidacionVendedor.vendedor_id)
+        .filter(models.Boleta.liquidacion_vendedor_id.isnot(None),
+                models.Boleta.comprador_id.is_(None))
+        .order_by(models.Vendedor.nombre, models.Talonera.nombre,
+                  models.Boleta.numero_principal)
+        .all()
+    )
+    items = [{
+        "vendedor": vn or "(sin vendedor)",
+        "pata": (tn or "").replace("PATA ", "X"),
+        "numero": int(num),
+        "numero_fmt": str(num).zfill(nd or 4),
+        "fecha_liq": fl.strftime("%d/%m/%Y") if fl else "",
+    } for vn, tn, nd, num, fl in rows]
+    return JSONResponse({"ok": True, "items": items, "total": len(items)})
 
 
 @router.get("/contado-sin-cargar-lista")

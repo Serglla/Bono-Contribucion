@@ -7,6 +7,9 @@
   .aviso-warn   { background:#fff3cd; color:#7a5b00; border:1px solid #ffda6a; }
   .aviso-info   { background:#cff4fc; color:#055160; border:1px solid #9eeaf9; }
   .aviso-purple { background:#ede4ff; color:#4b2a91; border:1px solid #c9b3f5; }
+  .aviso-orange { background:#ffe5d0; color:#8a3b00; border:1px solid #ffb98a; }
+  .sinsoc-num { cursor:pointer; }
+  .sinsoc-num:hover { background:#dc3545 !important; color:#fff !important; }
   .aviso-chip:hover { filter:brightness(.95); }
   .aviso-menu { min-width:250px; font-size:.85rem; }
 </style>
@@ -54,10 +57,16 @@
       </div>
     </span>
     {% endif %}
+    {% if boletas_sin_socio > 0 %}
+    <button class="btn btn-sm aviso-chip aviso-orange ms-1" onclick="verSinSocio(this)"
+            title="{{ boletas_sin_socio }} boleta{% if boletas_sin_socio != 1 %}s{% endif %} liquidada{% if boletas_sin_socio != 1 %}s{% endif %} por el vendedor sin socio cargado">
+      <i class="bi bi-hourglass-split"></i><span class="ms-1">{{ boletas_sin_socio }}</span>
+    </button>
+    {% endif %}
     {% if contado_sin_cargar > 0 %}
     <button class="btn btn-sm aviso-chip aviso-info ms-1" onclick="verContadoSinCargar(this)"
-            title="{{ contado_sin_cargar }} número{% if contado_sin_cargar != 1 %}s{% endif %} liquidado{% if contado_sin_cargar != 1 %}s{% endif %} por vendedor sin cargar en sistema">
-      <i class="bi bi-bag-x-fill"></i><span class="ms-1">{{ contado_sin_cargar }}</span>
+            title="{{ contado_sin_cargar }} número{% if contado_sin_cargar != 1 %}s{% endif %} de sorteo CONTADO sin asignar a un socio">
+      <i class="bi bi-star-fill"></i><span class="ms-1">{{ contado_sin_cargar }}</span>
     </button>
     {% endif %}
     {% if sin_emplanillar > 0 %}
@@ -114,14 +123,38 @@
 </div>
 {% endif %}
 
-{% if sin_vendedor > 0 or sin_cobrador > 0 or contado_sin_cargar > 0 or sin_emplanillar > 0 %}
+{% if sin_vendedor > 0 or sin_cobrador > 0 or contado_sin_cargar > 0 or sin_emplanillar > 0 or boletas_sin_socio > 0 %}
+<!-- Modal: Boletas liquidadas sin socio cargado -->
+<div class="modal fade" id="modalSinSocio" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#fff1e6;">
+        <h5 class="modal-title">
+          <i class="bi bi-hourglass-split me-2" style="color:#c25400;"></i>Boletas liquidadas sin socio cargado
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="sinSocioBody">
+        <div class="text-center py-4"><span class="spinner-border me-2"></span>Cargando...</div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <p class="text-muted small mb-0 me-auto">
+          <i class="bi bi-info-circle me-1"></i>
+          El vendedor ya las rindió pero falta cargar el comprador. Hacé clic en un número para cargarlo.
+        </p>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Contado sin cargar en sistema -->
 <div class="modal fade" id="modalContadoSinCargar" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header" style="background:#e3f2fd;">
         <h5 class="modal-title">
-          <i class="bi bi-bag-x-fill text-info me-2"></i>Números liquidados sin cargar en sistema
+          <i class="bi bi-star-fill text-info me-2"></i>Números de sorteo CONTADO sin asignar
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
@@ -133,8 +166,9 @@
       <div class="modal-footer border-0 pt-0">
         <p class="text-muted small mb-0 me-auto">
           <i class="bi bi-info-circle me-1"></i>
-          Estos números fueron declarados como vendidos al contado por el vendedor en su liquidación,
-          pero todavía no tienen socio cargado en sistema. Cargalos desde la pantalla de Socios → Nuevo.
+          Son los números de sorteo extra (pool CONTADO / CONTADO 2 VECES) que el vendedor
+          declaró en su liquidación y que todavía no se le asignaron a ningún socio. No son ventas:
+          se asignan al cargar un socio que pagó al contado (Socios → Nuevo, al elegir su número de sorteo).
         </p>
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
       </div>
@@ -158,6 +192,69 @@ function completarFaltantes(tipo, btn) {
         btn.innerHTML = 'Error, probá de nuevo';
       }
     });
+}
+
+function verSinSocio(btn) {
+  btn.disabled = true;
+  const modal = new bootstrap.Modal(document.getElementById('modalSinSocio'));
+  modal.show();
+  fetch('/compradores/sin-socio-lista')
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      const body = document.getElementById('sinSocioBody');
+      if (!data.ok || data.total === 0) {
+        body.innerHTML = '<p class="text-success text-center py-3"><i class="bi bi-check-circle-fill me-2"></i>No hay pendientes.</p>';
+        return;
+      }
+      const porV = {};
+      data.items.forEach(it => { (porV[it.vendedor] = porV[it.vendedor] || []).push(it); });
+      let html = `<p class="text-muted small mb-3"><strong>${data.total}</strong> boleta${data.total !== 1 ? 's' : ''} pendiente${data.total !== 1 ? 's' : ''}:</p>`;
+      Object.entries(porV).forEach(([v, items]) => {
+        html += `<div class="mb-3"><h6 class="fw-semibold text-secondary mb-2"><i class="bi bi-person-fill me-1"></i>${v}
+                 <span class="badge bg-secondary ms-1">${items.length}</span></h6><div class="d-flex flex-wrap gap-2">`;
+        items.forEach(it => {
+          html += `<span class="badge rounded-pill sinsoc-num" data-num="${it.numero}"
+                         style="background:#fff1e6;color:#8a3b00;border:1px solid #ffb98a;font-size:.85rem;"
+                         title="Cargar el socio de este número">
+                     ${it.pata} <strong>${it.numero_fmt}</strong>
+                     <span class="opacity-75 ms-1" style="font-size:.7rem;">${it.fecha_liq || ''}</span></span>`;
+        });
+        html += '</div></div>';
+      });
+      body.innerHTML = html;
+      body.querySelectorAll('.sinsoc-num').forEach(el => {
+        el.addEventListener('click', () => abrirNuevoConNumero(el.dataset.num));
+      });
+    })
+    .catch(() => {
+      btn.disabled = false;
+      document.getElementById('sinSocioBody').innerHTML =
+        '<p class="text-danger text-center py-3"><i class="bi bi-x-circle me-1"></i>Error al cargar. Intentá de nuevo.</p>';
+    });
+}
+
+// Cierra la lista y abre "Nuevo Socio" con el número ya buscado.
+function abrirNuevoConNumero(num) {
+  const lista = bootstrap.Modal.getInstance(document.getElementById('modalSinSocio'));
+  const elNuevo = document.getElementById('modalNuevo');
+  const abrir = () => {
+    elNuevo.addEventListener('shown.bs.modal', () => {
+      // Esperar a que termine el foco inicial del modal (setTimeout 300ms)
+      setTimeout(() => {
+        const inp = document.getElementById('nuevoBoleta_num');
+        const btnB = document.getElementById('nuevoBtnBuscar');
+        if (inp && btnB && !btnB.disabled) { inp.value = num; btnB.click(); }
+      }, 350);
+    }, { once: true });
+    bootstrap.Modal.getOrCreateInstance(elNuevo).show();
+  };
+  if (lista) {
+    document.getElementById('modalSinSocio').addEventListener('hidden.bs.modal', abrir, { once: true });
+    lista.hide();
+  } else {
+    abrir();
+  }
 }
 
 function verContadoSinCargar(btn) {
