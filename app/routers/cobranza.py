@@ -364,6 +364,17 @@ def _planilla_tiene_pendientes(planilla, anio_liq: int, mes_liq: int) -> bool:
     return False
 
 
+def _planilla_vigente_en(p, anio_liq: int, mes_liq: int) -> bool:
+    """¿La planilla ya existía en ese período? Una planilla armada en octubre
+    (P10) no tiene nada que ver con la liquidación de septiembre: no entra en la
+    ronda ni en las flechas de ese mes, y la hoja del mes (con las entregas)
+    queda en la última planilla que SÍ existía."""
+    try:
+        return (int(p.anio or 0) * 12 + int(p.mes or 0)) <= (int(anio_liq) * 12 + int(mes_liq))
+    except (TypeError, ValueError):
+        return True
+
+
 def _cola_liquidacion(db, anio_liq: int = None, mes_liq: int = None,
                       cobrador_id: int = None):
     """Cola de planillas a liquidar, ordenada por cobrador y número de planilla.
@@ -384,7 +395,7 @@ def _cola_liquidacion(db, anio_liq: int = None, mes_liq: int = None,
                    models.Planilla.mes, models.Planilla.numero))
     if cobrador_id is not None:
         q = q.filter(models.Planilla.cobrador_id == cobrador_id)
-    planillas = q.all()
+    planillas = [p for p in q.all() if _planilla_vigente_en(p, anio_liq, mes_liq)]
     return [
         {
             "id": p.id,
@@ -1575,6 +1586,19 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     # Se puede elegir un mes PASADO (= editar esa liquidacion); un mes FUTURO
     # nunca (el helper lo devuelve ajustado al actual).
     anio_liq, mes_liq, periodo_es_pasado, periodo_ajustado = _resolver_periodo_liq(mes, anio)
+    # Planilla armada DESPUÉS del período pedido (ej. P10 de octubre abierta en
+    # septiembre): se va a la última planilla de ese cobrador que sí existía en
+    # ese mes, que es donde está la hoja del mes con sus entregas.
+    if not _planilla_vigente_en(planilla, anio_liq, mes_liq):
+        _vig = [p for p in (db.query(models.Planilla)
+                            .filter_by(cobrador_id=planilla.cobrador_id)
+                            .order_by(models.Planilla.anio, models.Planilla.mes,
+                                      models.Planilla.numero).all())
+                if _planilla_vigente_en(p, anio_liq, mes_liq)]
+        if _vig:
+            return RedirectResponse(
+                f"/cobranza/liquidacion/{_vig[-1].id}?mes={mes_liq}&anio={anio_liq}",
+                status_code=302)
     periodos_disponibles = _periodos_liquidables(planilla)
     periodo_stats = _liquidacion_periodo_stats(planilla, anio_liq, mes_liq)
 
@@ -1745,11 +1769,12 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
     # ── Navegación con flechas: las hojas del cobrador, en orden ─────────────
     # P1 → P2 → P3 … → HOJA RESUMEN (siempre la última). Se recorre con las
     # flechas de la botonera, que guardan antes de moverse.
-    planillas_cob = (db.query(models.Planilla)
-                     .filter_by(cobrador_id=planilla.cobrador_id)
-                     .order_by(models.Planilla.anio, models.Planilla.mes,
-                               models.Planilla.numero)
-                     .all())
+    planillas_cob = [p for p in (db.query(models.Planilla)
+                                 .filter_by(cobrador_id=planilla.cobrador_id)
+                                 .order_by(models.Planilla.anio, models.Planilla.mes,
+                                           models.Planilla.numero)
+                                 .all())
+                     if _planilla_vigente_en(p, anio_liq, mes_liq) or p.id == planilla_id]
     _ids = [p.id for p in planillas_cob]
     _idx = _ids.index(planilla_id) if planilla_id in _ids else 0
     es_ultima_planilla = bool(_ids) and _ids[-1] == planilla_id
