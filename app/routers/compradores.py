@@ -296,6 +296,31 @@ async def listar(request: Request, db: Session = Depends(get_db),
     else:
         contado_sin_cargar = 0
 
+    # Con socio cargado pero SIN emplanillar: mismas reglas que Emplanillado
+    # (activas, sin planilla, no contado 2 veces y con cuotas por cobrar).
+    # Agrupado por cobrador para el desplegable del aviso.
+    _sin_pl_rows = (
+        db.query(models.Boleta.cobrador_id, func_count.count(models.Boleta.id))
+        .filter(
+            models.Boleta.comprador_id.isnot(None),
+            models.Boleta.planilla_id.is_(None),
+            models.Boleta.condicion != CondicionBoleta.BAJA,
+            models.Boleta.numero_especial_2.is_(None),
+            models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas,
+        )
+        .group_by(models.Boleta.cobrador_id)
+        .all()
+    )
+    _cob_nombres = {c.id: c.nombre for c in db.query(models.Cobrador).all()}
+    sin_emplanillar_por_cob = sorted(
+        [{"cobrador": (_cob_nombres.get(cid) if cid else None) or "Sin cobrador",
+          "sin_cobrador": not cid,
+          "cantidad": int(n)}
+         for cid, n in _sin_pl_rows if n],
+        key=lambda x: (x["sin_cobrador"], x["cobrador"]),
+    )
+    sin_emplanillar = sum(x["cantidad"] for x in sin_emplanillar_por_cob)
+
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
     cobradores = db.query(models.Cobrador).filter(models.Cobrador.activo == True).order_by(models.Cobrador.nombre).all()
@@ -338,6 +363,8 @@ async def listar(request: Request, db: Session = Depends(get_db),
         "sin_vendedor": sin_vendedor,
         "sin_cobrador": sin_cobrador,
         "contado_sin_cargar": contado_sin_cargar,
+        "sin_emplanillar": sin_emplanillar,
+        "sin_emplanillar_por_cob": sin_emplanillar_por_cob,
         "filtro_sin_cob": sin_cob in ("1", "true", "yes"),
         "filtro_cob": cob,
         "filtro_vend": vend,

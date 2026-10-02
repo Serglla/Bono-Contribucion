@@ -1,12 +1,89 @@
 {% extends "base.html" %}
 {% block title %}Socios{% endblock %}
 {% block content %}
+<style>
+  .aviso-chip { font-size:.75rem; font-weight:700; padding:2px 8px; border-radius:999px; line-height:1.4; }
+  .aviso-chip.dropdown-toggle::after { display:none; }
+  .aviso-warn   { background:#fff3cd; color:#7a5b00; border:1px solid #ffda6a; }
+  .aviso-info   { background:#cff4fc; color:#055160; border:1px solid #9eeaf9; }
+  .aviso-purple { background:#ede4ff; color:#4b2a91; border:1px solid #c9b3f5; }
+  .aviso-chip:hover { filter:brightness(.95); }
+  .aviso-menu { min-width:250px; font-size:.85rem; }
+</style>
 <div class="page-header">
   <h4 class="page-title">
     <i class="bi bi-people-fill text-danger"></i>Socios
     <a href="/compradores/mapa" class="btn btn-sm btn-outline-primary ms-2" title="Ver mapa de socios" style="font-size:.75rem;font-weight:600;">
       <i class="bi bi-geo-alt-fill"></i><span class="d-none d-sm-inline ms-1">Mapa</span>
     </a>
+    {# ── Avisos compactos (antes eran barras grandes debajo del título) ──
+       Cada uno es un ícono con su número; al hacer clic se despliegan las
+       acciones. Solo aparecen si hay algo pendiente. #}
+    {% if sin_vendedor > 0 %}
+    <span class="dropdown d-inline-block ms-1">
+      <button class="btn btn-sm aviso-chip aviso-warn dropdown-toggle" data-bs-toggle="dropdown"
+              title="{{ sin_vendedor }} socio{% if sin_vendedor != 1 %}s{% endif %} sin vendedor asignado">
+        <i class="bi bi-person-x-fill"></i><span class="ms-1">{{ sin_vendedor }}</span>
+      </button>
+      <div class="dropdown-menu p-2 aviso-menu">
+        <div class="small mb-2"><strong>{{ sin_vendedor }}</strong> socio{% if sin_vendedor != 1 %}s{% endif %} sin vendedor asignado.</div>
+        {% if user.is_admin %}
+        <button class="btn btn-sm btn-warning fw-semibold w-100" onclick="completarFaltantes('vendedores', this)">
+          <i class="bi bi-magic me-1"></i>Completar automáticamente
+        </button>
+        {% endif %}
+      </div>
+    </span>
+    {% endif %}
+    {% if sin_cobrador > 0 %}
+    <span class="dropdown d-inline-block ms-1">
+      <button class="btn btn-sm aviso-chip aviso-warn dropdown-toggle" data-bs-toggle="dropdown"
+              title="{{ sin_cobrador }} socio{% if sin_cobrador != 1 %}s{% endif %} sin cobrador asignado">
+        <i class="bi bi-person-fill-slash"></i><span class="ms-1">{{ sin_cobrador }}</span>
+      </button>
+      <div class="dropdown-menu p-2 aviso-menu">
+        <div class="small mb-2"><strong>{{ sin_cobrador }}</strong> socio{% if sin_cobrador != 1 %}s{% endif %} sin cobrador asignado.</div>
+        <a href="/compradores/?sin_cob=1" class="btn btn-sm btn-outline-dark fw-semibold w-100 mb-1">
+          <i class="bi bi-funnel-fill me-1"></i>Ver y asignar
+        </a>
+        {% if user.is_admin %}
+        <button class="btn btn-sm btn-warning fw-semibold w-100" onclick="completarFaltantes('cobradores', this)">
+          <i class="bi bi-magic me-1"></i>Completar automáticamente
+        </button>
+        {% endif %}
+      </div>
+    </span>
+    {% endif %}
+    {% if contado_sin_cargar > 0 %}
+    <button class="btn btn-sm aviso-chip aviso-info ms-1" onclick="verContadoSinCargar(this)"
+            title="{{ contado_sin_cargar }} número{% if contado_sin_cargar != 1 %}s{% endif %} liquidado{% if contado_sin_cargar != 1 %}s{% endif %} por vendedor sin cargar en sistema">
+      <i class="bi bi-bag-x-fill"></i><span class="ms-1">{{ contado_sin_cargar }}</span>
+    </button>
+    {% endif %}
+    {% if sin_emplanillar > 0 %}
+    <span class="dropdown d-inline-block ms-1">
+      <button class="btn btn-sm aviso-chip aviso-purple dropdown-toggle" data-bs-toggle="dropdown"
+              title="{{ sin_emplanillar }} número{% if sin_emplanillar != 1 %}s{% endif %} con socio pero sin emplanillar">
+        <i class="bi bi-file-earmark-x-fill"></i><span class="ms-1">{{ sin_emplanillar }}</span>
+      </button>
+      <div class="dropdown-menu p-2 aviso-menu">
+        <div class="small mb-2"><strong>{{ sin_emplanillar }}</strong> número{% if sin_emplanillar != 1 %}s{% endif %} con socio cargado pero <strong>sin emplanillar</strong>:</div>
+        <table class="table table-sm mb-2 small">
+          {% for r in sin_emplanillar_por_cob %}
+          <tr{% if r.sin_cobrador %} class="text-danger"{% endif %}>
+            <td>{{ r.cobrador }}</td><td class="text-end fw-bold">{{ r.cantidad }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% if sin_emplanillar_por_cob and sin_emplanillar_por_cob[-1].sin_cobrador %}
+        <div class="small text-muted mb-2">Los que no tienen cobrador hay que asignárselo antes de emplanillar.</div>
+        {% endif %}
+        <a href="/cobranza/emplanillado" class="btn btn-sm btn-primary fw-semibold w-100">
+          <i class="bi bi-file-earmark-plus me-1"></i>Ir a Emplanillado
+        </a>
+      </div>
+    </span>
+    {% endif %}
   </h4>
   <div class="d-flex gap-2">
     <a href="/compradores/exportar" class="btn btn-sm btn-outline-success">
@@ -37,56 +114,7 @@
 </div>
 {% endif %}
 
-{% if sin_vendedor > 0 or sin_cobrador > 0 or contado_sin_cargar > 0 %}
-<div class="d-flex flex-column gap-2 mb-3">
-
-  {% if sin_vendedor > 0 %}
-  <div class="alert alert-warning d-flex align-items-center justify-content-between py-2 mb-0" id="alertaSinVendedor">
-    <span><i class="bi bi-exclamation-triangle-fill me-2"></i>
-      <strong>{{ sin_vendedor }}</strong> socio{% if sin_vendedor != 1 %}s{% endif %} sin vendedor asignado.
-    </span>
-    {% if user.is_admin %}
-    <button class="btn btn-sm btn-warning fw-semibold" onclick="completarFaltantes('vendedores', this, 'alertaSinVendedor')">
-      <i class="bi bi-magic me-1"></i>Completar automáticamente
-    </button>
-    {% endif %}
-  </div>
-  {% endif %}
-
-  {% if sin_cobrador > 0 %}
-  <div class="alert alert-warning d-flex align-items-center justify-content-between py-2 mb-0" id="alertaSinCobrador">
-    <span><i class="bi bi-exclamation-triangle-fill me-2"></i>
-      <strong>{{ sin_cobrador }}</strong> socio{% if sin_cobrador != 1 %}s{% endif %} sin cobrador asignado.
-    </span>
-    <span class="d-flex gap-2">
-      {# Atajo directo: filtra la tabla a esos socios y los deja listos para
-         seleccionar en masa. Antes había que encontrar el botón "Sin cobrador"
-         entre las tabs de PATA, que queda a la derecha y pasa desapercibido. #}
-      <a href="/compradores/?sin_cob=1" class="btn btn-sm btn-outline-dark fw-semibold">
-        <i class="bi bi-funnel-fill me-1"></i>Ver y asignar
-      </a>
-      {% if user.is_admin %}
-      <button class="btn btn-sm btn-warning fw-semibold" onclick="completarFaltantes('cobradores', this, 'alertaSinCobrador')">
-        <i class="bi bi-magic me-1"></i>Completar automáticamente
-      </button>
-      {% endif %}
-    </span>
-  </div>
-  {% endif %}
-
-  {% if contado_sin_cargar > 0 %}
-  <div class="alert alert-info d-flex align-items-center justify-content-between py-2 mb-0" id="alertaContadoSinCargar">
-    <span><i class="bi bi-bag-x-fill me-2"></i>
-      <strong>{{ contado_sin_cargar }}</strong> número{% if contado_sin_cargar != 1 %}s{% endif %} liquidado{% if contado_sin_cargar != 1 %}s{% endif %} por vendedor sin cargar en sistema.
-    </span>
-    <button class="btn btn-sm btn-info fw-semibold text-white" onclick="verContadoSinCargar(this)">
-      <i class="bi bi-eye"></i>
-    </button>
-  </div>
-  {% endif %}
-
-</div>
-
+{% if sin_vendedor > 0 or sin_cobrador > 0 or contado_sin_cargar > 0 or sin_emplanillar > 0 %}
 <!-- Modal: Contado sin cargar en sistema -->
 <div class="modal fade" id="modalContadoSinCargar" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -115,18 +143,19 @@
 </div>
 
 <script>
-function completarFaltantes(tipo, btn, alertaId) {
+function completarFaltantes(tipo, btn) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Procesando...';
   fetch('/compradores/completar-' + tipo, { method: 'POST' })
     .then(r => r.json())
     .then(data => {
-      const alerta = document.getElementById(alertaId);
       if (data.ok) {
-        alerta.className = 'alert alert-success d-flex align-items-center py-2 mb-0';
-        alerta.innerHTML = `<i class="bi bi-check-circle-fill me-2"></i>
-          Se completaron <strong>${data.arreglados}</strong> socio${data.arreglados !== 1 ? 's' : ''}. Recargando...`;
-        setTimeout(() => location.reload(), 1500);
+        btn.className = 'btn btn-sm btn-success fw-semibold w-100';
+        btn.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i>Se completaron ${data.arreglados}. Recargando...`;
+        setTimeout(() => location.reload(), 1200);
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = 'Error, probá de nuevo';
       }
     });
 }
