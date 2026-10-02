@@ -453,6 +453,9 @@ class EntregaPremio(Base):
     fecha_entrega  = Column(Date, nullable=True)
     observacion    = Column(String, nullable=True)
     created_at     = Column(DateTime, server_default=func.now())
+    # Entrega tipo PREMIO del cobrador que descontó este premio de su rendición
+    # (se marca desde la liquidación del mes). deferred: puede no existir aún.
+    entrega_cobrador_id = deferred(Column(Integer, nullable=True, index=False))
 
     premio = relationship("PremioSorteo", back_populates="entregas")
     boleta = relationship("Boleta")

@@ -426,6 +426,64 @@
     <p class="text-muted mb-2" style="font-size:.8rem;">Todavía no cargaste entregas de este cobrador para {{ mes_nombre }} {{ anio_actual }}.</p>
     {% endif %}
 
+    {# ── Premios de sorteos que el cobrador tiene que llevar a los ganadores ──
+       Los que tilda como entregados se descuentan de lo que rinde (entrega tipo
+       Premio); los que no, quedan pendientes y vuelven a salir el mes que viene. #}
+    {% if premios_pend %}
+    <div class="border rounded p-2 mb-2" style="background:#fffaf0; border-color:#ffd8a8 !important;">
+      <div class="fw-bold mb-1" style="font-size:.82rem; color:#8a4b00;">
+        <i class="bi bi-trophy-fill me-1"></i>Premios a entregar por {{ planilla.cobrador.nombre }}
+        <span class="badge bg-warning text-dark ms-1">{{ premios_pend | length }}</span>
+        <span class="fw-normal text-muted ms-2" style="font-size:.75rem;">¿Los entregó? Tildá los que sí: se descuentan de lo que tiene que rendir. Los demás quedan para el mes que viene.</span>
+      </div>
+      <form method="post" action="/cobranza/liquidacion/{{ planilla.id }}/premios-entregados" class="m-0">
+        <input type="hidden" name="mes" value="{{ mes_actual }}">
+        <input type="hidden" name="anio" value="{{ anio_actual }}">
+        <table class="table table-sm table-bordered align-middle mb-2 bg-white" style="font-size:.78rem;">
+          <thead class="table-light">
+            <tr>
+              <th style="width:34px;" class="text-center">
+                <input type="checkbox" class="form-check-input" title="Todos"
+                       onclick="document.querySelectorAll('.chk-premio').forEach(c => { c.checked = this.checked; }); sumarPremios();">
+              </th>
+              <th>Sorteo</th><th>N°</th><th>Socio</th><th>Premio</th><th class="text-end">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in premios_pend %}
+            <tr>
+              <td class="text-center"><input type="checkbox" name="ep_ids" value="{{ p.id }}" data-monto="{{ p.monto }}" class="form-check-input chk-premio" onchange="sumarPremios()"></td>
+              <td>{{ p.sorteo }} <span class="text-muted">{{ p.fecha_sorteo.strftime("%d/%m") }}</span>
+                {% if p.atrasado %}<span class="badge bg-danger ms-1" title="Quedó pendiente de meses anteriores">atrasado</span>{% endif %}</td>
+              <td class="fw-bold">{{ p.numero }}</td>
+              <td>{{ p.socio }}{% if p.direccion %} <span class="text-muted">· {{ p.direccion }}</span>{% endif %}</td>
+              <td>{{ p.premio }}</td>
+              <td class="text-end fw-semibold">{{ p.monto | pesos }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="d-flex align-items-center gap-2 flex-wrap" style="font-size:.8rem;">
+          <label class="text-muted mb-0">Fecha</label>
+          <input type="date" name="fecha" value="{{ hoy_iso }}" class="form-control form-control-sm" style="width:auto;">
+          <span class="ms-2">Tildados: <strong id="premiosSel">0</strong> · a descontar <strong id="premiosMonto">$ 0</strong></span>
+          <button class="btn btn-sm btn-warning fw-semibold ms-auto" id="btnPremiosEntregados" disabled>
+            <i class="bi bi-check2-square me-1"></i>Marcar entregados y descontar
+          </button>
+        </div>
+      </form>
+      <script>
+        function sumarPremios() {
+          let n = 0, t = 0;
+          document.querySelectorAll('.chk-premio:checked').forEach(c => { n++; t += parseFloat(c.dataset.monto) || 0; });
+          document.getElementById('premiosSel').textContent = n;
+          document.getElementById('premiosMonto').textContent = '$ ' + t.toLocaleString('es-AR');
+          document.getElementById('btnPremiosEntregados').disabled = (n === 0);
+        }
+      </script>
+    </div>
+    {% endif %}
+
     <form method="post" action="/cobranza/liquidacion/{{ planilla.id }}/entrega"
           class="row g-2 align-items-end" style="font-size:.82rem;">
       <input type="hidden" name="mes" value="{{ mes_actual }}">

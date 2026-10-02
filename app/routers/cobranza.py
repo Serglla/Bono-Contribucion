@@ -1783,6 +1783,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
 
     entregas_mes = []
     cob_mes = None
+    premios_pend = []
     if es_ultima_planilla:
         cobrador_obj = db.query(models.Cobrador).get(planilla.cobrador_id)
         entregas_mes = (db.query(models.EntregaCobrador)
@@ -1792,6 +1793,11 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
                                   models.EntregaCobrador.id)
                         .all())
         cob_mes = _consolidado_cobrador(db, cobrador_obj, mes_liq, anio_liq) if cobrador_obj else None
+        try:
+            premios_pend = _premios_pendientes_cobrador(db, planilla.cobrador_id, anio_liq, mes_liq)
+        except Exception:
+            db.rollback()
+            premios_pend = []
         # Sugerencia: saldo con que cerró el mes anterior, para cargarlo con un clic.
         if cobrador_obj and cob_mes is not None:
             _pm, _pa = (mes_liq - 1, anio_liq) if mes_liq > 1 else (12, anio_liq - 1)
@@ -1836,6 +1842,7 @@ async def liquidacion_detalle(request: Request, planilla_id: int,
         "periodo_ajustado": periodo_ajustado,
         "periodo_stats": periodo_stats,
         "entregas_mes": entregas_mes,
+        "premios_pend": premios_pend,
         "cob_mes": cob_mes,
         "nav_hojas": nav_hojas,
         "hoy_iso": hoy_ar().isoformat(),
@@ -2012,6 +2019,98 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     return RedirectResponse(f"/cobranza/liquidacion/{planilla_id}{_qs_periodo}", status_code=302)
 
 
+def _premios_pendientes_cobrador(db, cobrador_id, anio, mes):
+    """Premios en dinero (clase ORDEN) de sorteos hasta el fin del período,
+    asignados a socios de este cobrador y TODAVÍA NO entregados.
+
+    Es lo que el cobrador tiene que llevar a los ganadores: el que se entrega se
+    marca desde la liquidación del mes y se descuenta de lo que rinde; el que no,
+    sigue pendiente y vuelve a aparecer el mes siguiente. Solo entran los
+    ganadores HABILITADOS (mismo criterio que los recibos de Sorteos)."""
+    from .sorteos import _boleta_habilitada
+    fin = date(anio + (mes // 12), (mes % 12) + 1, 1)   # primer día del mes siguiente
+    rows = (db.query(models.EntregaPremio)
+            .join(models.PremioSorteo, models.EntregaPremio.premio_id == models.PremioSorteo.id)
+            .join(models.Sorteo, models.PremioSorteo.sorteo_id == models.Sorteo.id)
+            .join(models.Boleta, models.EntregaPremio.boleta_id == models.Boleta.id)
+            .filter(models.Boleta.cobrador_id == cobrador_id,
+                    or_(models.EntregaPremio.entregado.is_(False),
+                        models.EntregaPremio.entregado.is_(None)),
+                    func.upper(func.coalesce(models.PremioSorteo.clase, "ORDEN")) == "ORDEN",
+                    models.Sorteo.fecha < fin)
+            .order_by(models.Sorteo.fecha, models.EntregaPremio.id)
+            .all())
+    out = []
+    for e in rows:
+        b, s = e.boleta, e.premio.sorteo
+        try:
+            hab, _m, _man = _boleta_habilitada(b, s, db)
+        except Exception:
+            hab = True
+        if not hab:
+            continue
+        out.append({
+            "id": e.id,
+            "sorteo": s.nombre or ("Sorteo " + s.fecha.strftime("%d/%m")),
+            "fecha_sorteo": s.fecha,
+            "premio": e.premio.descripcion,
+            "monto": float(e.premio.monto or 0),
+            "numero": e.numero_ganador or ("%04d" % b.numero_principal),
+            "socio": b.comprador.apellido_nombre if b.comprador else "—",
+            "direccion": (b.comprador.direccion if b.comprador else "") or "",
+            "atrasado": s.fecha < date(anio, mes, 1) and (
+                s.fecha.year * 12 + s.fecha.month) < (anio * 12 + mes - 1),
+        })
+    return out
+
+
+@router.post("/liquidacion/{planilla_id:int}/premios-entregados")
+async def liquidacion_premios_entregados(request: Request, planilla_id: int,
+                                         db: Session = Depends(get_db)):
+    """Marca como ENTREGADOS los premios tildados y descuenta cada uno de lo que
+    el cobrador tiene que rendir (una entrega tipo PREMIO por premio, vinculada
+    al EntregaPremio para poder revertirla). Los no tildados quedan pendientes."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'cobranza', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    planilla = db.query(models.Planilla).get(planilla_id)
+    if not planilla:
+        raise HTTPException(404)
+    form = await request.form()
+    try:
+        mes = int(form.get("mes") or 0); anio = int(form.get("anio") or 0)
+    except (TypeError, ValueError):
+        mes = anio = 0
+    _anio, _mes, _, _ = _resolver_periodo_liq(mes, anio)
+    try:
+        _fecha = date.fromisoformat(form.get("fecha") or "")
+    except (ValueError, TypeError):
+        _fecha = hoy_ar()
+    validos = {p["id"]: p for p in _premios_pendientes_cobrador(db, planilla.cobrador_id, _anio, _mes)}
+    for raw in form.getlist("ep_ids"):
+        try:
+            eid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        p = validos.get(eid)
+        if not p:
+            continue   # ya entregado, de otro cobrador o no habilitado
+        ep = db.query(models.EntregaPremio).get(eid)
+        ec = models.EntregaCobrador(
+            cobrador_id=planilla.cobrador_id, fecha=_fecha, mes=_mes, anio=_anio,
+            monto=p["monto"], tipo="PREMIO",
+            observacion=f"{p['sorteo']} — N° {p['numero']} — {p['socio']}"[:250],
+        )
+        db.add(ec)
+        db.flush()
+        ep.entregado = True
+        ep.fecha_entrega = _fecha
+        ep.entrega_cobrador_id = ec.id
+    db.commit()
+    return RedirectResponse(
+        f"/cobranza/liquidacion/{planilla_id}?mes={_mes}&anio={_anio}", status_code=302)
+
+
 @router.post("/liquidacion/{planilla_id:int}/entrega")
 async def liquidacion_entrega_crear(request: Request, planilla_id: int,
                                     monto: float = Form(...),
@@ -2071,6 +2170,16 @@ async def liquidacion_entrega_eliminar(request: Request, planilla_id: int,
     _mes = e.mes if e else _hoy.month
     _anio = e.anio if e else _hoy.year
     if e:
+        # Si esta entrega descontaba un premio marcado desde la liquidación,
+        # el premio vuelve a quedar PENDIENTE de entregar.
+        try:
+            for ep in (db.query(models.EntregaPremio)
+                       .filter(models.EntregaPremio.entrega_cobrador_id == e.id).all()):
+                ep.entregado = False
+                ep.fecha_entrega = None
+                ep.entrega_cobrador_id = None
+        except Exception:
+            db.rollback()
         db.delete(e)
         db.commit()
     return RedirectResponse(

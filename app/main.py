@@ -959,6 +959,27 @@ def create_default_admin():
             db.rollback()
             print("Migracion periodicidad gastos_contabilidad: " + str(e))
 
+        # Migrar columna entrega_cobrador_id en entregas_premio (02/10/2026):
+        # vincula el premio con la entrega tipo PREMIO que lo descontó de lo que
+        # el cobrador tiene que rendir (para revertirlo si se borra la entrega).
+        try:
+            if engine.dialect.name == "postgresql":
+                db.execute(text(
+                    "ALTER TABLE entregas_premio "
+                    "ADD COLUMN IF NOT EXISTS entrega_cobrador_id INTEGER"
+                ))
+            else:
+                _cols_ep = [r[1] for r in db.execute(text("PRAGMA table_info(entregas_premio)")).fetchall()]
+                if "entrega_cobrador_id" not in _cols_ep:
+                    db.execute(text(
+                        "ALTER TABLE entregas_premio ADD COLUMN entrega_cobrador_id INTEGER"
+                    ))
+            db.commit()
+            print("Migracion entrega_cobrador_id entregas_premio: OK")
+        except Exception as e:
+            db.rollback()
+            print("Migracion entrega_cobrador_id entregas_premio: " + str(e))
+
         if not db.query(models.User).filter_by(username="admin").first():
             import logging
             logging.getLogger(__name__).warning(
