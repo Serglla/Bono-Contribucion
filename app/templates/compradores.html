@@ -1159,7 +1159,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
               // talonera: un contado de octubre son 9/9 pagas, no 12/12.
               const nc = parseInt(b.cuotas_vigentes) || parseInt(b.num_cuotas) || 12;
               if (!window._prefillContadoPrevio) {
-                window._prefillContadoPrevio = { cuotas: cuotasInp.value, ant: antInp.value };
+                window._prefillContadoPrevio = { cuotas: (window._cuotasRecordadas ?? cuotasInp.value), ant: antInp.value };
               }
               cuotasInp.value = nc;
               cuotasInp.dispatchEvent(new Event('input'));   // actualiza el max de anticipadas
@@ -1184,6 +1184,20 @@ document.querySelectorAll('.input-upper').forEach(el => {
                 cuotasInp.dispatchEvent(new Event('input'));
                 antInp.value = '1';
                 window._prefillContadoPrevio = null;
+              }
+              // Cuotas que realmente se cobran según la fecha de liquidación
+              // (oct → 9). El servidor ya recorta a ese máximo al guardar, pero
+              // el casillero seguía mostrando las recordadas (11) y confundía.
+              // Se muestra el mínimo y se conserva el valor recordado para la
+              // próxima boleta (no se pisa la memoria con el 9).
+              const vig  = parseInt(b.cuotas_vigentes);
+              const base = parseInt(window._cuotasRecordadas ?? cuotasInp.value);
+              if (vig && base) {
+                window._cuotasRecordadas = base;
+                window._cuotasAuto = true;
+                cuotasInp.value = Math.min(base, vig);
+                cuotasInp.dispatchEvent(new Event('input'));
+                window._cuotasAuto = false;
               }
             }
 
@@ -1336,9 +1350,16 @@ document.querySelectorAll('.input-upper').forEach(el => {
     vendedor:    { key: 'bono_vendedor',    el: 'vendedorSelect',    def: '' },
   };
 
+  // Si el operador toca a mano "Cuotas pactadas", lo que tipea pasa a ser lo recordado.
+  document.getElementById('cuotasInput').addEventListener('input', () => {
+    if (!window._cuotasAuto) window._cuotasRecordadas = null;
+  });
+
   function guardarMemoria() {
     Object.values(MEMORIA).forEach(({ key, el }) => {
-      const v = document.getElementById(el).value;
+      let v = document.getElementById(el).value;
+      // Cuotas recortadas por la fecha de liquidación: recordar las originales
+      if (el === 'cuotasInput' && window._cuotasRecordadas) v = String(window._cuotasRecordadas);
       if (v && v !== '__nueva__') localStorage.setItem(key, v);
     });
   }
