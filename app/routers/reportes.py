@@ -2,7 +2,7 @@ from fastapi import HTTPException,  APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_, case
 import json
 from .. import models, auth as auth_module
 from ..templates_config import templates
@@ -99,44 +99,27 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             })
             continue
 
-        # Caso COMUN — lógica original
-        total = db.query(func.count(models.Boleta.id)).filter(
-            models.Boleta.talonera_id.in_(ids)
-        ).scalar()
-        vendidas = db.query(func.count(models.Boleta.id)).filter(
-            models.Boleta.talonera_id.in_(ids),
-            models.Boleta.comprador_id.isnot(None)
-        ).scalar()
-        baja = db.query(func.count(models.Boleta.id)).filter(
-            models.Boleta.talonera_id.in_(ids),
-            or_(models.Boleta.condicion == CondicionBoleta.BAJA,
-                models.Boleta.mes_baja.isnot(None))
-        ).scalar()
-        en_cobranza = db.query(func.count(models.Boleta.id)).filter(
-            models.Boleta.talonera_id.in_(ids),
-            models.Boleta.condicion == CondicionBoleta.EN_COBRANZA
-        ).scalar()
-        en_caja = db.query(func.count(models.Boleta.id)).filter(
-            models.Boleta.talonera_id.in_(ids),
-            models.Boleta.condicion == CondicionBoleta.CAJA,
-            models.Boleta.comprador_id.is_(None)
-        ).scalar()
-        sin_vender = db.query(func.count(models.Boleta.id)).filter(
-            models.Boleta.talonera_id.in_(ids),
-            models.Boleta.condicion == CondicionBoleta.SIN_VENDER
-        ).scalar()
-        cuotas_cobradas = db.query(func.sum(models.Boleta.cuotas_pagadas)).filter(
-            models.Boleta.talonera_id.in_(ids)
-        ).scalar() or 0
-        # Desglose contado: boletas de esta talonera con número contado asignado
-        contado_1 = db.query(func.count(models.Boleta.id)).filter(
-            models.Boleta.talonera_id.in_(ids),
-            models.Boleta.numero_especial.isnot(None),
-        ).scalar() or 0
-        contado_2 = db.query(func.count(models.Boleta.id)).filter(
-            models.Boleta.talonera_id.in_(ids),
-            models.Boleta.numero_especial_2.isnot(None),
-        ).scalar() or 0
+        # Caso COMUN — mismos conteos de siempre, pero en UNA sola consulta
+        # (antes eran 9 SELECT por talonera). Cada SUM(CASE ...) equivale al
+        # count(...) con ese filtro.
+        def _n(cond):
+            return func.coalesce(func.sum(case((cond, 1), else_=0)), 0)
+        _B = models.Boleta
+        (total, vendidas, baja, en_cobranza, en_caja, sin_vender,
+         cuotas_cobradas, contado_1, contado_2) = db.query(
+            func.count(_B.id),
+            _n(_B.comprador_id.isnot(None)),
+            _n(or_(_B.condicion == CondicionBoleta.BAJA, _B.mes_baja.isnot(None))),
+            _n(_B.condicion == CondicionBoleta.EN_COBRANZA),
+            _n(and_(_B.condicion == CondicionBoleta.CAJA, _B.comprador_id.is_(None))),
+            _n(_B.condicion == CondicionBoleta.SIN_VENDER),
+            func.coalesce(func.sum(_B.cuotas_pagadas), 0),
+            _n(_B.numero_especial.isnot(None)),
+            _n(_B.numero_especial_2.isnot(None)),
+        ).filter(_B.talonera_id.in_(ids)).one()
+        total, vendidas, baja = int(total or 0), int(vendidas or 0), int(baja or 0)
+        en_cobranza, en_caja, sin_vender = int(en_cobranza or 0), int(en_caja or 0), int(sin_vender or 0)
+        cuotas_cobradas = cuotas_cobradas or 0
         stats_por_talonera.append({
             "nombre": g["nombre"],
             "tipo": tipo,

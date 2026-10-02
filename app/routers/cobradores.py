@@ -2,7 +2,7 @@ from fastapi import HTTPException,  APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
@@ -17,7 +17,10 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     if not auth_module.has_permission(user, 'cobradores', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
     cobradores = db.query(models.Cobrador).order_by(models.Cobrador.nombre).all()
-    zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
+    # selectinload: el template lee z.zona_cobradores por cada zona (130 zonas = 130 SELECT)
+    zonas = (db.query(models.Zona)
+             .options(selectinload(models.Zona.zona_cobradores))
+             .order_by(models.Zona.nombre).all())
     return templates.TemplateResponse(request, "cobradores.html", {
         "user": user,
         "cobradores": cobradores,

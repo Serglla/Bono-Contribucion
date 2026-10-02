@@ -1,5 +1,10 @@
 from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Enum, DateTime, Boolean
 from sqlalchemy.orm import relationship, deferred
+# NOTA (02/10/2026): las columnas que antes eran deferred(...) ahora son Column
+# normales. Las migraciones de main.py las crean al arrancar, antes de atender
+# requests, así que ya no hace falta diferirlas; y diferidas generaban un SELECT
+# por cada fila que las leía (Dashboard: 815 consultas → 61; Cobranza 740 → 39).
+# Los comentarios "deferred: puede no existir..." que quedan abajo son históricos.
 from sqlalchemy.sql import func
 import enum
 from datetime import datetime as _datetime
@@ -123,23 +128,23 @@ class LiquidacionVendedor(Base):
     # Ponderado por multiplicador de PATA (mismo criterio que cuotas_equiv).
     # contados_vendidos guarda el conteo literal de boletas; contados_equiv el ponderado
     # (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, ...). deferred: puede no existir en DB vieja.
-    contados_equiv     = deferred(Column(Float, default=0.0))
+    contados_equiv     = Column(Float, default=0.0)
     monto_contados     = Column(Float, default=0.0)   # num_cuotas × valor_cuota × n boletas
     comision_contados_pct = Column(Float, default=30.0)
     comision_contados  = Column(Float, default=0.0)
     # Cuotas extras cobradas (cuota 2, 3, ... que el vendedor cobró directamente al socio)
-    cuotas_extras_cantidad = deferred(Column(Integer, default=0))
-    cuotas_extras_valor    = deferred(Column(Float, default=0.0))   # valor de cada cuota extra (referencial)
-    cuotas_extras_monto    = deferred(Column(Float, default=0.0))   # cantidad × valor
-    comision_cuotas_extras = deferred(Column(Float, default=0.0))   # cuotas_extras_monto × comision_cuotas_pct%
+    cuotas_extras_cantidad = Column(Integer, default=0)
+    cuotas_extras_valor    = Column(Float, default=0.0)   # valor de cada cuota extra (referencial)
+    cuotas_extras_monto    = Column(Float, default=0.0)   # cantidad × valor
+    comision_cuotas_extras = Column(Float, default=0.0)   # cuotas_extras_monto × comision_cuotas_pct%
     # Cuotas extras PATA 0 (cuota 2, 3, ... de boletas PATA 0, valor $10.000 c/u)
-    cuotas_extras_p0_cantidad = deferred(Column(Integer, default=0))
-    cuotas_extras_p0_valor    = deferred(Column(Float, default=0.0))   # valor cuota PATA 0 (referencial)
-    cuotas_extras_p0_monto    = deferred(Column(Float, default=0.0))   # p0_cantidad × p0_valor
-    comision_cuotas_extras_p0 = deferred(Column(Float, default=0.0))   # p0_monto × comision_cuotas_pct%
+    cuotas_extras_p0_cantidad = Column(Integer, default=0)
+    cuotas_extras_p0_valor    = Column(Float, default=0.0)   # valor cuota PATA 0 (referencial)
+    cuotas_extras_p0_monto    = Column(Float, default=0.0)   # p0_cantidad × p0_valor
+    comision_cuotas_extras_p0 = Column(Float, default=0.0)   # p0_monto × comision_cuotas_pct%
     # Totales
     total_comision     = Column(Float, default=0.0)   # legacy: se mantiene como total de comision pagada al vendedor
-    total_a_rendir     = deferred(Column(Float, default=0.0))   # NUEVO: lo que el vendedor entrega a la org
+    total_a_rendir     = Column(Float, default=0.0)   # NUEVO: lo que el vendedor entrega a la org
     observacion = Column(String, nullable=True)
     vendedor = relationship("Vendedor", back_populates="liquidaciones")
     contado_items = relationship(
@@ -168,9 +173,9 @@ class Cobrador(Base):
     # Nombre y apellido reales, para los recibos de premio (el `nombre` de arriba
     # es el apodo con el que se lo conoce en el sistema: CARO, MABEL...).
     # deferred: la columna puede no existir todavia en la DB al primer SELECT.
-    nombre_completo = deferred(Column(String))
+    nombre_completo = Column(String)
     # "Cobrador" | "Cobradora" — solo para redactar el recibo en femenino o masculino
-    tratamiento = deferred(Column(String, default="Cobrador"))
+    tratamiento = Column(String, default="Cobrador")
     telefono = Column(String)
     activo = Column(Boolean, default=True)
     comision_pct = Column(Float, default=10.0)
@@ -221,7 +226,7 @@ class Talonera(Base):
     activa = Column(Boolean, default=True)
     color = Column(String, default="#ffffff")
     valor_cuota = Column(Float, default=0.0)
-    num_cuotas  = deferred(Column(Integer, default=12))  # cantidad de cuotas mensuales; deferred=no rompe SELECT si aún no existe la columna
+    num_cuotas  = Column(Integer, default=12)  # cantidad de cuotas mensuales; deferred=no rompe SELECT si aún no existe la columna
     # Tipo de talonera: "COMUN" (por defecto) o "CONTADO" (talonera especial para pagos al contado)
     # Una talonera CONTADO no representa boletas reales — es un pool de números
     # que se asignan a boletas comunes cuando se paga al contado.
@@ -230,7 +235,7 @@ class Talonera(Base):
     # (p.ej. 3 -> "001", 4 -> "0001"). Usado principalmente por taloneras CONTADO,
     # donde el rango puede ser más chico que el rango de boletas comunes (0001-9999).
     # deferred=True para que el SELECT no rompa si la columna aún no existe en la DB.
-    num_digitos = deferred(Column(Integer, default=3))
+    num_digitos = Column(Integer, default=3)
     boletas = relationship("Boleta", back_populates="talonera",
                            foreign_keys="Boleta.talonera_id")
 
@@ -304,14 +309,14 @@ class Boleta(Base):
     #   - Pago en 2 cuotas    → solo slot 2 asignado (CONTADO 2 VECES)
     numero_especial = Column(Integer, nullable=True, index=True)
     talonera_especial_id = Column(Integer, ForeignKey("taloneras.id"), nullable=True)
-    numero_especial_2 = deferred(Column(Integer, nullable=True, index=True))
-    talonera_especial_2_id = deferred(Column(Integer, ForeignKey("taloneras.id"), nullable=True))
+    numero_especial_2 = Column(Integer, nullable=True, index=True)
+    talonera_especial_2_id = Column(Integer, ForeignKey("taloneras.id"), nullable=True)
     liquidacion_vendedor_id = Column(Integer, ForeignKey("liquidaciones_vendedor.id"), nullable=True)
     # Modalidad con la que esta boleta entró a su liquidación: 'cuotas' | 'contado' | 'contado2'.
     # Se setea al liquidar y al agregar números a una liquidación existente. Permite
     # recalcular correctamente el rinde al editar una liquidación desde el historial.
     # Null en boletas previas a esta migración (se asume 'cuotas' al editarlas).
-    modalidad_liquidacion = deferred(Column(String, nullable=True))
+    modalidad_liquidacion = Column(String, nullable=True)
     # ── "Pasó a..." : el cobrador dejó de cobrar este número y pasó a otro
     # cobrador o a una planilla nueva propia. El número NO desaparece de la
     # planilla original: se sigue mostrando ahí con una línea tipo baja que dice
@@ -322,14 +327,14 @@ class Boleta(Base):
     #     a otra planilla del mismo cobrador). Se guarda como texto = registro.
     #   - paso_cuota: cuotas_pagadas al momento de pasar (la línea arranca en paso_cuota+1).
     # Sin ForeignKey a propósito (evita ambigüedad con la relación planilla existente).
-    paso_origen_planilla_id = deferred(Column(Integer, nullable=True, index=True))
-    paso_a = deferred(Column(String, nullable=True))
-    paso_cuota = deferred(Column(Integer, nullable=True))
+    paso_origen_planilla_id = Column(Integer, nullable=True, index=True)
+    paso_a = Column(String, nullable=True)
+    paso_cuota = Column(Integer, nullable=True)
     # Orden de llegada (10/09/2026): cuando un número se PASA a una planilla, no
     # se reordena por número: va al FINAL de su pata, en el orden en que se pasó.
     # Solo vale para la planilla actual de la boleta (planilla_id). NULL = orden
     # normal por número (todas las planillas viejas quedan exactamente igual).
-    orden_llegada = deferred(Column(Integer, nullable=True))
+    orden_llegada = Column(Integer, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     talonera = relationship("Talonera", back_populates="boletas",
@@ -427,7 +432,7 @@ class PremioSorteo(Base):
     # Nivel de cifras al que aplica el premio. Solo se usa con modalidad
     # POR_CIFRAS; en las otras queda NULL. deferred: la columna puede no existir
     # todavia en una DB vieja (la crea la migracion de arranque en main.py).
-    cifras      = deferred(Column(Integer, nullable=True))
+    cifras      = Column(Integer, nullable=True)
     created_at  = Column(DateTime, server_default=func.now())
 
     sorteo = relationship("Sorteo", back_populates="premios")
@@ -455,7 +460,7 @@ class EntregaPremio(Base):
     created_at     = Column(DateTime, server_default=func.now())
     # Entrega tipo PREMIO del cobrador que descontó este premio de su rendición
     # (se marca desde la liquidación del mes). deferred: puede no existir aún.
-    entrega_cobrador_id = deferred(Column(Integer, nullable=True, index=False))
+    entrega_cobrador_id = Column(Integer, nullable=True, index=False)
 
     premio = relationship("PremioSorteo", back_populates="entregas")
     boleta = relationship("Boleta")

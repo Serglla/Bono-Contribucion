@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request, Query, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Response
-from sqlalchemy.orm import Session, undefer, joinedload
+from sqlalchemy.orm import Session, undefer, joinedload, selectinload
 from sqlalchemy import func, or_
 from datetime import date
 from io import BytesIO
@@ -389,8 +389,12 @@ def _cola_liquidacion(db, anio_liq: int = None, mes_liq: int = None,
     if anio_liq is None or mes_liq is None:
         _hoy = hoy_ar()
         anio_liq, mes_liq = _hoy.year, _hoy.month
+    # selectinload: _planilla_tiene_pendientes recorre planilla.boletas (con su
+    # talonera) y abajo se lee p.cobrador.nombre → sin esto, un SELECT por planilla.
     q = (db.query(models.Planilla)
          .join(models.Cobrador)
+         .options(selectinload(models.Planilla.boletas),
+                  joinedload(models.Planilla.cobrador))
          .order_by(models.Cobrador.nombre, models.Planilla.anio,
                    models.Planilla.mes, models.Planilla.numero))
     if cobrador_id is not None:
@@ -788,7 +792,8 @@ async def index(request: Request, db: Session = Depends(get_db),
         # para contar pendientes de emplanillar. Sin esto, al ser `deferred`,
         # cada boleta dispara su propio SELECT (N+1).
         boletas = (db.query(models.Boleta)
-                   .options(undefer(models.Boleta.numero_especial_2))
+                   .options(undefer(models.Boleta.numero_especial_2),
+                            joinedload(models.Boleta.talonera))
                    .filter(models.Boleta.cobrador_id == co.id,
                            models.Boleta.condicion != CondicionBoleta.BAJA)
                    .all())
@@ -796,7 +801,9 @@ async def index(request: Request, db: Session = Depends(get_db),
 
         # Todas las planillas del cobrador (de la primera a la última), con su
         # número y la fecha en que se entregó (se armó) cada una.
+        # selectinload: más abajo se lee p.liquidacion por cada planilla.
         planillas = (db.query(models.Planilla)
+                     .options(selectinload(models.Planilla.liquidacion))
                      .filter_by(cobrador_id=co.id)
                      .order_by(models.Planilla.anio,
                                models.Planilla.mes,
@@ -2770,8 +2777,11 @@ def _tasas_mensuales(db, cobrador, periodos):
     mismo mes: por eso mostraban meses de 135%.
     """
     out = []
+    # Las planillas y sus boletas son las mismas para todos los meses: se leen
+    # una sola vez (antes, un SELECT por planilla y por mes).
+    cache = {}
     for (a, m) in sorted(periodos):
-        d = _consolidado_cobrador(db, cobrador, m, a)
+        d = _consolidado_cobrador(db, cobrador, m, a, cache=cache)
         cob = d["cuotas_pata"] + d["cuotas_x0"]
         base = cob + d["sin_pata"] + d["sin_x0"]
         if base <= 0:
@@ -2784,7 +2794,7 @@ def _tasas_mensuales(db, cobrador, periodos):
     return out
 
 
-def _consolidado_cobrador(db, cobrador, mes, anio):
+def _consolidado_cobrador(db, cobrador, mes, anio, cache=None):
     """Cobranza de UN mes de un cobrador, con un renglón por planilla.
 
     Por cada planilla, además de lo cobrado, se calcula lo que quedó SIN COBRAR
@@ -2815,10 +2825,17 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
             return None
         return (per[0] or anio) * 12 + per[1]
 
-    planillas = (db.query(models.Planilla)
-                 .filter_by(cobrador_id=cobrador.id)
-                 .order_by(models.Planilla.anio, models.Planilla.mes, models.Planilla.numero)
-                 .all())
+    # cache (opcional): dict que comparte quien pide varios meses seguidos del
+    # mismo cobrador; solo guarda lecturas, no cambia ningún cálculo.
+    if cache is None:
+        cache = {}
+    _kpl = ("planillas", cobrador.id)
+    if _kpl not in cache:
+        cache[_kpl] = (db.query(models.Planilla)
+                       .filter_by(cobrador_id=cobrador.id)
+                       .order_by(models.Planilla.anio, models.Planilla.mes, models.Planilla.numero)
+                       .all())
+    planillas = cache[_kpl]
     for p in planillas:
         pct = float(p.comision_pct or 0)
         # Además de las boletas que ESTÁN en la planilla se traen las que
@@ -2826,11 +2843,14 @@ def _consolidado_cobrador(db, cobrador, mes, anio):
         # pase son cobranza de ESTE cobrador y tienen que seguir contando en los
         # meses ya liquidados. Sin esto, mover un número en septiembre le
         # cambiaba el total de agosto y el saldo del cobrador dejaba de cerrar.
-        boletas = (db.query(models.Boleta)
-                   .options(joinedload(models.Boleta.talonera))
-                   .filter(or_(models.Boleta.planilla_id == p.id,
-                               models.Boleta.paso_origen_planilla_id == p.id))
-                   .all())
+        _kbo = ("boletas", p.id)
+        if _kbo not in cache:
+            cache[_kbo] = (db.query(models.Boleta)
+                           .options(joinedload(models.Boleta.talonera))
+                           .filter(or_(models.Boleta.planilla_id == p.id,
+                                       models.Boleta.paso_origen_planilla_id == p.id))
+                           .all())
+        boletas = cache[_kbo]
         propias = [b for b in boletas if b.planilla_id == p.id]
         paso_map = _build_paso_map(boletas, p.id)          # se fueron de acá
         recibida_map = _build_recibida_map(boletas, p.id)  # llegaron de otra

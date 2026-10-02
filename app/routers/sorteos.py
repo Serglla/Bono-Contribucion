@@ -9,7 +9,7 @@ import re
 # PDF del recibo de premio (mismo motor que usa cobranza para sus hojas)
 from xhtml2pdf import pisa
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
@@ -30,7 +30,10 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'sorteos', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    sorteos = db.query(models.Sorteo).order_by(models.Sorteo.fecha.asc()).all()
+    # selectinload: el template lee s.premios por cada sorteo
+    sorteos = (db.query(models.Sorteo)
+               .options(selectinload(models.Sorteo.premios))
+               .order_by(models.Sorteo.fecha.asc()).all())
 
     # Último sorteo por tipo (lista asc → el último visto por tipo es el más reciente)
     ultima_por_tipo: dict = {}

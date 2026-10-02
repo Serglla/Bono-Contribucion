@@ -288,7 +288,10 @@ async def listar(
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'zonas', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-    zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
+    # selectinload: len(z.compradores) por zona era un SELECT por cada zona
+    zonas = (db.query(models.Zona)
+             .options(selectinload(models.Zona.compradores))
+             .order_by(models.Zona.nombre).all())
     vendedores = db.query(models.Vendedor).filter(models.Vendedor.activo == True).order_by(models.Vendedor.nombre).all()
 
     ba_rows, ba_por_zona, pond_actual, extra = _stats_bono_anterior(db)
