@@ -72,7 +72,7 @@
     </div>
     <div class="card-body p-0">
       {% if disponibles %}
-      <table id="tblArmar" class="table table-sm table-hover mb-0" style="font-size:0.85rem;">
+      <table id="tblArmar" class="table table-sm table-hover mb-0 js-drag-select" style="font-size:0.85rem;">
         <thead class="table-light">
           <tr>
             <th style="width:36px;"></th>
@@ -139,4 +139,5 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 {% include 'partials/_boleta_popover.html' %}
+{% include 'partials/_drag_select.html' %}
 {% endblock %}

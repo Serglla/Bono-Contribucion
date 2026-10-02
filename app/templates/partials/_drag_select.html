@@ -1,0 +1,82 @@
+{# ───────────────────────────────────────────────────────────────────────────
+   Selección rápida de casillas en una tabla (mismo criterio que Socios):
+     · Arrastrar: apretás el botón izquierdo sobre la casilla de una fila y,
+       sin soltar, pasás por las demás → se van marcando (o desmarcando, si
+       la primera estaba marcada).
+     · Shift + clic: marca/desmarca todo el rango desde la última fila tocada.
+   Uso: poné class="js-drag-select" en la <table>; la casilla tiene que estar
+   en la PRIMERA columna. Cada cambio dispara el evento "change" de la casilla,
+   así los contadores de la página se actualizan solos.
+   Incluir una vez por página:  {% include 'partials/_drag_select.html' %}
+   ─────────────────────────────────────────────────────────────────────────── #}
+<style>
+  body.arrastrando-seleccion, body.arrastrando-seleccion * {
+    user-select: none !important; -webkit-user-select: none !important;
+  }
+  table.js-drag-select tbody td:first-child { cursor: pointer; }
+</style>
+<script>
+(function(){
+  if (window.__dragSelectInit) return;
+  window.__dragSelectInit = true;
+
+  let arrastrando = false, valor = true, tabla = null;
+  const ultima = new WeakMap();   // tabla -> última fila tocada
+
+  const chkDe = tr => tr ? tr.querySelector('td:first-child input[type="checkbox"]') : null;
+  const filas = tb => Array.from(tb.querySelectorAll('tbody tr'))
+                           .filter(tr => tr.offsetParent !== null && chkDe(tr));
+  function poner(chk, v){
+    if (!chk || chk.disabled || chk.checked === v) return;
+    chk.checked = v;
+    chk.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+
+  document.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    const td = e.target.closest('table.js-drag-select tbody td');
+    if (!td || td.cellIndex !== 0) return;
+    const tr = td.closest('tr'), chk = chkDe(tr);
+    if (!chk || chk.disabled) return;
+    const tb = td.closest('table');
+    e.preventDefault();   // anula el toggle nativo: lo hacemos a mano
+
+    const prev = ultima.get(tb);
+    if (e.shiftKey && prev && prev !== tr) {
+      const vis = filas(tb), i = vis.indexOf(tr), j = vis.indexOf(prev);
+      if (i >= 0 && j >= 0) {
+        const destino = !chk.checked;
+        const [a, b] = i < j ? [i, j] : [j, i];
+        for (let k = a; k <= b; k++) poner(chkDe(vis[k]), destino);
+      }
+    } else {
+      valor = !chk.checked;
+      poner(chk, valor);
+      arrastrando = true; tabla = tb;
+      document.body.classList.add('arrastrando-seleccion');
+    }
+    ultima.set(tb, tr);
+  });
+
+  document.addEventListener('mouseover', e => {
+    if (!arrastrando) return;
+    const tr = e.target.closest('tr');
+    if (!tr || tr.closest('table') !== tabla) return;
+    const chk = chkDe(tr);
+    if (chk) { poner(chk, valor); ultima.set(tabla, tr); }
+  });
+
+  // El clic nativo sobre la casilla volvería a invertirla: se cancela, porque
+  // el mousedown ya la cambió.
+  document.addEventListener('click', e => {
+    const td = e.target.closest('table.js-drag-select tbody td');
+    if (td && td.cellIndex === 0 && e.detail > 0 && e.target.matches('input[type="checkbox"]')) e.preventDefault();
+  }, true);
+
+  document.addEventListener('mouseup', () => {
+    if (!arrastrando) return;
+    arrastrando = false; tabla = null;
+    document.body.classList.remove('arrastrando-seleccion');
+  });
+})();
+</script>
