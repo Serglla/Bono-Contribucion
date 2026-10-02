@@ -2045,15 +2045,18 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
 
 
 def _premios_pendientes_cobrador(db, cobrador_id, anio, mes):
-    """Premios en dinero (clase ORDEN) de sorteos hasta el fin del período,
-    asignados a socios de este cobrador y TODAVÍA NO entregados.
+    """Premios en dinero (clase ORDEN) de sorteos de MESES ANTERIORES al
+    período, asignados a socios de este cobrador y TODAVÍA NO entregados.
+    Los sorteos de agosto se entregan con la cobranza de septiembre: en la
+    liquidación de septiembre aparecen los de agosto (y lo que haya quedado
+    pendiente de antes); los de septiembre recién salen en octubre.
 
     Es lo que el cobrador tiene que llevar a los ganadores: el que se entrega se
     marca desde la liquidación del mes y se descuenta de lo que rinde; el que no,
     sigue pendiente y vuelve a aparecer el mes siguiente. Solo entran los
     ganadores HABILITADOS (mismo criterio que los recibos de Sorteos)."""
     from .sorteos import _boleta_habilitada
-    fin = date(anio + (mes // 12), (mes % 12) + 1, 1)   # primer día del mes siguiente
+    fin = date(anio, mes, 1)   # solo sorteos ANTERIORES al mes que se liquida
     rows = (db.query(models.EntregaPremio)
             .join(models.PremioSorteo, models.EntregaPremio.premio_id == models.PremioSorteo.id)
             .join(models.Sorteo, models.PremioSorteo.sorteo_id == models.Sorteo.id)

@@ -434,7 +434,7 @@
       <div class="fw-bold mb-1" style="font-size:.82rem; color:#8a4b00;">
         <i class="bi bi-trophy-fill me-1"></i>Premios a entregar por {{ planilla.cobrador.nombre }}
         <span class="badge bg-warning text-dark ms-1">{{ premios_pend | length }}</span>
-        <span class="fw-normal text-muted ms-2" style="font-size:.75rem;">¿Los entregó? Tildá los que sí: se descuentan de lo que tiene que rendir. Los demás quedan para el mes que viene.</span>
+        <span class="fw-normal text-muted ms-2" style="font-size:.75rem;">Sorteos de meses anteriores. ¿Los entregó? Tildá los que sí: se descuentan de lo que tiene que rendir. Los demás quedan para el mes que viene.</span>
       </div>
       <form method="post" action="/cobranza/liquidacion/{{ planilla.id }}/premios-entregados" class="m-0">
         <input type="hidden" name="mes" value="{{ mes_actual }}">
