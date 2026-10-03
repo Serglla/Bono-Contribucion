@@ -130,11 +130,15 @@
           </div>
           {% endif %}
         </div>
+        {# Valor de referencia = el de la primera tanda con valor cargado. Cada
+           tanda guarda su propio valor: si alguna difiere (o quedó en $0) se
+           marca en su fila con ⚠. #}
+        {% set _ref = (g.taloneras | selectattr('valor_cuota') | first) %}
         <p class="text-muted small mb-1">
           <strong>{{ g.num_series }}</strong> series por boleta
-          {% if g.taloneras[0].valor_cuota and g.taloneras[0].valor_cuota > 0 %}
-          &nbsp;|&nbsp; Cuota: <strong>${{ "%.0f"|format(g.taloneras[0].valor_cuota) }}</strong>
-          &nbsp;|&nbsp; <strong>{{ g.taloneras[0].num_cuotas or 12 }}</strong> cuotas
+          {% if _ref %}
+          &nbsp;|&nbsp; Cuota: <strong>${{ "%.0f"|format(_ref.valor_cuota) }}</strong>
+          &nbsp;|&nbsp; <strong>{{ _ref.num_cuotas or 12 }}</strong> cuotas
           {% endif %}
         </p>
         <p class="text-muted small mb-2">{{ g.taloneras | length }} tanda{% if g.taloneras|length != 1 %}s{% endif %}</p>
@@ -149,6 +153,12 @@
             <span class="text-muted small">{{ t.boletas|length }} boletas</span>
             {% if num_vendidas > 0 %}
             <span class="badge bg-warning text-dark" style="font-size:.65rem;" title="Tiene vendidas — no se puede eliminar">{{ num_vendidas }} vend.</span>
+            {% endif %}
+            {% if _ref and (t.valor_cuota or 0)|float != _ref.valor_cuota|float %}
+            <span class="badge bg-danger" style="font-size:.65rem;"
+                  title="Esta tanda tiene otro valor de cuota que el resto de la {{ g.nombre }}. Corregilo con el lápiz.">
+              ⚠ cuota ${{ "%.0f"|format(t.valor_cuota or 0) }}
+            </span>
             {% endif %}
             <div class="ms-auto d-flex gap-1">
               <a href="/taloneras/{{ t.id }}/boletas" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size:.7rem;" title="Ver boletas">

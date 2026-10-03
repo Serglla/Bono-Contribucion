@@ -132,6 +132,46 @@ def _es_x0(boleta) -> bool:
     return bool(boleta.talonera) and float(boleta.talonera.multiplicador or 1.0) < 1.0
 
 
+def _vc_boleta(b) -> float:
+    """Valor de UNA cuota de la boleta para sumar plata cobrada.
+    Usa el valor_cuota de su tanda; si esa tanda quedó en $0 (pasó con la
+    9024→9073 de PATA 0: la hoja de Mabel daba $50.000 de menos en la P8),
+    toma el de otra tanda de la misma PATA y, si ninguna tiene, el de PATA 1 ×
+    multiplicador (misma regla que la planilla)."""
+    t = b.talonera
+    if not t:
+        return 0.0
+    if t.valor_cuota and float(t.valor_cuota) > 0:
+        return float(t.valor_cuota)
+    cached = getattr(t, "_vc_fallback", None)
+    if cached is not None:
+        return cached
+    from sqlalchemy.orm import object_session
+    vc = 0.0
+    ses = object_session(t)
+    if ses is not None:
+        hermana = (ses.query(models.Talonera)
+                   .filter(models.Talonera.nombre == t.nombre,
+                           models.Talonera.tipo == (t.tipo or "COMUN"),
+                           models.Talonera.valor_cuota > 0)
+                   .first())
+        if hermana:
+            vc = float(hermana.valor_cuota)
+        else:
+            base = (ses.query(models.Talonera)
+                    .filter(models.Talonera.tipo == "COMUN",
+                            models.Talonera.multiplicador == 1.0,
+                            models.Talonera.valor_cuota > 0)
+                    .first())
+            if base:
+                vc = round(float(base.valor_cuota) * float(t.multiplicador or 1.0))
+    try:
+        t._vc_fallback = vc
+    except Exception:
+        pass
+    return vc
+
+
 def _planilla_todo_pata0(boletas) -> bool:
     """True si TODAS las boletas (con talonera) de la planilla son PATA 0
     (multiplicador < 1). En ese caso las cuotas se cuentan ×1 y valen el importe
@@ -186,8 +226,8 @@ def _columna_mult_valor(boletas, grid, paso_map=None):
 
     valor_cuota = 0.0
     for b in decisoras:
-        if b.talonera and b.talonera.valor_cuota:
-            vc = float(b.talonera.valor_cuota)
+        if b.talonera and _vc_boleta(b):
+            vc = _vc_boleta(b)
             if todo_pata0:
                 valor_cuota = vc
             else:
@@ -1992,8 +2032,7 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
         total_cuotas += cobradas
 
         # Aporte al monto total: cuotas cobradas × valor_cuota de la talonera
-        valor = (boleta.talonera.valor_cuota
-                 if boleta.talonera and boleta.talonera.valor_cuota else 0.0) or 0.0
+        valor = _vc_boleta(boleta)
         monto_total += cobradas * float(valor)
 
     comision_pct = float(planilla.comision_pct or 0.0)
@@ -2625,7 +2664,7 @@ def _resumen_meses_cobrador(db, cobrador, solo_anio: int = 0, solo_mes: int = 0)
                 hist = json.loads(b.historial_cuotas) if b.historial_cuotas else {}
             except (ValueError, TypeError):
                 hist = {}
-            vc = float(b.talonera.valor_cuota) if (b.talonera and b.talonera.valor_cuota) else 0.0
+            vc = _vc_boleta(b)
             peso = 1.0 if todo0 else _pata_valor(b)
             pagos = []            # períodos (anio|0, mes) en que pagó
             for v in hist.values():
@@ -2909,7 +2948,7 @@ def _consolidado_cobrador(db, cobrador, mes, anio, cache=None):
             _x0 = _es_x0(b)
             cM = _cuotas_mes[b.id]
             if cM:
-                vc = float(b.talonera.valor_cuota) if (b.talonera and b.talonera.valor_cuota) else 0.0
+                vc = _vc_boleta(b)
                 m_pl += cM * vc
                 c_pl += cM * peso
                 if _x0:

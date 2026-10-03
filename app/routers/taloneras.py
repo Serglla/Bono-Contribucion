@@ -159,6 +159,24 @@ async def actualizar_color_grupo(
     return JSONResponse({"ok": True})
 
 
+
+def _vc_heredado(db, nombre: str, valor_cuota, excluir_id=None) -> float:
+    """Si la tanda viene sin valor de cuota (0 o vacío), hereda el de otra tanda
+    de la misma PATA. Antes quedaba en $0 y la hoja de liquidación sumaba $0 por
+    esas cuotas (caso PATA 0, tanda 9024→9073)."""
+    v = float(valor_cuota or 0.0)
+    if v > 0:
+        return v
+    q = (db.query(models.Talonera)
+         .filter(models.Talonera.nombre == nombre,
+                 models.Talonera.tipo == "COMUN",
+                 models.Talonera.valor_cuota > 0))
+    if excluir_id:
+        q = q.filter(models.Talonera.id != excluir_id)
+    h = q.first()
+    return float(h.valor_cuota) if h else 0.0
+
+
 @router.post("/crear")
 async def crear(
     request: Request,
@@ -194,7 +212,7 @@ async def crear(
         numero_fin=numero_fin,
         num_series=num_series,
         offset_series=offset,
-        valor_cuota=float(valor_cuota or 0.0),
+        valor_cuota=_vc_heredado(db, nombre, valor_cuota),
         num_cuotas=int(num_cuotas or 12),
         num_digitos=4,  # taloneras COMUN siempre 4 cifras (0001-9999)
         tipo="COMUN",
@@ -569,7 +587,7 @@ async def editar_talonera(
     t.offset_series = offset_series
     t.numero_inicio = numero_inicio
     t.numero_fin = numero_fin
-    t.valor_cuota = float(valor_cuota or 0.0)
+    t.valor_cuota = _vc_heredado(db, nombre, valor_cuota, excluir_id=t.id)
     t.num_cuotas = int(num_cuotas or 12)
     db.commit()
     return RedirectResponse("/taloneras/", status_code=302)
