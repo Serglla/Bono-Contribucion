@@ -1983,6 +1983,10 @@ if (ec2RangosBox) {
 
   // Al escribir, asegurar la fila vacía de cola y recalcular PATA/cantidad.
   ec2RangosBox.addEventListener('input', e => {
+    // El <select> de PATA también dispara 'input' (antes que 'change'). Si
+    // repintamos acá, el select se reemplaza antes de guardar la elección y
+    // vuelve a la COMUN. Lo maneja el listener de 'change'.
+    if (e.target.classList.contains('ec2-pata-sel')) return;
     if (e.target.classList.contains('ec2-desde')) ec2EnsureTrailing();
     // Cambiar Desde/Hasta invalida la PATA elegida a mano en esa fila.
     if (e.target.classList.contains('ec2-desde') || e.target.classList.contains('ec2-hasta')) {
