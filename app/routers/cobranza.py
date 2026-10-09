@@ -31,6 +31,7 @@ from ..models import CondicionBoleta
 from ..database import get_db
 # Fecha argentina + periodos anio-mes del historial (auditoria A-2 / C-1):
 # NUNCA usar date.today() aca - el server corre en UTC y de noche corre el mes.
+from ..cuotas import campana
 from ..tiempo import (hoy_ar, periodo_actual, periodo_str, parse_periodo,
                       mes_de, match_periodo)
 
@@ -41,12 +42,17 @@ MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
 
 _MESES_UPPER = [m.upper() for m in MESES]
 
-# Ventana de la campaña de cobranza: JULIO 2026 → JUNIO 2027.
-# La última cuota cobrable cae en el mes del SORTEO FINAL (junio 2027, ver
-# app/cuotas.py). La tabla del resumen NUNCA pasa de ahí.
-CAMPANA_ORDEN = [7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6]
-CAMPANA_INICIO = (2026, 7)
-CAMPANA_FIN = (2027, 6)
+# Ventana de la campaña de cobranza: los 12 meses que TERMINAN en el mes del
+# SORTEO FINAL (configurable, ver app/cuotas.py → campana()). Con el sorteo en
+# junio 2027 da JULIO 2026 → JUNIO 2027. La tabla del resumen NUNCA pasa de ahí.
+# Son 12 como máximo porque el historial legacy guarda solo el número de mes.
+def _ventana_campana():
+    """(orden de meses, inicio (anio, mes), fin (anio, mes)) de la ventana."""
+    sa, sm = campana()["sorteo"]
+    fin = sa * 12 + sm - 1
+    ini = fin - 11
+    orden = [i % 12 + 1 for i in range(ini, fin + 1)]
+    return orden, (ini // 12, ini % 12 + 1), (sa, sm)
 
 
 def _idx_campana(mes, anio=None):
@@ -55,6 +61,7 @@ def _idx_campana(mes, anio=None):
     inicio y lo de después del final al final — así una planilla armada en
     junio 2026 arranca en JULIO y no en el JUNIO de 2027, que es la última
     fila. Sin año (historial legacy) se usa el orden de la campaña."""
+    CAMPANA_ORDEN, CAMPANA_INICIO, CAMPANA_FIN = _ventana_campana()
     if not mes or mes not in CAMPANA_ORDEN:
         return 0
     if anio:
@@ -113,7 +120,7 @@ def _meses_campana_desde(mes_planilla: int, periodos_con_datos=(), anio_planilla
     idxs = [_idx_campana(mes_planilla, anio_planilla)]
     idxs += [_idx_campana(m, a) for a, m in periodos_con_datos]
     ini = min(idxs) if idxs else 0
-    return [(_MESES_UPPER[m - 1], m) for m in CAMPANA_ORDEN[ini:]]
+    return [(_MESES_UPPER[m - 1], m) for m in _ventana_campana()[0][ini:]]
 
 
 def _pata_valor(boleta) -> float:

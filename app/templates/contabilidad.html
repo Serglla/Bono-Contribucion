@@ -146,7 +146,7 @@
     <div class="alert alert-light border small mb-3 py-2">
       <i class="bi bi-info-circle me-1"></i>
       Cada mes que pasa, la boleta nueva rinde menos: la campaña cierra con el sorteo final de
-      <strong>junio 2027</strong> y las cuotas que no llegan se regalan.
+      <strong>{{ camp.sorteo_txt }}</strong> y las cuotas que no llegan se regalan.
       Además, <strong>la cuota 1 se la queda el vendedor</strong>, así que una venta por cuotas
       le deja a la institución solo de la cuota 2 en adelante.
       {% if sim_zonas_total %}
@@ -750,6 +750,46 @@
   <!-- Tab: Egresos ────────────────────────────────────────────────── -->
   <div class="tab-pane fade" id="tabGastos">
 
+    <!-- Config de la campaña (cambia bono a bono) -->
+    <div class="card shadow-sm border-0 mb-3">
+      <div class="card-header bg-light fw-semibold small py-2">
+        <i class="bi bi-calendar-range me-1"></i>Campaña del bono
+      </div>
+      <div class="card-body py-3">
+        <form id="frmCampana" class="row g-2 align-items-end">
+          <div class="col-auto">
+            <label class="form-label small mb-1">Inicio de venta</label>
+            <input type="month" id="inpCampInicio" class="form-control form-control-sm" required
+                   value="{{ '%04d-%02d' | format(camp.inicio[0], camp.inicio[1]) }}">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1">Sorteo final</label>
+            <input type="month" id="inpCampSorteo" class="form-control form-control-sm" required
+                   value="{{ '%04d-%02d' | format(camp.sorteo[0], camp.sorteo[1]) }}">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1" title="Meses después del sorteo en que todavía se cobran cuotas atrasadas">Cobranza post sorteo (meses)</label>
+            <input type="number" id="inpCampPost" class="form-control form-control-sm" min="0" max="6"
+                   value="{{ camp.post_sorteo }}" style="width:90px;">
+          </div>
+          <div class="col-auto">
+            <label class="form-label small mb-1" title="Se proyecta vender mientras a la boleta le queden al menos estas cuotas">Vender hasta quedar (cuotas)</label>
+            <input type="number" id="inpCampMin" class="form-control form-control-sm" min="1" max="24"
+                   value="{{ camp.min_cuotas }}" style="width:90px;">
+          </div>
+          <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+            <span id="msgCampana" class="ms-2 small d-none"></span>
+          </div>
+          <div class="col-12 small text-muted">
+            Cobranza hasta <strong>{{ camp.limite_txt }}</strong>.
+            Cambiar el sorteo afecta las cuotas de los socios que se carguen <strong>desde ahora</strong>;
+            las cuotas pactadas de las boletas ya cargadas no se recalculan.
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Config pago Bomberos -->
     <div class="card shadow-sm border-0 mb-3">
       <div class="card-header bg-light fw-semibold small py-2">
@@ -984,6 +1024,30 @@
     if (n == null) return "$0";
     return "$" + Math.round(n).toLocaleString("es-AR");
   }
+
+  // ── config Campaña ───────────────────────────────────────────────────
+  document.getElementById("frmCampana").addEventListener("submit", function(e) {
+    e.preventDefault();
+    var fd = new FormData();
+    fd.append("inicio", document.getElementById("inpCampInicio").value);
+    fd.append("sorteo", document.getElementById("inpCampSorteo").value);
+    fd.append("post_sorteo", document.getElementById("inpCampPost").value || 0);
+    fd.append("min_cuotas", document.getElementById("inpCampMin").value || 6);
+    var msg = document.getElementById("msgCampana");
+    fetch("/contabilidad/config/campana", { method: "POST", body: fd })
+      .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, d: d}; }); })
+      .then(function(res) {
+        msg.classList.remove("d-none");
+        if (res.ok && res.d.ok) {
+          msg.className = "ms-2 small text-success";
+          msg.textContent = "Guardado — se aplica en hasta 30 s";
+          setTimeout(function() { location.reload(); }, 1200);
+        } else {
+          msg.className = "ms-2 small text-danger";
+          msg.textContent = (res.d && res.d.detail) || "Error al guardar";
+        }
+      });
+  });
 
   // ── config Bomberos ──────────────────────────────────────────────────
   document.getElementById("frmBomberos").addEventListener("submit", function(e) {

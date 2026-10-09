@@ -32,17 +32,90 @@ DÓNDE SE USA — es la única fuente de verdad de "cuántas cuotas se cobran":
   - `vendedor_detalle.html`: réplica en JS de `cuotas_vigentes()` para el preview
     del modal. **Si cambiás la fórmula acá, cambiala también allá.**
 
-Si se corre la fecha del sorteo, se toca SORTEO_FINAL y listo.
+Las fechas de la campaña NO están fijas en el código: se configuran desde
+Contabilidad → Egresos → "Campaña del bono" (tabla ConfigBono) y se leen con
+`campana()`. Si se corre la fecha del sorteo, se cambia ahí y listo.
 """
+import time
 from datetime import date, datetime
 from typing import Optional, Union
 
 from .tiempo import hoy_ar
 
-# Mes del sorteo FINAL de la campaña: la última cuota cobrable cae acá.
-SORTEO_FINAL_ANIO = 2027
-SORTEO_FINAL_MES = 6
-SORTEO_FINAL = (SORTEO_FINAL_ANIO, SORTEO_FINAL_MES)
+# ── Configuración de la campaña ─────────────────────────────────────────
+# Valores por defecto = campaña 2026-2027. Los reales se guardan en ConfigBono
+# (clave → valor_float) y se editan desde Contabilidad. Cambian bono a bono.
+CAMPANA_DEFAULTS = {
+    "campana_inicio_anio":        2026,  # mes en que arranca la venta
+    "campana_inicio_mes":         5,
+    "sorteo_final_anio":          2027,  # mes del SORTEO FINAL: última cuota cobrable
+    "sorteo_final_mes":           6,
+    "cobranza_meses_post_sorteo": 1,     # meses de cobranza de atrasados después del sorteo
+    "venta_min_cuotas":           6,     # se proyecta vender mientras queden >= N cuotas
+}
+CAMPANA_CLAVES = tuple(CAMPANA_DEFAULTS)
+
+# Cache corto: la app corre con varios workers (WEB_CONCURRENCY), así que no
+# alcanza con invalidar en memoria al guardar — cada worker relee cada 30 s.
+_CAMPANA_TTL = 30.0
+_campana_cache = {"t": 0.0, "v": None}
+
+_MESES_NOMBRE = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+                 "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def _armar_campana(vals: dict) -> dict:
+    ia, im = int(vals["campana_inicio_anio"]), int(vals["campana_inicio_mes"])
+    sa, sm = int(vals["sorteo_final_anio"]), int(vals["sorteo_final_mes"])
+    post = max(0, int(vals["cobranza_meses_post_sorteo"]))
+    li = sa * 12 + sm - 1 + post
+    return {
+        "inicio":       (ia, im),
+        "sorteo":       (sa, sm),
+        "limite":       (li // 12, li % 12 + 1),   # último mes con cobranza
+        "post_sorteo":  post,
+        "min_cuotas":   max(1, int(vals["venta_min_cuotas"])),
+        "inicio_txt":   f"{_MESES_NOMBRE[im - 1]} {ia}",
+        "sorteo_txt":   f"{_MESES_NOMBRE[sm - 1]} {sa}",
+        "limite_txt":   f"{_MESES_NOMBRE[li % 12]} {li // 12}",
+        "valores":      {k: int(vals[k]) for k in CAMPANA_CLAVES},
+    }
+
+
+def campana() -> dict:
+    """Configuración vigente de la campaña (ver CAMPANA_DEFAULTS).
+
+    Devuelve {"inicio": (anio, mes), "sorteo": (anio, mes), "limite": (anio, mes),
+    "post_sorteo", "min_cuotas", "inicio_txt", "sorteo_txt", "limite_txt",
+    "valores"}. Si la DB no responde, usa los valores por defecto."""
+    now = time.monotonic()
+    if _campana_cache["v"] is not None and now - _campana_cache["t"] < _CAMPANA_TTL:
+        return _campana_cache["v"]
+    vals = dict(CAMPANA_DEFAULTS)
+    try:
+        from .database import SessionLocal
+        from . import models
+        s = SessionLocal()
+        try:
+            for row in (s.query(models.ConfigBono)
+                        .filter(models.ConfigBono.clave.in_(CAMPANA_CLAVES)).all()):
+                if row.valor_float is not None:
+                    vals[row.clave] = int(row.valor_float)
+        finally:
+            s.close()
+    except Exception:
+        pass
+    try:
+        c = _armar_campana(vals)
+    except Exception:
+        c = _armar_campana(CAMPANA_DEFAULTS)
+    _campana_cache.update(t=now, v=c)
+    return c
+
+
+def invalidar_campana() -> None:
+    """Fuerza a releer la configuración en el próximo `campana()` (este worker)."""
+    _campana_cache["v"] = None
 
 # Fallback cuando la talonera no tiene num_cuotas cargado.
 NUM_CUOTAS_DEFAULT = 12
@@ -79,7 +152,8 @@ def meses_de_cobranza(fecha: Union[date, datetime, str, None] = None) -> int:
     fecha ya pasó el sorteo — `cuotas_vigentes` se encarga del piso.
     """
     f = _a_fecha(fecha)
-    return 12 * (SORTEO_FINAL_ANIO - f.year) + (SORTEO_FINAL_MES - f.month)
+    sa, sm = campana()["sorteo"]
+    return 12 * (sa - f.year) + (sm - f.month)
 
 
 def cuotas_vigentes(

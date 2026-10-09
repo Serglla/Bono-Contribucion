@@ -7,7 +7,8 @@ from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
 # Cuotas cobrables segun la fecha (las ultimas van de regalo). Ver app/cuotas.py.
-from ..cuotas import cuotas_vigentes, SORTEO_FINAL_ANIO, SORTEO_FINAL_MES
+from ..cuotas import (cuotas_vigentes, campana, invalidar_campana,
+                      CAMPANA_DEFAULTS, CAMPANA_CLAVES)
 
 router = APIRouter(prefix="/contabilidad", tags=["contabilidad"])
 
@@ -353,11 +354,13 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     def _idx(anio, mes):
         return anio * 12 + mes - 1
 
-    _IDX_INICIO = _idx(2026, 5)                                   # Mayo 2026
-    _IDX_SORTEO = _idx(SORTEO_FINAL_ANIO, SORTEO_FINAL_MES)       # Junio 2027
-    # Último mes con cobranza: el siguiente al sorteo final (Julio 2027). Lo que
-    # quede atrasado más allá de ese mes se acumula ahí — no se proyecta después.
-    _IDX_LIMITE = _IDX_SORTEO + 1
+    # Fechas de la campaña: configurables (Contabilidad → Egresos → Campaña).
+    _camp = campana()
+    _IDX_INICIO = _idx(*_camp["inicio"])     # inicio de venta (mayo 2026)
+    _IDX_SORTEO = _idx(*_camp["sorteo"])     # sorteo final (junio 2027)
+    # Último mes con cobranza: sorteo + N meses (configurable; julio 2027). Lo
+    # que quede atrasado más allá de ese mes se acumula ahí — no se proyecta después.
+    _IDX_LIMITE = _idx(*_camp["limite"])
     _hoy = hoy_ar()
     _IDX_HOY = _idx(_hoy.year, _hoy.month)
 
@@ -610,7 +613,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     # promedio. Una fracción se vende al contado (entra todo en M, menos la
     # comisión de contado). Es una ESTIMACIÓN: se muestra aparte y NO entra en
     # el neto firme ni en la ganancia proyectada (el simulador hace lo suyo).
-    _MIN_CUOTAS_VENTA = 6
+    _MIN_CUOTAS_VENTA = _camp["min_cuotas"]
     _pata1_vc = 0.0
     for _t in db.query(models.Talonera).all():
         if (_t.tipo or "COMUN") == "COMUN" and abs(float(_t.multiplicador or 0) - 1.0) < 1e-6 \
@@ -848,8 +851,9 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "sim_zonas_pct":        sim_zonas_pct,
         "sim_zonas_hechas":     _z_hechas,
         "sim_zonas_total":      _z_tot,
-        "sim_sorteo_anio":      SORTEO_FINAL_ANIO,
-        "sim_sorteo_mes":       SORTEO_FINAL_MES,
+        "sim_sorteo_anio":      _camp["sorteo"][0],
+        "sim_sorteo_mes":       _camp["sorteo"][1],
+        "camp":                 _camp,
         "sim_hoy_anio":         _mes_actual_key[0],
         "sim_hoy_mes":          _mes_actual_key[1],
         "user":                  user,
@@ -902,6 +906,41 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "resumen_neto_final":    resumen_neto_final,
         "com_vendedores_contado": com_vendedores_contado,
     })
+
+
+@router.post("/config/campana")
+async def guardar_config_campana(
+    request: Request,
+    inicio: str = Form(...),          # "YYYY-MM"
+    sorteo: str = Form(...),          # "YYYY-MM"
+    post_sorteo: int = Form(1),
+    min_cuotas: int = Form(6),
+    db: Session = Depends(get_db),
+):
+    """Guarda las fechas de la campaña (cambian bono a bono). Afecta a las
+    boletas que se carguen DESDE AHORA: las cuotas pactadas de las ya cargadas
+    quedaron estampadas y no se recalculan."""
+    user = await auth_module.require_user(request, db)
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(403)
+    try:
+        ia, im = (int(x) for x in inicio[:7].split("-"))
+        sa, sm = (int(x) for x in sorteo[:7].split("-"))
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Fechas inválidas (formato AAAA-MM)")
+    if not (1 <= im <= 12 and 1 <= sm <= 12):
+        raise HTTPException(400, "Mes inválido")
+    if (sa, sm) <= (ia, im):
+        raise HTTPException(400, "El sorteo final tiene que ser posterior al inicio")
+    if not (0 <= post_sorteo <= 6) or not (1 <= min_cuotas <= 24):
+        raise HTTPException(400, "Valores fuera de rango")
+    for clave, val in (("campana_inicio_anio", ia), ("campana_inicio_mes", im),
+                       ("sorteo_final_anio", sa), ("sorteo_final_mes", sm),
+                       ("cobranza_meses_post_sorteo", post_sorteo),
+                       ("venta_min_cuotas", min_cuotas)):
+        _set_config(db, clave, float(val))
+    invalidar_campana()
+    return JSONResponse({"ok": True, "campana": campana()["valores"]})
 
 
 @router.post("/config/bomberos")

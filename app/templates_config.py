@@ -32,6 +32,11 @@ def _pesos(v):
         return "$0"
 _env.filters["pesos"] = _pesos
 
+# Fechas de la campaña (configurables) disponibles en todos los templates:
+# {{ campana().sorteo_txt }} → "junio 2027"
+from .cuotas import campana as _campana
+_env.globals["campana"] = _campana
+
 def _fmtcuota(v):
     """Formatea una cantidad de cuotas ponderadas: entero si es entero,
     si no 1 decimal redondeado (ej. 17.3333 -> 17.3). Espejo del helper JS

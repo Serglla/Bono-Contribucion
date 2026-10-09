@@ -16,8 +16,7 @@ from ..database import get_db
 from ..tiempo import hoy_ar, ahora_ar
 # Cuotas que realmente se cobran segun la fecha (las ultimas van de regalo
 # porque el sorteo final es en junio 2027). Ver app/cuotas.py.
-from ..cuotas import (cuotas_vigentes, cuotas_regaladas,
-                      SORTEO_FINAL_ANIO, SORTEO_FINAL_MES)
+from ..cuotas import cuotas_vigentes, cuotas_regaladas, campana
 
 router = APIRouter(prefix="/vendedores", tags=["vendedores"])
 
@@ -1301,8 +1300,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
         # Fecha de liquidación editable + constantes del sorteo final, para que el
         # JS del modal replique cuotas_vigentes() y el preview no mienta.
         "hoy_iso": hoy_ar().isoformat(),
-        "sorteo_final_anio": SORTEO_FINAL_ANIO,
-        "sorteo_final_mes":  SORTEO_FINAL_MES,
+        "sorteo_final_anio": campana()["sorteo"][0],
+        "sorteo_final_mes":  campana()["sorteo"][1],
         # nuevas métricas para el header
         "total_liquidaciones": len(liquidaciones),
         "total_boletas_liquidadas": total_boletas_liquidadas,

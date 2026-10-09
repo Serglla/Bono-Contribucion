@@ -516,7 +516,7 @@
 
           {# ── Fecha de la liquidación ──
              No es decorativa: define cuántas cuotas vale un CONTADO. Como el sorteo
-             final es en junio 2027, las cuotas que ya no entran se regalan (ago-2026
+             final es configurable (campana()), las cuotas que ya no entran se regalan (ago-2026
              → 11 cuotas, sep → 10, oct → 9). Editable para poder liquidar atrasado
              con el precio que regía ese mes. Ver app/cuotas.py. #}
           <div class="d-flex align-items-center gap-2 flex-wrap mb-3 p-2 rounded"
@@ -528,7 +528,7 @@
                    class="form-control form-control-sm" style="width:auto;"
                    value="{{ hoy_iso }}" onchange="onFechaLiqChange()">
             <span id="lbl-cuotas-vigentes" class="badge text-bg-light border small fw-normal"
-                  title="Cuotas que se cobran por boleta a esta fecha. El resto van de regalo porque no entran antes del sorteo final (junio 2027)."></span>
+                  title="Cuotas que se cobran por boleta a esta fecha. El resto van de regalo porque no entran antes del sorteo final ({{ campana().sorteo_txt }})."></span>
           </div>
 
           {# ── Selección de boletas por PATA ── #}
