@@ -31,6 +31,9 @@
     <div class="col-6 col-md-3 py-3">
       <div class="small text-muted"><i class="bi bi-bank me-1"></i>Neto final</div>
       <div class="h4 fw-bold {% if resumen_neto_final >= 0 %}text-info{% else %}text-danger{% endif %} mb-0">{{ resumen_neto_final | pesos }}</div>
+      {% if resumen_est_neto %}
+      <div class="text-muted" style="font-size:.72rem;">con ventas estimadas: <strong class="text-primary">{{ resumen_neto_final_est | pesos }}</strong></div>
+      {% endif %}
     </div>
   </div>
 
@@ -43,6 +46,8 @@
           <th colspan="4" class="text-center border-start">Cobranza en cuotas</th>
           <th colspan="2" class="text-center border-start">Ventas al contado</th>
           <th rowspan="2" class="text-end align-middle border-start">Neto del mes</th>
+          <th rowspan="2" class="text-end align-middle border-start" style="color:#9ec5fe;">Ventas nuevas<br><span class="fw-normal" style="font-size:.7rem;">estimado</span></th>
+          <th rowspan="2" class="text-end align-middle" style="color:#9ec5fe;">Neto c/ est.</th>
         </tr>
         <tr style="font-size:.78rem;">
           <th class="text-end border-start">Cuotas</th>
@@ -74,10 +79,12 @@
           <td class="text-end border-start">{% if r.contados %}{{ r.contados }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end text-success">{% if r.contado_neto %}{{ r.contado_neto | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end fw-bold border-start">{{ r.neto_total | pesos }}</td>
+          <td class="text-end border-start text-primary">{% if r.est_neto %}{{ r.est_neto | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end text-primary fw-semibold">{{ r.neto_total_est | pesos }}</td>
         </tr>
         {% endif %}
         {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-3">Sin boletas asignadas a cobradores.</td></tr>
+        <tr><td colspan="10" class="text-center text-muted py-3">Sin boletas asignadas a cobradores.</td></tr>
         {% endfor %}
       </tbody>
       <tfoot>
@@ -90,6 +97,8 @@
           <td class="text-end border-start">{{ resumen_contados }}</td>
           <td class="text-end text-success">{{ resumen_contado_neto | pesos }}</td>
           <td class="text-end border-start">{{ resumen_neto_final | pesos }}</td>
+          <td class="text-end border-start text-primary">{{ resumen_est_neto | pesos }}</td>
+          <td class="text-end text-primary">{{ resumen_neto_final_est | pesos }}</td>
         </tr>
         <tr class="table-dark fw-bold">
           <td colspan="7" class="text-end">
@@ -99,6 +108,7 @@
             </span>
           </td>
           <td class="text-end border-start {% if resumen_neto_final >= 0 %}text-info{% else %}text-danger{% endif %}">{{ resumen_neto_final | pesos }}</td>
+          <td colspan="2" class="text-end border-start" style="color:#9ec5fe;">c/ ventas est. {{ resumen_neto_final_est | pesos }}</td>
         </tr>
       </tfoot>
     </table>
@@ -108,6 +118,18 @@
     Los meses marcados <span class="badge bg-success" style="font-size:.6rem;">cobrado</span> ya están liquidados (cifras reales).
     Los <span class="badge bg-light text-muted border" style="font-size:.6rem;">proyectado</span> aplican la tasa de cobro real de cada cobrador, que ya descuenta las cuotas que no se pagan.
     El detalle por cobrador está en el tab <strong>Cobradores</strong>.
+    {% if est_info and est_info.ventas %}
+    <div class="mt-1">
+      <i class="bi bi-graph-down me-1"></i><strong>Ventas nuevas (estimado):</strong>
+      pico de venta {{ est_info.pico }} ({{ est_info.pico_boletas }} boletas pond.) →
+      {{ est_info.ultimo }} ({{ est_info.base }}): caída <strong>{{ est_info.caida_pct }}%/mes</strong>.
+      Se proyecta vender ~{{ est_info.total_boletas }} boletas más hasta {{ est_info.ult_venta }}
+      (mientras queden ≥ {{ est_info.min_cuotas }} cuotas) ·
+      {% for v in est_info.ventas %}{{ v.mes_nombre[:3] }} {{ v.boletas | round | int }}{% if not loop.last %}, {% endif %}{% endfor %}
+      · {{ est_info.pct_contado }}% al contado · cobro {{ est_info.tasa }}%.
+      No entra en el neto firme ni en la ganancia proyectada.
+    </div>
+    {% endif %}
   </div>
 </div>
 

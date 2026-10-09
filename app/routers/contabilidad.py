@@ -407,6 +407,44 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         else:
             _cob_tasa[cid] = 1.0   # sin historial cerrado → proyección al 100%
 
+    # Promedios de la institución (para lo que todavía no tiene cobrador y para
+    # las ventas futuras estimadas): tasa global de los meses cerrados y comisión
+    # de cobrador ponderada por cantidad de boletas.
+    _ef_ok = sum(v[0] for v in _cob_efect.values())
+    _ef_no = sum(v[1] for v in _cob_efect.values())
+    _tasa_global = round(_ef_ok / (_ef_ok + _ef_no), 4) if (_ef_ok + _ef_no) > 0 else 0.9
+    _n_por_cob = {}
+    for b in boletas_con_cob:
+        _n_por_cob[b.cobrador_id] = _n_por_cob.get(b.cobrador_id, 0) + 1
+    _n_cob_tot = sum(n for c, n in _n_por_cob.items() if c in _cob_info)
+    _com_prom_pct = (sum(_cob_info[c]["comision_pct"] * n for c, n in _n_por_cob.items()
+                         if c in _cob_info) / _n_cob_tot) if _n_cob_tot else 15.0
+
+    # ── "Sin cobrador asignado": ventas ya liquidadas al vendedor que todavía
+    # no tienen cobrador (o ni siquiera socio cargado). Son ventas FIRMES: la
+    # cuota 1 ya la cobró el vendedor y el resto se va a cobrar igual, así que
+    # entran a la proyección con la tasa y comisión promedio. Cuando se les
+    # asigna cobrador pasan solas a la columna de ese cobrador.
+    _fecha_liq = {lv.id: lv.fecha for lv in liqs_v}
+    _sin_socio = (
+        db.query(models.Boleta)
+        .filter(models.Boleta.comprador_id.is_(None),
+                models.Boleta.liquidacion_vendedor_id.isnot(None),
+                models.Boleta.condicion != models.CondicionBoleta.BAJA)
+        .options(joinedload(models.Boleta.talonera))
+        .all()
+    )
+    _SIN = "sin_cobrador"
+    _boletas_sin_cob = [
+        b for b in list(boletas) + _sin_socio
+        if b.cobrador_id is None and b.talonera is not None
+        and (b.talonera.tipo or "COMUN") == "COMUN" and not _es_contado(b)
+    ]
+    if _boletas_sin_cob:
+        _cob_info[_SIN] = {"nombre": "Sin cobrador asignado",
+                           "comision_pct": round(_com_prom_pct, 1)}
+        _cob_tasa[_SIN] = _tasa_global
+
     def _calendario_pendiente(b, desde_idx):
         """Índices de mes (anio*12+mes-1) en que se espera cobrar cada cuota
         pendiente de la boleta. Nunca antes de su vencimiento ni antes de
@@ -415,10 +453,11 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         pactadas = b.cuotas_pactadas or 0
         nc       = b.talonera.num_cuotas or 12
         tope     = min(pactadas, nc)
-        hechas   = max(b.cuotas_pagadas or 0, b.cuotas_anticipadas or 0)
+        hechas   = max(b.cuotas_pagadas or 0, b.cuotas_anticipadas or 0,
+                       1 if b.liquidacion_vendedor_id else 0)  # cuota 1 = vendedor
         if tope <= hechas:
             return []
-        fv   = b.fecha_venta
+        fv   = b.fecha_venta or _fecha_liq.get(b.liquidacion_vendedor_id)
         base = _idx(fv.year, fv.month) if fv else _IDX_INICIO
         out, prox = [], desde_idx
         for k in range(hechas + 1, tope + 1):
@@ -434,9 +473,9 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         # Proyectar desde el mes actual, o desde el siguiente al último liquidado
         desde = max([_IDX_HOY] + [i + 1 for i in real_idx])
         cal = {}
-        for b in boletas_con_cob:
-            if b.cobrador_id != cid:
-                continue
+        _bs = _boletas_sin_cob if cid == _SIN else \
+            [b for b in boletas_con_cob if b.cobrador_id == cid]
+        for b in _bs:
             vc = b.talonera.valor_cuota or 0
             peso = _peso_pata(b)
             for mi in _calendario_pendiente(b, desde):
@@ -520,7 +559,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
             "total_neto":    sum(m["neto"]     for m in _cob_proyeccion[cid]),
         }
         for cid in _cob_info
-    ], key=lambda x: x["nombre"])
+    ], key=lambda x: (x["nombre"] == "Sin cobrador asignado", x["nombre"]))
 
     # ── Ventas al contado por mes ────────────────────────────────────────
     # Cada contado se imputa al mes de su FECHA DE VENTA (es cuando entra la
@@ -560,6 +599,103 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         _c["comision"] += _com
         _c["neto"]     += _br - _com
 
+    # ── Ventas futuras ESTIMADAS ─────────────────────────────────────────
+    # Ritmo de venta = boletas liquidadas a vendedores por mes, PONDERADAS por
+    # PATA (una PATA 2 = 2, una PATA 0 = 0.67). Caída mensual = la que hubo
+    # desde el mes de más ventas hasta el último mes completo (promedio
+    # geométrico; si después del pico no hubo caída, 0%). Se vende mientras la
+    # boleta tenga al menos _MIN_CUOTAS_VENTA cuotas vigentes (enero 2027 con el
+    # sorteo en junio). Cada venta del mes M: la cuota 1 es del vendedor; la
+    # institución cobra las cuotas 2..cv desde M+1, con tasa y comisión
+    # promedio. Una fracción se vende al contado (entra todo en M, menos la
+    # comisión de contado). Es una ESTIMACIÓN: se muestra aparte y NO entra en
+    # el neto firme ni en la ganancia proyectada (el simulador hace lo suyo).
+    _MIN_CUOTAS_VENTA = 6
+    _pata1_vc = 0.0
+    for _t in db.query(models.Talonera).all():
+        if (_t.tipo or "COMUN") == "COMUN" and abs(float(_t.multiplicador or 0) - 1.0) < 1e-6 \
+                and (_t.valor_cuota or 0) > 0:
+            _pata1_vc = float(_t.valor_cuota)
+            break
+    _vend_mes = {}        # idx_mes -> boletas ponderadas vendidas
+    _vend_n = _vend_cont = 0
+    for b in list(todas_boletas) + _sin_socio:
+        if not b.liquidacion_vendedor_id or b.talonera is None:
+            continue
+        if (b.talonera.tipo or "COMUN") != "COMUN":
+            continue
+        _f = _fecha_liq.get(b.liquidacion_vendedor_id) or b.fecha_venta
+        if not _f:
+            continue
+        _k = _idx(_f.year, _f.month)
+        _vend_mes[_k] = _vend_mes.get(_k, 0.0) + float(b.talonera.multiplicador or 1.0)
+        _vend_n += 1
+        if _es_contado(b):
+            _vend_cont += 1
+    _pct_contado_v = (_vend_cont / _vend_n) if _vend_n else 0.0
+    _completos = sorted(k for k in _vend_mes if k < _IDX_HOY)
+    est_pico_idx = est_ult_idx = None
+    est_caida = 0.0
+    est_base = 0.0
+    if _completos:
+        est_pico_idx = max(_completos, key=lambda k: _vend_mes[k])
+        est_ult_idx = _completos[-1]
+        est_base = _vend_mes[est_ult_idx]
+        _gap = est_ult_idx - est_pico_idx
+        if _gap > 0 and _vend_mes[est_pico_idx] > 0:
+            _r = (est_base / _vend_mes[est_pico_idx]) ** (1.0 / _gap)
+            est_caida = max(0.0, 1.0 - _r)
+    # Último mes de venta: mientras queden >= _MIN_CUOTAS_VENTA cuotas vigentes
+    est_ult_venta_idx = _IDX_SORTEO - (_MIN_CUOTAS_VENTA - 1)
+    _com_cont_pct = float(getattr(liqs_v[-1], "comision_contados_pct", 0) or 30.0) \
+        if liqs_v else 30.0
+    _ventas_est = []      # [{"idx","mes_nombre","anio","boletas","cv"}]
+    _est_cob = {}         # idx_mes -> [bruto, comision, cuotas]
+    _est_cont = {}        # idx_mes -> [bruto, comision, cant]
+    if est_ult_idx is not None and _pata1_vc > 0:
+        for M in range(_IDX_HOY, est_ult_venta_idx + 1):
+            P = est_base * (1.0 - est_caida) ** (M - est_ult_idx)
+            if M == _IDX_HOY:                       # descontar lo ya vendido este mes
+                P = max(0.0, P - _vend_mes.get(M, 0.0))
+            if P <= 0:
+                continue
+            _ma, _mm = M // 12, M % 12 + 1
+            cv = cuotas_vigentes(12, date(_ma, _mm, 1))
+            _ventas_est.append({"idx": M, "mes_nombre": MESES[_mm - 1], "anio": _ma,
+                                "boletas": round(P, 1), "cv": cv})
+            # Al contado: entra todo en el mes de venta
+            _bc = P * _pct_contado_v * cv * _pata1_vc
+            if _bc:
+                _e = _est_cont.setdefault(M, [0.0, 0.0, 0.0])
+                _e[0] += _bc
+                _e[1] += _bc * _com_cont_pct / 100.0
+                _e[2] += P * _pct_contado_v
+            # Por cuotas: cuotas 2..cv, una por mes desde M+1
+            _pc = P * (1.0 - _pct_contado_v)
+            for k in range(2, cv + 1):
+                mi = min(M + k - 1, _IDX_LIMITE)
+                _br = _pc * _pata1_vc * _tasa_global
+                _e = _est_cob.setdefault(mi, [0.0, 0.0, 0.0])
+                _e[0] += _br
+                _e[1] += _br * _com_prom_pct / 100.0
+                _e[2] += _pc * _tasa_global
+
+    def _lbl(i):
+        return f"{MESES[i % 12]} {i // 12}" if i is not None else "—"
+    est_info = {
+        "pico":        _lbl(est_pico_idx),
+        "pico_boletas": round(_vend_mes.get(est_pico_idx, 0.0)) if est_pico_idx is not None else 0,
+        "ultimo":      _lbl(est_ult_idx),
+        "base":        round(est_base),
+        "caida_pct":   round(est_caida * 100, 1),
+        "ult_venta":   _lbl(est_ult_venta_idx),
+        "min_cuotas":  _MIN_CUOTAS_VENTA,
+        "pct_contado": round(_pct_contado_v * 100, 1),
+        "tasa":        round(_tasa_global * 100, 1),
+        "ventas":      _ventas_est,
+        "total_boletas": round(sum(v["boletas"] for v in _ventas_est)),
+    }
+
     # ── Resumen consolidado mes a mes (todos los cobradores juntos) ───────
     # Para cada mes de campaña suma, sobre todos los cobradores:
     #   · cuotas a cobrar  → cuántas cuotas quedan por cobrar (solo proyectado)
@@ -598,6 +734,12 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
                                    {"cant": 0, "bruto": 0.0, "comision": 0.0, "neto": 0.0})
         if _ct["cant"] and estado == "vacio":
             estado = "real"       # hubo ventas de contado ese mes
+        _ki = _idx(pm["anio"], pm["mes"])
+        _ec = _est_cob.get(_ki, [0.0, 0.0, 0.0])
+        _en = _est_cont.get(_ki, [0.0, 0.0, 0.0])
+        _est_neto = (_ec[0] - _ec[1]) + (_en[0] - _en[1])
+        if _est_neto and estado == "vacio":
+            estado = "proy"
         resumen_meses.append({
             "mes_nombre":     pm["mes_nombre"],
             "anio":           pm["anio"],
@@ -611,6 +753,9 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
             "contado_neto":   _ct["neto"],
             "neto_total":     neto + _ct["neto"],
             "estado":         estado,
+            "est_cuotas":     _ec[2],
+            "est_neto":       _est_neto,
+            "neto_total_est": neto + _ct["neto"] + _est_neto,
         })
 
     resumen_cuotas         = sum(r["cuotas"]       for r in resumen_meses)
@@ -623,6 +768,9 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     resumen_contado_neto   = sum(r["contado_neto"] for r in resumen_meses)
     # Neto final = neto de cobranza + neto de contados (ya sin comisiones)
     resumen_neto_final = resumen_neto + resumen_contado_neto
+    # Ventas futuras estimadas (aparte, no entran en el neto firme)
+    resumen_est_neto = sum(r["est_neto"] for r in resumen_meses)
+    resumen_neto_final_est = resumen_neto_final + resumen_est_neto
 
     # ── Ganancia proyectada REALISTA ─────────────────────────────────────
     # Coherente con la tabla de arriba: parte del neto proyectado (que ya aplica
@@ -738,6 +886,9 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "rec_por_mes_list":      rec_por_mes_list,
         "total_socios":          len(boletas),
         "proyeccion_list":       proyeccion_list,
+        "resumen_est_neto":      resumen_est_neto,
+        "resumen_neto_final_est": resumen_neto_final_est,
+        "est_info":              est_info,
         "proyeccion_meses":      proyeccion_meses,
         "resumen_meses":         resumen_meses,
         "resumen_cuotas":        resumen_cuotas,
