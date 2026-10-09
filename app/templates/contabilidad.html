@@ -48,6 +48,7 @@
           <th rowspan="2" class="text-end align-middle border-start">Neto del mes</th>
           <th rowspan="2" class="text-end align-middle border-start" style="color:#9ec5fe;">Ventas nuevas<br><span class="fw-normal" style="font-size:.7rem;">estimado</span></th>
           <th rowspan="2" class="text-end align-middle" style="color:#9ec5fe;">Neto c/ est.</th>
+          <th rowspan="2" class="text-end align-middle" style="color:#9ec5fe;">Cuotas c/ est.</th>
         </tr>
         <tr style="font-size:.78rem;">
           <th class="text-end border-start">Cuotas</th>
@@ -79,12 +80,13 @@
           <td class="text-end border-start">{% if r.contados %}{{ r.contados }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end text-success">{% if r.contado_neto %}{{ r.contado_neto | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end fw-bold border-start">{{ r.neto_total | pesos }}</td>
-          <td class="text-end border-start text-primary">{% if r.est_neto %}{{ r.est_neto | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end border-start text-primary">{% if r.est_neto %}{{ r.est_neto | pesos }}{% if r.est_cuotas %}<small class="d-block text-muted" style="font-size:.68rem;">+{{ r.est_cuotas | round | int }} cuotas</small>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end text-primary fw-semibold">{{ r.neto_total_est | pesos }}</td>
+          <td class="text-end text-primary">{% if r.cuotas_total_est %}{{ r.cuotas_total_est | round | int }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
         </tr>
         {% endif %}
         {% else %}
-        <tr><td colspan="10" class="text-center text-muted py-3">Sin boletas asignadas a cobradores.</td></tr>
+        <tr><td colspan="11" class="text-center text-muted py-3">Sin boletas asignadas a cobradores.</td></tr>
         {% endfor %}
       </tbody>
       <tfoot>
@@ -99,6 +101,7 @@
           <td class="text-end border-start">{{ resumen_neto_final | pesos }}</td>
           <td class="text-end border-start text-primary">{{ resumen_est_neto | pesos }}</td>
           <td class="text-end text-primary">{{ resumen_neto_final_est | pesos }}</td>
+          <td class="text-end text-primary">{{ (resumen_cuotas + resumen_est_cuotas) | round | int }}</td>
         </tr>
         <tr class="table-dark fw-bold">
           <td colspan="7" class="text-end">
@@ -108,7 +111,7 @@
             </span>
           </td>
           <td class="text-end border-start {% if resumen_neto_final >= 0 %}text-info{% else %}text-danger{% endif %}">{{ resumen_neto_final | pesos }}</td>
-          <td colspan="2" class="text-end border-start" style="color:#9ec5fe;">c/ ventas est. {{ resumen_neto_final_est | pesos }}</td>
+          <td colspan="3" class="text-end border-start" style="color:#9ec5fe;">c/ ventas est. {{ resumen_neto_final_est | pesos }}</td>
         </tr>
       </tfoot>
     </table>
@@ -300,8 +303,20 @@
 </div>
 
 <!-- ── KPI row 1: Recaudacion ─────────────────────────────────────────── -->
-<div class="row g-3 mb-3">
-  <div class="col-6 col-md-3">
+<div class="row g-3 mb-3 row-cols-2 row-cols-lg-5">
+  <div class="col">
+    <div class="card border-0 shadow-sm h-100 border-start border-4 border-success">
+      <div class="card-body py-3">
+        <div class="small text-muted mb-1"><i class="bi bi-wallet2 me-1"></i>Cobrado hasta la fecha</div>
+        <div class="h5 fw-bold text-success mb-0">{{ total_recaudado | pesos }}</div>
+        <div class="small text-muted mt-1" style="font-size:.72rem; line-height:1.4;">
+          Cobradores hasta {{ cobrado_hasta_label }}<br>
+          − Com. {{ total_com_cobradores | pesos }} · Neto <strong class="text-body">{{ cobrado_hasta_neto | pesos }}</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col">
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-success">
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-cash-coin me-1"></i>Total en Brutos</div>
@@ -316,7 +331,7 @@
       </div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col">
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-primary">
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-bullseye me-1"></i>Total esperado</div>
@@ -324,7 +339,7 @@
       </div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col">
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-warning">
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-hourglass-split me-1"></i>Falta cobrar</div>
@@ -332,7 +347,7 @@
       </div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col">
     <div class="card border-0 shadow-sm h-100 border-start border-4 border-info">
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-percent me-1"></i>Avance cobranza</div>

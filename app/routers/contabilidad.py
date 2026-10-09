@@ -215,6 +215,10 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     total_com_cobradores = sum(t["comision"] for t in rec_real.values())
     # Recaudado por COBRANZA = lo efectivamente cobrado según las hojas
     total_recaudado = sum(t["monto"] for t in rec_real.values())
+    # "Cobrado hasta la fecha": lo de los cobradores hasta el último mes liquidado
+    cobrado_hasta_neto = sum(t["neto"] for t in rec_real.values())
+    _ult_rec = max(rec_real) if rec_real else None
+    cobrado_hasta_label = f"{MESES[_ult_rec[1] - 1]} {_ult_rec[0]}" if _ult_rec else "—"
 
     # ── Ingreso real total (para el % de avance) ─────────────────────────
     # No toda la plata entra por cobranza: los contados y la cuota 1 (anticipadas)
@@ -757,6 +761,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
             "neto_total":     neto + _ct["neto"],
             "estado":         estado,
             "est_cuotas":     _ec[2],
+            "cuotas_total_est": cuotas + _ec[2],
             "est_neto":       _est_neto,
             "neto_total_est": neto + _ct["neto"] + _est_neto,
         })
@@ -773,6 +778,7 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     resumen_neto_final = resumen_neto + resumen_contado_neto
     # Ventas futuras estimadas (aparte, no entran en el neto firme)
     resumen_est_neto = sum(r["est_neto"] for r in resumen_meses)
+    resumen_est_cuotas = sum(r["est_cuotas"] for r in resumen_meses)
     resumen_neto_final_est = resumen_neto_final + resumen_est_neto
 
     # ── Ganancia proyectada REALISTA ─────────────────────────────────────
@@ -891,6 +897,9 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         "total_socios":          len(boletas),
         "proyeccion_list":       proyeccion_list,
         "resumen_est_neto":      resumen_est_neto,
+        "resumen_est_cuotas":    resumen_est_cuotas,
+        "cobrado_hasta_neto":    cobrado_hasta_neto,
+        "cobrado_hasta_label":   cobrado_hasta_label,
         "resumen_neto_final_est": resumen_neto_final_est,
         "est_info":              est_info,
         "proyeccion_meses":      proyeccion_meses,
