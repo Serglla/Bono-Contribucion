@@ -339,26 +339,27 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
 
 
     # ── Proyección mensual por cobrador ─────────────────────────────────
-    # Cuota 1 = Junio 2026, cuota 2 = Julio 2026, …, cuota 12 = Mayo 2027
-    _CAMPANA_INICIO = 4    # índice 0-based de Mayo (cuota 1 = Mayo 2026, cubre el mes de venta)
-    _CAMPANA_ANIO   = 2026
-    _CAMPANA_MES_BASE = 5  # número de mes de inicio (Mayo=5); meses < 5 son del año siguiente
+    # Cada boleta tiene SU PROPIO calendario: la cuota 1 la cobra el vendedor en
+    # el mes de la venta y la cuota k vence en (mes de venta + k − 1). Antes la
+    # cuota N de cualquier boleta se imputaba al mes N de la campaña (cuota 1 =
+    # mayo), lo que solo valía para las vendidas en mayo: a las vendidas después
+    # se les perdían cuotas y la proyección "se caía" en marzo/abril (ahí cortaban
+    # las de 10 y 11 cuotas pactadas). Ver app/cuotas.py (cuotas_vigentes).
+    # Las cuotas atrasadas (vencidas sin cobrar) se corren al final del
+    # calendario del socio: una cuota por mes desde el mes actual, sin pasar de
+    # Julio 2027 (lo que no entra se acumula en ese mes).
+    from ..tiempo import hoy_ar
 
-    def _cuota_a_mes_anio(n):
-        idx  = (_CAMPANA_INICIO + n - 1) % 12
-        mes  = idx + 1
-        anio = _CAMPANA_ANIO if mes >= _CAMPANA_MES_BASE else _CAMPANA_ANIO + 1
-        return mes, anio
+    def _idx(anio, mes):
+        return anio * 12 + mes - 1
 
-    # Meses de campaña (encabezados fijos): Mayo 2026 → Abril 2027
-    proyeccion_meses = [
-        {
-            "mes":      (_CAMPANA_INICIO + i) % 12 + 1,
-            "anio":     _CAMPANA_ANIO if ((_CAMPANA_INICIO + i) % 12 + 1) >= _CAMPANA_MES_BASE else _CAMPANA_ANIO + 1,
-            "mes_nombre": MESES[(_CAMPANA_INICIO + i) % 12],
-        }
-        for i in range(12)
-    ]
+    _IDX_INICIO = _idx(2026, 5)                                   # Mayo 2026
+    _IDX_SORTEO = _idx(SORTEO_FINAL_ANIO, SORTEO_FINAL_MES)       # Junio 2027
+    # Último mes con cobranza: el siguiente al sorteo final (Julio 2027). Lo que
+    # quede atrasado más allá de ese mes se acumula ahí — no se proyecta después.
+    _IDX_LIMITE = _IDX_SORTEO + 1
+    _hoy = hoy_ar()
+    _IDX_HOY = _idx(_hoy.year, _hoy.month)
 
     # _real_por_cob ya se construyó arriba desde el motor de las hojas de
     # liquidación (historial_cuotas por período real). Keys: (mes, anio).
@@ -406,16 +407,66 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
         else:
             _cob_tasa[cid] = 1.0   # sin historial cerrado → proyección al 100%
 
-    # Para cada cobrador, armar 12 meses mezclando reales + proyectados
+    def _calendario_pendiente(b, desde_idx):
+        """Índices de mes (anio*12+mes-1) en que se espera cobrar cada cuota
+        pendiente de la boleta. Nunca antes de su vencimiento ni antes de
+        `desde_idx`; las atrasadas se corren una por mes hacia el final, con
+        tope en _IDX_LIMITE (lo que no entra se acumula en ese último mes)."""
+        pactadas = b.cuotas_pactadas or 0
+        nc       = b.talonera.num_cuotas or 12
+        tope     = min(pactadas, nc)
+        hechas   = max(b.cuotas_pagadas or 0, b.cuotas_anticipadas or 0)
+        if tope <= hechas:
+            return []
+        fv   = b.fecha_venta
+        base = _idx(fv.year, fv.month) if fv else _IDX_INICIO
+        out, prox = [], desde_idx
+        for k in range(hechas + 1, tope + 1):
+            mi = min(max(base + k - 1, prox), _IDX_LIMITE)
+            out.append(mi)
+            prox = mi + 1
+        return out
+
+    # Calendario proyectado por cobrador: cid -> {idx_mes: [bruto, cant]}
+    _cob_cal = {}
+    for cid in _cob_info:
+        real_idx = [_idx(a, m) for (m, a) in _real_por_cob.get(cid, {})]
+        # Proyectar desde el mes actual, o desde el siguiente al último liquidado
+        desde = max([_IDX_HOY] + [i + 1 for i in real_idx])
+        cal = {}
+        for b in boletas_con_cob:
+            if b.cobrador_id != cid:
+                continue
+            vc = b.talonera.valor_cuota or 0
+            peso = _peso_pata(b)
+            for mi in _calendario_pendiente(b, desde):
+                acc = cal.setdefault(mi, [0.0, 0.0])
+                acc[0] += vc
+                acc[1] += peso
+        _cob_cal[cid] = cal
+
+    # Meses de la tabla: Mayo 2026 → hasta el sorteo final, o más si hay
+    # cuotas corridas después (atrasadas) o liquidaciones reales posteriores.
+    _idx_fin = _IDX_SORTEO
+    for cid in _cob_info:
+        _idx_fin = max([_idx_fin] + list(_cob_cal[cid].keys())
+                       + [_idx(a, m) for (m, a) in _real_por_cob.get(cid, {})])
+    proyeccion_meses = []
+    for mi in range(_IDX_INICIO, _idx_fin + 1):
+        _m, _a = mi % 12 + 1, mi // 12
+        proyeccion_meses.append({"mes": _m, "anio": _a, "mes_nombre": MESES[_m - 1]})
+
+    # Para cada cobrador, armar los meses mezclando reales + proyectados
     _cob_proyeccion = {}
     for cid, info in _cob_info.items():
         meses_proj = []
         pct  = info["comision_pct"] / 100.0
         tasa = _cob_tasa[cid]
         real_mes = _real_por_cob.get(cid, {})
+        cal = _cob_cal[cid]
 
-        for n in range(1, 13):
-            mes, anio = _cuota_a_mes_anio(n)
+        for n, pm in enumerate(proyeccion_meses, start=1):
+            mes, anio = pm["mes"], pm["anio"]
             key = (mes, anio)
 
             if key in real_mes:
@@ -434,29 +485,11 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
                     "tasa":       None,
                 })
             else:
-                # ── Mes futuro: proyección × tasa de cobro ───────────
-                # Las cuotas se cuentan PONDERADAS POR PATA, igual que en las
-                # hojas de liquidación, para que la columna sea comparable entre
-                # meses reales y proyectados (una PATA 2 cuenta como 2 cuotas).
-                bruto_teorico = 0.0
-                cant = 0.0
-                for b in boletas_con_cob:
-                    if b.cobrador_id != cid:
-                        continue
-                    pactadas    = b.cuotas_pactadas    or 0
-                    pagadas     = b.cuotas_pagadas     or 0
-                    anticipadas = b.cuotas_anticipadas or 0
-                    nc          = b.talonera.num_cuotas or 12
-                    vc          = b.talonera.valor_cuota or 0
-                    if n > nc:           continue
-                    if n > pactadas:     continue
-                    if n <= pagadas:     continue
-                    if n <= anticipadas: continue
-                    bruto_teorico += vc
-                    cant          += _peso_pata(b)
-
-                # La cantidad proyectada también se ajusta por la tasa de cobro:
-                # si se cobra el 93%, no se van a cobrar las 668, sino ~621.
+                # ── Mes futuro: cuotas que vencen ese mes × tasa de cobro ──
+                # Cuotas PONDERADAS POR PATA, igual que en las hojas de
+                # liquidación (una PATA 2 cuenta como 2 cuotas).
+                bruto_teorico, cant = cal.get(_idx(anio, mes), (0.0, 0.0))
+                # Si se cobra el 93%, no se van a cobrar las 668, sino ~621.
                 cant     = round(cant * tasa, 2)
                 bruto_aj = round(bruto_teorico * tasa)
                 comision = round(bruto_aj * pct)
