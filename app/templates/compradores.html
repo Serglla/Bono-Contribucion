@@ -107,6 +107,16 @@
 {# Aviso del filtro activo: va FUERA del bloque de alertas de abajo, porque ese
    solo se renderiza si hay pendientes. Si filtrás y ya no queda ninguno sin
    cobrador, igual tenés que poder ver que el filtro está puesto y sacarlo. #}
+{% if filtro_atras %}
+<div class="alert alert-danger d-flex align-items-center justify-content-between py-2 mb-3">
+  <span><i class="bi bi-hourglass-split me-2"></i>
+    Viendo <strong>solo los socios atrasados</strong> (deben {{ atrasados_min }} cuotas o más).
+  </span>
+  <a href="/compradores/" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-x-lg me-1"></i>Quitar filtro
+  </a>
+</div>
+{% endif %}
 {% if filtro_sin_cob %}
 <div class="alert alert-info d-flex align-items-center justify-content-between py-2 mb-3">
   <span><i class="bi bi-funnel-fill me-2"></i>
@@ -309,8 +319,8 @@ function verContadoSinCargar(btn) {
 <div class="mb-3">
   <div class="d-flex flex-wrap gap-2 align-items-center">
     <a href="/compradores/?_=1{{ _qs_base }}"
-       class="btn btn-sm {{ 'btn-danger' if not pata and not filtro_sin_cob else 'btn-outline-secondary' }}">
-      Todas <span class="badge {{ 'bg-white text-danger' if not pata and not filtro_sin_cob else 'bg-secondary' }} ms-1">{{ total_compradores }}</span>
+       class="btn btn-sm {{ 'btn-danger' if not pata and not filtro_sin_cob and not filtro_atras else 'btn-outline-secondary' }}">
+      Todas <span class="badge {{ 'bg-white text-danger' if not pata and not filtro_sin_cob and not filtro_atras else 'bg-secondary' }} ms-1">{{ total_compradores }}</span>
     </a>
     {% for tab in tabs %}
     <a href="/compradores/?pata={{ tab.nombre }}{{ _qs_base }}"
@@ -319,6 +329,14 @@ function verContadoSinCargar(btn) {
       <span class="badge {{ 'bg-white text-danger' if pata == tab.nombre else 'bg-secondary' }} ms-1">{{ tab.total }}</span>
     </a>
     {% endfor %}
+    {# Atrasados: socios que deben {{ atrasados_min }}+ cuotas al último mes
+       liquidado de su cobrador (mismo cálculo que la columna ESTADO). #}
+    <a href="/compradores/?atras=1"
+       class="btn btn-sm {{ 'btn-danger' if filtro_atras else 'btn-outline-danger' }}"
+       title="Socios que deben {{ atrasados_min }} cuotas o más (al último mes liquidado de su cobrador)">
+      <i class="bi bi-hourglass-split me-1"></i>Atrasados
+      <span class="badge {{ 'bg-white text-danger' if filtro_atras else 'bg-danger' }} ms-1">{{ atrasados }}</span>
+    </a>
     <a href="/compradores/?sin_cob=1"
        class="btn btn-sm {{ 'btn-warning' if filtro_sin_cob else 'btn-outline-warning' }}">
       <i class="bi bi-person-x me-1"></i>Sin cobrador

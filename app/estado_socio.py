@@ -26,7 +26,8 @@ REGLAS (en orden de prioridad, la primera que matchea gana)
 MES DE REFERENCIA
 -----------------
 NO es el mes calendario anterior, sino el **último período con cobranza cargada**
-en el sistema (el máximo `historial_cuotas` de todas las boletas). Si se usara el
+del COBRADOR de la boleta (el máximo `historial_cuotas` de sus boletas = su último
+mes liquidado). Boletas sin cobrador → el último período de todo el sistema. Si se usara el
 mes calendario, el día 1 de cada mes —con la cobranza del mes anterior todavía sin
 cerrar— toda la lista se pondría en rojo de golpe.
 
@@ -81,18 +82,23 @@ def _pago_en(periodos, anio, mes):
     return (anio, mes) in periodos or (None, mes) in periodos
 
 
-def periodo_referencia(db, models):
-    """Último período (anio, mes) con cobranza cargada en todo el sistema.
+def periodos_referencia(db, models):
+    """Período de referencia GLOBAL y POR COBRADOR.
 
-    Se resuelve en UNA query que trae solo la columna `historial_cuotas`. Si
-    todavía no hay ningún pago registrado, cae al mes calendario actual.
+    Devuelve (ref_global, {cobrador_id: (anio, mes)}).
+    - ref_global: último período con cobranza cargada en todo el sistema.
+    - por cobrador: último período con cobranza cargada en las boletas de ESE
+      cobrador (= su último mes liquidado). Así, si a un cobrador todavía no se
+      le liquidó el mes, sus socios no aparecen debiendo de más.
+    Una sola query (cobrador_id + historial_cuotas). Sin pagos → mes calendario.
     """
     mejor = None
-    filas = (db.query(models.Boleta.historial_cuotas)
+    por_cob = {}
+    filas = (db.query(models.Boleta.cobrador_id, models.Boleta.historial_cuotas)
                .filter(models.Boleta.historial_cuotas.isnot(None))
                .filter(models.Boleta.historial_cuotas.notin_(("", "{}")))
                .all())
-    for (h,) in filas:
+    for (cid, h) in filas:
         try:
             data = json.loads(h) if h else {}
         except (ValueError, TypeError):
@@ -106,10 +112,23 @@ def periodo_referencia(db, models):
                 continue
             if mejor is None or (anio, mes) > mejor:
                 mejor = (anio, mes)
+            if cid and (cid not in por_cob or (anio, mes) > por_cob[cid]):
+                por_cob[cid] = (anio, mes)
     if mejor is None:
         hoy = hoy_ar()
-        return (hoy.year, hoy.month)
-    return mejor
+        mejor = (hoy.year, hoy.month)
+    return mejor, por_cob
+
+
+def periodo_referencia(db, models):
+    """Último período (anio, mes) con cobranza cargada en todo el sistema."""
+    return periodos_referencia(db, models)[0]
+
+
+def ref_boleta(b, ref_global, por_cob):
+    """Período de referencia para UNA boleta: el último liquidado de su cobrador;
+    si no tiene cobrador (o el cobrador todavía no liquidó nada) → el global."""
+    return por_cob.get(b.cobrador_id) or ref_global
 
 
 def _meses_entre(desde, hasta):
@@ -169,7 +188,7 @@ def estado_boleta(b, ref):
     ref_txt = f"{ref[1]:02d}/{ref[0]}"
 
     if debe <= 0:
-        return {"texto": "AL DÍA", "clase": "aldia", "rank": RANK_ALDIA,
+        return {"texto": "AL DÍA", "clase": "aldia", "rank": RANK_ALDIA, "debe": 0,
                 "tip": f"Al día a {ref_txt} — {pagadas}/{pactadas} cuotas pagas"}
 
     periodos = _hist_periodos(b)
@@ -180,38 +199,44 @@ def estado_boleta(b, ref):
     if pago_ref:
         # 4. Pagó el último mes pero le faltan meses anteriores: para entrar al
         #    sorteo final va a tener que ponerse al día con cuotas adelantadas.
-        return {"texto": f"DEBE {debe}", "clase": "atrasado", "rank": RANK_AMARILLO,
+        return {"texto": f"DEBE {debe}", "clase": "atrasado", "rank": RANK_AMARILLO, "debe": debe,
                 "tip": (f"Pagó {ref_txt} pero arrastra {debe} {plural} de meses "
                         f"anteriores — {pagadas}/{pactadas} pagas. "
                         f"Debería adelantarlas para entrar al sorteo final.")}
 
     if debe == 1:
         # 5. No pagó el mes de referencia y es lo único que debe.
-        return {"texto": "DEBE 1", "clase": "moroso1", "rank": RANK_ROSA,
+        return {"texto": "DEBE 1", "clase": "moroso1", "rank": RANK_ROSA, "debe": 1,
                 "tip": f"No pagó {ref_txt} — es la única cuota que debe "
                        f"({pagadas}/{pactadas} pagas)"}
 
     # 6. No pagó el mes de referencia y además arrastra meses anteriores.
-    return {"texto": f"DEBE {debe}", "clase": "moroso", "rank": RANK_ROJO,
+    return {"texto": f"DEBE {debe}", "clase": "moroso", "rank": RANK_ROJO, "debe": debe,
             "tip": f"No pagó {ref_txt} y debe {debe} {plural} en total "
                    f"({pagadas}/{pactadas} pagas)"}
 
 
-def estado_socio(comprador, ref):
-    """Estado de un socio = el más urgente (menor rank) entre todas sus boletas."""
+def estado_socio(comprador, ref, por_cob=None):
+    """Estado de un socio = el más urgente (menor rank) entre todas sus boletas.
+    `ref` = referencia global; `por_cob` = {cobrador_id: ref} (opcional)."""
     if not comprador.boletas:
         return dict(_SIN_DATOS)
-    estados = [estado_boleta(b, ref) for b in comprador.boletas]
+    por_cob = por_cob or {}
+    estados = [estado_boleta(b, ref_boleta(b, ref, por_cob)) for b in comprador.boletas]
     peor = min(estados, key=lambda e: e["rank"])
     if len(estados) > 1:
         otros = [e["texto"] for e in estados if e is not peor]
         if otros:
             peor = dict(peor)
             peor["tip"] += " · Otras boletas del socio: " + ", ".join(otros)
+    # "debe" del socio = la boleta que más debe (para el filtro Atrasados)
+    peor = dict(peor)
+    peor["debe_max"] = max(e.get("debe", 0) for e in estados)
     return peor
 
 
 def estados_por_socio(db, models, compradores):
-    """{comprador_id: estado} para toda la lista. Una sola query extra."""
-    ref = periodo_referencia(db, models)
-    return {c.id: estado_socio(c, ref) for c in compradores}, ref
+    """{comprador_id: estado} para toda la lista. Una sola query extra.
+    Cada boleta se mide contra el último mes liquidado de SU cobrador."""
+    ref, por_cob = periodos_referencia(db, models)
+    return {c.id: estado_socio(c, ref, por_cob) for c in compradores}, ref

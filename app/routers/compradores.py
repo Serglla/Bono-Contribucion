@@ -13,7 +13,12 @@ from ..models import CondicionBoleta
 # del sorteo final (jun-2027) van de regalo. Ver app/cuotas.py.
 from ..cuotas import cuotas_vigentes
 # Columna ESTADO de la lista de socios (al día / contado / debe N / baja).
-from ..estado_socio import estados_por_socio, estado_boleta, periodo_referencia
+from ..estado_socio import estados_por_socio, estado_boleta, periodos_referencia, ref_boleta
+
+# Filtro "Atrasados": socios con al menos una boleta que debe esta cantidad de
+# cuotas o más (al último mes liquidado de su cobrador). Pedido de Sergio: "más
+# de una cuota adeudada".
+ATRASADOS_MIN_CUOTAS = 2
 
 
 def _parse_zona_id(zona_id_str: Optional[str]) -> Optional[int]:
@@ -34,7 +39,7 @@ async def listar(request: Request, db: Session = Depends(get_db),
                  q: str = "", pata: str = "", zona: str = "",
                  sin_cob: str = "", cob: str = "",
                  vend: str = "", cont: str = "",
-                 mes: str = "", anio: str = ""):
+                 mes: str = "", anio: str = "", atras: str = ""):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'compradores', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
@@ -357,6 +362,35 @@ async def listar(request: Request, db: Session = Depends(get_db),
     # contra el mes calendario (ver app/estado_socio.py).
     estados, estado_ref = estados_por_socio(db, models, compradores)
 
+    # ── Atrasados ────────────────────────────────────────────────────────────
+    # Socios con alguna boleta que debe ATRASADOS_MIN_CUOTAS o más, medido con el
+    # mismo cálculo que la columna ESTADO (app/estado_socio.py). Se cuenta sobre
+    # la lista ya filtrada (igual que "Sin cobrador"). BAJA y CONTADO no cuentan.
+    def _es_atrasado(c):
+        return estados.get(c.id, {}).get("debe_max", 0) >= ATRASADOS_MIN_CUOTAS
+    atrasados = sum(1 for c in compradores if _es_atrasado(c))
+    filtro_atras = atras in ("1", "true", "yes")
+    if filtro_atras:
+        compradores = [c for c in compradores if _es_atrasado(c)]
+        # Los tabs X0/X1/... se calculan por SQL y no saben de atrasos: se
+        # recuentan acá sobre la lista filtrada (socios distintos por talonera).
+        # Con una PATA elegida la lista ya viene recortada → no se recuentan.
+        _cnt = {}
+        for c in compradores:
+            for nombre in {b.talonera.nombre for b in c.boletas if b.talonera}:
+                _cnt[nombre] = _cnt.get(nombre, 0) + 1
+        if not pata:
+            tabs = [dict(t, total=_cnt.get(t["nombre"], 0)) for t in tabs
+                    if _cnt.get(t["nombre"])]
+            total_compradores = round(sum(t["total"] * t["multiplicador"] for t in tabs))
+        total_filtrado = len(compradores)
+        total_filtrado_pond = round(sum(
+            (c.boletas[0].talonera.multiplicador
+             if c.boletas and c.boletas[0].talonera and c.boletas[0].talonera.multiplicador
+             else 1.0)
+            for c in compradores
+        ))
+
     return templates.TemplateResponse(request, "compradores.html", {
         "user": user,
         "compradores": compradores,
@@ -376,6 +410,9 @@ async def listar(request: Request, db: Session = Depends(get_db),
         "boletas_sin_socio": boletas_sin_socio,
         "sin_emplanillar_por_cob": sin_emplanillar_por_cob,
         "filtro_sin_cob": sin_cob in ("1", "true", "yes"),
+        "atrasados": atrasados,
+        "atrasados_min": ATRASADOS_MIN_CUOTAS,
+        "filtro_atras": filtro_atras,
         "filtro_cob": cob,
         "filtro_vend": vend,
         "filtro_zona": zona,
@@ -1133,8 +1170,8 @@ def _estados_de_boletas(db, comprador):
     """
     if not comprador.boletas:
         return {}
-    ref = periodo_referencia(db, models)
-    return {b.id: estado_boleta(b, ref) for b in comprador.boletas}
+    ref, por_cob = periodos_referencia(db, models)
+    return {b.id: estado_boleta(b, ref_boleta(b, ref, por_cob)) for b in comprador.boletas}
 
 
 @router.get("/{comprador_id}/editar", response_class=HTMLResponse)
