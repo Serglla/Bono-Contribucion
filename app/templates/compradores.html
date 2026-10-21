@@ -1344,6 +1344,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
                 window._cuotasAuto = false;
               }
             }
+            if (window.syncCobradorContado) window.syncCobradorContado();
 
             // ── Fecha de compra: la de la LIQUIDACIÓN, no la de hoy ────────────
             // El socio se carga días después de que el vendedor rindió, a veces
@@ -1452,7 +1453,24 @@ document.querySelectorAll('.input-upper').forEach(el => {
     const ant = document.getElementById('anticipadasInput');
     ant.max = max;
     if (parseInt(ant.value) > max) ant.value = max;
+    syncCobradorContado();
   });
+  document.getElementById('anticipadasInput').addEventListener('input', () => syncCobradorContado());
+
+  // ── Toda paga (contado / anticipadas = pactadas) → sin cobrador ─────
+  // No hay nada que cobrar: el selector se vacía y se bloquea. El backend
+  // igual descarta el cobrador en ese caso, esto evita que parezca que sí.
+  function syncCobradorContado() {
+    const cobSel = document.getElementById('cobradorSelect');
+    if (!cobSel) return;
+    const pact = parseInt(document.getElementById('cuotasInput').value) || 0;
+    const ant  = parseInt(document.getElementById('anticipadasInput').value) || 0;
+    const todaPaga = pact > 0 && ant >= pact;
+    if (todaPaga) cobSel.value = '';
+    cobSel.disabled = todaPaga;
+    cobSel.title = todaPaga ? 'Boleta toda paga (contado): no lleva cobrador' : '';
+  }
+  window.syncCobradorContado = syncCobradorContado;
 
   // ── Zona select ──────────────────────────────────────────────────────
   function autoFillVendedorDesdeZona() {
@@ -1547,6 +1565,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     const _cobSel = document.getElementById('cobradorSelect');
     if (_cobSel) _cobSel.value = '';
     window._prefillContadoPrevio = null;
+    if (window.syncCobradorContado) window.syncCobradorContado();
     // Ocultar badge de vendedor por boleta y restaurar el recordado (si zona no lo bloqueó)
     document.getElementById('vendedorBoletaBadge').classList.add('d-none');
     const vendedorSel = document.getElementById('vendedorSelect');
@@ -1617,6 +1636,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     document.getElementById('anticipadasInput').value = s.anticipadas ?? '1';
     const cobSel = document.getElementById('cobradorSelect');
     if (cobSel) cobSel.value = s.cobrador_id || '';
+    if (window.syncCobradorContado) window.syncCobradorContado();
     // Vendedor: se MUESTRA el que tiene la boleta, bloqueado (en edición rápida
     // no se cambia; para eso está el editor completo). Antes quedaba el select
     // como estaba de la carga anterior y parecía que no tenía vendedor.
