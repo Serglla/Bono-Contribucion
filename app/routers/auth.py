@@ -3,6 +3,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from sqlalchemy.orm import Session
 from datetime import timedelta
+from typing import Optional
+from urllib.parse import urlencode
 import time
 from .. import models, auth as auth_module
 from ..templates_config import templates
@@ -126,6 +128,87 @@ async def logout(request: Request):
     return response
 
 
+# ── Cambio de contraseña ────────────────────────────────────────────────────
+CLAVE_MIN = 8
+
+
+def _validar_clave_nueva(nueva: str, repetir: str) -> Optional[str]:
+    """Devuelve el mensaje de error, o None si la clave nueva sirve."""
+    if len(nueva) < CLAVE_MIN:
+        return f"La contraseña nueva tiene que tener al menos {CLAVE_MIN} caracteres."
+    if nueva != repetir:
+        return "Las dos contraseñas nuevas no coinciden."
+    if nueva.strip().lower() in ("admin123", "12345678", "password", "contraseña"):
+        return "Esa contraseña es demasiado conocida. Elegí otra."
+    return None
+
+
+def _render_mi_clave(request, user, error=None, msg=None, status_code=200):
+    return templates.TemplateResponse(request, "mi_clave.html", {
+        "user": user, "error": error, "msg": msg, "clave_min": CLAVE_MIN,
+    }, status_code=status_code)
+
+
+@router.get("/mi-clave", response_class=HTMLResponse)
+async def mi_clave_page(request: Request, db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    return _render_mi_clave(request, user)
+
+
+@router.post("/mi-clave", response_class=HTMLResponse)
+async def mi_clave_guardar(
+    request: Request,
+    actual: str = Form(""),
+    nueva: str = Form(""),
+    repetir: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Cada usuario cambia SU contraseña. Pide la actual: si alguien encuentra
+    una sesión abierta no puede cambiarla sin saberla. Los fallos cuentan para
+    el mismo límite que el login (no sirve para adivinarla)."""
+    user = await auth_module.require_user(request, db)
+    if _bloqueado_hasta(request, user.username) > 0:
+        return _render_mi_clave(request, user, status_code=429,
+                                error="Demasiados intentos fallidos. Probá de nuevo en unos minutos.")
+    if not auth_module.verify_password(actual, user.hashed_password):
+        _registrar_fallo(request, user.username)
+        return _render_mi_clave(request, user, error="La contraseña actual no es correcta.")
+    error = _validar_clave_nueva(nueva, repetir)
+    if not error and nueva == actual:
+        error = "La contraseña nueva tiene que ser distinta de la actual."
+    if error:
+        return _render_mi_clave(request, user, error=error)
+    user.hashed_password = auth_module.hash_password(nueva)
+    db.commit()
+    _limpiar_fallos(request, user.username)
+    return _render_mi_clave(request, user, msg="Listo, tu contraseña quedó cambiada.")
+
+
+@router.post("/usuarios/{user_id}/clave")
+async def admin_cambiar_clave(
+    user_id: int,
+    request: Request,
+    nueva: str = Form(""),
+    repetir: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """El admin le pone una contraseña nueva a otro usuario (ej: se la olvidó).
+    Para la propia se usa /auth/mi-clave, que pide la actual."""
+    current = await auth_module.require_admin(request, db)
+    u = db.query(models.User).get(user_id)
+    if not u:
+        raise HTTPException(404, "Usuario no encontrado")
+    if u.id == current.id:
+        return RedirectResponse("/auth/mi-clave", status_code=302)
+    error = _validar_clave_nueva(nueva, repetir)
+    if error:
+        return RedirectResponse(f"/auth/usuarios?{urlencode({'error': error})}", status_code=302)
+    u.hashed_password = auth_module.hash_password(nueva)
+    db.commit()
+    ok = f"Contraseña de {u.username} cambiada. Pasásela por un medio seguro."
+    return RedirectResponse(f"/auth/usuarios?{urlencode({'ok': ok})}", status_code=302)
+
+
 @router.get("/usuarios", response_class=HTMLResponse)
 async def usuarios_page(request: Request, db: Session = Depends(get_db)):
     user = await auth_module.require_admin(request, db)
@@ -135,6 +218,9 @@ async def usuarios_page(request: Request, db: Session = Depends(get_db)):
         "usuarios": usuarios,
         "secciones": auth_module.SECCIONES,
         "get_user_permissions": auth_module.get_user_permissions,
+        "msg": request.query_params.get("ok"),
+        "error": request.query_params.get("error"),
+        "clave_min": CLAVE_MIN,
     })
 
 

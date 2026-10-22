@@ -8,6 +8,21 @@
   </button>
 </div>
 
+<div role="status" aria-live="polite">
+  {% if msg %}
+  <div class="alert alert-success alert-dismissible fade show">
+    <i class="bi bi-check-circle-fill me-1"></i>{{ msg }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+  {% endif %}
+  {% if error %}
+  <div class="alert alert-danger alert-dismissible fade show">
+    <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ error }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+  </div>
+  {% endif %}
+</div>
+
 <div class="card border-0 shadow-sm">
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
@@ -39,6 +54,19 @@
                       title="Gestionar permisos">
                 <i class="bi bi-shield-check"></i>
               </button>
+              {% endif %}
+              {% if u.id != user.id %}
+              <button class="btn btn-sm btn-outline-secondary"
+                      data-bs-toggle="modal"
+                      data-bs-target="#modalClave{{ u.id }}"
+                      title="Cambiar contraseña" aria-label="Cambiar contraseña de {{ u.username }}">
+                <i class="bi bi-key"></i>
+              </button>
+              {% else %}
+              <a href="/auth/mi-clave" class="btn btn-sm btn-outline-secondary"
+                 title="Cambiar mi contraseña" aria-label="Cambiar mi contraseña">
+                <i class="bi bi-key"></i>
+              </a>
               {% endif %}
               {% if u.id != user.id %}
               <form method="post" action="/auth/usuarios/{{ u.id }}/eliminar" class="d-inline"
@@ -139,6 +167,49 @@
   </div></div>
 </div>
 
+<!-- ─── Modales: contraseña nueva para otro usuario ──────────────────── -->
+{% for u in usuarios %}
+{% if u.id != user.id %}
+<div class="modal fade" id="modalClave{{ u.id }}" tabindex="-1" aria-labelledby="modalClaveTit{{ u.id }}">
+  <div class="modal-dialog"><div class="modal-content">
+    <form method="post" action="/auth/usuarios/{{ u.id }}/clave" class="form-clave">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalClaveTit{{ u.id }}">
+          <i class="bi bi-key me-2 text-secondary"></i>
+          Contraseña nueva — <strong>{{ u.username }}</strong>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">
+          Para cuando el usuario se olvidó la suya. La anterior deja de servir.
+          Después pasásela por un medio seguro.
+        </p>
+        <div class="mb-3">
+          <label class="form-label fw-semibold" for="claveNueva{{ u.id }}">Contraseña nueva</label>
+          <input type="password" name="nueva" id="claveNueva{{ u.id }}" class="form-control clave-nueva"
+                 autocomplete="new-password" minlength="{{ clave_min }}" required>
+          <div class="form-text">Al menos {{ clave_min }} caracteres.</div>
+        </div>
+        <div class="mb-1">
+          <label class="form-label fw-semibold" for="claveRep{{ u.id }}">Repetir</label>
+          <input type="password" name="repetir" id="claveRep{{ u.id }}" class="form-control clave-repetir"
+                 autocomplete="new-password" minlength="{{ clave_min }}" required>
+          <div class="invalid-feedback">No coincide con la contraseña nueva.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-danger">
+          <i class="bi bi-floppy me-1"></i>Guardar contraseña
+        </button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+{% endfor %}
+
 <!-- ─── Modales de Permisos por usuario existente ─────────────────────── -->
 {% for u in usuarios %}
 {% if not u.is_admin %}
@@ -226,6 +297,19 @@ function bindPermisoLogic(scope) {
 // Aplicar lógica a todos los modales
 document.querySelectorAll('.modal').forEach(function(modal) {
   bindPermisoLogic(modal);
+});
+
+// Contraseña nueva: avisar si las dos no coinciden antes de mandar
+document.querySelectorAll('.form-clave').forEach(function(form) {
+  const nueva = form.querySelector('.clave-nueva');
+  const rep   = form.querySelector('.clave-repetir');
+  function chequear() {
+    const mal = rep.value && rep.value !== nueva.value;
+    rep.classList.toggle('is-invalid', mal);
+    rep.setCustomValidity(mal ? 'No coincide con la contraseña nueva.' : '');
+  }
+  nueva.addEventListener('input', chequear);
+  rep.addEventListener('input', chequear);
 });
 </script>
 {% endblock %}

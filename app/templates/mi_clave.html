@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Cambiar contraseña — Bonos Bomberos{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4 class="page-title"><i class="bi bi-key-fill text-danger"></i>Cambiar mi contraseña</h4>
+</div>
+
+<div class="row">
+  <div class="col-md-7 col-lg-5">
+    <div role="status" aria-live="polite">
+      {% if msg %}
+      <div class="alert alert-success">
+        <i class="bi bi-check-circle-fill me-1"></i>{{ msg }}
+      </div>
+      {% endif %}
+      {% if error %}
+      <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ error }}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <p class="text-muted mb-3">
+          Usuario: <strong>{{ user.username }}</strong>
+        </p>
+        <form method="post" action="/auth/mi-clave" autocomplete="on">
+          <input type="text" name="username" value="{{ user.username }}" autocomplete="username" hidden>
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="claveActual">Contraseña actual</label>
+            <input type="password" name="actual" id="claveActual" class="form-control"
+                   autocomplete="current-password" required autofocus>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="claveNueva">Contraseña nueva</label>
+            <input type="password" name="nueva" id="claveNueva" class="form-control"
+                   autocomplete="new-password" minlength="{{ clave_min }}" required
+                   aria-describedby="claveAyuda">
+            <div id="claveAyuda" class="form-text">Al menos {{ clave_min }} caracteres.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="claveRepetir">Repetir la nueva</label>
+            <input type="password" name="repetir" id="claveRepetir" class="form-control"
+                   autocomplete="new-password" minlength="{{ clave_min }}" required>
+            <div class="invalid-feedback">No coincide con la contraseña nueva.</div>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="claveVer">
+            <label class="form-check-label" for="claveVer">Mostrar contraseñas</label>
+          </div>
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-floppy me-1"></i>Guardar contraseña nueva
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const nueva = document.getElementById('claveNueva');
+  const rep   = document.getElementById('claveRepetir');
+  function chequear() {
+    const mal = rep.value && rep.value !== nueva.value;
+    rep.classList.toggle('is-invalid', mal);
+    rep.setCustomValidity(mal ? 'No coincide con la contraseña nueva.' : '');
+  }
+  nueva.addEventListener('input', chequear);
+  rep.addEventListener('input', chequear);
+  document.getElementById('claveVer').addEventListener('change', function () {
+    document.querySelectorAll('input[name="actual"], #claveNueva, #claveRepetir')
+      .forEach(i => { i.type = this.checked ? 'text' : 'password'; });
+  });
+})();
+</script>
+{% endblock %}
