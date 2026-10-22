@@ -28,6 +28,7 @@ def _extraer_pata(nombre: str) -> str:
     return m.group(1) if m else "?"
 from ..templates_config import templates
 from ..models import CondicionBoleta
+from ..services import reglas_boleta as reglas
 from ..database import get_db
 # Fecha argentina + periodos anio-mes del historial (auditoria A-2 / C-1):
 # NUNCA usar date.today() aca - el server corre en UTC y de noche corre el mes.
@@ -2021,13 +2022,8 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
         #   - Si todavía hay cuotas pendientes con cobrador y no contado → EN_COBRANZA
         # No tocamos BAJA / SIN_VENDER / CAJA (bajas reales de Socios).
         from ..models import CondicionBoleta as _CB
-        _es_contado = (boleta.numero_especial is not None) or (boleta.numero_especial_2 is not None)
-        _cuotas_pendientes = (boleta.cuotas_pagadas or 0) < (boleta.cuotas_pactadas or 0)
         if boleta.condicion not in (_CB.BAJA, _CB.SIN_VENDER, _CB.CAJA):
-            if boleta.cobrador_id and _cuotas_pendientes and not _es_contado:
-                boleta.condicion = _CB.EN_COBRANZA
-            else:
-                boleta.condicion = _CB.VENDIDO
+            boleta.condicion = reglas.condicion_vendida(boleta)
 
         cobradas = len(cuotas_nuevas)
         if cobradas > 0:

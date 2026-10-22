@@ -49,6 +49,7 @@ al día y otra atrasada, importa la atrasada.
 import json
 
 from .tiempo import hoy_ar, parse_periodo
+from .services.reglas_boleta import es_contado
 
 # rank: para ordenar la columna. Menor = más urgente, así al ordenar ascendente
 # los problemas quedan arriba.
@@ -152,18 +153,19 @@ def estado_boleta(b, ref):
 
     pactadas = int(b.cuotas_pactadas or 0)
     pagadas = int(b.cuotas_pagadas or 0)
-    anticipadas = int(b.cuotas_anticipadas or 0)
-    modalidad = (getattr(b, "modalidad_liquidacion", None) or "").lower()
+    modalidad = (getattr(b, "modalidad_liquidacion", None) or "").strip().lower()
 
     # 2. Contado — pagó todo de entrada, no entra en el circuito de cuotas.
+    #    Si es contado lo decide la regla única (services/reglas_boleta.py);
+    #    acá solo se distingue cuál de los dos:
     #    Slot 1 + slot 2 asignados = pago en 1 sola vez ("CONTADO").
     #    Solo slot 2 = pago en 2 veces ("CONTADO X2").
-    esp1 = b.numero_especial is not None
-    esp2 = getattr(b, "numero_especial_2", None) is not None
-    if modalidad == "contado2" or (esp2 and not esp1):
-        return {"texto": "CONTADO X2", "clase": "contado", "rank": RANK_CONTADO,
-                "tip": "Pagó en 2 pagos (sorteo CONTADO 2 VECES)"}
-    if modalidad == "contado" or esp1 or (pactadas and anticipadas >= pactadas):
+    if es_contado(b):
+        esp1 = b.numero_especial is not None
+        esp2 = getattr(b, "numero_especial_2", None) is not None
+        if modalidad == "contado2" or (esp2 and not esp1):
+            return {"texto": "CONTADO X2", "clase": "contado", "rank": RANK_CONTADO,
+                    "tip": "Pagó en 2 pagos (sorteo CONTADO 2 VECES)"}
         return {"texto": "CONTADO", "clase": "contado", "rank": RANK_CONTADO,
                 "tip": "Pagó al contado (bono completo de una)"}
 

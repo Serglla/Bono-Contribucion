@@ -8,6 +8,7 @@ from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..models import CondicionBoleta
 from ..database import get_db
+from ..services import reglas_boleta as reglas
 from ..tiempo import parse_periodo, hoy_ar
 from .vendedores import _stats_bulk
 
@@ -376,15 +377,10 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
             q = q.filter(filtro)
         return q.scalar() or 0
 
-    # "al contado" = tiene numero_especial asignado  O  pagó todas las cuotas por adelantado
-    # (equivalente a la lógica `es_contado or anticipo_total` de compradores.html)
-    _anticipo_total = (
-        (models.Boleta.cuotas_pactadas.isnot(None)) &
-        (models.Boleta.cuotas_pactadas > 0) &
-        (models.Boleta.cuotas_anticipadas.isnot(None)) &
-        (models.Boleta.cuotas_anticipadas >= models.Boleta.cuotas_pactadas)
-    )
-    _es_contado = (models.Boleta.numero_especial.isnot(None)) | _anticipo_total
+    # "al contado" = regla única reglas.es_contado (la misma del badge de Socios).
+    # Antes acá se ignoraba el slot 2 y la modalidad de liquidación: los
+    # "contado 2 veces" sin número especial todavía salían como EN CUOTAS.
+    _es_contado = reglas.es_contado_sql()
 
     totales = {
         # Taloneras vendidas — toda boleta con comprador asignado

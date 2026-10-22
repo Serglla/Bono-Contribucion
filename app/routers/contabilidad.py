@@ -6,6 +6,7 @@ from typing import Optional
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
+from ..services import reglas_boleta as reglas
 # Cuotas cobrables segun la fecha (las ultimas van de regalo). Ver app/cuotas.py.
 from ..cuotas import (cuotas_vigentes, campana, invalidar_campana,
                       CAMPANA_DEFAULTS, CAMPANA_CLAVES)
@@ -54,13 +55,8 @@ async def contabilidad_index(request: Request, db: Session = Depends(get_db)):
     boletas = [b for b in todas_boletas if b.condicion != models.CondicionBoleta.BAJA]
     baja_boletas = [b for b in todas_boletas if b.condicion == models.CondicionBoleta.BAJA]
 
-    # Helper: ¿es boleta al contado?
-    def _es_contado(b):
-        if b.numero_especial is not None or b.numero_especial_2 is not None:
-            return True
-        pac = b.cuotas_pactadas or 0
-        ant = b.cuotas_anticipadas or 0
-        return pac > 0 and ant >= pac
+    # ¿Es boleta al contado? Regla única en services/reglas_boleta.py
+    _es_contado = reglas.es_contado
 
     # ── Total en Brutos ──────────────────────────────────────────────────
     # Cuotas activas (no BAJA, no contado): ingreso proyectado = cuotas_pactadas × valor_cuota

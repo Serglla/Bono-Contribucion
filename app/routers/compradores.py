@@ -12,6 +12,7 @@ from ..models import CondicionBoleta
 # Cuotas que se cobran realmente segun la fecha de venta: las que no entran antes
 # del sorteo final (jun-2027) van de regalo. Ver app/cuotas.py.
 from ..cuotas import cuotas_vigentes
+from ..services import reglas_boleta as reglas
 # Columna ESTADO de la lista de socios (al día / contado / debe N / baja).
 from ..estado_socio import estados_por_socio, estado_boleta, periodos_referencia, ref_boleta
 
@@ -43,8 +44,6 @@ async def listar(request: Request, db: Session = Depends(get_db),
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'compradores', 'ver'):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
-
-    from sqlalchemy import or_ as sql_or
 
     # Base query: compradores que tengan al menos una boleta
     query = db.query(models.Comprador).join(models.Zona, isouter=True)
@@ -114,31 +113,20 @@ async def listar(request: Request, db: Session = Depends(get_db),
     # Filtro: socios cuyo cobrador actual es X.
     # Excluye contados: aunque la boleta conserve cobrador_id (bug viejo de
     # auto-asignación), un contado no lo cobra el cobrador y no debe aparecer
-    # en su listado. Mismo criterio que el badge CONTADO del template:
-    # numero_especial / numero_especial_2 asignado, o anticipo_total
-    # (cuotas_pactadas>0 y cuotas_anticipadas >= cuotas_pactadas).
+    # en su listado (regla única: reglas.es_contado).
     if _cob_id is not None:
         query = query.filter(
             models.Boleta.cobrador_id == _cob_id,
-            models.Boleta.numero_especial.is_(None),
-            models.Boleta.numero_especial_2.is_(None),
-            sql_or(
-                func_count.coalesce(models.Boleta.cuotas_pactadas, 0) == 0,
-                func_count.coalesce(models.Boleta.cuotas_anticipadas, 0)
-                    < func_count.coalesce(models.Boleta.cuotas_pactadas, 0),
-            ),
+            reglas.no_es_contado_sql(),
         )
     # Filtro: socios cuyo vendedor (en alguna boleta) es X
     if _vend_id is not None:
         query = query.filter(models.Boleta.vendedor_id == _vend_id)
     # Filtro: modalidad cuotas vs contado.
-    # contado = boleta con numero_especial(_2) asignado.
+    # contado = reglas.es_contado (misma regla que el badge CONTADO).
     # cuotas  = boleta en curso (cuotas_pagadas < cuotas_pactadas).
     if cont == "contado":
-        query = query.filter(sql_or(
-            models.Boleta.numero_especial.isnot(None),
-            models.Boleta.numero_especial_2.isnot(None),
-        ))
+        query = query.filter(reglas.es_contado_sql())
     elif cont == "cuotas":
         query = query.filter(models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas)
     # Filtro por mes / año de la fecha de compra (fecha_venta)
@@ -213,10 +201,7 @@ async def listar(request: Request, db: Session = Depends(get_db),
         except (TypeError, ValueError):
             pass
     if cont == "contado":
-        tabs_query = tabs_query.filter(sql_or(
-            models.Boleta.numero_especial.isnot(None),
-            models.Boleta.numero_especial_2.isnot(None),
-        ))
+        tabs_query = tabs_query.filter(reglas.es_contado_sql())
     elif cont == "cuotas":
         tabs_query = tabs_query.filter(
             models.Boleta.cuotas_pagadas < models.Boleta.cuotas_pactadas,
@@ -947,40 +932,28 @@ async def crear(
                 b.numero_especial_2 = _ne2
                 b.talonera_especial_2_id = _te2
 
-            # Auto-asignar cobrador según la zona del comprador,
-            # SOLO si la boleta tiene cuotas pendientes para cobrar.
-            # Las "al contado" (cuotas_pagadas >= cuotas_pactadas) NO necesitan
-            # cobrador, aunque todavía no tengan numero_especial asignado
-            # (se asigna recién al cerrarse el talonario especial).
-            _toda_paga = (b.cuotas_pagadas or 0) >= (b.cuotas_pactadas or 0)
+            # Auto-asignar cobrador según la zona del comprador, SOLO si queda
+            # algo por cobrar (ver reglas.lleva_cobrador): los contados y las
+            # que ya entraron todas pagas NO llevan cobrador.
             # Cobrador elegido a mano en el modal (campo opcional, arranca vacío
             # en cada socio): si vino, PISA al de la zona. Si no, manda la zona.
             _cob_manual = _parse_cobrador_id(cobrador_id, db)
-            if not _toda_paga:
+            if reglas.lleva_cobrador(b):
                 if _cob_manual:
                     b.cobrador_id = _cob_manual
                 elif c.zona_id:
                     z = db.query(models.Zona).get(c.zona_id)
                     if z and z.cobrador_id:
                         b.cobrador_id = z.cobrador_id
-            # Transición de condición según el flujo correcto:
-            #   EN_COBRANZA = solo cuotas pendientes con cobrador asignado y no contado.
-            #   VENDIDO     = todo lo demás (contado, cuotas finalizadas, sin cobrador).
+            # Transición de condición (EN_COBRANZA / VENDIDO, ver reglas.en_cobranza).
             # Si la boleta venía de BAJA no se toca.
-            _es_contado = (b.numero_especial is not None) or (b.numero_especial_2 is not None)
-            _cuotas_pendientes = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
-            _en_cobranza = bool(
-                b.cobrador_id and _cuotas_pendientes and not _es_contado
-            )
             if b.condicion in (
                 CondicionBoleta.SIN_VENDER,
                 CondicionBoleta.CAJA,
                 CondicionBoleta.VENDIDO,
                 CondicionBoleta.EN_COBRANZA,
             ):
-                b.condicion = (
-                    CondicionBoleta.EN_COBRANZA if _en_cobranza else CondicionBoleta.VENDIDO
-                )
+                b.condicion = reglas.condicion_vendida(b)
     db.commit()
 
     # Si el cliente espera JSON (modal AJAX), devolvemos info de la zona creada
@@ -1069,6 +1042,9 @@ async def editar_basico(
             b = None   # no es de este socio: ignorar por seguridad
 
     if b is not None:
+        # Candado de edición: solo si ya tiene número especial asignado. NO se usa
+        # reglas.es_contado a propósito: esa incluye "anticipadas >= pactadas", y
+        # entonces una boleta cargada por error como 9/9 no se podría corregir acá.
         _es_contado = (b.numero_especial is not None) or (b.numero_especial_2 is not None)
         _nc_nominal = (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0) or 12
         _fecha_ref = b.fecha_venta or getattr(b.liquidacion_vendedor, "fecha", None)
@@ -1087,21 +1063,16 @@ async def editar_basico(
         # Cobrador: solo si el modal lo mandó explícitamente (campo tocado).
         if (cobrador_tocado or "").strip():
             _cob = _parse_cobrador_id(cobrador_id, db)
-            _toda_paga = (b.cuotas_pagadas or 0) >= (b.cuotas_pactadas or 0)
-            b.cobrador_id = _cob if (_cob and not _toda_paga) else None
+            b.cobrador_id = _cob if (_cob and reglas.lleva_cobrador(b)) else None
 
         # Recalcular condición con el estado nuevo (misma regla que en el alta).
-        _cuotas_pendientes = (b.cuotas_pagadas or 0) < (b.cuotas_pactadas or 0)
-        _en_cobranza = bool(b.cobrador_id and _cuotas_pendientes and not _es_contado)
         if b.condicion in (
             CondicionBoleta.SIN_VENDER,
             CondicionBoleta.CAJA,
             CondicionBoleta.VENDIDO,
             CondicionBoleta.EN_COBRANZA,
         ):
-            b.condicion = (
-                CondicionBoleta.EN_COBRANZA if _en_cobranza else CondicionBoleta.VENDIDO
-            )
+            b.condicion = reglas.condicion_vendida(b)
 
     db.commit()
 
@@ -1143,12 +1114,10 @@ def _derivar_condicion(boleta) -> str:
     if boleta.condicion and boleta.condicion.value == "BAJA":
         return "BAJA"
 
-    es_contado = (boleta.numero_especial is not None) or (boleta.numero_especial_2 is not None)
-    cuotas_pendientes = (boleta.cuotas_pagadas or 0) < (boleta.cuotas_pactadas or 0)
     rendida = (boleta.liquidacion_vendedor_id is not None) or (boleta.comprador_id is not None)
 
     # Si está vendida y tiene cobrador con cuotas pendientes y NO es contado → EN_COBRANZA
-    if rendida and boleta.cobrador_id and cuotas_pendientes and not es_contado:
+    if rendida and reglas.en_cobranza(boleta):
         return "EN_COBRANZA"
 
     # Si está rendida (con o sin socio) y no es EN_COBRANZA → VENDIDO
@@ -2245,7 +2214,7 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
             "lat": lat_pre,
             "lng": lng_pre,
             "ya_intentado": ya_intentado,  # true = no reintentar geocoding (fallo previo)
-            "es_contado": (b.numero_especial is not None) or ((b.cuotas_anticipadas or 0) >= (b.cuotas_pactadas or 1)),
+            "es_contado": reglas.es_contado(b),
             "contado_2_veces": b.numero_especial_2 is not None,
         })
         if t.nombre not in patas_set:

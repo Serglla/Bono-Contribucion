@@ -10,6 +10,7 @@ from ..models import CondicionBoleta
 from ..database import get_db
 # Cuotas cobrables segun la fecha (las ultimas van de regalo). Ver app/cuotas.py.
 from ..cuotas import cuotas_vigentes
+from ..services import reglas_boleta as reglas
 
 router = APIRouter(prefix="/taloneras", tags=["taloneras"])
 
@@ -315,9 +316,9 @@ async def buscar_boleta_global(numero: int, request: Request, db: Session = Depe
         # "" (sin liquidar) | "cuotas" | "contado" | "contado2".
         # Si es contado/contado2, al cargar el socio las cuotas ya están cobradas.
         "modalidad_liquidacion": (b.modalidad_liquidacion or ""),
-        # Señal alternativa de contado: tiene número especial asignado (data vieja /
-        # rearmada que no dejó modalidad_liquidacion). El modal precarga igual.
-        "es_contado": (b.numero_especial is not None) or (b.numero_especial_2 is not None),
+        # Regla única de contado (reglas.es_contado): cubre la data vieja/rearmada
+        # que no dejó modalidad_liquidacion. El modal precarga igual.
+        "es_contado": reglas.es_contado(b),
         "num_cuotas": (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 12),
         # ── Fecha real de la venta y cuotas que le corresponden ──────────────
         # El socio se carga después de que el vendedor rinde, a veces cruzando el

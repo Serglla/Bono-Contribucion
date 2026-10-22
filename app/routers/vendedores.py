@@ -17,6 +17,7 @@ from ..tiempo import hoy_ar, ahora_ar
 # Cuotas que realmente se cobran segun la fecha (las ultimas van de regalo
 # porque el sorteo final es en junio 2027). Ver app/cuotas.py.
 from ..cuotas import cuotas_vigentes, cuotas_regaladas, campana
+from ..services import reglas_boleta as reglas
 
 router = APIRouter(prefix="/vendedores", tags=["vendedores"])
 
@@ -838,7 +839,7 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
             "cond":    b.condicion.value if b.condicion else "?",
             "liq":     b.liquidacion_vendedor_id is not None,
             "tiene_socio": b.comprador_id is not None,
-            "contado": (b.numero_especial is not None) or (b.numero_especial_2 is not None),
+            "contado": reglas.es_contado(b),
             "pool":    False,
             "liq_por_otro_nombre": liq_por_otro["vendedor_nombre"] if liq_por_otro else None,
             "liq_por_otro_es_jefe": liq_por_otro["es_jefe"] if liq_por_otro else False,
@@ -2273,41 +2274,10 @@ def _recalc_liq_totales(liq):
     )
 
 
-MODALIDADES_LIQ = ("cuotas", "contado", "contado2")
-
-
-def modalidad_de_boleta(b):
-    """Modalidad con la que la boleta `b` entró a su liquidación.
-
-    Las boletas anteriores al campo `modalidad_liquidacion` lo tienen en NULL y
-    hay que inferirla. Dos rastros, y hacen falta los DOS:
-
-    1. Tiene número especial (`numero_especial` / `_2`) — el sorteo extra solo
-       se da al que paga al contado.
-    2. Entró pagando todo: `cuotas_anticipadas >= cuotas_pactadas`.
-
-    El punto 2 no es redundante: los números especiales vienen en talonarios de
-    5 y se cargan recién cuando se cierra el talonario, así que una boleta al
-    contado pasa semanas SIN número especial. Mirando solo el punto 1 esas
-    boletas se leen como "en cuotas" y la liquidación parece desfasada cuando
-    no lo está. Es el mismo criterio del badge "Al contado" de Socios
-    (ver el fix del 18/05/2026 en cobranza.py).
-
-    OJO: se usa `cuotas_anticipadas` (lo que cobró el vendedor en el acto), NO
-    `cuotas_pagadas` (que crece con la cobranza mes a mes). Una boleta que
-    terminó de pagarse en cobranza NO es un contado.
-    """
-    if b is None:
-        return "cuotas"
-    m = (b.modalidad_liquidacion or "").strip().lower()
-    if m in MODALIDADES_LIQ:
-        return m
-    if (b.numero_especial is not None) or (b.numero_especial_2 is not None):
-        return "contado"
-    pactadas = int(b.cuotas_pactadas or 0)
-    if pactadas > 0 and int(b.cuotas_anticipadas or 0) >= pactadas:
-        return "contado"
-    return "cuotas"
+# Modalidad de liquidación y regla de contado: viven en services/reglas_boleta.py
+# (fuente única). Se re-exportan con el mismo nombre para no tocar los usos.
+MODALIDADES_LIQ = reglas.MODALIDADES_LIQ
+modalidad_de_boleta = reglas.modalidad_de_boleta
 
 
 def _monto_contado_boleta(b, liq, fecha=None):
@@ -2739,13 +2709,7 @@ async def liquidacion_ajustar_cuotas_socio(liq_id: int, request: Request, db: Se
             z = db.query(models.Zona).get(b.comprador.zona_id)
             if z and z.cobrador_id:
                 b.cobrador_id = z.cobrador_id
-        _es_contado_esp = (b.numero_especial is not None) or (b.numero_especial_2 is not None)
-        _pendientes = int(b.cuotas_pagadas or 0) < pactadas
-        b.condicion = (
-            CondicionBoleta.EN_COBRANZA
-            if (b.cobrador_id and _pendientes and not _es_contado_esp)
-            else CondicionBoleta.VENDIDO
-        )
+        b.condicion = reglas.condicion_vendida(b)
 
     db.commit()
     return JSONResponse({

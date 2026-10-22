@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
+from ..services import reglas_boleta as reglas
 from ..tiempo import match_periodo
 from ..scraper import buscar_resultado_tombola
 
@@ -1495,18 +1496,12 @@ async def entregas_form(sid: int, request: Request, db: Session = Depends(get_db
             c = b.comprador if b else None
             # Columna Cobrador: quién le cobra a este ganador, para saber a quién
             # mandarle el recibo. Si la boleta es al contado no hay cobrador →
-            # se muestra "Contado". Mismo criterio que el badge de Socios:
-            # tiene número especial (slot 1 o 2) O entró pagando todo de entrada
-            # (cuotas_anticipadas >= cuotas_pactadas) — los especiales se cargan
-            # recién cuando se agota el talonario de 5, así que puede no haberlo aún.
+            # se muestra "Contado" (regla única: reglas.es_contado, la misma del
+            # badge de Socios).
             _contado = False
             _cobrador = ""
             if b is not None:
-                _pact = b.cuotas_pactadas or 0
-                _contado = bool(
-                    b.numero_especial or b.numero_especial_2
-                    or (_pact > 0 and (b.cuotas_anticipadas or 0) >= _pact)
-                )
+                _contado = reglas.es_contado(b)
                 _cobrador = b.cobrador.nombre if b.cobrador else ""
             entregas.append({
                 "id": e.id,
