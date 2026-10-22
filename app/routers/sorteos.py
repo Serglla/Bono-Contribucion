@@ -216,42 +216,28 @@ async def extracto_mes(
                     "numero": num4,
                 })
 
-                # Cruzar con cada cifra del sorteo
+                # Cruzar con cada cifra del sorteo (de mayor a menor). Qué números
+                # juega cada boleta lo decide _numeros_que_juegan (CONTADO = solo
+                # los especiales; resto = toda la pata, sin el pool de CONTADO).
                 for c in cifras_list:
                     sufijo = num4[-c:]
                     for b in boletas_anteriores:
-                        if b.id in ganadores_dict:
+                        # Una boleta figura UNA vez por bloque, al nivel de cifras
+                        # MÁS ALTO que haya pegado (misma regla que la pantalla de
+                        # ganadores). Antes se quedaba con el primer premio que
+                        # coincidía: en el FINAL, 3 cifras con el premio 1 tapaba
+                        # 4 cifras con el premio 2. A igual nivel gana el primero.
+                        previo = ganadores_dict.get(b.id)
+                        if previo is not None and int(previo["cifras_auto"] or 0) >= c:
                             continue
-                        # Para sorteo CONTADO usamos numero_especial / numero_especial_2
-                        if tipo == "CONTADO":
-                            candidatos = []
-                            if b.numero_especial is not None:
-                                candidatos.append(b.numero_especial)
-                            if b.numero_especial_2 is not None:
-                                candidatos.append(b.numero_especial_2)
-                            for n in candidatos:
-                                bol4 = f"{n:04d}"
-                                if bol4[-c:] == sufijo:
-                                    ganadores_dict[b.id] = _build_ganador(
-                                        b, bol4, c, s,
-                                        overrides.get((s.id, b.id)),
-                                        cifras_overrides.get((s.id, b.id)))
-                                    break
-                        else:
-                            # Excluir boletas de talonera CONTADO (pool, no son boletas reales)
-                            if b.talonera and (b.talonera.tipo or "COMUN") == "CONTADO":
-                                continue
-                            # Cruzar contra TODOS los números de la boleta (principal +
-                            # adicionales). El número ganador puede ser cualquiera de la
-                            # pata, no solo el principal.
-                            for n in _numeros_boleta(b):
-                                bol4 = f"{n:04d}"
-                                if bol4[-c:] == sufijo:
-                                    ganadores_dict[b.id] = _build_ganador(
-                                        b, bol4, c, s,
-                                        overrides.get((s.id, b.id)),
-                                        cifras_overrides.get((s.id, b.id)))
-                                    break
+                        for n in _numeros_que_juegan(b, tipo):
+                            bol4 = f"{n:04d}"
+                            if bol4[-c:] == sufijo:
+                                ganadores_dict[b.id] = _build_ganador(
+                                    b, bol4, c, s,
+                                    overrides.get((s.id, b.id)),
+                                    cifras_overrides.get((s.id, b.id)))
+                                break
 
         # Ordenar premios por fecha y posición
         premios.sort(key=lambda p: (p["fecha"], p["posicion"]))
@@ -761,6 +747,24 @@ def _numeros_boleta(b) -> List[int]:
     return nums
 
 
+def _numeros_que_juegan(b, tipo: str) -> List[int]:
+    """Números con los que la boleta `b` juega un sorteo de tipo `tipo`.
+
+    FUENTE ÚNICA para la pantalla de ganadores y el extracto (antes cada uno
+    tenía su versión y en los sorteos CONTADO no coincidían):
+      * CONTADO → solo los números especiales (slot 1 y slot 2). Los números de
+        la pata NO juegan: un socio en cuotas no participa de este sorteo.
+      * resto   → toda la pata (principal + adicionales).
+    Las boletas de una talonera CONTADO son el pool de especiales, no boletas
+    vendidas: no juegan nunca por sí mismas.
+    """
+    if b.talonera is not None and (b.talonera.tipo or "COMUN") == "CONTADO":
+        return []
+    if tipo == "CONTADO":
+        return [n for n in (b.numero_especial, b.numero_especial_2) if n is not None]
+    return _numeros_boleta(b)
+
+
 def _build_ganador(b, numero_match: str, cifras_match: int, sorteo, override=None,
                    cifras_override=None) -> dict:
     nombre = (b.comprador.apellido_nombre or "").strip().upper() if b.comprador else ""
@@ -1117,9 +1121,11 @@ def _calcular_grupos_ganadores(s, db):
     }
 
     # Construir índice: suffix_map[n_cifras][sufijo] = [(boleta, numero_entero), ...]
+    # Qué números juega cada boleta depende del tipo (CONTADO = especiales).
+    tipo = s.tipo.value if hasattr(s.tipo, "value") else str(s.tipo)
     suffix_map = {n: {} for n in cifras_list}
     for boleta in boletas:
-        for num in _numeros_boleta(boleta):
+        for num in _numeros_que_juegan(boleta, tipo):
             num_str = str(num).zfill(4)
             for n in cifras_list:
                 sufijo = num_str[-n:]
@@ -1149,7 +1155,7 @@ def _calcular_grupos_ganadores(s, db):
                     continue
                 vistos_boleta.add(key)
 
-                otros = [str(x).zfill(4) for x in _numeros_boleta(boleta) if x != num_match]
+                otros = [str(x).zfill(4) for x in _numeros_que_juegan(boleta, tipo) if x != num_match]
 
                 tiene_socio = boleta.comprador is not None
                 # Ganador válido: tiene socio Y se vendió hasta el día del sorteo.
