@@ -192,3 +192,80 @@ def test_sin_permiso_de_editar_cobranza_no_puede():
     (b,) = _recargar(db, b)
     assert not b.historial_cuotas
     db.close()
+
+
+# ── Servicio directo (services/liquidacion_cobranza.py), sin base ───────────
+
+from types import SimpleNamespace as NS  # noqa: E402
+
+from app.services import liquidacion_cobranza as liq_cob  # noqa: E402
+
+
+def _b(historial=None, pactadas=9, anticipadas=1, **kw):
+    base = dict(historial_cuotas=json.dumps(historial) if historial is not None else None,
+                cuotas_pactadas=pactadas, cuotas_anticipadas=anticipadas, cuotas_pagadas=anticipadas,
+                condicion=CondicionBoleta.EN_COBRANZA, cobrador_id=1, planilla_id=10,
+                paso_origen_planilla_id=None, paso_cuota=None, mes_baja=None,
+                modalidad_liquidacion=None, numero_especial=None, numero_especial_2=None)
+    base.update(kw)
+    return NS(**base)
+
+
+def test_aplicar_cobro_historial_viejo_sin_anio():
+    # Historial legacy {"2": 8} (agosto sin año): liquidar agosto 2026 lo reemplaza.
+    b = _b({"2": 8})
+    assert liq_cob.aplicar_cobro(b, [2, 3], 2026, 8, 10) == 2
+    assert json.loads(b.historial_cuotas) == {"2": "2026-08", "3": "2026-08"}
+
+
+def test_aplicar_cobro_historial_roto_arranca_de_cero():
+    b = _b()
+    b.historial_cuotas = "{roto"
+    assert liq_cob.aplicar_cobro(b, [2], 2026, 8, 10) == 1
+    assert b.cuotas_pagadas == 2
+
+
+def test_aplicar_cobro_no_toca_bajas_reales_ni_caja():
+    for cond in (CondicionBoleta.BAJA, CondicionBoleta.CAJA, CondicionBoleta.SIN_VENDER):
+        b = _b(condicion=cond, pactadas=3)
+        liq_cob.aplicar_cobro(b, [2, 3], 2026, 8, 10)
+        assert b.condicion == cond
+
+
+def test_aplicar_cobro_contado_queda_vendido():
+    b = _b(modalidad_liquidacion="contado")
+    liq_cob.aplicar_cobro(b, [], 2026, 8, 10)
+    assert b.condicion == CondicionBoleta.VENDIDO
+
+
+def test_totales_redondea_a_centavos():
+    assert liq_cob.totales(45000, 10) == (45000, 4500, 40500)
+    assert liq_cob.totales(10000.0 / 3, 7.5) == (3333.33, 250.0, 3083.33)
+    assert liq_cob.totales(30000, None) == (30000, 0.0, 30000)
+
+
+def test_resolver_periodo():
+    hoy = hoy_ar()
+    assert liq_cob.resolver_periodo(0, 0) == (hoy.year, hoy.month, False, False)
+    assert liq_cob.resolver_periodo(8, 2026)[:2] == (2026, 8)
+    assert liq_cob.resolver_periodo(13, 2026) == (hoy.year, hoy.month, False, True)
+    assert liq_cob.resolver_periodo(1, 2099) == (hoy.year, hoy.month, False, True)
+    assert liq_cob.resolver_periodo("x", "y") == (hoy.year, hoy.month, False, True)
+
+
+def test_cuota_cuenta_aca():
+    # Salió de acá con 4 pagas (corte): la 5 ya es de la planilla destino.
+    assert liq_cob.cuota_cuenta_aca("4", 4, 0) and not liq_cob.cuota_cuenta_aca("5", 4, 0)
+    # Entró con 3 pagas del cobrador anterior: la 3 no es de acá, la 4 sí.
+    assert not liq_cob.cuota_cuenta_aca("3", None, 3) and liq_cob.cuota_cuenta_aca("4", None, 3)
+    assert not liq_cob.cuota_cuenta_aca("x", None, 0)
+
+
+def test_recibidas_y_mapa():
+    vino = _b(paso_origen_planilla_id=7, paso_cuota=3, id=1)
+    propia = _b(id=2)
+    salio_de_aca = _b(paso_origen_planilla_id=10, paso_cuota=4, id=3)
+    assert liq_cob.recibidas_de(vino, 10) == 3
+    assert liq_cob.recibidas_de(propia, 10) == 0
+    assert liq_cob.recibidas_de(salio_de_aca, 10) == 0
+    assert liq_cob.mapa_recibidas([vino, propia, salio_de_aca], 10) == {1: 3}

@@ -46,6 +46,13 @@ def _borrar_db():
         pass
 
 
+# TestClient atiende cada pedido en otro hilo: cuando el recolector de basura
+# cierra una conexión SQLite de ese hilo, SQLAlchemy loguea un
+# "SQLite objects created in a thread..." que es solo ruido (no afecta datos ni
+# resultados). Se silencia ese logger únicamente en los tests.
+import logging  # noqa: E402
+logging.getLogger("sqlalchemy.pool").setLevel(logging.CRITICAL)
+
 from app import cuotas as _cuotas  # noqa: E402
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app import models  # noqa: E402,F401  (registra las tablas en Base)

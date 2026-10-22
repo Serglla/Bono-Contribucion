@@ -29,6 +29,7 @@ def _extraer_pata(nombre: str) -> str:
 from ..templates_config import templates
 from ..models import CondicionBoleta
 from ..services import reglas_boleta as reglas
+from ..services import liquidacion_cobranza as liq_cob
 from ..database import get_db
 # Fecha argentina + periodos anio-mes del historial (auditoria A-2 / C-1):
 # NUNCA usar date.today() aca - el server corre en UTC y de noche corre el mes.
@@ -140,44 +141,7 @@ def _es_x0(boleta) -> bool:
     return bool(boleta.talonera) and float(boleta.talonera.multiplicador or 1.0) < 1.0
 
 
-def _vc_boleta(b) -> float:
-    """Valor de UNA cuota de la boleta para sumar plata cobrada.
-    Usa el valor_cuota de su tanda; si esa tanda quedó en $0 (pasó con la
-    9024→9073 de PATA 0: la hoja de Mabel daba $50.000 de menos en la P8),
-    toma el de otra tanda de la misma PATA y, si ninguna tiene, el de PATA 1 ×
-    multiplicador (misma regla que la planilla)."""
-    t = b.talonera
-    if not t:
-        return 0.0
-    if t.valor_cuota and float(t.valor_cuota) > 0:
-        return float(t.valor_cuota)
-    cached = getattr(t, "_vc_fallback", None)
-    if cached is not None:
-        return cached
-    from sqlalchemy.orm import object_session
-    vc = 0.0
-    ses = object_session(t)
-    if ses is not None:
-        hermana = (ses.query(models.Talonera)
-                   .filter(models.Talonera.nombre == t.nombre,
-                           models.Talonera.tipo == (t.tipo or "COMUN"),
-                           models.Talonera.valor_cuota > 0)
-                   .first())
-        if hermana:
-            vc = float(hermana.valor_cuota)
-        else:
-            base = (ses.query(models.Talonera)
-                    .filter(models.Talonera.tipo == "COMUN",
-                            models.Talonera.multiplicador == 1.0,
-                            models.Talonera.valor_cuota > 0)
-                    .first())
-            if base:
-                vc = round(float(base.valor_cuota) * float(t.multiplicador or 1.0))
-    try:
-        t._vc_fallback = vc
-    except Exception:
-        pass
-    return vc
+_vc_boleta = liq_cob.valor_cuota   # vive en services/liquidacion_cobranza.py
 
 
 def _planilla_todo_pata0(boletas) -> bool:
@@ -310,34 +274,7 @@ def _resumen_mensual_rows(boletas, grid, meses_campana, comision_pct, paso_map=N
     return rows, tot, valor_cuota
 
 
-def _resolver_periodo_liq(mes: int = 0, anio: int = 0):
-    """Resuelve el período (año, mes) que se va a liquidar a partir de lo que
-    pidió el usuario, con dos reglas duras:
-
-      - Por defecto se liquida el mes calendario ACTUAL (hora argentina).
-      - NUNCA se puede liquidar un período FUTURO. Si piden uno (por URL
-        manipulada o por un selector desactualizado), se cae al actual y se
-        avisa con la bandera `ajustado`.
-
-    Un período PASADO sí se permite: es la corrección/edición de una cobranza
-    que ya se liquidó (o que quedó sin liquidar) en ese mes.
-
-    Devuelve (anio, mes, es_pasado, ajustado)."""
-    hoy = hoy_ar()
-    if not mes:  mes = hoy.month
-    if not anio: anio = hoy.year
-    try:
-        mes, anio = int(mes), int(anio)
-    except (TypeError, ValueError):
-        return hoy.year, hoy.month, False, True
-    if not (1 <= mes <= 12):
-        return hoy.year, hoy.month, False, True
-    # Comparación por período (año, mes): cualquier cosa posterior al mes en
-    # curso es futuro y se rechaza.
-    if (anio, mes) > (hoy.year, hoy.month):
-        return hoy.year, hoy.month, False, True
-    es_pasado = (anio, mes) < (hoy.year, hoy.month)
-    return anio, mes, es_pasado, False
+_resolver_periodo_liq = liq_cob.resolver_periodo   # vive en services/liquidacion_cobranza.py
 
 
 def _periodos_liquidables(planilla):
@@ -484,66 +421,16 @@ def _build_paso_map(boletas, planilla_id) -> dict:
     return out
 
 
-def _cuota_recibida(clave, recibidas: int) -> bool:
-    """True si la cuota `clave` del historial es una de las que la boleta ya
-    traía pagas al entrar a la planilla (las cobró el cobrador anterior)."""
-    if not recibidas:
-        return False
-    try:
-        return int(clave) <= int(recibidas)
-    except (TypeError, ValueError):
-        return False
+_cuota_recibida = liq_cob.cuota_recibida   # vive en services/liquidacion_cobranza.py
 
 
-def _cuota_cuenta_aca(clave, corte, recibidas) -> bool:
-    """¿La cuota `clave` del historial es cobranza de ESTA planilla?
-
-    Mismo criterio que el resumen de la planilla y la hoja de liquidación:
-      - `corte` (paso_cuota) → la boleta SALIÓ de acá: solo cuentan las cuotas
-        hasta el corte; las de después las cobra la planilla destino.
-      - `recibidas` → la boleta ENTRÓ desde otra planilla: las cuotas que ya
-        traía pagas las cobró el cobrador anterior y acá no suman.
-    """
-    try:
-        kn = int(clave)
-    except (TypeError, ValueError):
-        return False
-    if corte is not None and kn > corte:
-        return False
-    if recibidas and kn <= recibidas:
-        return False
-    return True
+_cuota_cuenta_aca = liq_cob.cuota_cuenta_aca   # vive en services/liquidacion_cobranza.py
 
 
-def _recibida_de(b, planilla_id=None) -> int:
-    """Cuotas que la boleta YA TRAÍA PAGAS cuando entró a esta planilla.
-
-    Cuando un número se pasa de un cobrador a otro ("Pasar números"), las cuotas
-    que cobró el cobrador ANTERIOR viajan con la boleta (historial_cuotas). En la
-    planilla NUEVA esas cuotas no son cobranza suya: se dibujan con X (igual que
-    las anticipadas de la venta) y no suman en su resumen ni en su comisión.
-
-    Devuelve 0 si la boleta no vino de otra planilla."""
-    origen = getattr(b, "paso_origen_planilla_id", None)
-    if not origen:
-        return 0
-    pid = planilla_id if planilla_id is not None else b.planilla_id
-    if origen == pid:
-        return 0
-    return int(getattr(b, "paso_cuota", 0) or 0)
+_recibida_de = liq_cob.recibidas_de   # vive en services/liquidacion_cobranza.py
 
 
-def _build_recibida_map(boletas, planilla_id) -> dict:
-    """{boleta_id: cuotas_pagas_al_recibirla} para las boletas que ENTRARON a
-    esta planilla viniendo de otra (ver `_recibida_de`)."""
-    out = {}
-    for b in boletas:
-        if b.planilla_id != planilla_id:
-            continue
-        n = _recibida_de(b, planilla_id)
-        if n > 0:
-            out[b.id] = n
-    return out
+_build_recibida_map = liq_cob.mapa_recibidas   # vive en services/liquidacion_cobranza.py
 
 
 def _hist_maps_display(boletas):
@@ -1961,7 +1848,6 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
     # esa liquidacion). Uno FUTURO nunca: el helper lo recorta al actual, asi
     # que un form manipulado no puede cargar cuotas adelantadas.
     _anio_liq, _mes_liq, _es_pasado, _ = _resolver_periodo_liq(mes, anio)
-    _per_liq = periodo_str(_anio_liq, _mes_liq)   # ej. "2026-07"
 
     total_cuotas = 0
     monto_total  = 0.0
@@ -1983,49 +1869,10 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
         except (TypeError, ValueError):
             baja_val = None
 
-        # Actualizar historial_cuotas: quitar SOLO las entradas del PERIODO
-        # actual (anio+mes) y reemplazarlas por la seleccion nueva. Con el
-        # formato viejo (mes sin anio) esto borraba tambien las cuotas del
-        # mismo mes de OTRO anio (fix C-1). Se guarda "YYYY-MM".
-        try:
-            historial = json.loads(boleta.historial_cuotas) if boleta.historial_cuotas else {}
-        except (ValueError, TypeError):
-            historial = {}
-        # Las cuotas que la boleta ya traía pagas de OTRO cobrador no se tocan:
-        # aunque se hayan cobrado en este mismo período, son de la liquidación
-        # de aquel cobrador. Si no se protegieran, guardar acá las borraría
-        # (no viajan en el form porque se dibujan con X, no como selección).
-        _rec_b = _recibida_de(boleta, planilla_id)
-        historial = {k: v for k, v in historial.items()
-                     if not match_periodo(v, _anio_liq, _mes_liq)
-                     or _cuota_recibida(k, _rec_b)}
-        cuotas_nuevas = [cn for cn in cuotas_nuevas
-                         if not _cuota_recibida(cn, _rec_b)]
-        for cn in cuotas_nuevas:
-            historial[str(cn)] = _per_liq
-        boleta.historial_cuotas = json.dumps(historial)
-
-        # cuotas_pagadas = anticipadas + todas las del historial
-        boleta.cuotas_pagadas = min(
-            (boleta.cuotas_anticipadas or 0) + len(historial),
-            boleta.cuotas_pactadas or ((boleta.cuotas_anticipadas or 0) + len(historial))
-        )
-
-        # Baja (clic derecho): es solo un REGISTRO visual. La boleta NO se saca
-        # de las planillas — sigue apareciendo siempre marcada con la línea.
-        # Por eso guardamos/limpiamos mes_baja pero NO tocamos la condicion
-        # (no la pasamos a BAJA, que la quitaría de las planillas futuras).
-        boleta.mes_baja = baja_val if baja_val else None
-
-        # Recalcular condicion según las cuotas, como siempre:
-        #   - Si quedó toda paga (o es contado, o no tiene cobrador) → VENDIDO
-        #   - Si todavía hay cuotas pendientes con cobrador y no contado → EN_COBRANZA
-        # No tocamos BAJA / SIN_VENDER / CAJA (bajas reales de Socios).
-        from ..models import CondicionBoleta as _CB
-        if boleta.condicion not in (_CB.BAJA, _CB.SIN_VENDER, _CB.CAJA):
-            boleta.condicion = reglas.condicion_vendida(boleta)
-
-        cobradas = len(cuotas_nuevas)
+        # Historial del período, cuotas pagas, baja y condición: ver
+        # services/liquidacion_cobranza.py::aplicar_cobro.
+        cobradas = liq_cob.aplicar_cobro(boleta, cuotas_nuevas, _anio_liq, _mes_liq,
+                                         planilla_id, mes_baja=baja_val)
         if cobradas > 0:
             db.add(models.LiquidacionDetalle(
                 liquidacion_id=liq.id,
@@ -2038,14 +1885,8 @@ async def liquidacion_guardar(request: Request, planilla_id: int,
         valor = _vc_boleta(boleta)
         monto_total += cobradas * float(valor)
 
-    comision_pct = float(planilla.comision_pct or 0.0)
-    comision = round(monto_total * (comision_pct / 100.0), 2)
-    neto     = round(monto_total - comision, 2)
-
     liq.total_cuotas = total_cuotas
-    liq.monto_total  = round(monto_total, 2)
-    liq.comision     = comision
-    liq.neto         = neto
+    liq.monto_total, liq.comision, liq.neto = liq_cob.totales(monto_total, planilla.comision_pct)
     liq.fecha = hoy_ar()
     db.commit()
 
