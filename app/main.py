@@ -980,18 +980,33 @@ def create_default_admin():
             db.rollback()
             print("Migracion entrega_cobrador_id entregas_premio: " + str(e))
 
-        if not db.query(models.User).filter_by(username="admin").first():
+        # Admin inicial: SOLO si no hay ningún administrador (base nueva).
+        # Antes se creaba con 'admin123' fijo cada vez que no existía un usuario
+        # llamado "admin": renombrarlo o borrarlo lo resucitaba en el próximo
+        # deploy con la clave conocida. Ahora la clave sale de ADMIN_PASSWORD o,
+        # si no está, se genera una al azar y se muestra UNA vez en el log.
+        if not db.query(models.User).filter_by(is_admin=True).first():
             import logging
-            logging.getLogger(__name__).warning(
-                "Creando usuario admin con contrasena por defecto 'admin123'"
-            )
-            admin = models.User(
-                username="admin",
-                email="admin@bomberos.com",
-                hashed_password=auth_module.hash_password("admin123"),
-                is_admin=True
-            )
-            db.add(admin)
-            db.commit()
+            import os
+            import secrets
+            _log = logging.getLogger(__name__)
+            _pwd = os.getenv("ADMIN_PASSWORD") or secrets.token_urlsafe(12)
+            try:
+                db.add(models.User(
+                    username="admin",
+                    email="admin@bomberos.com",
+                    hashed_password=auth_module.hash_password(_pwd),
+                    is_admin=True
+                ))
+                db.commit()
+                if os.getenv("ADMIN_PASSWORD"):
+                    _log.warning("Creado usuario admin con la clave de ADMIN_PASSWORD")
+                else:
+                    _log.warning("Creado usuario admin con clave generada: %s  "
+                                 "(guardala: no se vuelve a mostrar)", _pwd)
+            except Exception:
+                # Con 2 workers los dos arrancan a la vez: el segundo choca con el
+                # username único y no pasa nada.
+                db.rollback()
     finally:
         db.close()
