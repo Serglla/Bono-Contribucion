@@ -29,10 +29,13 @@ import sys
 import argparse
 from decimal import Decimal
 
-# IMPORTANTE: cambiar a False y poner la URL en .env (DATABASE_URL=...) si preferís.
-DATABASE_URL_DEFAULT = "postgresql://postgres:mLnPatDuzRYNGodaWTZBlygTEgWzqhpQ@tramway.proxy.rlwy.net:57548/railway"
-
-os.environ.setdefault("DATABASE_URL", DATABASE_URL_DEFAULT)
+# La conexión se lee de la variable de entorno DATABASE_URL (o del .env).
+# NUNCA escribir la URL con contraseña en el código: el repo se sube a GitHub.
+if not os.environ.get("DATABASE_URL"):
+    from dotenv import load_dotenv
+    load_dotenv()
+if not os.environ.get("DATABASE_URL"):
+    sys.exit("Falta DATABASE_URL (variable de entorno o archivo .env).")
 
 # Importa la app (asegurate de correr el script desde la raíz del repo, con el venv activo)
 from app.database import SessionLocal, engine

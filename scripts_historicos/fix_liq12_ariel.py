@@ -13,8 +13,13 @@ USO:
 """
 import os, sys, argparse
 
-DATABASE_URL_DEFAULT = "postgresql://postgres:mLnPatDuzRYNGodaWTZBlygTEgWzqhpQ@tramway.proxy.rlwy.net:57548/railway"
-os.environ.setdefault("DATABASE_URL", DATABASE_URL_DEFAULT)
+# La conexión se lee de la variable de entorno DATABASE_URL (o del .env).
+# NUNCA escribir la URL con contraseña en el código: el repo se sube a GitHub.
+if not os.environ.get("DATABASE_URL"):
+    from dotenv import load_dotenv
+    load_dotenv()
+if not os.environ.get("DATABASE_URL"):
+    sys.exit("Falta DATABASE_URL (variable de entorno o archivo .env).")
 
 from app.database import SessionLocal
 from app import models

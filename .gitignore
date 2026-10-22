@@ -63,3 +63,11 @@ asignar_huerfanas.txt
 
 # Cajón de lo que sobra, para revisar y borrar a mano
 _to_delete/
+
+# Documentos de trabajo (listas de socios, negociaciones): datos reales e
+# internos, quedan en la PC y NO van al repo.
+*.xlsx
+*.xls
+*.docx
+*.doc
+*.pdf
