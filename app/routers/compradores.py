@@ -13,6 +13,7 @@ from ..models import CondicionBoleta
 # del sorteo final (jun-2027) van de regalo. Ver app/cuotas.py.
 from ..cuotas import cuotas_vigentes
 from ..services import reglas_boleta as reglas
+from ..services import alta_socio
 # Columna ESTADO de la lista de socios (al día / contado / debe N / baja).
 from ..estado_socio import estados_por_socio, estado_boleta, periodos_referencia, ref_boleta
 
@@ -736,18 +737,8 @@ def _resolver_zona_ex(zona_id: Optional[int], zona_nueva: str, db: Session):
 
 
 def _parse_cobrador_id(raw, db) -> Optional[int]:
-    """Valida el cobrador elegido a mano en el modal de alta.
-
-    Campo opcional (casos poco frecuentes): si viene vacío o basura devuelve
-    None y sigue mandando la lógica de siempre (el cobrador de la zona)."""
-    try:
-        cid = int(str(raw or "").strip())
-    except (ValueError, TypeError):
-        return None
-    if cid <= 0:
-        return None
-    cob = db.query(models.Cobrador).get(cid)
-    return cob.id if cob else None
+    """Cobrador elegido a mano en el modal (vive en services/alta_socio.py)."""
+    return alta_socio.cobrador_valido(db, raw)
 
 
 @router.post("/crear")
@@ -775,185 +766,23 @@ async def crear(
         raise HTTPException(403, 'No tenés permiso para editar en esta sección')
     zona, zona_creada = _resolver_zona_ex(_parse_zona_id(zona_id), zona_nueva, db)
 
-    # ── Vínculo zona ↔ vendedor (una zona tiene un solo vendedor) ─────────
-    effective_vendedor_id = vendedor_id
-    if zona:
-        z_obj = db.query(models.Zona).get(zona)
-        if z_obj:
-            if z_obj.vendedor_id:
-                # La zona ya tiene vendedor asignado → usarlo siempre
-                effective_vendedor_id = z_obj.vendedor_id
-            elif vendedor_id:
-                # La zona no tiene vendedor → vincularlo ahora
-                z_obj.vendedor_id = vendedor_id
-                effective_vendedor_id = vendedor_id
-
-    # ── Anti-duplicados (idempotencia) ───────────────────────────────────────
-    # Antes el Comprador se creaba SIEMPRE, antes de mirar la boleta. Si el
-    # navegador reintentaba el mismo alta —cosa que pasaba seguido cuando el
-    # servidor tardaba y el fetch cortaba con "Error de conexión", aunque el
-    # guardado hubiera entrado— cada reintento creaba OTRO socio y le pasaba la
-    # boleta al último. Resultado: un socio bueno con su boleta y N-1 socios
-    # fantasma sin boleta, sin zona y sin fecha.
-    #
-    # Ahora la operación es idempotente: si la boleta ya tiene socio, se
-    # actualiza ese en lugar de crear uno nuevo. Reintentar deja de duplicar.
     _boleta = db.query(models.Boleta).get(boleta_id) if boleta_id else None
-
     if _boleta is None:
         # Sin boleta válida no hay socio que crear: sería un registro huérfano.
         # El modal siempre manda boleta_id, así que llegar acá es un form roto
         # o un reintento con la boleta ya borrada.
         raise HTTPException(400, "No se indicó una boleta válida para el socio.")
 
-    if _boleta.comprador_id:
-        # Reintento del mismo alta: reusar el socio que ya quedó asociado.
-        c = db.query(models.Comprador).get(_boleta.comprador_id)
-    else:
-        c = None
-
-    if c is None:
-        c = models.Comprador(
-            apellido_nombre=apellido_nombre.strip().upper(),
-            direccion=direccion.strip().upper() or None,
-            zona_id=zona,
-            telefono=telefono.strip() or None,
-        )
-        db.add(c)
-    else:
-        # Mismo socio, datos posiblemente corregidos en el reintento.
-        c.apellido_nombre = apellido_nombre.strip().upper()
-        c.direccion       = direccion.strip().upper() or None
-        c.telefono        = telefono.strip() or None
-        if zona:
-            c.zona_id = zona
-
-    db.flush()
-    if boleta_id:
-        b = _boleta
-        if b:
-            b.comprador_id = c.id
-            b.fecha_venta = date.fromisoformat(fecha_compra) if fecha_compra else b.fecha_venta
-            if effective_vendedor_id:
-                b.vendedor_id = effective_vendedor_id
-            # Si la boleta fue liquidada al contado (1 o 2 pagos) por el vendedor,
-            # las cuotas YA están cobradas: forzar pactadas completas y todo pago
-            # (ej: 12/12), sin importar lo que venga del formulario.
-            # Se detecta el contado por DOS señales (cualquiera alcanza), porque no
-            # siempre están las dos a la vez:
-            #   - modalidad_liquidacion ('contado'/'contado2'): liquidaciones hechas
-            #     desde la app (puede no tener numero_especial todavía).
-            #   - numero_especial / numero_especial_2 asignado: contados de data vieja
-            #     o rearmada por script, que NO setearon modalidad_liquidacion.
-            _mod_liq = (b.modalidad_liquidacion or "").strip().lower()
-            # Si el vendedor la liquidó EXPLÍCITAMENTE en cuotas, eso manda: NO se
-            # fuerza a contado aunque haya quedado un número especial colgado por
-            # error (dato viejo, o liquidación que después se corrigió a cuotas).
-            # Se limpia ese número espurio para que la boleta quede coherente como
-            # "en cuotas" y no se la marque "12/12 al contado". Antes alcanzaba con
-            # un numero_especial para forzar el contado, lo que dejaba boletas en
-            # cuotas atascadas como contado/emplanillables-no.
-            if _mod_liq == "cuotas":
-                if b.numero_especial is not None or b.numero_especial_2 is not None:
-                    b.numero_especial = None
-                    b.talonera_especial_id = None
-                    b.numero_especial_2 = None
-                    b.talonera_especial_2_id = None
-                _contado_liq = False
-            else:
-                _contado_liq = (
-                    _mod_liq in ("contado", "contado2")
-                    or b.numero_especial is not None
-                    or b.numero_especial_2 is not None
-                )
-            # ── Cuotas que realmente se cobran (03/08/2026) ────────────────────
-            # El sorteo final es en junio 2027: las cuotas que no llegan a cobrarse
-            # antes van de REGALO (ago-2026 → 11, sep → 10, oct → 9). Ver app/cuotas.py.
-            # De este `cuotas_pactadas` cuelga TODO lo demás: cobranza, planillas,
-            # reportes y contabilidad leen la boleta, no la talonera.
-            #
-            # QUÉ FECHA MANDA (y por qué importa): el socio se carga días después de
-            # que el vendedor rindió, a veces cruzando el mes — liquidación el viernes
-            # 28, alta el 1° del mes siguiente. Tomar "hoy" le comería una cuota. Orden:
-            #   1. La fecha de compra tipeada en el modal — el operador manda.
-            #      (El modal la prellena con la fecha de la liquidación, no con hoy.)
-            #   2. La fecha de la liquidación del vendedor, si la boleta se liquidó.
-            #   3. Hoy, para boletas que nunca pasaron por una liquidación.
-            _nc_nominal = (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0) or 12
-            _fecha_ref = b.fecha_venta or getattr(b.liquidacion_vendedor, "fecha", None)
-            _cuotas_max = cuotas_vigentes(_nc_nominal, _fecha_ref)
-            if _contado_liq:
-                # Al contado paga el total vigente de una: pactadas = anticipadas.
-                b.cuotas_pactadas = _cuotas_max
-                ant = _cuotas_max
-            else:
-                # El form manda el nominal de la talonera (12) en un hidden. Se
-                # recorta a lo cobrable: nunca se pactan cuotas que no se van a cobrar.
-                if cuotas_pactadas is not None and cuotas_pactadas > 0:
-                    b.cuotas_pactadas = min(int(cuotas_pactadas), _cuotas_max)
-                else:
-                    b.cuotas_pactadas = _cuotas_max
-                ant = cuotas_anticipadas if cuotas_anticipadas and cuotas_anticipadas > 0 else 1
-                ant = min(ant, _cuotas_max)   # no anticipar más cuotas de las que existen
-            b.cuotas_anticipadas = ant
-            b.cuotas_pagadas = ant   # las cuotas anticipadas ya están cobradas
-
-            # ── Números de sorteo especial (CONTADO / CONTADO 2 VECES) ──────
-            # Vienen del modal Nuevo Socio cuando la boleta es al contado. Son
-            # opcionales (los números llegan después, en talonarios de 5). Solo
-            # se asignan si el número está libre (no usado por otra boleta).
-            def _pi(x):
-                try:
-                    v = int(x)
-                    return v if v > 0 else None
-                except (ValueError, TypeError):
-                    return None
-
-            def _esp_libre(num, tal_id):
-                if not num or not tal_id:
-                    return False
-                q = db.query(models.Boleta).filter(
-                    models.Boleta.id != b.id,
-                    (
-                        ((models.Boleta.talonera_especial_id == tal_id) &
-                         (models.Boleta.numero_especial == num)) |
-                        ((models.Boleta.talonera_especial_2_id == tal_id) &
-                         (models.Boleta.numero_especial_2 == num))
-                    ),
-                ).first()
-                return q is None
-
-            _te1, _ne1 = _pi(te1), _pi(ne1)
-            _te2, _ne2 = _pi(te2), _pi(ne2)
-            if _te1 and _ne1 and _esp_libre(_ne1, _te1):
-                b.numero_especial = _ne1
-                b.talonera_especial_id = _te1
-            if _te2 and _ne2 and _esp_libre(_ne2, _te2):
-                b.numero_especial_2 = _ne2
-                b.talonera_especial_2_id = _te2
-
-            # Auto-asignar cobrador según la zona del comprador, SOLO si queda
-            # algo por cobrar (ver reglas.lleva_cobrador): los contados y las
-            # que ya entraron todas pagas NO llevan cobrador.
-            # Cobrador elegido a mano en el modal (campo opcional, arranca vacío
-            # en cada socio): si vino, PISA al de la zona. Si no, manda la zona.
-            _cob_manual = _parse_cobrador_id(cobrador_id, db)
-            if reglas.lleva_cobrador(b):
-                if _cob_manual:
-                    b.cobrador_id = _cob_manual
-                elif c.zona_id:
-                    z = db.query(models.Zona).get(c.zona_id)
-                    if z and z.cobrador_id:
-                        b.cobrador_id = z.cobrador_id
-            # Transición de condición (EN_COBRANZA / VENDIDO, ver reglas.en_cobranza).
-            # Si la boleta venía de BAJA no se toca.
-            if b.condicion in (
-                CondicionBoleta.SIN_VENDER,
-                CondicionBoleta.CAJA,
-                CondicionBoleta.VENDIDO,
-                CondicionBoleta.EN_COBRANZA,
-            ):
-                b.condicion = reglas.condicion_vendida(b)
+    # Vendedor de la zona, socio (sin duplicar en reintentos), cuotas según la
+    # fecha, especiales, cobrador y condición: ver services/alta_socio.py.
+    c = alta_socio.cargar_socio(
+        db, _boleta,
+        apellido_nombre=apellido_nombre, direccion=direccion, telefono=telefono,
+        zona_id=zona, fecha_compra=fecha_compra, vendedor_id=vendedor_id,
+        cobrador_raw=cobrador_id,
+        cuotas_pactadas=cuotas_pactadas, cuotas_anticipadas=cuotas_anticipadas,
+        te1=te1, ne1=ne1, te2=te2, ne2=ne2,
+    )
     db.commit()
 
     # Si el cliente espera JSON (modal AJAX), devolvemos info de la zona creada
