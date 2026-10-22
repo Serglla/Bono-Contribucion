@@ -99,7 +99,7 @@ def _pagina(request, user, stats=None, msg=None, error=None):
 
 @router.get("/", response_class=HTMLResponse)
 async def backup_page(request: Request, db: Session = Depends(get_db)):
-    user = await auth_module.require_user(request, db)
+    user = await auth_module.require_admin(request, db)
     return _pagina(request, user, stats=_stats(db))
 
 
@@ -109,7 +109,7 @@ async def backup_page(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/descargar")
 async def descargar_backup(request: Request, db: Session = Depends(get_db)):
-    await auth_module.require_user(request, db)
+    await auth_module.require_admin(request, db)
 
     buf = io.BytesIO()
     conteos = {}
@@ -159,7 +159,7 @@ async def restaurar_backup(
     archivo: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    user = await auth_module.require_user(request, db)
+    user = await auth_module.require_admin(request, db)
 
     if not (archivo.filename or "").lower().endswith(".zip"):
         return _pagina(request, user, error="El archivo debe ser un .zip generado por esta app.")
