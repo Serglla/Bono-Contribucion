@@ -18,6 +18,7 @@ from ..tiempo import hoy_ar, ahora_ar
 # porque el sorteo final es en junio 2027). Ver app/cuotas.py.
 from ..cuotas import cuotas_vigentes, cuotas_regaladas, campana
 from ..services import reglas_boleta as reglas
+from ..services import liquidacion_vendedor as liq_svc
 
 router = APIRouter(prefix="/vendedores", tags=["vendedores"])
 
@@ -1538,79 +1539,21 @@ async def liquidar(
         else:
             cuotas.append(b)
 
-    # Cuota 1 (informativa): el vendedor YA la cobró directo del socio. NO se le paga ni se le cobra.
-    cuota_1_total  = sum((b.talonera.valor_cuota if b.talonera else 0.0) for b in cuotas)
-    # Cuotas equivalentes = ponderado por multiplicador de PATA (Float desde 11/05/2026)
-    # (PATA 0 ×0.67, PATA 1 ×1, PATA 2 ×2, etc.). Se guarda aparte para mostrarlo en la UI sin
-    # tener que recalcular cada vez (y por si cambia el valor_cuota de PATA 1).
-    cuotas_equiv = sum(float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0) for b in cuotas)
-
-    # Monto de cuotas (referencial — coincide con cuota_1_total porque es 1 cuota por boleta)
-    monto_cuotas   = cuota_1_total
-    com_cuotas     = round(cuota_1_total, 2)  # el vendedor retiene íntegramente la cuota 1 de boletas por cuotas
-
-    # Comisión contado: % sobre el valor TOTAL de la talonera a la FECHA DE LIQUIDACIÓN.
-    # Usa la PATA de cada boleta marcada como contado.
-    #
-    # Antes era `num_cuotas × valor_cuota` con num_cuotas siempre 12. Desde 08/2026 el
-    # que paga al contado NO paga las 12: las cuotas que ya no entran antes del sorteo
-    # final (jun-2027) se regalan, así que paga `cuotas_vigentes(fecha)` cuotas.
-    # Ago-2026 → 11, sep → 10, oct → 9. Por eso el monto depende de `fecha_liq`.
-    monto_contados = sum(
-        cuotas_vigentes(b.talonera.num_cuotas if b.talonera else None, fecha_liq)
-        * (b.talonera.valor_cuota if b.talonera else 0.0)
-        for b in contados_b
+    # Totales (cuota 1, contados a la fecha de liquidación, extras, comisiones y
+    # total a rendir): ver services/liquidacion_vendedor.py.
+    totales = liq_svc.calcular_liquidacion(
+        cuotas, contados_b, fecha_liq,
+        comision_cuotas_pct=comision_cuotas_pct,
+        comision_contados_pct=comision_contados_pct,
+        cuotas_extras_cantidad=cuotas_extras_cantidad,
+        cuotas_extras_valor=cuotas_extras_valor,
+        cuotas_extras_p0_cantidad=cuotas_extras_p0_cantidad,
+        cuotas_extras_p0_valor=cuotas_extras_p0_valor,
     )
-    contados_count = len(contados_b)
-    # Ponderado por multiplicador de PATA (PATA 0 x0.67, PATA 1 x1, PATA 2 x2, ...)
-    contados_equiv = sum(
-        float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
-        for b in contados_b
-    )
-    com_contados   = round(monto_contados * comision_contados_pct / 100, 2)
-
-    # Cuotas extras normales: input manual (cantidad × valor PATA 1)
-    cuotas_extras_monto = round(cuotas_extras_cantidad * cuotas_extras_valor, 2)
-    com_cuotas_extras   = round(cuotas_extras_monto * comision_cuotas_pct / 100, 2)
-
-    # Cuotas extras PATA 0: input manual (cantidad × valor PATA 0, ~$10.000)
-    cuotas_extras_p0_monto    = round(cuotas_extras_p0_cantidad * cuotas_extras_p0_valor, 2)
-    com_cuotas_extras_p0      = round(cuotas_extras_p0_monto * comision_cuotas_pct / 100, 2)
-
-    # Total a rendir = lo que el vendedor entrega a la organización
-    total_rendir = round(
-        (monto_contados - com_contados)
-        + (cuotas_extras_monto    - com_cuotas_extras)
-        + (cuotas_extras_p0_monto - com_cuotas_extras_p0),
-        2
-    )
-
-    # total_comision (legacy) = suma de comisiones que se queda el vendedor (sin cuota 1)
-    total_comision_legacy = round(com_cuotas + com_contados + com_cuotas_extras + com_cuotas_extras_p0, 2)
-
     # La liquidación ya existe (se creó arriba para reclamar los números): acá
     # se le completan los totales, calculados sobre lo que realmente se reclamó.
-    liq.cuotas_vendidas           = len(cuotas)
-    liq.cuotas_equiv              = cuotas_equiv
-    liq.cuota_1_total             = cuota_1_total
-    liq.monto_cuotas              = monto_cuotas
-    liq.comision_cuotas_pct       = comision_cuotas_pct
-    liq.comision_cuotas           = com_cuotas
-    liq.contados_vendidos         = contados_count
-    liq.contados_equiv            = contados_equiv
-    liq.monto_contados            = monto_contados
-    liq.comision_contados_pct     = comision_contados_pct
-    liq.comision_contados         = com_contados
-    liq.cuotas_extras_cantidad    = cuotas_extras_cantidad
-    liq.cuotas_extras_valor       = cuotas_extras_valor
-    liq.cuotas_extras_monto       = cuotas_extras_monto
-    liq.comision_cuotas_extras    = com_cuotas_extras
-    liq.cuotas_extras_p0_cantidad = cuotas_extras_p0_cantidad
-    liq.cuotas_extras_p0_valor    = cuotas_extras_p0_valor
-    liq.cuotas_extras_p0_monto    = cuotas_extras_p0_monto
-    liq.comision_cuotas_extras_p0 = com_cuotas_extras_p0
-    liq.total_comision            = total_comision_legacy
-    liq.total_a_rendir            = total_rendir
+    for campo, valor in totales.items():
+        setattr(liq, campo, valor)
     db.flush()
 
     # Al liquidar, TODAS las boletas (cuotas y contado) pasan a VENDIDO. La decisión
@@ -2258,117 +2201,24 @@ async def eliminar_liquidaciones_dia(request: Request, db: Session = Depends(get
     return RedirectResponse(f"/vendedores/{vid}/detalle?msg=liq_eliminada", status_code=302)
 
 
-def _recalc_liq_totales(liq):
-    """Recalcula total_a_rendir y total_comision (legacy) desde los campos componentes.
-    Se usa al editar una liquidación (agregar/sacar números) para mantener todo coherente."""
-    liq.total_a_rendir = round(
-        (float(liq.monto_contados or 0)         - float(liq.comision_contados or 0))
-        + (float(liq.cuotas_extras_monto or 0)    - float(liq.comision_cuotas_extras or 0))
-        + (float(liq.cuotas_extras_p0_monto or 0) - float(liq.comision_cuotas_extras_p0 or 0)),
-        2,
-    )
-    liq.total_comision = round(
-        float(liq.comision_cuotas or 0) + float(liq.comision_contados or 0)
-        + float(liq.comision_cuotas_extras or 0) + float(liq.comision_cuotas_extras_p0 or 0),
-        2,
-    )
-
-
 # Modalidad de liquidación y regla de contado: viven en services/reglas_boleta.py
 # (fuente única). Se re-exportan con el mismo nombre para no tocar los usos.
 MODALIDADES_LIQ = reglas.MODALIDADES_LIQ
 modalidad_de_boleta = reglas.modalidad_de_boleta
 
 
-def _monto_contado_boleta(b, liq, fecha=None):
-    """Cuánto vale al contado la boleta `b` DENTRO de la liquidación `liq`.
-
-    `fecha` permite simular otra fecha sin tocar `liq` (lo usa cambiar-fecha
-    para calcular la diferencia entre la fecha vieja y la nueva).
-
-    Usa `cuotas_vigentes` a la FECHA DE LA LIQUIDACIÓN, igual que `liquidar`
-    (ver app/cuotas.py: las últimas cuotas se regalan, así que un contado de
-    agosto vale 11 cuotas y uno de octubre 9). Antes acá se usaba el nominal de
-    la talonera (12) y cada número agregado o sacado después descuadraba la
-    liquidación en una cuota contra lo que había calculado el liquidar original.
-    """
-    if b is None:
-        return 0.0
-    valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
-    num_cuotas  = (b.talonera.num_cuotas if b.talonera else None)
-    if fecha is None:
-        fecha = liq.fecha if liq is not None else None
-    return cuotas_vigentes(num_cuotas, fecha) * valor_cuota
+# Plata de la liquidación: vive en services/liquidacion_vendedor.py (punto 7 del
+# relevamiento). Alias con los nombres de siempre para no tocar los usos
+# (compradores.py importa _quitar_boleta_de_liq).
+_recalc_liq_totales   = liq_svc.recalc_totales
+_monto_contado_boleta = liq_svc.monto_contado_boleta
+_aporte_boleta        = liq_svc.aporte_boleta
+_sumar_boleta_a_liq   = liq_svc.sumar_boleta
+_restar_boleta_de_liq = liq_svc.restar_boleta
 
 
-def _aporte_boleta(liq, b, modalidad):
-    """(mult, valor_cuota, monto_contado, comision_contado, pct) de una boleta."""
-    mult        = float((b.talonera.multiplicador or 1.0) if b.talonera else 1.0)
-    valor_cuota = float((b.talonera.valor_cuota or 0.0) if b.talonera else 0.0)
-    pct         = float(liq.comision_contados_pct or 0) or 30.0
-    monto       = _monto_contado_boleta(b, liq) if modalidad in ("contado", "contado2") else 0.0
-    com         = round(monto * pct / 100, 2)
-    return mult, valor_cuota, monto, com, pct
-
-
-def _sumar_boleta_a_liq(liq, b, modalidad):
-    """Suma a la liquidación lo que aporta `b` con `modalidad`. Espejo exacto
-    de `_restar_boleta_de_liq`: si cambian los números, cambian en los dos."""
-    if liq is None or b is None:
-        return
-    if modalidad not in MODALIDADES_LIQ:
-        modalidad = "cuotas"
-    mult, valor_cuota, monto, com, pct = _aporte_boleta(liq, b, modalidad)
-    if modalidad in ("contado", "contado2"):
-        liq.contados_vendidos = int(liq.contados_vendidos or 0) + 1
-        liq.contados_equiv    = float(liq.contados_equiv or 0) + mult
-        liq.monto_contados    = round(float(liq.monto_contados or 0) + monto, 2)
-        liq.comision_contados = round(float(liq.comision_contados or 0) + com, 2)
-        if not liq.comision_contados_pct:
-            liq.comision_contados_pct = pct
-    else:
-        liq.cuotas_vendidas = int(liq.cuotas_vendidas or 0) + 1
-        liq.cuotas_equiv    = float(liq.cuotas_equiv or 0) + mult
-        liq.cuota_1_total   = round(float(liq.cuota_1_total or 0) + valor_cuota, 2)
-        liq.monto_cuotas    = round(float(liq.monto_cuotas or 0) + valor_cuota, 2)
-        liq.comision_cuotas = round(float(liq.comision_cuotas or 0) + valor_cuota, 2)
-    _recalc_liq_totales(liq)
-
-
-def _restar_boleta_de_liq(liq, b, modalidad=None):
-    """Descuenta de la liquidación TODO lo que aportaba `b` (snapshots ponderados
-    cuotas_equiv/contados_equiv + montos + comisiones) y recalcula los totales.
-
-    Se usa cuando una boleta SALE de la liquidación ("sacar número", "liberar
-    boleta" desde Socios) y también como primer paso al CORREGIR la modalidad.
-    Mantenerlo en un solo lugar evita el "drift" de los snapshots (el dashboard
-    usa esos snapshots para el Total liquidados).
-
-    `modalidad` permite forzar con cuál se había sumado; por defecto la deduce
-    de la boleta con `modalidad_de_boleta`.
-    """
-    if liq is None or b is None:
-        return
-    if modalidad not in MODALIDADES_LIQ:
-        modalidad = modalidad_de_boleta(b)
-    mult, valor_cuota, monto, com, _pct = _aporte_boleta(liq, b, modalidad)
-    if modalidad in ("contado", "contado2"):
-        liq.contados_vendidos = max(0, int(liq.contados_vendidos or 0) - 1)
-        liq.contados_equiv    = max(0.0, float(liq.contados_equiv or 0) - mult)
-        liq.monto_contados    = max(0.0, round(float(liq.monto_contados or 0) - monto, 2))
-        liq.comision_contados = max(0.0, round(float(liq.comision_contados or 0) - com, 2))
-    else:
-        liq.cuotas_vendidas = max(0, int(liq.cuotas_vendidas or 0) - 1)
-        liq.cuotas_equiv    = max(0.0, float(liq.cuotas_equiv or 0) - mult)
-        liq.cuota_1_total   = max(0.0, round(float(liq.cuota_1_total or 0) - valor_cuota, 2))
-        liq.monto_cuotas    = max(0.0, round(float(liq.monto_cuotas or 0) - valor_cuota, 2))
-        liq.comision_cuotas = max(0.0, round(float(liq.comision_cuotas or 0) - valor_cuota, 2))
-    _recalc_liq_totales(liq)
-
-
-# Alias histórico: `compradores.py` (liberar boleta) lo importa con este nombre.
 def _quitar_boleta_de_liq(liq, b):
-    _restar_boleta_de_liq(liq, b)
+    liq_svc.restar_boleta(liq, b)
 
 
 @router.post("/liquidaciones/{liq_id}/agregar-boleta", response_class=JSONResponse)
@@ -2599,19 +2449,9 @@ async def liquidacion_cambiar_fecha(liq_id: int, request: Request, db: Session =
 
     boletas = db.query(models.Boleta).filter_by(liquidacion_vendedor_id=liq_id).all()
 
-    # ── Monto al contado: delta por boleta entre fecha vieja y nueva ──────
-    delta = 0.0
-    for b in boletas:
-        if modalidad_de_boleta(b) in ("contado", "contado2"):
-            delta += (_monto_contado_boleta(b, liq, nueva_f)
-                      - _monto_contado_boleta(b, liq, vieja))
-    if delta:
-        liq.monto_contados = max(0.0, round(float(liq.monto_contados or 0) + delta, 2))
-        pct = float(liq.comision_contados_pct or 0) or 30.0
-        liq.comision_contados = round(float(liq.monto_contados or 0) * pct / 100, 2)
-
+    # ── Monto al contado: re-preciar los contados a la fecha nueva ────────
+    liq_svc.cambiar_fecha(liq, boletas, nueva_f)
     liq.fecha = nueva_f
-    _recalc_liq_totales(liq)
 
     # ── Re-estampar cuotas_pactadas en las boletas ───────────────────────
     tocadas, con_socio, pendientes = 0, 0, 0
