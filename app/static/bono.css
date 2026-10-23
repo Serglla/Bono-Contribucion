@@ -39,6 +39,21 @@
   --orange-tint: #fff1e6; --orange-strong: #c25400;
   --indigo-bg: #eef2ff;  --indigo-fg: #6366f1;  --indigo-bd: #c7d2fe;
   --sky-bg:    #e3f2fd;
+  /* Estados de una boleta en la caja del vendedor (vendedor_detalle.html). */
+  --link-bg:     #e7f1ff;   /* en caja, sin liquidar (con --link) */
+  --ok-ink:      #146c43;   /* liquidada, pendiente de socio (sobre --ok-bg) */
+  --neutral-bg:  #f1f3f5;  --neutral-fg: #868e96;  --neutral-bd: #dee2e6;   /* vendida */
+  --slate-fg:    #6c8ebf;   /* "en sistema" */
+  --cyan-fg:     #0a97b0;   /* "en cobranza" */
+  /* Ámbar: contado 2 veces, selección, marcas. Antes había 10 tonos sueltos. */
+  --amber:        #ffc107;   /* estrella de contado, contado 2 veces */
+  --amber-dark:   #d39e00;   /* borde/estrella apagada */
+  --amber-ink:    #b08800;   /* texto ámbar sobre blanco */
+  --amber-accent: #f59e0b;   /* contorno de selección */
+  --amber-bg:     #fff8e1;  --amber-fg:     #856404;  --amber-line: #e0c878;
+  --amber-bg-2:   #ffe69c;  --amber-fg-2:   #664d03;   /* marcado fuerte */
+  --orange:       #fd7e14;   /* modalidad cuotas */
+  --surface-3:    #f8f9fa;   /* encabezados de tabla claros */
   --baja-bg:   #f5c2c7;  --baja-hover: #f1aeb5;   /* fila de socio dado de baja */
   /* Letra. Piso legible: nada por debajo de --fs-2xs (12px), y ese solo para
      chips/badges. Antes había texto de 9,6–11,5 px en toda la app. */

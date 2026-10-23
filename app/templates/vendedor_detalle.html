@@ -52,7 +52,7 @@
     <h4 class="fw-bold mb-0">
       {{ v.nombre }}
       {% if v.es_jefe_equipo %}
-      <span class="badge bg-warning text-dark ms-1" style="font-size:.7rem;">
+      <span class="badge bg-warning text-dark ms-1" style="font-size:var(--fs-2xs);">
         <i class="bi bi-star-fill me-1"></i>Jefe de equipo
       </span>
       {% endif %}
@@ -67,7 +67,7 @@
 
     {# Grupo CAJAS #}
     <div>
-      <div class="text-uppercase fw-bold mb-2" style="font-size:.68rem;letter-spacing:.08em;color:#64748b;">
+      <div class="text-uppercase fw-bold mb-2" style="font-size:var(--fs-2xs);letter-spacing:.08em;color:var(--muted);">
         <i class="bi bi-archive me-1"></i>Cajas
       </div>
       <div class="d-flex gap-2 flex-wrap">
@@ -199,7 +199,7 @@
          title="Total liquidado por este vendedor, ponderado por PATA — mismo criterio que el dashboard. NO incluye los números de sorteo extra (pool CONTADO / CONTADO 2 VECES), que son premios y no ventas. {{ total_liquidaciones }} liquidación(es) registrada(s).">
       <div class="fs-3 fw-bold text-success">{{ total_boletas_liquidadas_eq }}</div>
       <div class="small text-muted">Total liquidados
-        <span class="text-muted" style="font-size:.75em;">({{ total_liquidaciones }} liq.)</span>
+        <span class="text-muted" style="font-size:var(--fs-2xs);">({{ total_liquidaciones }} liq.)</span>
       </div>
     </div>
   </div>
@@ -207,7 +207,7 @@
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3 h-100"
          title="Lo que el vendedor se queda: cuota 1 cobrada al socio + comisión contado + comisión cuotas extras. Solo cuenta las boletas todavía a su nombre — si liquidó una boleta y después pasó caja a otro vendedor, esa boleta NO suma porque la cobró el otro.">
-      <div class="fs-4 fw-bold" style="color:#198754;">${{ '{:,.0f}'.format(ingresos_total)|replace(',', '.') }}</div>
+      <div class="fs-4 fw-bold" style="color:var(--ok);">${{ '{:,.0f}'.format(ingresos_total)|replace(',', '.') }}</div>
       <div class="small text-muted">Ingresos del vendedor</div>
     </div>
   </div>
@@ -215,7 +215,7 @@
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3 h-100"
          title="Boletas con socio cargado en el sistema, ponderadas por multiplicador de PATA (PATA 1 ×1, PATA 2 ×2, ...).">
-      <div class="fs-3 fw-bold" style="color:#6c8ebf;">{{ total_vendidas_pond | round(0) | int }}</div>
+      <div class="fs-3 fw-bold" style="color:var(--slate-fg);">{{ total_vendidas_pond | round(0) | int }}</div>
       <div class="small text-muted">Total vendidas</div>
     </div>
   </div>
@@ -224,9 +224,9 @@
 {# ══════════ LEYENDA ══════════ #}
 <div class="d-flex flex-wrap gap-3 mb-3 small align-items-center">
   <span class="fw-semibold text-muted">Leyenda:</span>
-  <span><span class="badge" style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;">0000</span> En caja (sin liquidar)</span>
-  <span><span class="badge" style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;text-decoration:line-through;">0000</span> Liquidado — pend. comprador</span>
-  <span><span class="badge" style="background:#f1f3f5;color:#868e96;border:1px solid #dee2e6;text-decoration:line-through;">0000</span> Vendida (en sistema / en cobranza)</span>
+  <span><span class="badge" style="background:var(--link-bg);color:var(--link);border:1px solid #0d6efd40;">0000</span> En caja (sin liquidar)</span>
+  <span><span class="badge" style="background:var(--ok-bg);color:var(--ok-ink);border:1px solid #20c99740;text-decoration:line-through;">0000</span> Liquidado — pend. comprador</span>
+  <span><span class="badge" style="background:var(--neutral-bg);color:var(--neutral-fg);border:1px solid var(--neutral-bd);text-decoration:line-through;">0000</span> Vendida (en sistema / en cobranza)</span>
   <span><i class="bi bi-star-fill text-warning"></i> Contado</span>
 </div>
 
@@ -242,10 +242,10 @@
   {# ── Toolbar de modo selección "Pasar Caja" (oculta por default) ── #}
   {% if can_edit %}
   <div id="toolbarPasarCaja" class="alert alert-warning d-none align-items-center flex-wrap gap-2 py-2 mb-3"
-       style="border:2px dashed #f59e0b;">
+       style="border:2px dashed var(--amber-accent);">
     <i class="bi bi-arrow-left-right text-warning"></i>
     <span class="fw-semibold">Modo selección:</span>
-    <span class="small">click en las boletas <span class="badge" style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;">0000</span> para marcarlas</span>
+    <span class="small">click en las boletas <span class="badge" style="background:var(--link-bg);color:var(--link);border:1px solid #0d6efd40;">0000</span> para marcarlas</span>
     <span class="badge bg-primary ms-2"><span id="pasarCount">0</span> seleccionada(s)</span>
 
     <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
@@ -271,10 +271,10 @@
   {# ── Toolbar de modo selección "Retirar Caja" (oculta por default) ── #}
   {% if can_edit %}
   <div id="toolbarRetirarCaja" class="alert alert-danger d-none align-items-center flex-wrap gap-2 py-2 mb-3"
-       style="border:2px dashed #dc3545;">
+       style="border:2px dashed var(--brand);">
     <i class="bi bi-box-arrow-up text-danger"></i>
     <span class="fw-semibold">Retirar a institución:</span>
-    <span class="small">click en las boletas <span class="badge" style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;">0000</span> que el vendedor no vendió</span>
+    <span class="small">click en las boletas <span class="badge" style="background:var(--link-bg);color:var(--link);border:1px solid #0d6efd40;">0000</span> que el vendedor no vendió</span>
     <span class="badge bg-danger ms-2"><span id="retirarCount">0</span> seleccionada(s)</span>
 
     <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
@@ -297,7 +297,7 @@
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-header d-flex align-items-center gap-2 py-2"
          style="background:{{ pata_data.color }}30; border-left: 4px solid {{ pata_data.color }};">
-      <span class="badge" style="background:{{ pata_data.color }};color:#333;border:1px solid #0003;">{{ pata_nombre }}</span>
+      <span class="badge" style="background:{{ pata_data.color }};color:var(--ink);border:1px solid #0003;">{{ pata_nombre }}</span>
       {# conteos por estado para la cabecera #}
       {% set ns3 = namespace(nc=0, nl=0, nv=0, ne=0) %}
       {% for b in pata_data.boletas %}
@@ -309,8 +309,8 @@
       <span class="text-muted small">
         {% if ns3.nc > 0 %}<span class="text-primary">{{ ns3.nc }} en caja</span>{% endif %}
         {% if ns3.nl > 0 %}{% if ns3.nc > 0 %} · {% endif %}<span class="text-success">{{ ns3.nl }} liquidado(s)</span>{% endif %}
-        {% if ns3.nv > 0 %}{% if ns3.nc > 0 or ns3.nl > 0 %} · {% endif %}<span style="color:#6c8ebf;">{{ ns3.nv }} en sistema</span>{% endif %}
-        {% if ns3.ne > 0 %}{% if ns3.nc > 0 or ns3.nl > 0 or ns3.nv > 0 %} · {% endif %}<span style="color:#0a97b0;">{{ ns3.ne }} en cobranza</span>{% endif %}
+        {% if ns3.nv > 0 %}{% if ns3.nc > 0 or ns3.nl > 0 %} · {% endif %}<span style="color:var(--slate-fg);">{{ ns3.nv }} en sistema</span>{% endif %}
+        {% if ns3.ne > 0 %}{% if ns3.nc > 0 or ns3.nl > 0 or ns3.nv > 0 %} · {% endif %}<span style="color:var(--cyan-fg);">{{ ns3.ne }} en cobranza</span>{% endif %}
       </span>
     </div>
     <div class="card-body py-3">
@@ -320,9 +320,9 @@
             {# En caja — sin liquidar → azul claro. Si tiene id (no es pool) es seleccionable en modo Pasar. #}
             <span class="badge boleta-caja{% if b.id and not b.pool %} boleta-pasar-target{% endif %}"
                   {% if b.id and not b.pool %}data-bid="{{ b.id }}" data-num="{{ b.num_str }}"{% endif %}
-                  style="background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;font-size:.8rem;"
+                  style="background:var(--link-bg);color:var(--link);border:1px solid #0d6efd40;font-size:var(--fs-xs);"
                   title="En caja{% if b.contado %} · Contado{% endif %}">
-              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
+              {% if b.contado %}<i class="bi bi-star-fill" style="font-size:var(--fs-2xs);color:var(--amber);"></i>{% endif %}
               {{ b.num_str }}
             </span>
           {% elif b.cond == 'CAJA' and b.liq and not b.tiene_socio %}
@@ -330,18 +330,18 @@
             {% if b.liq_por_otro_nombre %}
               {# Liquidada por otro vendedor (tipico: jefe de equipo) → mismo recuadro + ícono de vendedor en la esquina (el nombre va en el tooltip, no agranda el recuadro) #}
               <span class="badge position-relative"
-                    style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;text-decoration:line-through;"
+                    style="background:var(--ok-bg);color:var(--ok-ink);border:1px solid #20c99740;font-size:var(--fs-xs);text-decoration:line-through;"
                     title="Liquidado por {{ b.liq_por_otro_nombre }}{% if b.liq_por_otro_es_jefe %} (jefe de equipo){% endif %}{% if b.contado %} · Contado{% endif %}">
-                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
+                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:var(--fs-2xs);color:var(--amber);"></i>{% endif %}
                 {{ b.num_str }}
                 <i class="bi {% if b.liq_por_otro_es_jefe %}bi-star-fill{% else %}bi-person-fill{% endif %}"
-                   style="position:absolute;top:-4px;right:-4px;font-size:.55rem;line-height:1;color:#8a6d00;background:#fff7e0;border:1px solid #e0c878;border-radius:50%;padding:1px;text-decoration:none;"></i>
+                   style="position:absolute;top:-4px;right:-4px;font-size:var(--fs-2xs);line-height:1;color:var(--amber-fg);background:var(--amber-bg);border:1px solid var(--amber-line);border-radius:50%;padding:1px;text-decoration:none;"></i>
               </span>
             {% else %}
               <span class="badge"
-                    style="background:#d1e7dd;color:#146c43;border:1px solid #20c99740;font-size:.8rem;text-decoration:line-through;"
+                    style="background:var(--ok-bg);color:var(--ok-ink);border:1px solid #20c99740;font-size:var(--fs-xs);text-decoration:line-through;"
                     title="Liquidado — pendiente comprador{% if b.contado %} · Contado{% endif %}">
-                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#ffc107;"></i>{% endif %}
+                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:var(--fs-2xs);color:var(--amber);"></i>{% endif %}
                 {{ b.num_str }}
               </span>
             {% endif %}
@@ -352,18 +352,18 @@
             {% if b.liq_por_otro_nombre %}
               {# Vendida pero liquidada por otro vendedor (jefe de equipo) → mismo recuadro + ícono de vendedor en la esquina (el nombre va en el tooltip, no agranda el recuadro). #}
               <span class="badge position-relative"
-                    style="background:#f1f3f5;color:#868e96;border:1px solid #dee2e6;font-size:.8rem;text-decoration:line-through;"
+                    style="background:var(--neutral-bg);color:var(--neutral-fg);border:1px solid var(--neutral-bd);font-size:var(--fs-xs);text-decoration:line-through;"
                     title="{{ _ttl }} · Liquidado por {{ b.liq_por_otro_nombre }}{% if b.liq_por_otro_es_jefe %} (jefe de equipo){% endif %}{% if b.contado %} · Contado{% endif %}">
-                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#d4b106;"></i>{% endif %}
+                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:var(--fs-2xs);color:var(--amber-dark);"></i>{% endif %}
                 {{ b.num_str }}
                 <i class="bi {% if b.liq_por_otro_es_jefe %}bi-star-fill{% else %}bi-person-fill{% endif %}"
-                   style="position:absolute;top:-4px;right:-4px;font-size:.55rem;line-height:1;color:#8a6d00;background:#fff7e0;border:1px solid #e0c878;border-radius:50%;padding:1px;text-decoration:none;"></i>
+                   style="position:absolute;top:-4px;right:-4px;font-size:var(--fs-2xs);line-height:1;color:var(--amber-fg);background:var(--amber-bg);border:1px solid var(--amber-line);border-radius:50%;padding:1px;text-decoration:none;"></i>
               </span>
             {% else %}
               <span class="badge"
-                    style="background:#f1f3f5;color:#868e96;border:1px solid #dee2e6;font-size:.8rem;text-decoration:line-through;"
+                    style="background:var(--neutral-bg);color:var(--neutral-fg);border:1px solid var(--neutral-bd);font-size:var(--fs-xs);text-decoration:line-through;"
                     title="{{ _ttl }}{% if b.contado %} · Contado{% endif %}">
-                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:.65rem;color:#d4b106;"></i>{% endif %}
+                {% if b.contado %}<i class="bi bi-star-fill" style="font-size:var(--fs-2xs);color:var(--amber-dark);"></i>{% endif %}
                 {{ b.num_str }}
               </span>
             {% endif %}
@@ -520,7 +520,7 @@
              → 11 cuotas, sep → 10, oct → 9). Editable para poder liquidar atrasado
              con el precio que regía ese mes. Ver app/cuotas.py. #}
           <div class="d-flex align-items-center gap-2 flex-wrap mb-3 p-2 rounded"
-               style="background:#f8f9fa;border:1px solid #dee2e6;">
+               style="background:var(--surface-3);border:1px solid var(--neutral-bd);">
             <label class="form-label fw-semibold small mb-0" for="inp-fecha-liq">
               <i class="bi bi-calendar-event me-1"></i>Fecha de liquidación
             </label>
@@ -554,7 +554,7 @@
                     onclick="setModoLiquidar('contado')">Contado</button>
             <button type="button" id="modo-btn-contado2" class="btn btn-sm py-0 px-2 fw-semibold"
                     onclick="setModoLiquidar('contado2')">Contado 2 veces</button>
-            <span class="text-muted" style="font-size:.7rem;">Los números que clickeás se marcan con el modo activo</span>
+            <span class="text-muted" style="font-size:var(--fs-2xs);">Los números que clickeás se marcan con el modo activo</span>
           </div>
           {# ── Agregar un número que está en la caja de otro vendedor (o sin registrar) ── #}
           <div class="mb-2 d-flex align-items-center gap-2 flex-wrap">
@@ -588,7 +588,7 @@
               <div class="row g-2 mb-2">
                 <div class="col-md-6">
                   <label class="form-label small mb-0">Extras PATAs normales
-                    <span class="text-muted fw-normal" style="font-size:.72rem;" id="lbl-vc-hint"></span>
+                    <span class="text-muted fw-normal" style="font-size:var(--fs-2xs);" id="lbl-vc-hint"></span>
                   </label>
                   <input type="number" name="cuotas_extras_cantidad" id="inp-extras-cant"
                          class="form-control form-control-sm" value="0" min="0" step="1"
@@ -602,7 +602,7 @@
                            class="form-control" value="0" min="0" step="0.01"
                            oninput="recalcular()">
                     <button type="button" class="btn btn-outline-secondary btn-sm" title="Restaurar valor PATA 1"
-                            onclick="resetValorCuota()" style="font-size:.72rem;">↺</button>
+                            onclick="resetValorCuota()" style="font-size:var(--fs-2xs);">↺</button>
                   </div>
                 </div>
               </div>
@@ -611,7 +611,7 @@
               <div class="row g-2 border-top pt-2 mt-1">
                 <div class="col-md-6">
                   <label class="form-label small mb-0">Extras X0 (PATA 0)
-                    <span class="text-muted fw-normal" style="font-size:.72rem;">· ${{ "%.0f"|format(pata0_vc) }}</span>
+                    <span class="text-muted fw-normal" style="font-size:var(--fs-2xs);">· ${{ "%.0f"|format(pata0_vc) }}</span>
                   </label>
                   <input type="number" name="cuotas_extras_p0_cantidad" id="inp-extras-p0-cant"
                          class="form-control form-control-sm" value="0" min="0" step="1"
@@ -625,7 +625,7 @@
                            class="form-control" value="{{ "%.0f"|format(pata0_vc) }}" min="0" step="0.01"
                            oninput="recalcular()">
                     <button type="button" class="btn btn-outline-secondary btn-sm" title="Restaurar valor PATA 0"
-                            onclick="resetValorCuotaP0()" style="font-size:.72rem;">↺</button>
+                            onclick="resetValorCuotaP0()" style="font-size:var(--fs-2xs);">↺</button>
                   </div>
                 </div>
               </div>
@@ -669,7 +669,7 @@
           <div class="card border-success-subtle border mb-2">
             <div class="card-body p-2">
               <table class="table table-bordered table-sm text-center align-middle mb-0"
-                     style="font-size:.8rem;">
+                     style="font-size:var(--fs-xs);">
                 <thead>
                   <tr class="table-success">
                     <th colspan="5" class="fw-bold" style="letter-spacing:.08em;">VENDIDOS</th>
@@ -677,7 +677,7 @@
                       TOTAL A RENDIR
                     </th>
                   </tr>
-                  <tr class="text-muted" style="font-size:.72rem;">
+                  <tr class="text-muted" style="font-size:var(--fs-2xs);">
                     <th>CUOTAS</th>
                     <th>CONTADOS</th>
                     <th>TOTAL VENDIDOS</th>
@@ -689,19 +689,19 @@
                   <tr>
                     <td title="Boletas pasadas a cuotas, ponderadas por PATA">
                       <div class="fs-5 fw-bold text-success" id="vd-cuotas-pond">0</div>
-                      <div class="text-muted" style="font-size:.68rem;">
+                      <div class="text-muted" style="font-size:var(--fs-2xs);">
                         <span id="vd-cuotas-crudo">0</span> bol.
                       </div>
                     </td>
                     <td title="Boletas al contado, ponderadas por PATA">
                       <div class="fs-5 fw-bold text-success" id="vd-contados-pond">0</div>
-                      <div class="text-muted" style="font-size:.68rem;">
+                      <div class="text-muted" style="font-size:var(--fs-2xs);">
                         <span id="vd-contados-crudo">0</span> bol.
                       </div>
                     </td>
                     <td title="CUOTAS + CONTADOS (ponderado)">
                       <div class="fs-5 fw-bold" id="vd-total-pond">0</div>
-                      <div class="text-muted" style="font-size:.68rem;">
+                      <div class="text-muted" style="font-size:var(--fs-2xs);">
                         <span id="vd-total-crudo">0</span> bol.
                       </div>
                     </td>
@@ -710,22 +710,22 @@
                       <div class="d-flex justify-content-center gap-2">
                         <div title="Pool CONTADO">
                           <div class="fs-5 fw-bold text-warning-emphasis" id="vd-entregados-c1">0</div>
-                          <div class="text-muted" style="font-size:.62rem;">CO</div>
+                          <div class="text-muted" style="font-size:var(--fs-2xs);">CO</div>
                         </div>
                         <div class="border-start" style="opacity:.4;"></div>
                         <div title="Pool CONTADO 2 VECES">
                           <div class="fs-5 fw-bold text-warning-emphasis" id="vd-entregados-c2">0</div>
-                          <div class="text-muted" style="font-size:.62rem;">CO2</div>
+                          <div class="text-muted" style="font-size:var(--fs-2xs);">CO2</div>
                         </div>
                       </div>
                     </td>
                     <td title="Cantidad de cuotas extras cobradas (cuota 2, 3, ...)">
                       <div class="fs-5 fw-bold" id="vd-extras-cant">0</div>
-                      <div class="text-muted" style="font-size:.68rem;">cuotas</div>
+                      <div class="text-muted" style="font-size:var(--fs-2xs);">cuotas</div>
                     </td>
                     <td class="bg-success-subtle">
                       <div class="fs-4 fw-bold text-success" id="lbl-total">$0,00</div>
-                      <div class="text-muted" style="font-size:.68rem;">
+                      <div class="text-muted" style="font-size:var(--fs-2xs);">
                         <span id="lbl-sel-count">0</span> boletas selec.
                       </div>
                     </td>
@@ -738,10 +738,10 @@
           {# ── Desglose del cálculo (detalle para verificar el total) ── #}
           <div class="card border-0 bg-light mb-3">
             <div class="card-body py-2 small">
-              <div class="text-muted fst-italic mb-1" style="font-size:.72rem;">
+              <div class="text-muted fst-italic mb-1" style="font-size:var(--fs-2xs);">
                 <i class="bi bi-calculator me-1"></i>Desglose del cálculo
               </div>
-              <table class="table table-sm table-borderless mb-0" style="font-size:.76rem;">
+              <table class="table table-sm table-borderless mb-0" style="font-size:var(--fs-2xs);">
                 <tbody>
                   <tr class="text-muted fst-italic">
                     <td title="Ponderado: PATA 1 ×1, PATA 2 ×2, PATA 0 ×0.67">Cuota 1 (<span id="lbl-n-cuotas">0</span> ponderado, base PATA 1) — <span class="text-success">ya en mano del vendedor</span></td>
@@ -817,7 +817,7 @@
           <div class="col-12">
             <div class="d-flex justify-content-between align-items-end mb-1">
               <label class="form-label small fw-semibold mb-0">Números a entregar</label>
-              <span class="text-muted fst-italic" style="font-size:.7rem;">
+              <span class="text-muted fst-italic" style="font-size:var(--fs-2xs);">
                 Cargá el <strong>Desde</strong> y aparece otro renglón. Sin <strong>Hasta</strong> = número suelto.
                 La <strong>PATA</strong> se detecta sola.
               </span>
@@ -872,7 +872,7 @@
       </div>
       <div class="modal-body p-0">
         <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0 small" style="font-size:.8rem;">
+          <table class="table table-sm align-middle mb-0 small" style="font-size:var(--fs-xs);">
             <thead class="table-light">
               <tr>
                 <th>Fecha</th>
@@ -889,7 +889,7 @@
               {% for e in entregas_vendedor %}
               {% set _es_cont = e.talonera_nombre in nombres_contado %}
               {% set _es_retiro = (e.tipo == 'RETIRO') %}
-              <tr id="ec-row-{{ e.id }}"{% if _es_retiro %} style="background:#fff5f5;"{% endif %}>
+              <tr id="ec-row-{{ e.id }}"{% if _es_retiro %} style="background:var(--brand-tint);"{% endif %}>
                 <td class="text-muted">
                   {% if _es_retiro %}<span class="badge bg-danger me-1" title="Retiro — vuelve a la institución"><i class="bi bi-box-arrow-up"></i> RETIRO</span>{% endif %}
                   {{ e.fecha.strftime('%d/%m/%y %H:%M') }}
@@ -993,7 +993,7 @@
                      todo ponderado por multiplicador de PATA (número grande) con el
                      conteo crudo de boletas debajo en chico. #}
                   <table class="table table-sm align-middle mb-0 small table-hover text-center"
-                         style="font-size:.82rem;">
+                         style="font-size:var(--fs-xs);">
                     <thead class="table-light">
                       <tr>
                         <th rowspan="2" class="align-middle text-start">Fecha</th>
@@ -1006,7 +1006,7 @@
                         <th rowspan="2" class="align-middle text-start">Obs.</th>
                         {% if user and user.is_admin %}<th rowspan="2" style="width:40px;"></th>{% endif %}
                       </tr>
-                      <tr class="text-muted" style="font-size:.72rem;">
+                      <tr class="text-muted" style="font-size:var(--fs-2xs);">
                         <th title="Boletas en cuotas, ponderadas por PATA">CUOTAS</th>
                         <th title="Boletas al contado, ponderadas por PATA">CONTADOS</th>
                         <th title="CUOTAS + CONTADOS (ponderado)">TOTAL VENDIDOS</th>
@@ -1020,26 +1020,26 @@
                           title="Doble-click para ver el detalle del día{% if d.n_liq > 1 %} ({{ d.n_liq }} liquidaciones agrupadas){% endif %}">
                         <td class="text-start text-muted">
                           {{ d.fecha_str }}
-                          {% if d.n_liq > 1 %}<span class="badge bg-secondary ms-1" style="font-size:.6rem;font-weight:600;" title="{{ d.n_liq }} liquidaciones de este día, sumadas">{{ d.n_liq }} liq.</span>{% endif %}
+                          {% if d.n_liq > 1 %}<span class="badge bg-secondary ms-1" style="font-size:var(--fs-2xs);font-weight:600;" title="{{ d.n_liq }} liquidaciones de este día, sumadas">{{ d.n_liq }} liq.</span>{% endif %}
                         </td>
                         <td title="Boletas reales: {{ d.cuotas_crudo }} · Ponderado exacto: {{ '%.2f'|format(d.cuotas_eq) }}">
                           <span class="fw-bold text-success">{{ d.cuotas_eq | round(0) | int }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">{{ d.cuotas_crudo }} bol.</span>
+                          <span class="d-block text-muted" style="font-size:var(--fs-2xs);">{{ d.cuotas_crudo }} bol.</span>
                         </td>
                         <td title="Boletas reales: {{ d.contados_crudo }} · Ponderado exacto: {{ '%.2f'|format(d.contados_eq) }}">
                           <span class="fw-bold text-success">{{ d.contados_eq | round(0) | int }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">{{ d.contados_crudo }} bol.</span>
+                          <span class="d-block text-muted" style="font-size:var(--fs-2xs);">{{ d.contados_crudo }} bol.</span>
                         </td>
                         <td title="Total ponderado vendido (cuotas + contados)">
                           <span class="fw-bold">{{ (d.cuotas_eq + d.contados_eq) | round(0) | int }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">{{ d.cuotas_crudo + d.contados_crudo }} bol.</span>
+                          <span class="d-block text-muted" style="font-size:var(--fs-2xs);">{{ d.cuotas_crudo + d.contados_crudo }} bol.</span>
                         </td>
                         <td title="Pool entregados a institución (sin valor monetario) — CO: {{ d.pool_c1 }} · CO2: {{ d.pool_c2 }}"
                             class="{% if d.pool_total %}table-warning{% endif %}">
                           <span class="fw-bold text-warning-emphasis">{{ d.pool_c1 }}</span>
                           <span class="text-muted">/</span>
                           <span class="fw-bold text-warning-emphasis">{{ d.pool_c2 }}</span>
-                          <span class="d-block text-muted" style="font-size:.62rem;">CO / CO2</span>
+                          <span class="d-block text-muted" style="font-size:var(--fs-2xs);">CO / CO2</span>
                         </td>
                         <td>{{ d.extras_cantidad or 0 }}</td>
                         <td class="text-end fw-bold text-success">${{ '%.2f'|format(d.total_a_rendir or 0) }}</td>
@@ -1061,22 +1061,22 @@
                         <td class="text-start">Total {{ grupo.label }}:</td>
                         <td>
                           <span class="text-success">{{ grupo.total_cuotas_eq | round(0) | int }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">{{ grupo.total_cuotas_crudo }} bol.</span>
+                          <span class="d-block text-muted" style="font-size:var(--fs-2xs);">{{ grupo.total_cuotas_crudo }} bol.</span>
                         </td>
                         <td>
                           <span class="text-success">{{ grupo.total_contados_eq | round(0) | int }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">{{ grupo.total_contados_crudo }} bol.</span>
+                          <span class="d-block text-muted" style="font-size:var(--fs-2xs);">{{ grupo.total_contados_crudo }} bol.</span>
                         </td>
                         <td>
                           <span>{{ (grupo.total_cuotas_eq + grupo.total_contados_eq) | round(0) | int }}</span>
-                          <span class="d-block text-muted" style="font-size:.68rem;">{{ grupo.total_cuotas_crudo + grupo.total_contados_crudo }} bol.</span>
+                          <span class="d-block text-muted" style="font-size:var(--fs-2xs);">{{ grupo.total_cuotas_crudo + grupo.total_contados_crudo }} bol.</span>
                         </td>
                         <td class="{% if grupo.total_entregados %}table-warning{% endif %}"
                             title="Total CO: {{ grupo.total_entregados_c1 or 0 }} · Total CO2: {{ grupo.total_entregados_c2 or 0 }}">
                           <span class="text-warning-emphasis fw-bold">{{ grupo.total_entregados_c1 or 0 }}</span>
                           <span class="text-muted">/</span>
                           <span class="text-warning-emphasis fw-bold">{{ grupo.total_entregados_c2 or 0 }}</span>
-                          <span class="d-block text-muted" style="font-size:.62rem;">CO / CO2</span>
+                          <span class="d-block text-muted" style="font-size:var(--fs-2xs);">CO / CO2</span>
                         </td>
                         <td>{{ grupo.total_extras }}</td>
                         <td class="text-end text-success">${{ '%.2f'|format(grupo.total_rinde) }}</td>
@@ -1110,14 +1110,14 @@
 /* Modo Pasar Caja: cursor pointer y hover sutil en boletas seleccionables */
 body.pasar-caja-mode .boleta-pasar-target { cursor: pointer; }
 body.pasar-caja-mode .boleta-pasar-target:hover {
-  outline: 2px solid #f59e0b; outline-offset: 1px;
+  outline: 2px solid var(--amber-accent); outline-offset: 1px;
 }
 /* Boleta seleccionada para pasar */
 .boleta-pasar-target.pasar-selected {
-  background: #fff3cd !important;
-  color: #664d03 !important;
-  border-color: #f59e0b !important;
-  box-shadow: 0 0 0 2px #f59e0b inset;
+  background: var(--warn-bg) !important;
+  color: var(--amber-fg-2) !important;
+  border-color: var(--amber-accent) !important;
+  box-shadow: 0 0 0 2px var(--amber-accent) inset;
 }
 .boleta-pasar-target.pasar-selected::after {
   content: " ✓"; font-weight: bold;
@@ -1129,13 +1129,13 @@ body.pasar-caja-mode .badge:not(.boleta-pasar-target) {
 /* Modo Retirar Caja: mismo mecanismo, tema rojo */
 body.retirar-caja-mode .boleta-pasar-target { cursor: pointer; }
 body.retirar-caja-mode .boleta-pasar-target:hover {
-  outline: 2px solid #dc3545; outline-offset: 1px;
+  outline: 2px solid var(--brand); outline-offset: 1px;
 }
 .boleta-pasar-target.retirar-selected {
-  background: #f8d7da !important;
-  color: #842029 !important;
-  border-color: #dc3545 !important;
-  box-shadow: 0 0 0 2px #dc3545 inset;
+  background: var(--brand-bg) !important;
+  color: var(--brand-ink) !important;
+  border-color: var(--brand) !important;
+  box-shadow: 0 0 0 2px var(--brand) inset;
 }
 .boleta-pasar-target.retirar-selected::after {
   content: " ✕"; font-weight: bold;
@@ -1225,10 +1225,13 @@ function agruparPorPata(lista) {
 // ── Modo de venta activo (pincel) ──────────────────────────────────────
 // Cuotas = naranja · Contado = azul · Contado 2 veces = amarillo.
 // El número que se tilda toma la modalidad del botón activo y su color.
+// Los colores salen de los tokens de bono.css. Se leen como "#rrggbb" (no
+// var(...)) porque abajo se les pega transparencia: `${c.bd}80`.
+const tok = (nombre) => getComputedStyle(document.documentElement).getPropertyValue(nombre).trim();
 const MODO_COLORES = {
-  cuotas:   { bg: '#fd7e14', fg: '#fff',    bd: '#fd7e14', txt: '#fd7e14' },
-  contado:  { bg: '#0d6efd', fg: '#fff',    bd: '#0d6efd', txt: '#0d6efd' },
-  contado2: { bg: '#ffc107', fg: '#212529', bd: '#d39e00', txt: '#b08800' },
+  cuotas:   { bg: tok('--orange'), fg: '#fff',       bd: tok('--orange'),     txt: tok('--orange') },
+  contado:  { bg: tok('--link'),   fg: '#fff',       bd: tok('--link'),       txt: tok('--link') },
+  contado2: { bg: tok('--amber'),  fg: tok('--ink'), bd: tok('--amber-dark'), txt: tok('--amber-ink') },
 };
 let modoLiquidar = 'cuotas';
 
@@ -1261,8 +1264,8 @@ function actualizarEstiloBadge(badge, checked, modalidad) {
     badge.style.color = c.fg;
     badge.style.border = `1px solid ${c.bd}`;
   } else {
-    badge.style.background = '#e7f1ff';
-    badge.style.color = '#0d6efd';
+    badge.style.background = 'var(--link-bg)';
+    badge.style.color = 'var(--link)';
     badge.style.border = '1px solid #0d6efd40';
   }
 }
@@ -1286,11 +1289,11 @@ function renderPatas() {
     const bulkBtns = esPoolPata ? '' : `
         <div class="ms-auto d-flex gap-1">
           <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2"
-                  style="font-size:.72rem;" onclick="togglePata('${pata}', true)">
+                  style="font-size:var(--fs-2xs);" onclick="togglePata('${pata}', true)">
             <i class="bi bi-check-all"></i> Todo
           </button>
           <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
-                  style="font-size:.72rem;" onclick="togglePata('${pata}', false)">
+                  style="font-size:var(--fs-2xs);" onclick="togglePata('${pata}', false)">
             <i class="bi bi-x"></i> Ninguno
           </button>
         </div>`;
@@ -1298,7 +1301,7 @@ function renderPatas() {
     <div class="card border-0 shadow-sm mb-2">
       <div class="card-header py-1 d-flex align-items-center gap-2"
            style="background:${colorBg};border-left:4px solid ${colorBdr};">
-        <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">${pata}</span>
+        <span class="badge fw-bold" style="background:${colorBdr};color:var(--ink);border:1px solid #0003;">${pata}</span>
         <span class="text-muted small" id="cnt-${pata}">0 / ${data.boletas.length}</span>
         ${headerExtra}
         ${bulkBtns}
@@ -1319,10 +1322,10 @@ function renderPatas() {
                      data-pata="${pata}" data-bid="${b.id}"
                      data-pool="1" data-tipo-pool="${tipoPool}"
                      class="d-none boleta-chk pool-chk" onchange="onChkChange(this)">
-              <span class="badge" style="font-size:.8rem;cursor:pointer;
-                    background:#fff8e1;color:#856404;border:1px solid #ffc10780;
+              <span class="badge" style="font-size:var(--fs-xs);cursor:pointer;
+                    background:var(--amber-bg);color:var(--amber-fg);border:1px solid #ffc10780;
                     user-select:none;">
-                <i class="bi bi-star-fill" style="font-size:.6rem;color:#ffc107;"></i> ${b.num_str}
+                <i class="bi bi-star-fill" style="font-size:var(--fs-2xs);color:var(--amber);"></i> ${b.num_str}
               </span>
             </label>
           </div>`;
@@ -1343,13 +1346,13 @@ function renderPatas() {
                      data-vc="${b.valor_cuota}" data-nc="${b.num_cuotas}"
                      data-mult="${mult}"
                      class="d-none boleta-chk" onchange="onChkChange(this)">
-              <span class="badge" style="font-size:.8rem;cursor:pointer;
-                    background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;
+              <span class="badge" style="font-size:var(--fs-xs);cursor:pointer;
+                    background:var(--link-bg);color:var(--link);border:1px solid #0d6efd40;
                     user-select:none;">${b.num_str}</span>
             </label>
             <select name="modalidad_${b.id}" class="form-select form-select-sm boleta-modalidad d-none"
                     data-pata="${pata}" data-bid="${b.id}"
-                    style="width:auto;font-size:.68rem;padding:.05rem 1rem .05rem .3rem;height:auto;min-width:0;background-position:right .15rem center;background-size:10px 8px;"
+                    style="width:auto;font-size:var(--fs-2xs);padding:.05rem 1rem .05rem .3rem;height:auto;min-width:0;background-position:right .15rem center;background-size:10px 8px;"
                     onchange="recalcular()">
               <option value="cuotas" selected>Cuo</option>
               <option value="contado">Co</option>
@@ -1415,12 +1418,12 @@ function onChkChange(chk) {
   if (chk.dataset.pool === '1') {
     if (badge) {
       if (chk.checked) {
-        badge.style.background = '#ffe69c';
-        badge.style.color      = '#664d03';
-        badge.style.border     = '1px solid #ffc107';
+        badge.style.background = 'var(--amber-bg-2)';
+        badge.style.color      = 'var(--amber-fg-2)';
+        badge.style.border     = '1px solid var(--amber)';
       } else {
-        badge.style.background = '#fff8e1';
-        badge.style.color      = '#856404';
+        badge.style.background = 'var(--amber-bg)';
+        badge.style.color      = 'var(--amber-fg)';
         badge.style.border     = '1px solid #ffc10780';
       }
     }
@@ -1462,12 +1465,12 @@ function togglePata(pata, estado) {
     if (chk.dataset.pool === '1') {
       if (badge) {
         if (estado) {
-          badge.style.background = '#ffe69c';
-          badge.style.color      = '#664d03';
-          badge.style.border     = '1px solid #ffc107';
+          badge.style.background = 'var(--amber-bg-2)';
+          badge.style.color      = 'var(--amber-fg-2)';
+          badge.style.border     = '1px solid var(--amber)';
         } else {
-          badge.style.background = '#fff8e1';
-          badge.style.color      = '#856404';
+          badge.style.background = 'var(--amber-bg)';
+          badge.style.color      = 'var(--amber-fg)';
           badge.style.border     = '1px solid #ffc10780';
         }
       }
@@ -1506,7 +1509,7 @@ function restaurarSeleccion(snap) {
     const lbl = c.closest('label');
     const badge = lbl ? lbl.querySelector('.badge') : null;
     if (c.dataset.pool === '1') {
-      if (badge) { badge.style.background = '#ffe69c'; badge.style.color = '#664d03'; badge.style.border = '1px solid #ffc107'; }
+      if (badge) { badge.style.background = 'var(--amber-bg-2)'; badge.style.color = 'var(--amber-fg-2)'; badge.style.border = '1px solid var(--amber)'; }
     } else {
       const sel = document.querySelector(`.boleta-modalidad[data-bid="${c.dataset.bid}"]`);
       if (sel) sel.value = (snap[c.value] === 'pool' ? 'cuotas' : snap[c.value]);
@@ -1825,7 +1828,7 @@ function ec2Pintar() {
       const opts = r.candidatos.map(c =>
         `<option value="${c.nombre}" ${c.nombre === r.pata ? 'selected' : ''}>${c.tipo === 'CONTADO' ? '★ ' : ''}${c.nombre}</option>`
       ).join('');
-      cP.innerHTML = `<select class="form-select form-select-sm ec2-pata-sel ${r.esContado ? 'border-warning text-warning-emphasis' : 'border-danger text-danger'} fw-semibold" style="padding:2px 4px;font-size:.78rem;">${opts}</select>`;
+      cP.innerHTML = `<select class="form-select form-select-sm ec2-pata-sel ${r.esContado ? 'border-warning text-warning-emphasis' : 'border-danger text-danger'} fw-semibold" style="padding:2px 4px;font-size:var(--fs-xs);">${opts}</select>`;
     } else {
       cP.innerHTML = ec2BadgePata({ nombre: r.pata, tipo: r.tipo });
     }
@@ -2386,14 +2389,14 @@ function _addBadgeStyle(badge, checked, esContado) {
   if (!badge) return;
   if (checked) {
     if (esContado) {
-      badge.style.background = '#fff3cd'; badge.style.color = '#856404';
+      badge.style.background = 'var(--warn-bg)'; badge.style.color = 'var(--amber-fg)';
       badge.style.border = '1px solid #ffc10780';
     } else {
-      badge.style.background = '#d1e7dd'; badge.style.color = '#146c43';
+      badge.style.background = 'var(--ok-bg)'; badge.style.color = 'var(--ok-ink)';
       badge.style.border = '1px solid #20c99740';
     }
   } else {
-    badge.style.background = '#e7f1ff'; badge.style.color = '#0d6efd';
+    badge.style.background = 'var(--link-bg)'; badge.style.color = 'var(--link)';
     badge.style.border = '1px solid #0d6efd40';
   }
 }
@@ -2618,7 +2621,7 @@ function renderDetalleLiq(d) {
   }
   // Banner de modo edición
   if (dlEditMode) {
-    html += `<div class="alert alert-primary py-2 small mb-3" style="border-left:3px solid #0d6efd;">
+    html += `<div class="alert alert-primary py-2 small mb-3" style="border-left:3px solid var(--link);">
       <i class="bi bi-pencil-square me-1"></i><strong>Modo edición.</strong>
       Cambiá la fecha de la liquidación acá abajo si el vendedor rindió otro día.
       Corregí la modalidad de cualquier número con el selector
@@ -2639,7 +2642,7 @@ function renderDetalleLiq(d) {
         <div class="d-flex flex-wrap align-items-center gap-2">
           <input type="date" id="dl-fecha-input" class="form-control form-control-sm"
                  style="width:auto;" value="${d.fecha_iso || ''}">
-          <button type="button" class="btn btn-primary btn-sm py-0 px-2" style="font-size:.75rem;"
+          <button type="button" class="btn btn-primary btn-sm py-0 px-2" style="font-size:var(--fs-2xs);"
                   onclick="guardarFechaLiq()">
             <i class="bi bi-check2 me-1"></i>Guardar fecha</button>
           <div class="form-check mb-0 ms-1">
@@ -2649,7 +2652,7 @@ function renderDetalleLiq(d) {
               corregir también las boletas que ya tienen socio</label>
           </div>
         </div>
-        <div class="text-muted mt-1" style="font-size:.72rem;">
+        <div class="text-muted mt-1" style="font-size:var(--fs-2xs);">
           De esta fecha salen las cuotas que vale cada boleta (agosto 11, septiembre 10, octubre 9…),
           el monto al contado y la fecha con la que se prellena el alta del socio.
         </div>
@@ -2664,7 +2667,7 @@ function renderDetalleLiq(d) {
     const bo  = (d.boletas || []).find(x => x.id === av.boleta_id);
     const num = bo ? bo.num_str : ('#' + av.boleta_id);
     const aContado = (av.sugerencia === 'contado');
-    html += `<div class="alert alert-warning py-2 px-3 small mb-2" style="border-left:3px solid #ffc107;">
+    html += `<div class="alert alert-warning py-2 px-3 small mb-2" style="border-left:3px solid var(--amber);">
       <div class="mb-1">
         <i class="bi bi-exclamation-triangle-fill me-1"></i>
         El <strong>${escapeHtml(num)}</strong> quedó como <strong>${MOD_NOMBRE[av.modalidad] || av.modalidad}</strong>,
@@ -2674,10 +2677,10 @@ function renderDetalleLiq(d) {
       <div class="text-muted mb-2">${aContado
         ? 'Ajustar lo deja como pago total (queda fuera de cobranza).'
         : 'Ajustar lo vuelve a 1 cuota cobrada y lo manda a cobranza con el cobrador de la zona.'}</div>
-      <button type="button" class="btn btn-warning btn-sm py-0 px-2" style="font-size:.72rem;"
+      <button type="button" class="btn btn-warning btn-sm py-0 px-2" style="font-size:var(--fs-2xs);"
               onclick="ajustarCuotasSocio(${av.boleta_id})">
         <i class="bi bi-check2 me-1"></i>Ajustar cuotas del socio</button>
-      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 ms-1" style="font-size:.72rem;"
+      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 ms-1" style="font-size:var(--fs-2xs);"
               onclick="descartarAvisoSocio(${av.boleta_id})">Dejar así</button>
     </div>`;
   });
@@ -2686,7 +2689,7 @@ function renderDetalleLiq(d) {
   html += `
     <div class="card border-0 bg-light mb-3">
       <div class="card-body py-2">
-        <table class="table table-sm table-borderless mb-0" style="font-size:.82rem;">
+        <table class="table table-sm table-borderless mb-0" style="font-size:var(--fs-xs);">
           <tbody>
             <tr class="text-muted fst-italic">
               <td>Cuota 1 (${fmtPonderado(d.cuotas_equiv ?? d.cuotas_vendidas)} boleta/s) — ya en mano del vendedor</td>
@@ -2746,7 +2749,7 @@ function renderDetalleLiq(d) {
         .map(nm => `<strong>${escapeHtml(nm)}</strong> (${por_destino[nm]})`)
         .join(', ');
       html += `<div class="alert alert-info py-2 px-3 small mb-2"
-                    style="border-left:3px solid #0d6efd;">
+                    style="border-left:3px solid var(--link);">
         <i class="bi bi-arrow-right-circle me-1"></i>
         <strong>${reasignadas.length}</strong> boleta/s pasaron a otro vendedor después de liquidar:
         ${resumen}
@@ -2774,7 +2777,7 @@ function renderDetalleLiq(d) {
         let ctrl = '', modSel = '';
         if (dlEditMode) {
           modSel = `<select class="form-select form-select-sm dl-mod-sel"
-                            style="width:auto;font-size:.66rem;padding:.05rem .85rem .05rem .25rem;height:auto;
+                            style="width:auto;font-size:var(--fs-2xs);padding:.05rem .85rem .05rem .25rem;height:auto;
                                    min-width:0;border:0;border-left:1px solid #00000022;border-radius:0;
                                    background-color:transparent;background-position:right .08rem center;background-size:9px 7px;"
                             title="Modalidad con la que se liquidó este número — cambiala si se liquidó mal"
@@ -2785,34 +2788,34 @@ function renderDetalleLiq(d) {
           </select>`;
           if (b.comprador) {
             ctrl = `<span class="px-1 text-muted" title="Ya cargado con socio (${escapeHtml(b.comprador)}): no se puede sacar, pero sí corregir la modalidad">
-                      <i class="bi bi-lock-fill" style="font-size:.65rem;"></i></span>`;
+                      <i class="bi bi-lock-fill" style="font-size:var(--fs-2xs);"></i></span>`;
           } else {
             ctrl = `<button type="button" class="btn btn-sm btn-link text-danger p-0 px-1"
                             title="Sacar de la liquidación" onclick="quitarBoletaLiq(${b.id})">
-                      <i class="bi bi-x-circle-fill" style="font-size:.72rem;"></i></button>`;
+                      <i class="bi bi-x-circle-fill" style="font-size:var(--fs-2xs);"></i></button>`;
           }
         }
         if (b.reasignado_a_nombre) {
           // Badge compuesto: número + flecha + nombre del vendedor destino
           const tipReas = `${tipBase} · Ahora en: ${escapeHtml(b.reasignado_a_nombre)}`;
           badges += `<span class="d-inline-flex align-items-center me-1 mb-1"
-                          style="font-size:.78rem;border:1px solid #0d6efd55;border-radius:.25rem;overflow:hidden;${opaco}"
+                          style="font-size:var(--fs-xs);border:1px solid #0d6efd55;border-radius:.25rem;overflow:hidden;${opaco}"
                           title="${tipReas}">
-            <span class="badge ${badgeCls} rounded-0" style="font-size:.78rem;">${escapeHtml(b.num_str)}</span>
+            <span class="badge ${badgeCls} rounded-0" style="font-size:var(--fs-xs);">${escapeHtml(b.num_str)}</span>
             <span class="px-2 py-1 text-primary fw-semibold" style="background:#0d6efd15;">
-              <i class="bi bi-arrow-right" style="font-size:.7rem;"></i>
+              <i class="bi bi-arrow-right" style="font-size:var(--fs-2xs);"></i>
               ${escapeHtml(b.reasignado_a_nombre)}
             </span>${modSel}${ctrl}
           </span>`;
         } else if (dlEditMode) {
           // Sin me-1/mb-1: el espaciado lo pone el gap de .num-edit
           badges += `<span class="d-inline-flex align-items-center"
-                          style="font-size:.78rem;border:1px solid #0d6efd44;border-radius:.25rem;overflow:hidden;${opaco}"
+                          style="font-size:var(--fs-xs);border:1px solid #0d6efd44;border-radius:.25rem;overflow:hidden;${opaco}"
                           title="${tipBase}">
-            <span class="badge ${badgeCls}" style="font-size:.78rem;border-radius:.25rem 0 0 .25rem;">${escapeHtml(b.num_str)}</span>${modSel}${ctrl}
+            <span class="badge ${badgeCls}" style="font-size:var(--fs-xs);border-radius:.25rem 0 0 .25rem;">${escapeHtml(b.num_str)}</span>${modSel}${ctrl}
           </span>`;
         } else {
-          badges += `<span class="badge ${badgeCls} me-1 mb-1" style="font-size:.78rem;${opaco}"
+          badges += `<span class="badge ${badgeCls} me-1 mb-1" style="font-size:var(--fs-xs);${opaco}"
                           title="${tipBase}">${escapeHtml(b.num_str)}</span>`;
         }
       });
@@ -2820,7 +2823,7 @@ function renderDetalleLiq(d) {
         <div class="card border-0 shadow-sm mb-2">
           <div class="card-header py-1 d-flex align-items-center gap-2"
                style="background:${colorBg};border-left:4px solid ${colorBdr};">
-            <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">
+            <span class="badge fw-bold" style="background:${colorBdr};color:var(--ink);border:1px solid #0003;">
               ${escapeHtml(pata)}
             </span>
             <span class="text-muted small"
@@ -2842,12 +2845,12 @@ function renderDetalleLiq(d) {
     </div>`;
     Object.keys(grupos_pool).sort().forEach(nombre => {
       const g = grupos_pool[nombre];
-      const colorBg  = (g.color || '#fff8e1') + '60';
-      const colorBdr = g.color || '#ffc107';
+      const colorBg  = (g.color || 'var(--amber-bg)') + '60';
+      const colorBdr = g.color || 'var(--amber)';
       let badges = '';
       g.items.forEach(it => {
-        badges += `<span class="badge bg-warning text-dark me-1 mb-1" style="font-size:.78rem;">
-          <i class="bi bi-star-fill me-1" style="font-size:.6rem;"></i>${escapeHtml(it.num_str)}</span>`;
+        badges += `<span class="badge bg-warning text-dark me-1 mb-1" style="font-size:var(--fs-xs);">
+          <i class="bi bi-star-fill me-1" style="font-size:var(--fs-2xs);"></i>${escapeHtml(it.num_str)}</span>`;
       });
       html += `
         <div class="card border-0 shadow-sm mb-2">
@@ -2895,8 +2898,8 @@ function renderDetalleLiq(d) {
       });
       Object.keys(gAdd).sort().forEach(pata => {
         const g = gAdd[pata];
-        const colorBg  = (g.color || '#0d6efd') + '20';
-        const colorBdr = g.color || '#0d6efd';
+        const colorBg  = (g.color || 'var(--link)') + '20';
+        const colorBdr = g.color || 'var(--link)';
         let badges = '';
         g.items.forEach(x => {
           const mult = parseFloat(x.multiplicador) || 1;
@@ -2905,12 +2908,12 @@ function renderDetalleLiq(d) {
               <label style="margin:0;cursor:pointer;" title="×${fmtMult(mult)}">
                 <input type="checkbox" class="d-none dl-add-chk" value="${x.id}"
                        data-pata="${pata}" onchange="onAddChkChange(this)">
-                <span class="badge" style="font-size:.8rem;cursor:pointer;
-                      background:#e7f1ff;color:#0d6efd;border:1px solid #0d6efd40;
+                <span class="badge" style="font-size:var(--fs-xs);cursor:pointer;
+                      background:var(--link-bg);color:var(--link);border:1px solid #0d6efd40;
                       user-select:none;">${escapeHtml(x.num_str)}</span>
               </label>
               <select class="form-select form-select-sm dl-add-mod-sel d-none"
-                      style="width:auto;font-size:.68rem;padding:.05rem 1rem .05rem .3rem;height:auto;min-width:0;background-position:right .15rem center;background-size:10px 8px;"
+                      style="width:auto;font-size:var(--fs-2xs);padding:.05rem 1rem .05rem .3rem;height:auto;min-width:0;background-position:right .15rem center;background-size:10px 8px;"
                       onchange="onAddModChange(this)">
                 <option value="cuotas" selected>Cuo</option>
                 <option value="contado">Co</option>
@@ -2922,15 +2925,15 @@ function renderDetalleLiq(d) {
           <div class="card border-0 shadow-sm mb-2">
             <div class="card-header py-1 d-flex align-items-center gap-2"
                  style="background:${colorBg};border-left:4px solid ${colorBdr};">
-              <span class="badge fw-bold" style="background:${colorBdr};color:#222;border:1px solid #0003;">${escapeHtml(pata)}</span>
+              <span class="badge fw-bold" style="background:${colorBdr};color:var(--ink);border:1px solid #0003;">${escapeHtml(pata)}</span>
               <span class="text-muted small" id="dladd-cnt-${pata}">0 / ${g.items.length}</span>
               <div class="ms-auto d-flex gap-1">
                 <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2"
-                        style="font-size:.72rem;" onclick="toggleAddPata('${pata}', true)">
+                        style="font-size:var(--fs-2xs);" onclick="toggleAddPata('${pata}', true)">
                   <i class="bi bi-check-all"></i> Todo
                 </button>
                 <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
-                        style="font-size:.72rem;" onclick="toggleAddPata('${pata}', false)">
+                        style="font-size:var(--fs-2xs);" onclick="toggleAddPata('${pata}', false)">
                   <i class="bi bi-x"></i> Ninguno
                 </button>
               </div>
@@ -3179,12 +3182,12 @@ function renderDetalleLiq(d) {
   }
 
   function showToastVD(msg, color) {
-    color = color || "#dc3545";
+    color = color || "var(--brand)";
     const t = document.createElement("div");
     t.style.cssText =
       "position:fixed;top:4.5rem;left:50%;transform:translateX(-50%);z-index:9999;" +
       "background:" + color + ";color:#fff;padding:.5rem 1.1rem;border-radius:8px;" +
-      "font-size:.85rem;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.3);" +
+      "font-size:var(--fs-sm);font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.3);" +
       "text-align:center;max-width:92vw;";
     t.textContent = msg;
     document.body.appendChild(t);
@@ -3210,7 +3213,7 @@ function renderDetalleLiq(d) {
       }
       if (resp.ok || resp.redirected) {
         localStorage.removeItem(DRAFT_KEY_VD);
-        showToastVD("OK - Liquidacion sincronizada.", "#198754");
+        showToastVD("OK - Liquidacion sincronizada.", "var(--ok)");
         setTimeout(() => location.reload(), 1800);
         return true;   // queda trabado a proposito: la pagina se recarga
       }
@@ -3257,7 +3260,7 @@ function renderDetalleLiq(d) {
   window.addEventListener("online", async () => {
     const d = getDraftVD();
     if (!d) return;
-    showToastVD("Conexion restaurada - sincronizando liquidacion de vendedor...", "#0d6efd");
+    showToastVD("Conexion restaurada - sincronizando liquidacion de vendedor...", "var(--link)");
     await replayDraftVD(d);
   });
 
