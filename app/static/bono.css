@@ -3,15 +3,49 @@
    Bootstrap 5 companion — mobile-first improvements
    =================================================================== */
 
-/* === Tokens === */
+/* === Tokens ===
+   Usar SIEMPRE estos en vez de colores o tamaños sueltos (relevamiento, puntos
+   15 y 16). Se migra pantalla por pantalla; piloto: Socios (compradores.html).
+   Un color nuevo se agrega acá con nombre de uso, no de tono. */
 :root {
   --navy:      #1a2a4a;
-  --red:       #e63946;
+  /* Marca: UN solo rojo (antes convivían #e63946 y el #dc3545 de Bootstrap). */
+  --brand:        #dc3545;
+  --brand-strong: #a62020;   /* fondos rojos oscuros (cabezal del modal) */
+  --brand-ink:    #842029;   /* texto rojo sobre fondo claro (bajas) */
+  --brand-tint:   #fff3f3;   /* hover de filas, fondos rojizos muy suaves */
+  --brand-tint-2: #fff8f8;
+  --red:       var(--brand); /* alias viejo: lo usan otras pantallas */
   --bg:        #eef1f7;
   --surface:   #ffffff;
+  --surface-2: #fbfaf9;      /* bloque apagado dentro de una tarjeta */
+  --line:      #e9ecef;      /* separadores, hover neutro */
   --border:    #dde1ea;
   --text:      #1e293b;
+  --ink:       #212529;      /* texto de formularios */
   --muted:     #64748b;
+  --faint:     #adb5bd;      /* placeholders, texto deshabilitado */
+  --muted-warm:  #8a8580;    /* rótulos de la ficha del socio */
+  --border-warm: #e3ded9;    /* bordes de la ficha del socio */
+  --link:        #0d6efd;
+  --ok:        #198754;
+  --ok-bg:     #d1e7dd;      /* confirmación (celda guardada OK) */
+  --brand-bg:  #f8d7da;      /* error suave (celda que no se guardó) */
+  /* Avisos / chips: fondo tenue + texto oscuro + borde, por intención. */
+  --warn-bg:   #fff3cd;  --warn-fg:   #7a5b00;  --warn-bd:   #ffda6a;
+  --info-bg:   #cff4fc;  --info-fg:   #055160;  --info-bd:   #9eeaf9;
+  --violet-bg: #ede4ff;  --violet-fg: #4b2a91;  --violet-bd: #c9b3f5;
+  --orange-bg: #ffe5d0;  --orange-fg: #8a3b00;  --orange-bd: #ffb98a;
+  --orange-tint: #fff1e6; --orange-strong: #c25400;
+  --indigo-bg: #eef2ff;  --indigo-fg: #6366f1;  --indigo-bd: #c7d2fe;
+  --sky-bg:    #e3f2fd;
+  --baja-bg:   #f5c2c7;  --baja-hover: #f1aeb5;   /* fila de socio dado de baja */
+  /* Letra. Piso legible: nada por debajo de --fs-2xs (12px), y ese solo para
+     chips/badges. Antes había texto de 9,6–11,5 px en toda la app. */
+  --fs-2xs:    .75rem;     /* 12px — chips, badges, rótulos */
+  --fs-xs:     .8125rem;   /* 13px — texto secundario */
+  --fs-sm:     .875rem;    /* 14px — tablas densas */
+  --fs-md:     1rem;
   --radius:    10px;
   --radius-lg: 16px;
   --sh-sm:     0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.04);
@@ -21,6 +55,10 @@
 
 /* === Base === */
 body { background: var(--bg); color: var(--text); }
+
+/* Piso de letra para los badges de Bootstrap: miden .75em de su contenedor y
+   adentro de una tabla de 14px quedaban en 10,5px. Nunca menos de 12px. */
+.badge { font-size: max(.75em, var(--fs-2xs)); }
 
 /* === Page header === */
 .page-header {

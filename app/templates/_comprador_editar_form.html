@@ -41,15 +41,15 @@ El socio avisó que pases a cobrar.</textarea>
   }
   .cred-nums {
     background: #fff;
-    border: 1px solid #e0d9d4;
+    border: 1px solid var(--border-warm);
     border-radius: 7px;
     padding: .4rem .5rem;
     display: grid;
     gap: 4px;
     justify-items: center;
   }
-  .cred-nums .badge { font-size: .85rem; }
-  .cred-nums .nums-extra .badge { font-size: .72rem; }
+  .cred-nums .badge { font-size: var(--fs-sm); }
+  .cred-nums .nums-extra .badge { font-size: var(--fs-2xs); }
   /* Un renglón por dato: rótulo chico a la izquierda, valor a la derecha. */
   .dato-linea {
     display: grid;
@@ -59,11 +59,11 @@ El socio avisó que pases a cobrar.</textarea>
     padding: 2px 0;
   }
   .dato-linea > label {
-    font-size: .68rem;
+    font-size: var(--fs-2xs);
     font-weight: 600;
     letter-spacing: .05em;
     text-transform: uppercase;
-    color: #8a8580;
+    color: var(--muted-warm);
     margin: 0;
   }
   @media (max-width: 575.98px) {
@@ -86,7 +86,7 @@ El socio avisó que pases a cobrar.</textarea>
     gap: 3px;
     justify-content: start;
   }
-  .nums-grid .badge { font-size: .78rem; }
+  .nums-grid .badge { font-size: var(--fs-xs); }
   /* Los datos del socio van uno por renglón, al costado de la credencial
      (modelo elegido el 17/09/2026): dirección · fecha de compra · zona ·
      teléfono. El vendedor y el cobrador ya no están acá: subieron al cabezal. */
@@ -107,11 +107,11 @@ El socio avisó que pases a cobrar.</textarea>
      Las acciones que rompen algo (reasignar / liberar) salen del cuerpo y
      viven detrás del botón "⋯" de la boleta. */
   .ficha-rotulo {
-    font-size: .7rem;
+    font-size: var(--fs-2xs);
     font-weight: 600;
     letter-spacing: .09em;
     text-transform: uppercase;
-    color: #8a8580;
+    color: var(--muted-warm);
     margin-bottom: .35rem;
   }
   /* Los números de boleta se comparan de un vistazo: monoespaciados y con
@@ -127,24 +127,24 @@ El socio avisó que pases a cobrar.</textarea>
     width: 62px;
     height: 6px;
     border-radius: 99px;
-    background: #e3ded9;
+    background: var(--border-warm);
     overflow: hidden;
     vertical-align: middle;
   }
   .cuotas-barra > i {
     display: block;
     height: 100%;
-    background: #198754;
+    background: var(--ok);
     transition: width .15s ease-out;
   }
-  .cuotas-barra.parcial > i { background: #0d6efd; }
-  .cuotas-barra.cero    > i { background: #adb5bd; }
+  .cuotas-barra.parcial > i { background: var(--link); }
+  .cuotas-barra.cero    > i { background: var(--faint); }
   /* Panel de acciones de la boleta (se abre con el botón ⋯). Inline, no
      flotante: adentro de un modal con scroll un menú flotante se corta. */
-  .acciones-boleta-panel { background: #fbfaf9; }
+  .acciones-boleta-panel { background: var(--surface-2); }
   /* Resumen CONTADO para el modo lectura: el bloque editable entero se
      esconde y en su lugar queda esta línea. */
-  .contado-resumen { font-size: .75rem; }
+  .contado-resumen { font-size: var(--fs-2xs); }
   .contado-resumen .cr-num {
     font-family: ui-monospace, "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
     font-weight: 600;
@@ -162,7 +162,7 @@ El socio avisó que pases a cobrar.</textarea>
   {% if comprador.boletas %}
   <div class="row g-2 mb-2" id="datosCabezal">
     <div class="col-6 col-md-4">
-      <label class="form-label mb-1" style="font-size:.8rem;" for="vendedorSelectEdit">Vendedor</label>
+      <label class="form-label mb-1" style="font-size:var(--fs-xs);" for="vendedorSelectEdit">Vendedor</label>
       {% set vendedor_actual = comprador.boletas[0].vendedor_id %}
       <select name="vendedor_id" id="vendedorSelectEdit" class="form-select form-select-sm fw-semibold">
         <option value="">— Sin vendedor —</option>
@@ -172,7 +172,7 @@ El socio avisó que pases a cobrar.</textarea>
       </select>
     </div>
     <div class="col-6 col-md-4">
-      <label class="form-label mb-1" style="font-size:.8rem;" for="cobradorSelectEdit">Cobrador</label>
+      <label class="form-label mb-1" style="font-size:var(--fs-xs);" for="cobradorSelectEdit">Cobrador</label>
       {% set cobrador_actual = comprador.boletas[0].cobrador_id %}
       <select name="cobrador_id" id="cobradorSelectEdit" class="form-select form-select-sm fw-semibold">
         <option value="">— Sin cobrador —</option>
@@ -190,7 +190,7 @@ El socio avisó que pases a cobrar.</textarea>
     {# "Cuotas pagas" sube acá, a la derecha del rótulo. Con varias boletas no
        se puede (es un dato por boleta) y vuelve adentro de cada caja. #}
     <div class="d-flex align-items-center mb-1">
-      <label class="form-label fw-semibold text-danger mb-0" style="font-size:.8rem;">BOLETAS ASIGNADAS</label>
+      <label class="form-label fw-semibold text-danger mb-0" style="font-size:var(--fs-xs);">BOLETAS ASIGNADAS</label>
       {% if comprador.boletas | length == 1 %}
       {% set _b0 = comprador.boletas[0] %}
       <div class="ms-auto d-flex align-items-center gap-2">
@@ -236,7 +236,7 @@ El socio avisó que pases a cobrar.</textarea>
           {% endfor %}
         </div>
         {% endif %}
-        <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.65rem;">{{ b.talonera.nombre if b.talonera else "" }}</span>
+        <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:var(--fs-2xs);">{{ b.talonera.nombre if b.talonera else "" }}</span>
       </div>
       {# Columna derecha: los datos del socio, un renglón por dato. #}
       <div class="datos-socio-inline">
@@ -282,7 +282,7 @@ El socio avisó que pases a cobrar.</textarea>
              ESTADO de la lista de socios — app/estado_socio.py). #}
         {% set _est = (estados_boleta | default({})).get(b.id) %}
         {% if _est %}
-        <span class="badge est-{{ _est.clase }}" style="font-size:.65rem;" title="{{ _est.tip }}">{{ _est.texto }}</span>
+        <span class="badge est-{{ _est.clase }}" style="font-size:var(--fs-2xs);" title="{{ _est.tip }}">{{ _est.texto }}</span>
         {% endif %}
         {# ── Planilla de cobranza donde está emplanillada esta boleta ── #}
         {% if b.planilla %}
@@ -291,14 +291,14 @@ El socio avisó que pases a cobrar.</textarea>
            data-visor-titulo="P{{ b.planilla.numero }} — {{ b.planilla.cobrador.nombre if b.planilla.cobrador else '—' }} — {{ _MESES_AB[b.planilla.mes - 1] }} {{ b.planilla.anio }}"
            data-visor-icono="bi-journal-text"
            class="badge bg-primary-subtle text-primary border border-primary text-decoration-none"
-           style="font-size:.65rem;cursor:pointer;"
+           style="font-size:var(--fs-2xs);cursor:pointer;"
            title="Emplanillada en P{{ b.planilla.numero }} de {{ b.planilla.cobrador.nombre if b.planilla.cobrador else '—' }} ({{ _MESES_AB[b.planilla.mes - 1] }} {{ b.planilla.anio }}) — clic para ver la planilla">
           <i class="bi bi-journal-text me-1"></i>P{{ b.planilla.numero }}
           · {{ b.planilla.cobrador.nombre if b.planilla.cobrador else "—" }}
           · {{ _MESES_AB[b.planilla.mes - 1] }} {{ b.planilla.anio }}
         </a>
         {% else %}
-        <span class="badge bg-light text-muted border" style="font-size:.65rem;"
+        <span class="badge bg-light text-muted border" style="font-size:var(--fs-2xs);"
               title="Esta boleta todavía no fue incluida en ninguna planilla de cobranza">
           <i class="bi bi-journal me-1"></i>Sin planilla
         </span>
@@ -308,7 +308,7 @@ El socio avisó que pases a cobrar.</textarea>
            con scroll un dropdown queda cortado. #}
         <button type="button"
                 class="btn btn-outline-secondary btn-sm py-0 px-2 btn-acciones-boleta"
-                style="font-size:.7rem;"
+                style="font-size:var(--fs-2xs);"
                 data-boleta-id="{{ b.id }}"
                 aria-expanded="false"
                 title="Reasignar o liberar esta boleta">
@@ -355,14 +355,14 @@ El socio avisó que pases a cobrar.</textarea>
         <div class="d-flex gap-1 flex-wrap">
           <button type="button"
                   class="btn btn-outline-warning btn-sm py-0 px-2 btn-reasignar"
-                  style="font-size:.7rem;"
+                  style="font-size:var(--fs-2xs);"
                   data-boleta-id="{{ b.id }}"
                   title="Si te equivocaste al cargar el número de talonera, podés reasignar este socio a otro número libre">
             <i class="bi bi-arrow-repeat me-1"></i>Asignar nueva talonera
           </button>
           <button type="button"
                   class="btn btn-outline-danger btn-sm py-0 px-2 btn-liberar"
-                  style="font-size:.7rem;"
+                  style="font-size:var(--fs-2xs);"
                   data-boleta-id="{{ b.id }}"
                   title="Liberar esta boleta de la talonera — la deja disponible para vender a otro socio (acción con doble confirmación)">
             <i class="bi bi-trash me-1"></i>Liberar boleta
@@ -419,7 +419,7 @@ El socio avisó que pases a cobrar.</textarea>
            data-numero="{{ b.numero_principal }}"
            data-talonera="{{ b.talonera.nombre if b.talonera else '' }}"
            data-url="/compradores/{{ comprador.id }}/boleta/{{ b.id }}/liberar"
-           style="background-color:#fff5f5;">
+           style="background-color:var(--brand-tint);">
         <div class="small text-danger mb-2">
           <i class="bi bi-exclamation-octagon-fill me-1"></i>
           <strong>¡ATENCIÓN! Acción irreversible.</strong>
@@ -508,10 +508,10 @@ El socio avisó que pases a cobrar.</textarea>
      El botón de baja/reactivar bajó al pie, junto a Guardar Cambios. #}
   <div class="row g-2 mb-2 align-items-end" id="campoCondicion">
     <div class="col-auto">
-      <label class="form-label mb-1" style="font-size:.8rem; font-weight:600;">Condición</label>
+      <label class="form-label mb-1" style="font-size:var(--fs-xs); font-weight:600;">Condición</label>
       <div>
         <span class="badge bg-{{ cond_color }}-subtle text-{{ cond_color }}-emphasis border border-{{ cond_color }}"
-              style="font-size:.85rem; padding:.4em .8em;"
+              style="font-size:var(--fs-sm); padding:.4em .8em;"
               title="Calculada automáticamente">
           {% if cond_derivada == 'BAJA' %}<i class="bi bi-x-octagon-fill me-1"></i>{% endif %}
           {{ cond_label }}
@@ -535,7 +535,7 @@ El socio avisó que pases a cobrar.</textarea>
   <!-- Apellido y Nombre (el modal lo oculta: se edita en el encabezado) -->
   <div class="row g-2 mb-2" id="campoApellidoNombre">
     <div class="col-12">
-      <label class="form-label mb-1" style="font-size:.8rem; font-weight:600;">Apellido y Nombre *</label>
+      <label class="form-label mb-1" style="font-size:var(--fs-xs); font-weight:600;">Apellido y Nombre *</label>
       <input type="text" name="apellido_nombre" class="form-control form-control-sm input-upper"
              value="{{ comprador.apellido_nombre }}" required>
     </div>
@@ -547,12 +547,12 @@ El socio avisó que pases a cobrar.</textarea>
   <div class="ficha-rotulo">Socio</div>
   <div class="row g-2 mb-3">
     <div class="col-5">
-      <label class="form-label mb-1" style="font-size:.8rem;">Dirección</label>
+      <label class="form-label mb-1" style="font-size:var(--fs-xs);">Dirección</label>
       <input type="text" name="direccion" class="form-control form-control-sm input-upper"
              value="{{ comprador.direccion or '' }}">
     </div>
     <div class="col-4">
-      <label class="form-label mb-1" style="font-size:.8rem;">Zona</label>
+      <label class="form-label mb-1" style="font-size:var(--fs-xs);">Zona</label>
       <div class="d-flex gap-1">
         <select name="zona_id" id="zonaSelectEdit" class="form-select form-select-sm">
           <option value="">— Sin zona —</option>
@@ -567,7 +567,7 @@ El socio avisó que pases a cobrar.</textarea>
       </div>
     </div>
     <div class="col-3">
-      <label class="form-label mb-1" style="font-size:.8rem;">Teléfono</label>
+      <label class="form-label mb-1" style="font-size:var(--fs-xs);">Teléfono</label>
       <input type="text" name="telefono" class="form-control form-control-sm"
              value="{{ comprador.telefono or '' }}">
     </div>

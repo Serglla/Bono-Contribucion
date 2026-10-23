@@ -19,7 +19,7 @@
 
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-  <link href="/static/bono.css" rel="stylesheet">
+  <link href="/static/bono.css?v=20261022c" rel="stylesheet">
   <style>
     body { background: #eef1f7; }
     /* Offline pill */
@@ -56,10 +56,10 @@
     /* Topbar */
     .topbar { background: #1a2a4a; }
     .topbar .navbar-brand { color: #fff; font-weight: 700; font-size: 1.05rem; line-height: 1.1; }
-    .topbar .navbar-brand small { color: #adb5bd; font-size: .7rem; display: block; font-weight: 500; }
+    .topbar .navbar-brand small { color: var(--faint); font-size: var(--fs-2xs); display: block; font-weight: 500; }
     .topbar .nav-link { color: #adb5bd; border-radius: 6px; margin: 2px 2px; padding: .4rem .7rem; display: flex; align-items: center; white-space: nowrap; }
     .topbar .nav-link:hover { background: rgba(255,255,255,.08); color: #fff; }
-    .topbar .nav-link.active { background: #e63946; color: #fff; }
+    .topbar .nav-link.active { background: var(--brand); color: #fff; }
     .topbar .navbar-toggler { border-color: rgba(255,255,255,.25); }
     .topbar .navbar-toggler-icon {
       background-image: url("data:image/svg+xml;charset=utf8,%3Csvg viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath stroke='rgba(255,255,255,0.85)' stroke-width='2' stroke-linecap='round' stroke-miterlimit='10' d='M4 7h22M4 15h22M4 23h22'/%3E%3C/svg%3E");
@@ -78,9 +78,9 @@
     .menu-link i { font-size:1.05rem; width:1.4rem; text-align:center; color:#64748b; }
     .menu-link:hover { background:#f1f3f7; color:#1a2a4a; }
     .menu-link:hover i { color:#1a2a4a; }
-    .menu-link.active { background:#e63946; color:#fff; }
+    .menu-link.active { background:var(--brand); color:#fff; }
     .menu-link.active i { color:#fff; }
-    .menu-group-label { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; font-weight:700; margin:.25rem .25rem .4rem; }
+    .menu-group-label { font-size:var(--fs-2xs); text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; font-weight:700; margin:.25rem .25rem .4rem; }
     @media (max-width: 575.98px) {
       .quick-links .ql-text { display:none; }
       .topbar .navbar-brand small { display:none; }
@@ -98,7 +98,7 @@
     /* Mobile tweaks */
     @media (max-width: 991.98px) {
       .topbar .nav-link { padding: .55rem .8rem; margin: 1px 0; }
-      .topbar .nav-link.active { background: #e63946; }
+      .topbar .nav-link.active { background: var(--brand); }
       .topbar .user-block { border-top: 1px solid rgba(255,255,255,.1); margin-top: .5rem; padding-top: .75rem; }
       .main-content { padding: 1rem !important; }
     }
@@ -350,7 +350,7 @@
       <div class="modal-body py-3" id="appDialogBody" style="white-space:pre-line;"></div>
       <div class="modal-footer py-2">
         <button type="button" class="btn btn-sm btn-outline-secondary px-3" id="appDialogCancel">Cancelar</button>
-        <button type="button" class="btn btn-sm text-white px-3" style="background:#e63946;" id="appDialogOk">Aceptar</button>
+        <button type="button" class="btn btn-sm text-white px-3" style="background:var(--brand);" id="appDialogOk">Aceptar</button>
       </div>
     </div>
   </div>

@@ -2,21 +2,21 @@
 {% block title %}Socios{% endblock %}
 {% block content %}
 <style>
-  .aviso-chip { font-size:.75rem; font-weight:700; padding:2px 8px; border-radius:999px; line-height:1.4; }
+  .aviso-chip { font-size:var(--fs-2xs); font-weight:700; padding:2px 8px; border-radius:999px; line-height:1.4; }
   .aviso-chip.dropdown-toggle::after { display:none; }
-  .aviso-warn   { background:#fff3cd; color:#7a5b00; border:1px solid #ffda6a; }
-  .aviso-info   { background:#cff4fc; color:#055160; border:1px solid #9eeaf9; }
-  .aviso-purple { background:#ede4ff; color:#4b2a91; border:1px solid #c9b3f5; }
-  .aviso-orange { background:#ffe5d0; color:#8a3b00; border:1px solid #ffb98a; }
+  .aviso-warn   { background:var(--warn-bg); color:var(--warn-fg); border:1px solid var(--warn-bd); }
+  .aviso-info   { background:var(--info-bg); color:var(--info-fg); border:1px solid var(--info-bd); }
+  .aviso-purple { background:var(--violet-bg); color:var(--violet-fg); border:1px solid var(--violet-bd); }
+  .aviso-orange { background:var(--orange-bg); color:var(--orange-fg); border:1px solid var(--orange-bd); }
   .sinsoc-num { cursor:pointer; }
-  .sinsoc-num:hover { background:#dc3545 !important; color:#fff !important; }
+  .sinsoc-num:hover { background:var(--brand) !important; color:#fff !important; }
   .aviso-chip:hover { filter:brightness(.95); }
-  .aviso-menu { min-width:250px; font-size:.85rem; }
+  .aviso-menu { min-width:250px; font-size:var(--fs-sm); }
 </style>
 <div class="page-header">
   <h4 class="page-title">
     <i class="bi bi-people-fill text-danger"></i>Socios
-    <a href="/compradores/mapa" class="btn btn-sm btn-outline-primary ms-2" title="Ver mapa de socios" style="font-size:.75rem;font-weight:600;">
+    <a href="/compradores/mapa" class="btn btn-sm btn-outline-primary ms-2" title="Ver mapa de socios" style="font-size:var(--fs-2xs);font-weight:600;">
       <i class="bi bi-geo-alt-fill"></i><span class="d-none d-sm-inline ms-1">Mapa</span>
     </a>
     {# ── Avisos compactos (antes eran barras grandes debajo del título) ──
@@ -138,9 +138,9 @@
 <div class="modal fade" id="modalSinSocio" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <div class="modal-header" style="background:#fff1e6;">
+      <div class="modal-header" style="background:var(--orange-tint);">
         <h5 class="modal-title">
-          <i class="bi bi-hourglass-split me-2" style="color:#c25400;"></i>Boletas liquidadas sin socio cargado
+          <i class="bi bi-hourglass-split me-2" style="color:var(--orange-strong);"></i>Boletas liquidadas sin socio cargado
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
@@ -162,7 +162,7 @@
 <div class="modal fade" id="modalContadoSinCargar" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <div class="modal-header" style="background:#e3f2fd;">
+      <div class="modal-header" style="background:var(--sky-bg);">
         <h5 class="modal-title">
           <i class="bi bi-star-fill text-info me-2"></i>Números de sorteo CONTADO sin asignar
         </h5>
@@ -225,10 +225,10 @@ function verSinSocio(btn) {
                  <span class="badge bg-secondary ms-1">${items.length}</span></h6><div class="d-flex flex-wrap gap-2">`;
         items.forEach(it => {
           html += `<span class="badge rounded-pill sinsoc-num" data-num="${it.numero}"
-                         style="background:#fff1e6;color:#8a3b00;border:1px solid #ffb98a;font-size:.85rem;"
+                         style="background:var(--orange-tint);color:var(--orange-fg);border:1px solid var(--orange-bd);font-size:var(--fs-sm);"
                          title="Cargar el socio de este número">
                      ${it.pata} <strong>${it.numero_fmt}</strong>
-                     <span class="opacity-75 ms-1" style="font-size:.7rem;">${it.fecha_liq || ''}</span></span>`;
+                     <span class="opacity-75 ms-1" style="font-size:var(--fs-2xs);">${it.fecha_liq || ''}</span></span>`;
         });
         html += '</div></div>';
       });
@@ -292,9 +292,9 @@ function verContadoSinCargar(btn) {
           <h6 class="fw-semibold text-secondary mb-2"><i class="bi bi-person-fill me-1"></i>${vendedor}</h6>
           <div class="d-flex flex-wrap gap-2">`;
         items.forEach(function(item) {
-          html += `<span class="badge rounded-pill text-bg-info" style="font-size:.85rem;">
+          html += `<span class="badge rounded-pill text-bg-info" style="font-size:var(--fs-sm);">
             ${item.talonera} <strong>${item.numero_fmt}</strong>
-            <span class="opacity-75 ms-1" style="font-size:.7rem;">${item.fecha_liquidacion || ''}</span>
+            <span class="opacity-75 ms-1" style="font-size:var(--fs-2xs);">${item.fecha_liquidacion || ''}</span>
           </span>`;
         });
         html += `</div></div>`;
@@ -403,10 +403,10 @@ function verContadoSinCargar(btn) {
     </div>
   </div>
   <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
-    <span class="badge bg-secondary" style="font-size:.8rem;">
+    <span class="badge bg-secondary" style="font-size:var(--fs-xs);">
       <i class="bi bi-list-check me-1"></i>{{ total_filtrado }} boleta{% if total_filtrado != 1 %}s{% endif %} coincide{% if total_filtrado != 1 %}n{% endif %}
     </span>
-    <span class="badge bg-dark" style="font-size:.8rem;" title="Contabilizado por número: X1×1, X2×2, X0×0.67, etc.">
+    <span class="badge bg-dark" style="font-size:var(--fs-xs);" title="Contabilizado por número: X1×1, X2×2, X0×0.67, etc.">
       <i class="bi bi-calculator me-1"></i>{{ total_filtrado_pond }} número{% if total_filtrado_pond != 1 %}s{% endif %} coincide{% if total_filtrado_pond != 1 %}n{% endif %}
     </span>
     {% if _any_filtro %}
@@ -522,14 +522,14 @@ function verContadoSinCargar(btn) {
         {% set socio_baja = b and (b.mes_baja or (b.condicion and b.condicion.value == 'BAJA')) %}
         <tr data-comprador-id="{{ c.id }}"
             class="{% if socio_baja %}socio-baja{% endif %}"
-            style="cursor:pointer; {% if socio_baja %}--bs-table-bg:#f5c2c7; --bs-table-hover-bg:#f1aeb5;{% else %}--bs-table-bg: {{ row_color }}40; --bs-table-hover-bg: {{ row_color }}70;{% endif %}"
+            style="cursor:pointer; {% if socio_baja %}--bs-table-bg:var(--baja-bg); --bs-table-hover-bg:var(--baja-hover);{% else %}--bs-table-bg: {{ row_color }}40; --bs-table-hover-bg: {{ row_color }}70;{% endif %}"
             title="Doble clic para ver detalle completo">
           <td class="text-center" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
             <input type="checkbox" class="form-check-input chk-socio" value="{{ c.id }}">
           </td>
-          <td data-val="{% for boleta in c.boletas %}{{ boleta.numero_principal }}{% if boleta.numeros_adicionales %} {{ boleta.numeros_adicionales }}{% endif %} {% endfor %}">
+          <td class="col-boleta" data-val="{% for boleta in c.boletas %}{{ boleta.numero_principal }}{% if boleta.numeros_adicionales %} {{ boleta.numeros_adicionales }}{% endif %} {% endfor %}">
             {% for boleta in c.boletas %}
-              <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:0.68rem;">{{ (boleta.talonera.nombre if boleta.talonera else "") | replace('PATA ', 'X') }}</span>
+              <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:var(--fs-2xs);">{{ (boleta.talonera.nombre if boleta.talonera else "") | replace('PATA ', 'X') }}</span>
               <span class="badge bg-dark">{{ "%04d" % boleta.numero_principal }}</span>
             {% else %}
               <span class="text-muted">—</span>
@@ -537,7 +537,7 @@ function verContadoSinCargar(btn) {
           </td>
           <td class="fw-semibold col-nombre" title="{{ c.apellido_nombre }}">{{ c.apellido_nombre }}</td>
           <td class="col-direccion" title="{{ c.direccion or '' }}">{{ c.direccion or "—" }}</td>
-          <td>{{ c.zona.nombre if c.zona else "—" }}</td>
+          <td class="col-corta" title="{{ c.zona.nombre if c.zona else '' }}">{{ c.zona.nombre if c.zona else "—" }}</td>
           <td data-val="{{ b.fecha_venta.isoformat() if b and b.fecha_venta else '' }}" style="white-space:nowrap;">
             {% if b and b.fecha_venta %}
               {{ b.fecha_venta.strftime('%d/%m/%Y') }}
@@ -545,7 +545,7 @@ function verContadoSinCargar(btn) {
               <span class="text-muted">—</span>
             {% endif %}
           </td>
-          <td>
+          <td class="col-corta" title="{{ b.vendedor.nombre if b and b.vendedor else '' }}">
             {% if b and b.vendedor %}
               {{ b.vendedor.nombre }}
             {% else %}
@@ -578,9 +578,9 @@ function verContadoSinCargar(btn) {
                solo el dato que esa columna no muestra: mes de baja y cobrador. #}
             {% if cond == 'BAJA' or reg_baja %}
               {% if b and b.mes_baja %}
-                <div class="text-muted small" style="font-size:.7rem; line-height:1.1;">baja mes {{ b.mes_baja }}{% if cob_nombre %} · {{ cob_nombre }}{% endif %}</div>
+                <div class="text-muted small" style="font-size:var(--fs-2xs); line-height:1.1;">baja mes {{ b.mes_baja }}{% if cob_nombre %} · {{ cob_nombre }}{% endif %}</div>
               {% elif cob_nombre %}
-                <div class="text-muted small" style="font-size:.7rem; line-height:1.1;">{{ cob_nombre }}</div>
+                <div class="text-muted small" style="font-size:var(--fs-2xs); line-height:1.1;">{{ cob_nombre }}</div>
               {% else %}
                 <span class="text-muted">—</span>
               {% endif %}
@@ -588,12 +588,12 @@ function verContadoSinCargar(btn) {
               <span class="badge bg-success">CONTADO</span>
             {% elif pagado %}
               <span class="badge bg-secondary">PAGADO</span>
-              {% if cob_nombre %}<div class="text-muted small mt-1" style="font-size:.7rem; line-height:1;">{{ cob_nombre }}</div>{% endif %}
+              {% if cob_nombre %}<div class="text-muted small mt-1" style="font-size:var(--fs-2xs); line-height:1;">{{ cob_nombre }}</div>{% endif %}
             {% else %}
               <select class="form-select form-select-sm sel-cobrador-inline"
                       data-comprador-id="{{ c.id }}"
                       data-prev="{{ b.cobrador_id if b and b.cobrador_id else '' }}"
-                      style="min-width:130px; max-width:170px; font-size:0.75rem; padding:1px 4px;">
+                      style="min-width:130px; max-width:170px; font-size:var(--fs-2xs); padding:1px 4px;">
                 <option value="">— Sin cobrador —</option>
                 {% for cob in cobradores %}
                 <option value="{{ cob.id }}" {% if b and b.cobrador_id == cob.id %}selected{% endif %}>{{ cob.nombre }}</option>
@@ -612,14 +612,14 @@ function verContadoSinCargar(btn) {
               {% set _pag = b.cuotas_pagadas or 0 %}
               {% set _pac = b.cuotas_pactadas %}
               {% if socio_baja %}
-                <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:.72rem;"
+                <span class="badge bg-danger-subtle text-danger border border-danger" style="font-size:var(--fs-2xs);"
                       title="Pagó {{ _pag }} de {{ _pac }} cuotas antes de darse de baja{% if b.mes_baja %} (mes {{ b.mes_baja }}){% endif %}">{{ _pag }}/{{ _pac }}</span>
               {% elif _pag >= _pac %}
-                <span class="badge bg-success-subtle text-success border border-success" style="font-size:.72rem;">{{ _pag }}/{{ _pac }}</span>
+                <span class="badge bg-success-subtle text-success border border-success" style="font-size:var(--fs-2xs);">{{ _pag }}/{{ _pac }}</span>
               {% elif _pag == 0 %}
-                <span class="badge bg-light text-dark border" style="font-size:.72rem;">{{ _pag }}/{{ _pac }}</span>
+                <span class="badge bg-light text-dark border" style="font-size:var(--fs-2xs);">{{ _pag }}/{{ _pac }}</span>
               {% else %}
-                <span class="badge bg-warning-subtle text-dark border border-warning" style="font-size:.72rem;">{{ _pag }}/{{ _pac }}</span>
+                <span class="badge bg-warning-subtle text-dark border border-warning" style="font-size:var(--fs-2xs);">{{ _pag }}/{{ _pac }}</span>
               {% endif %}
             {% else %}
               <span class="text-muted">—</span>
@@ -658,10 +658,10 @@ function verContadoSinCargar(btn) {
 
 <style>
   .input-upper { text-transform: uppercase; }
-  #tablaCompradores { font-size: 0.8rem; }
-  #tablaCompradores thead th { font-size: 0.78rem; white-space: nowrap; }
+  #tablaCompradores { font-size: var(--fs-sm); }
+  #tablaCompradores thead th { font-size: var(--fs-xs); white-space: nowrap; }
   #tablaCompradores tbody td { padding-top: 1px; padding-bottom: 1px; vertical-align: middle; line-height: 1.2; }
-  #tablaCompradores tbody tr { height: 28px; }
+  #tablaCompradores tbody tr { height: 30px; }
   td.col-direccion { text-transform: uppercase; }
 
   /* Nombre y dirección se comían el ancho de la tabla. Se acotan con elipsis;
@@ -673,16 +673,27 @@ function verContadoSinCargar(btn) {
     white-space: nowrap;
   }
   td.col-direccion { max-width: 150px; }
+  /* Pata + número juntos en una línea (con badges a 12px se partían en dos). */
+  td.col-boleta { white-space: nowrap; }
+  /* Zona y vendedor: una línea con elipsis (con la letra a 14px partían en
+     2-3 renglones y las filas quedaban altas). Texto completo en el title. */
+  td.col-corta {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   @media (max-width: 1400px) {
     td.col-nombre    { max-width: 150px; }
     td.col-direccion { max-width: 110px; }
+    td.col-corta     { max-width: 90px; }
   }
 
   /* Los colores de los badges .est-* viven en base.html (se usan también en el
      detalle del socio, dentro y fuera del modal). */
-  #tablaCompradores .badge[class*="est-"] { font-size: .68rem; }
+  #tablaCompradores .badge[class*="est-"] { font-size: var(--fs-2xs); }
 
-  .sortable:hover { background-color: #f0f0f0; }
+  .sortable:hover { background-color: var(--line); }
   /* Mientras se arrastra para seleccionar, que no se pinte el texto de la tabla */
   body.arrastrando-seleccion, body.arrastrando-seleccion * {
     user-select: none !important;
@@ -695,14 +706,14 @@ function verContadoSinCargar(btn) {
     padding-left: .5rem;
     padding-right: .5rem;
   }
-  #tablaCompradores tbody td:first-child:hover { background-color: #e9ecef; }
-  .sortable.asc .sort-icon::after  { content: " ▲"; color: #dc3545; }
-  .sortable.desc .sort-icon::after { content: " ▼"; color: #dc3545; }
+  #tablaCompradores tbody td:first-child:hover { background-color: var(--line); }
+  .sortable.asc .sort-icon::after  { content: " ▲"; color: var(--brand); }
+  .sortable.desc .sort-icon::after { content: " ▼"; color: var(--brand); }
   .sortable.asc .sort-icon,
   .sortable.desc .sort-icon { display: none; }
   /* Socio dado de baja: fila distinguida en rojo */
-  #tablaCompradores tbody tr.socio-baja > td:first-child { box-shadow: inset 3px 0 0 #dc3545; }
-  #tablaCompradores tbody tr.socio-baja td { color: #842029; }
+  #tablaCompradores tbody tr.socio-baja > td:first-child { box-shadow: inset 3px 0 0 var(--brand); }
+  #tablaCompradores tbody tr.socio-baja td { color: var(--brand-ink); }
 </style>
 
 <script>
@@ -973,20 +984,20 @@ document.querySelectorAll('.input-upper').forEach(el => {
           <h5 class="modal-title mb-0">
             <i class="bi bi-person-plus-fill me-2 text-danger"></i>Nuevo Socio
           </h5>
-          <span id="flashGuardado" class="badge bg-success ms-3 d-none" style="font-size:.85rem;">✓ Guardado</span>
-          <span id="contadorGuardados" class="badge bg-secondary ms-2 d-none" style="font-size:.8rem;"></span>
+          <span id="flashGuardado" class="badge bg-success ms-3 d-none" style="font-size:var(--fs-sm);">✓ Guardado</span>
+          <span id="contadorGuardados" class="badge bg-secondary ms-2 d-none" style="font-size:var(--fs-xs);"></span>
           <div id="altaNav" class="d-none align-items-center gap-1 ms-2">
             <button type="button" id="btnNavAtras" class="btn btn-sm btn-outline-secondary py-0 px-2"
                     title="Editar el socio cargado anterior"><i class="bi bi-chevron-left"></i></button>
             <button type="button" id="btnNavAdelante" class="btn btn-sm btn-outline-secondary py-0 px-2"
                     title="Siguiente / volver a cargar uno nuevo"><i class="bi bi-chevron-right"></i></button>
           </div>
-          <span id="altaEditBadge" class="badge bg-warning text-dark ms-2 d-none" style="font-size:.78rem;"></span>
+          <span id="altaEditBadge" class="badge bg-warning text-dark ms-2 d-none" style="font-size:var(--fs-xs);"></span>
           <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
         </div>
 
         <!-- Banda de datos recordados -->
-        <div class="px-3 pt-2 pb-2" style="background:#eef2ff; border-bottom:2px solid #c7d2fe;">
+        <div class="px-3 pt-2 pb-2" style="background:var(--indigo-bg); border-bottom:2px solid var(--indigo-bd);">
           <!-- Fila 1: Fecha · Zona · Vendedor -->
           <div class="row g-2 align-items-end mb-2">
             <div class="col-md-4">
@@ -996,7 +1007,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
                    fecha es la de la venta real (no la de hoy) y cuántas cuotas da. #}
                 <span id="fechaLiquidacionBadge"
                       class="badge bg-success-subtle text-success-emphasis border border-success-subtle fw-normal d-none"
-                      style="font-size:.65rem;"
+                      style="font-size:var(--fs-2xs);"
                       title="Fecha tomada de la liquidación del vendedor. Podés cambiarla a mano si la venta fue otro día."></span>
               </label>
               <input type="date" name="fecha_compra" id="fechaInput" class="form-control form-control-sm">
@@ -1018,10 +1029,10 @@ document.querySelectorAll('.input-upper').forEach(el => {
             <div class="col-md-4">
               <label class="form-label form-label-sm mb-1 fw-semibold text-primary d-flex align-items-center gap-1">
                 Vendedor
-                <span id="vendedorZonaBadge" class="d-none" style="font-size:.65rem; color:#dc3545; font-weight:600;">
+                <span id="vendedorZonaBadge" class="d-none" style="font-size:var(--fs-2xs); color:var(--brand); font-weight:600;">
                   <i class="bi bi-lock-fill"></i> Fijo por zona
                 </span>
-                <span id="vendedorBoletaBadge" class="d-none" style="font-size:.65rem; color:#198754; font-weight:600;">
+                <span id="vendedorBoletaBadge" class="d-none" style="font-size:var(--fs-2xs); color:var(--ok); font-weight:600;">
                   <i class="bi bi-lightning-charge-fill"></i> <span id="vendedorBoletaNombre"></span>
                 </span>
               </label>
@@ -1052,7 +1063,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
                con Enter para no meterse en la carga rápida de todos los días. #}
             <div class="col-md-4 ms-auto">
               <label class="form-label form-label-sm mb-1 fw-semibold text-primary">
-                Cobrador <span class="text-muted fw-normal" style="font-size:.7rem;">(opcional)</span>
+                Cobrador <span class="text-muted fw-normal" style="font-size:var(--fs-2xs);">(opcional)</span>
               </label>
               <select name="cobrador_id" id="cobradorSelect" class="form-select form-select-sm" tabindex="-1">
                 <option value="">— Como siempre (por zona) —</option>
@@ -1062,7 +1073,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
               </select>
             </div>
           </div>
-          <div class="mt-1" style="font-size:.68rem; color:#6366f1;">
+          <div class="mt-1" style="font-size:var(--fs-2xs); color:var(--indigo-fg);">
             <i class="bi bi-arrow-repeat me-1"></i>Cuotas, zona y vendedor se recuerdan entre cargas · Enter para navegar entre ellos · El cobrador arranca vacío y no entra en el Enter
           </div>
         </div>
@@ -1071,7 +1082,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
         <div class="modal-body pt-3">
 
           <!-- Banner modo edición rápida (flechas ◀ ▶) -->
-          <div id="altaEditBanner" class="alert alert-warning py-2 px-3 mb-3 d-none" style="font-size:.82rem;">
+          <div id="altaEditBanner" class="alert alert-warning py-2 px-3 mb-3 d-none" style="font-size:var(--fs-xs);">
             <i class="bi bi-pencil-fill me-1"></i>
             Estás <strong>editando un socio ya cargado</strong>: nombre, dirección, teléfono, zona, fecha,
             cuotas (pactadas y al contado) y cobrador. Para cambiar la boleta o el vendedor usá el editor completo desde la lista.
@@ -1901,9 +1912,9 @@ document.querySelectorAll('.input-upper').forEach(el => {
 </div>
 
 <style>
-  .detalle-boleta-card { border-left: 4px solid #dc3545; background: #fff8f8; }
+  .detalle-boleta-card { border-left: 4px solid var(--brand); background: var(--brand-tint-2); }
   .num-badge { font-size: 1rem; min-width: 3rem; text-align: center; }
-  #tbodyCompradores tr:hover { background-color: #fff3f3 !important; }
+  #tbodyCompradores tr:hover { background-color: var(--brand-tint) !important; }
 
   /* ── Modal de socio en SOLO LECTURA ──────────────────────────────────────
      Se lee como una ficha, no como un formulario bloqueado: los campos pierden
@@ -1918,13 +1929,13 @@ document.querySelectorAll('.input-upper').forEach(el => {
     padding-right: 0 !important;
     height: auto;
     min-height: 1.4rem;
-    color: #212529 !important;
+    color: var(--ink) !important;
     -webkit-appearance: none;
     appearance: none;
     cursor: default;
     opacity: 1;
   }
-  #editarModalBody .modo-lectura .form-control::placeholder { color: #adb5bd; }
+  #editarModalBody .modo-lectura .form-control::placeholder { color: var(--faint); }
   /* El de cuotas pagas queda centrado en su ancho fijo; sin caja se ve
      descolgado, así que se alinea a la izquierda como el resto. */
   #editarModalBody .modo-lectura input[name^="cpag_"] {
@@ -1935,7 +1946,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
   /* En lectura la ficha respira un poco más entre bloques y los rótulos
      (BOLETA · SOCIO) marcan la separación sin necesidad de recuadros. */
   #editarModalBody .modo-lectura .boleta-wrap {
-    background: #fbfaf9 !important;
+    background: var(--surface-2) !important;
   }
   #editarModalBody .modo-lectura .ficha-rotulo {
     margin-top: .25rem;
@@ -1967,7 +1978,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
   }
   #editarModalNombre.form-control::placeholder { color: rgba(255, 255, 255, .6); }
   #editarModalNombre.form-control.is-invalid {
-    border-bottom-color: #ffe08a;
+    border-bottom-color: var(--warn-bd);
     background-image: none;
   }
   #editarModalCond.cond-chip {
@@ -1980,19 +1991,19 @@ document.querySelectorAll('.input-upper').forEach(el => {
     font-weight: 600;
   }
   #editarModalSub {
-    background: #a62020;
+    background: var(--brand-strong);
     color: #fff;
     padding: .3rem .85rem;
     display: flex;
     gap: 1.1rem;
     flex-wrap: wrap;
-    font-size: .78rem;
+    font-size: var(--fs-xs);
   }
   #editarModalSub .k {
     opacity: .72;
     text-transform: uppercase;
     letter-spacing: .06em;
-    font-size: .66rem;
+    font-size: var(--fs-2xs);
     margin-right: .3rem;
   }
   #editarModalSub b { font-weight: 600; }
@@ -2127,7 +2138,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
         <div class="ms-auto d-flex align-items-center gap-2">
           {# Condición del socio (En cobranza / Al contado / Baja…): sube acá
              desde el form, así no ocupa una fila entera del cuerpo. #}
-          <span id="editarModalCond" class="badge d-none" style="font-size:.72rem;padding:.4em .7em;"></span>
+          <span id="editarModalCond" class="badge d-none" style="font-size:var(--fs-2xs);padding:.4em .7em;"></span>
           {# Solo lectura por defecto: el modal se desbloquea con este botón o
              entrando directo por el lápiz de la fila. #}
           {# Compartir datos del socio con el cobrador (WhatsApp / copiar). #}
@@ -2234,7 +2245,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     if (!meta || !meta.dataset.condLabel) { badgeCond.classList.add('d-none'); return; }
     const color = meta.dataset.condColor || 'secondary';
     badgeCond.className = 'badge cond-chip';
-    badgeCond.style.fontSize = '.72rem';
+    badgeCond.style.fontSize = 'var(--fs-2xs)';
     badgeCond.style.padding = '.35em .7em';
     badgeCond.textContent = '';
     const dot = document.createElement('span');
@@ -2623,7 +2634,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
   function flashCelda(td, ok) {
     const orig = td.style.background;
     td.style.transition = 'background 0.3s';
-    td.style.background = ok ? '#d1e7dd' : '#f8d7da';
+    td.style.background = ok ? 'var(--ok-bg)' : 'var(--brand-bg)';
     setTimeout(() => { td.style.background = orig; }, 1200);
   }
 
@@ -2663,7 +2674,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
           const aviso = document.createElement('div');
           aviso.className = 'text-success small fw-semibold';
           aviso.innerHTML = `<i class="bi bi-arrow-left-right"></i> Transferido (${data.boletas_transferidas} boleta/s)`;
-          aviso.style.fontSize = '0.65rem';
+          aviso.style.fontSize = 'var(--fs-2xs)';
           td.appendChild(aviso);
           setTimeout(() => aviso.remove(), 2500);
         }
