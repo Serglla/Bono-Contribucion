@@ -17,7 +17,7 @@
     <div class="col-6 col-md-3 border-end py-3">
       <div class="small text-muted"><i class="bi bi-cash-coin me-1"></i>Cobranza en cuotas</div>
       <div class="h4 fw-bold text-success mb-0">{{ resumen_bruto | pesos }}</div>
-      <div class="text-muted" style="font-size:.72rem;">{{ resumen_cuotas | round | int }} cuotas</div>
+      <div class="text-muted" style="font-size:var(--fs-2xs);">{{ resumen_cuotas | round | int }} cuotas</div>
     </div>
     <div class="col-6 col-md-3 border-end py-3">
       <div class="small text-muted"><i class="bi bi-people me-1"></i>Comisión cobradores</div>
@@ -26,31 +26,31 @@
     <div class="col-6 col-md-3 border-end py-3">
       <div class="small text-muted"><i class="bi bi-lightning-charge me-1"></i>Neto contados</div>
       <div class="h4 fw-bold text-success mb-0">{{ resumen_contado_neto | pesos }}</div>
-      <div class="text-muted" style="font-size:.72rem;">{{ resumen_contados }} contados · com. {{ resumen_contado_com | pesos }}</div>
+      <div class="text-muted" style="font-size:var(--fs-2xs);">{{ resumen_contados }} contados · com. {{ resumen_contado_com | pesos }}</div>
     </div>
     <div class="col-6 col-md-3 py-3">
       <div class="small text-muted"><i class="bi bi-bank me-1"></i>Neto final</div>
       <div class="h4 fw-bold {% if resumen_neto_final >= 0 %}text-info{% else %}text-danger{% endif %} mb-0">{{ resumen_neto_final | pesos }}</div>
       {% if resumen_est_neto %}
-      <div class="text-muted" style="font-size:.72rem;">con ventas estimadas: <strong class="text-primary">{{ resumen_neto_final_est | pesos }}</strong></div>
+      <div class="text-muted" style="font-size:var(--fs-2xs);">con ventas estimadas: <strong class="text-primary">{{ resumen_neto_final_est | pesos }}</strong></div>
       {% endif %}
     </div>
   </div>
 
   <!-- Tabla mes a mes -->
   <div class="table-responsive">
-    <table class="table table-sm table-hover align-middle mb-0" style="font-size:.85rem;">
+    <table class="table table-sm table-hover align-middle mb-0" style="font-size:var(--fs-sm);">
       <thead class="table-dark">
         <tr>
           <th rowspan="2" class="align-middle" style="min-width:120px;">Mes</th>
           <th colspan="4" class="text-center border-start">Cobranza en cuotas</th>
           <th colspan="2" class="text-center border-start">Ventas al contado</th>
           <th rowspan="2" class="text-end align-middle border-start">Neto del mes</th>
-          <th rowspan="2" class="text-end align-middle border-start" style="color:#9ec5fe;">Ventas nuevas<br><span class="fw-normal" style="font-size:.7rem;">estimado</span></th>
-          <th rowspan="2" class="text-end align-middle" style="color:#9ec5fe;">Neto c/ est.</th>
-          <th rowspan="2" class="text-end align-middle" style="color:#9ec5fe;">Cuotas c/ est.</th>
+          <th rowspan="2" class="text-end align-middle border-start" style="color:var(--link-soft);">Ventas nuevas<br><span class="fw-normal" style="font-size:var(--fs-2xs);">estimado</span></th>
+          <th rowspan="2" class="text-end align-middle" style="color:var(--link-soft);">Neto c/ est.</th>
+          <th rowspan="2" class="text-end align-middle" style="color:var(--link-soft);">Cuotas c/ est.</th>
         </tr>
-        <tr style="font-size:.78rem;">
+        <tr style="font-size:var(--fs-xs);">
           <th class="text-end border-start">Cuotas</th>
           <th class="text-end">Cobranza</th>
           <th class="text-end">Com. cobradores</th>
@@ -66,11 +66,11 @@
           <td class="fw-semibold">
             {{ r.mes_nombre }} {{ r.anio }}
             {% if r.estado == 'real' %}
-              <span class="badge bg-success ms-1" style="font-size:.62rem;">cobrado</span>
+              <span class="badge bg-success ms-1" style="font-size:var(--fs-2xs);">cobrado</span>
             {% elif r.estado == 'mixto' %}
-              <span class="badge bg-warning text-dark ms-1" style="font-size:.62rem;">parcial</span>
+              <span class="badge bg-warning text-dark ms-1" style="font-size:var(--fs-2xs);">parcial</span>
             {% else %}
-              <span class="badge bg-light text-muted border ms-1" style="font-size:.62rem;">proyectado</span>
+              <span class="badge bg-light text-muted border ms-1" style="font-size:var(--fs-2xs);">proyectado</span>
             {% endif %}
           </td>
           <td class="text-end border-start">{% if r.cuotas %}{{ r.cuotas | round | int }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
@@ -80,7 +80,7 @@
           <td class="text-end border-start">{% if r.contados %}{{ r.contados }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end text-success">{% if r.contado_neto %}{{ r.contado_neto | pesos }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end fw-bold border-start">{{ r.neto_total | pesos }}</td>
-          <td class="text-end border-start text-primary">{% if r.est_neto %}{{ r.est_neto | pesos }}{% if r.est_cuotas %}<small class="d-block text-muted" style="font-size:.68rem;">+{{ r.est_cuotas | round | int }} cuotas</small>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end border-start text-primary">{% if r.est_neto %}{{ r.est_neto | pesos }}{% if r.est_cuotas %}<small class="d-block text-muted" style="font-size:var(--fs-2xs);">+{{ r.est_cuotas | round | int }} cuotas</small>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end text-primary fw-semibold">{{ r.neto_total_est | pesos }}</td>
           <td class="text-end text-primary">{% if r.cuotas_total_est %}{{ r.cuotas_total_est | round | int }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
         </tr>
@@ -106,20 +106,20 @@
         <tr class="table-dark fw-bold">
           <td colspan="7" class="text-end">
             NETO FINAL PROYECTADO
-            <span class="fw-normal" style="font-size:.72rem;">
+            <span class="fw-normal" style="font-size:var(--fs-2xs);">
               (cobranza {{ resumen_neto | pesos }} + contados {{ resumen_contado_neto | pesos }})
             </span>
           </td>
           <td class="text-end border-start {% if resumen_neto_final >= 0 %}text-info{% else %}text-danger{% endif %}">{{ resumen_neto_final | pesos }}</td>
-          <td colspan="3" class="text-end border-start" style="color:#9ec5fe;">c/ ventas est. {{ resumen_neto_final_est | pesos }}</td>
+          <td colspan="3" class="text-end border-start" style="color:var(--link-soft);">c/ ventas est. {{ resumen_neto_final_est | pesos }}</td>
         </tr>
       </tfoot>
     </table>
   </div>
   <div class="card-footer bg-white small text-muted py-2">
     <i class="bi bi-info-circle me-1"></i>
-    Los meses marcados <span class="badge bg-success" style="font-size:.6rem;">cobrado</span> ya están liquidados (cifras reales).
-    Los <span class="badge bg-light text-muted border" style="font-size:.6rem;">proyectado</span> aplican la tasa de cobro real de cada cobrador, que ya descuenta las cuotas que no se pagan.
+    Los meses marcados <span class="badge bg-success" style="font-size:var(--fs-2xs);">cobrado</span> ya están liquidados (cifras reales).
+    Los <span class="badge bg-light text-muted border" style="font-size:var(--fs-2xs);">proyectado</span> aplican la tasa de cobro real de cada cobrador, que ya descuenta las cuotas que no se pagan.
     El detalle por cobrador está en el tab <strong>Cobradores</strong>.
     {% if est_info and est_info.ventas %}
     <div class="mt-1">
@@ -211,7 +211,7 @@
             <div class="row g-2 align-items-center mb-1">
               <div class="col-6 small">
                 {{ t.nombre }}
-                <span class="text-muted" style="font-size:.72rem;">{{ t.valor_cuota | pesos }}/cuota</span>
+                <span class="text-muted" style="font-size:var(--fs-2xs);">{{ t.valor_cuota | pesos }}/cuota</span>
               </div>
               <div class="col-6">
                 <div class="input-group input-group-sm">
@@ -276,7 +276,7 @@
         </div>
 
         <div class="table-responsive" style="max-height:320px; overflow-y:auto;">
-          <table class="table table-sm table-hover mb-0" style="font-size:.8rem;">
+          <table class="table table-sm table-hover mb-0" style="font-size:var(--fs-xs);">
             <thead class="table-dark sticky-top">
               <tr>
                 <th>Mes de venta</th>
@@ -309,7 +309,7 @@
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-wallet2 me-1"></i>Cobrado hasta la fecha</div>
         <div class="h5 fw-bold text-success mb-0">{{ total_recaudado | pesos }}</div>
-        <div class="small text-muted mt-1" style="font-size:.72rem; line-height:1.4;">
+        <div class="small text-muted mt-1" style="font-size:var(--fs-2xs); line-height:1.4;">
           Cobradores hasta {{ cobrado_hasta_label }}<br>
           − Com. {{ total_com_cobradores | pesos }} · Neto <strong class="text-body">{{ cobrado_hasta_neto | pesos }}</strong>
         </div>
@@ -321,7 +321,7 @@
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-cash-coin me-1"></i>Total en Brutos</div>
         <div class="h5 fw-bold text-success mb-0">{{ total_bruto | pesos }}</div>
-        <div class="small text-muted mt-1" style="font-size:.72rem; line-height:1.4;">
+        <div class="small text-muted mt-1" style="font-size:var(--fs-2xs); line-height:1.4;">
           Cuotas {{ gross_cuotas | pesos }}
           {% if gross_baja %} · Bajas {{ gross_baja | pesos }}{% endif %}
           {% if gross_contado %} · Contado {{ gross_contado | pesos }}{% endif %}
@@ -355,7 +355,7 @@
         <div class="progress mt-1" style="height:4px;">
           <div class="progress-bar bg-info" style="width:{{ pct_avance }}%"></div>
         </div>
-        <div class="small text-muted mt-1" style="font-size:.72rem; line-height:1.4;">
+        <div class="small text-muted mt-1" style="font-size:var(--fs-2xs); line-height:1.4;">
           Ingresado {{ total_ingresado | pesos }}<br>
           Cobranza {{ total_recaudado | pesos }} · Cuota 1 {{ ingreso_anticipadas | pesos }} · Contado {{ ingreso_contado | pesos }}
         </div>
@@ -379,7 +379,7 @@
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-people me-1"></i>Comisión cobradores</div>
         <div class="h5 fw-bold text-danger mb-0">{{ com_cobradores_proyectada | pesos }}</div>
-        <div class="small text-muted" style="font-size:.72rem;">proyectado (excluye bajas)</div>
+        <div class="small text-muted" style="font-size:var(--fs-2xs);">proyectado (excluye bajas)</div>
       </div>
     </div>
   </div>
@@ -397,7 +397,7 @@
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-trophy me-1"></i>Premios (órdenes)</div>
         <div class="h5 fw-bold text-danger mb-0">{{ total_premios | pesos }}</div>
-        <div class="small text-muted" style="font-size:.72rem; line-height:1.4;">
+        <div class="small text-muted" style="font-size:var(--fs-2xs); line-height:1.4;">
           con ganador asignado
           {% if total_premios_comprometidos %}
           <br>incl. {{ total_premios_comprometidos | pesos }} del sorteo final (sale sí o sí)
@@ -431,7 +431,7 @@
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-bank me-1"></i>Resultado a hoy</div>
         <div class="h5 fw-bold mb-0 {% if ganancia_neta >= 0 %}text-success{% else %}text-danger{% endif %}">{{ ganancia_neta | pesos }}</div>
-        <div class="small text-muted" style="font-size:.72rem; line-height:1.4;">
+        <div class="small text-muted" style="font-size:var(--fs-2xs); line-height:1.4;">
           Ingresado {{ total_ingresado | pesos }} − egresos {{ total_egresos | pesos }}.
           Los gastos se cuentan completos aunque la cobranza recién empiece: al inicio da negativo.
         </div>
@@ -443,7 +443,7 @@
       <div class="card-body py-3">
         <div class="small text-muted mb-1"><i class="bi bi-graph-up me-1"></i>Ganancia proyectada</div>
         <div class="h5 fw-bold mb-0 {% if ganancia_proyectada >= 0 %}text-info{% else %}text-danger{% endif %}">{{ ganancia_proyectada | pesos }}</div>
-        <div class="small text-muted" style="font-size:.72rem; line-height:1.4;">
+        <div class="small text-muted" style="font-size:var(--fs-2xs); line-height:1.4;">
           Fin de campaña, con la tasa real de cobranza.<br>
           Neto tabla {{ resumen_neto_final | pesos }} + cuota 1 {{ ingreso_anticipadas | pesos }} − com. vend. y gastos
         </div>
@@ -486,7 +486,7 @@
     <div class="card shadow-sm border-0">
       <div class="card-header bg-light fw-semibold small py-2">Recaudacion mensual (liquidaciones de cobranza)</div>
       <div class="table-responsive">
-        <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
+        <table class="table table-sm table-hover mb-0" style="font-size:var(--fs-xs);">
           <thead class="table-dark">
             <tr>
               <th>Mes</th>
@@ -541,7 +541,7 @@
         <div id="vend{{ vid }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}"
              data-bs-parent="#accVend">
           <div class="accordion-body p-0">
-            <table class="table table-sm mb-0" style="font-size:.8rem;">
+            <table class="table table-sm mb-0" style="font-size:var(--fs-xs);">
               <thead class="table-light">
                 <tr>
                   <th>Fecha</th><th>Mes</th>
@@ -593,13 +593,13 @@
       <p class="text-muted small">Sin boletas asignadas a cobradores.</p>
     {% else %}
     <style>
-      .cel-real { background-color:#e8f5e9 !important; }
-      .cel-proy { background-color:#fff8e1 !important; }
-      .cel-ant  { background-color:#f3f4f6 !important; color:#999; font-style:italic; }
-      .th-cob   { background-color:#1a2a4a; color:#fff; }
+      .cel-real { background-color:var(--ok-tint) !important; }
+      .cel-proy { background-color:var(--amber-bg) !important; }
+      .cel-ant  { background-color:var(--neutral-bg) !important; color:var(--neutral-fg); font-style:italic; }
+      .th-cob   { background-color:var(--navy); color:#fff; }
     </style>
     <div class="table-responsive mb-3">
-      <table class="table table-sm table-bordered mb-0" style="font-size:.76rem;">
+      <table class="table table-sm table-bordered mb-0" style="font-size:var(--fs-2xs);">
         <thead>
           {# Fila 1: cobrador con colspan 3 (Bruto | Com. | Neto) #}
           <tr class="text-center">
@@ -607,7 +607,7 @@
             {% for c in proyeccion_list %}
             <th colspan="3" class="th-cob" style="min-width:210px">
               {{ c.nombre }}
-              <span style="font-size:.67rem; font-weight:normal; display:block;">
+              <span style="font-size:var(--fs-2xs); font-weight:normal; display:block;">
                 com.{{ c.comision_pct | int }}% ·
                 <span class="fw-bold {% if c.tasa_cobro >= 80 %}text-success{% elif c.tasa_cobro >= 50 %}text-warning{% else %}text-danger{% endif %}">
                   cobro {{ c.tasa_cobro }}%
@@ -616,11 +616,11 @@
             </th>
             {% endfor %}
             <th colspan="2" class="table-warning text-center align-middle" rowspan="2" style="min-width:140px">
-              TOTAL<br><span style="font-size:.67rem;font-weight:normal">Bruto / Neto</span>
+              TOTAL<br><span style="font-size:var(--fs-2xs);font-weight:normal">Bruto / Neto</span>
             </th>
           </tr>
           {# Fila 2: sub-encabezados Bruto | Com. | Neto #}
-          <tr class="text-center" style="font-size:.7rem;">
+          <tr class="text-center" style="font-size:var(--fs-2xs);">
             {% for c in proyeccion_list %}
             <th class="th-cob">Bruto</th>
             <th class="th-cob text-danger" style="font-weight:normal">Com.</th>
@@ -640,7 +640,7 @@
           <tr>
             <td class="fw-semibold">
               {{ pm.mes_nombre[:3] }}<br>
-              <span class="text-muted fw-normal" style="font-size:.67rem">{{ pm.anio }}</span>
+              <span class="text-muted fw-normal" style="font-size:var(--fs-2xs)">{{ pm.anio }}</span>
             </td>
             {% for c in proyeccion_list %}
             {% set m = c.meses[mes_i] %}
@@ -648,23 +648,23 @@
               {# Liquidación real ya registrada #}
               <td class="text-end fw-bold cel-real">
                 {{ m.bruto | int }}
-                <small class="d-block text-success fw-normal" style="font-size:.62rem">✓ real</small>
+                <small class="d-block text-success fw-normal" style="font-size:var(--fs-2xs)">✓ real</small>
               </td>
               <td class="text-end text-danger cel-real">-{{ m.comision | int }}</td>
               <td class="text-end text-primary cel-real fw-bold">{{ m.neto | int }}</td>
             {% elif m.bruto == 0 and m.cant == 0 %}
               {# Sin boletas pendientes en este mes (pagas, anticipadas, o contado) #}
-              <td class="text-center cel-ant" colspan="3" style="font-size:.68rem">
+              <td class="text-center cel-ant" colspan="3" style="font-size:var(--fs-2xs)">
                 — ya cobrado —
               </td>
             {% elif m.bruto == 0 %}
               {# Proyectado pero sin monto (tasa 0%) #}
-              <td colspan="3" class="text-center text-muted cel-proy" style="font-size:.68rem">— proy. $0 —</td>
+              <td colspan="3" class="text-center text-muted cel-proy" style="font-size:var(--fs-2xs)">— proy. $0 —</td>
             {% else %}
               {# Proyección futura ajustada por tasa de cobro #}
               <td class="text-end fw-semibold cel-proy">
                 {{ m.bruto | int }}
-                <small class="d-block text-warning-emphasis fw-normal" style="font-size:.62rem">proy.</small>
+                <small class="d-block text-warning-emphasis fw-normal" style="font-size:var(--fs-2xs)">proy.</small>
               </td>
               <td class="text-end text-danger cel-proy">-{{ m.comision | int }}</td>
               <td class="text-end text-primary cel-proy">{{ m.neto | int }}</td>
@@ -694,10 +694,10 @@
         </tfoot>
       </table>
     </div>
-    <div class="d-flex gap-3 mb-3" style="font-size:.75rem;">
-      <span><span class="badge" style="background:#e8f5e9;color:#1b5e20;border:1px solid #a5d6a7">✓ real</span> Mes ya liquidado</span>
-      <span><span class="badge" style="background:#fff8e1;color:#5d4037;border:1px solid #ffe082">proy.</span> Proyectado × % cobro</span>
-      <span><span class="badge" style="background:#f3f4f6;color:#666;border:1px solid #ddd">— ya cobrado —</span> Sin cuotas pendientes en ese mes</span>
+    <div class="d-flex gap-3 mb-3" style="font-size:var(--fs-2xs);">
+      <span><span class="badge" style="background:var(--ok-tint);color:var(--ok-deep);border:1px solid var(--ok-line)">✓ real</span> Mes ya liquidado</span>
+      <span><span class="badge" style="background:var(--amber-bg);color:var(--amber-brown);border:1px solid var(--amber-line-2)">proy.</span> Proyectado × % cobro</span>
+      <span><span class="badge" style="background:var(--neutral-bg);color:var(--muted);border:1px solid var(--neutral-bd)">— ya cobrado —</span> Sin cuotas pendientes en ese mes</span>
     </div>
     {% endif %}
 
@@ -725,7 +725,7 @@
         <div id="cob{{ cid }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}"
              data-bs-parent="#accCob">
           <div class="accordion-body p-0">
-            <table class="table table-sm mb-0" style="font-size:.8rem;">
+            <table class="table table-sm mb-0" style="font-size:var(--fs-xs);">
               <thead class="table-light">
                 <tr>
                   <th>Fecha liq.</th><th>Mes planilla</th>
@@ -834,7 +834,7 @@
         <i class="bi bi-trophy me-1"></i>Premios de sorteo con ganador (órdenes de compra)
       </div>
       <div class="table-responsive">
-        <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
+        <table class="table table-sm table-hover mb-0" style="font-size:var(--fs-xs);">
           <thead class="table-dark">
             <tr>
               <th>Premio</th>
@@ -851,7 +851,7 @@
               <td>
                 {{ p.descripcion }}
                 {% if p.comprometido %}
-                <span class="badge bg-warning text-dark ms-1" style="font-size:.62rem;"
+                <span class="badge bg-warning text-dark ms-1" style="font-size:var(--fs-2xs);"
                       title="Premio del sorteo final por posición: siempre hay ganador, se cuenta como egreso comprometido">
                   sale sí o sí
                 </span>
@@ -898,7 +898,7 @@
         </button>
       </div>
       <div class="table-responsive">
-        <table class="table table-sm table-hover mb-0" style="font-size:.82rem;" id="tblGastos">
+        <table class="table table-sm table-hover mb-0" style="font-size:var(--fs-xs);" id="tblGastos">
           <thead class="table-dark">
             <tr>
               <th>Descripcion</th>
@@ -925,7 +925,7 @@
               <td class="text-end fw-semibold text-danger">
                 {{ g.monto_real | pesos }}
                 {% if g.periodicidad == 'MENSUAL' %}
-                  <div class="text-muted fw-normal" style="font-size:.75rem;">
+                  <div class="text-muted fw-normal" style="font-size:var(--fs-2xs);">
                     {{ g.monto | pesos }}/mes × {{ meses_liquidados }}
                   </div>
                 {% endif %}

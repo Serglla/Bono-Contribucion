@@ -54,6 +54,10 @@
   --amber-bg-2:   #ffe69c;  --amber-fg-2:   #664d03;   /* marcado fuerte */
   --orange:       #fd7e14;   /* modalidad cuotas */
   --surface-3:    #f8f9fa;   /* encabezados de tabla claros */
+  /* Proyección mes a mes (contabilidad.html): real / proyectado / ya cobrado. */
+  --ok-tint:      #e8f5e9;  --ok-deep:  #1b5e20;  --ok-line: #a5d6a7;   /* mes real (liquidado) */
+  --amber-brown:  #5d4037;  --amber-line-2: #ffe082;                      /* proyectado (con --amber-bg) */
+  --link-soft:    #9ec5fe;   /* texto azul claro sobre encabezado oscuro */
   --baja-bg:   #f5c2c7;  --baja-hover: #f1aeb5;   /* fila de socio dado de baja */
   /* Letra. Piso legible: nada por debajo de --fs-2xs (12px), y ese solo para
      chips/badges. Antes había texto de 9,6–11,5 px en toda la app. */
