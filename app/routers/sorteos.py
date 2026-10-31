@@ -14,7 +14,7 @@ from .. import models, auth as auth_module
 from ..templates_config import templates
 from ..database import get_db
 from ..services import reglas_boleta as reglas
-from ..tiempo import match_periodo
+from ..tiempo import match_periodo, parse_periodo
 from ..scraper import buscar_resultado_tombola
 
 router = APIRouter(prefix="/sorteos", tags=["sorteos"])
@@ -665,15 +665,46 @@ async def cifras_quitar(
     return RedirectResponse(_vista_redirect(vista, year, month), status_code=302)
 
 
+def _cuotas_pagas_al_sorteo(boleta, sorteo) -> int:
+    """Cuántas cuotas tenía pagas la boleta en el mes del sorteo (o antes).
+
+    Cuenta las cobradas en la venta (`cuotas_anticipadas`, mínimo la 1) y las de
+    `historial_cuotas` hasta ese período: un pago posterior no vale para atrás.
+    Un valor legacy sin año no se puede ubicar en el tiempo y se cuenta como pago.
+    """
+    pagas = set(range(1, max(int(boleta.cuotas_anticipadas or 0), 1) + 1))
+    try:
+        historial = json.loads(boleta.historial_cuotas) if boleta.historial_cuotas else {}
+        for cuota, valor in historial.items():
+            periodo = parse_periodo(valor)
+            if periodo is None:
+                continue
+            anio, mes = periodo
+            if anio is None or (anio, mes) <= (sorteo.fecha.year, sorteo.fecha.month):
+                pagas.add(int(cuota))
+    except Exception:
+        pass
+    return len(pagas)
+
+
 def _habilitacion_boleta(boleta, sorteo, override=None):
     """Determina si un ganador está HABILITADO para cobrar el premio.
 
-    Regla (definida con Sergio): un número queda habilitado para el sorteo de un
-    mes si se cumple AL MENOS UNA de estas condiciones:
+    SORTEO FINAL: es condición indispensable tener todas las cuotas pagas (o ser
+    contado). Las demás condiciones de abajo no alcanzan.
+
+    Resto de los sorteos (definido con Sergio): un número queda habilitado para
+    el sorteo de un mes si se cumple AL MENOS UNA de estas condiciones:
       1) Pagó al menos una cuota en el mes del sorteo (aunque deba meses
          anteriores) → figura en `historial_cuotas` un pago con mes == mes sorteo.
       2) Se vendió en el mismo mes del sorteo, hasta el día del sorteo
          inclusive (comprar el día del sorteo cuenta — regla del 24/08/2026).
+      3) Es un contado comprado hasta el día del sorteo: pagó todo de entrada,
+         así que nunca tiene cuotas en `historial_cuotas` y no debe nada.
+      4) Tiene cuotas adelantadas que cubren el mes del sorteo. La cuota 1 es la
+         del mes de la venta y cada una siguiente la del mes siguiente (ver
+         cuotas.py): vendida en agosto con 5 pagas, cubre hasta diciembre.
+         También queda habilitada si ya pagó todas sus cuotas.
 
     Un `override` (fila HabilitacionSorteo) reemplaza el cálculo automático por
     excepción manual.
@@ -704,10 +735,36 @@ def _habilitacion_boleta(boleta, sorteo, override=None):
         and boleta.fecha_venta <= sorteo.fecha
     )
 
-    if pago_mes:
+    # 3 y 4) Solo cuenta lo comprado hasta el día del sorteo.
+    vendida_antes = boleta.fecha_venta is not None and boleta.fecha_venta <= sorteo.fecha
+    contado = vendida_antes and reglas.es_contado(boleta)
+    pagas = _cuotas_pagas_al_sorteo(boleta, sorteo)
+    pactadas = int(boleta.cuotas_pactadas or 0)
+    toda_paga = vendida_antes and pactadas > 0 and pagas >= pactadas
+    cuota_del_mes = 0
+    if vendida_antes:
+        cuota_del_mes = (12 * (sorteo.fecha.year - boleta.fecha_venta.year)
+                         + sorteo.fecha.month - boleta.fecha_venta.month + 1)
+
+    if sorteo.tipo == models.TipoSorteo.FINAL:
+        if contado:
+            auto_ok, auto_motivo = True, "Pagó al contado"
+        elif toda_paga:
+            auto_ok, auto_motivo = True, "Tiene todas las cuotas pagas"
+        else:
+            auto_ok, auto_motivo = False, (
+                f"No ganó por falta de pago: el sorteo final exige todas las "
+                f"cuotas pagas (tiene {min(pagas, pactadas)} de {pactadas})")
+    elif pago_mes:
         auto_ok, auto_motivo = True, "Pagó cuota del mes"
     elif vendida_en_mes:
         auto_ok, auto_motivo = True, "Vendida en el mes (hasta el día del sorteo)"
+    elif contado:
+        auto_ok, auto_motivo = True, "Pagó al contado"
+    elif toda_paga:
+        auto_ok, auto_motivo = True, "Tiene todas las cuotas pagas"
+    elif vendida_antes and pagas >= cuota_del_mes:
+        auto_ok, auto_motivo = True, "Tiene cuotas adelantadas"
     else:
         auto_ok, auto_motivo = False, (
             f"No ganó por falta de pago: no pagó la cuota de "
