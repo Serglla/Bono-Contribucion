@@ -24,6 +24,7 @@
   .td-num { font-weight: bold; font-size: 6pt; }
   .sep { background: #333; border: none; }
   .venta { font-weight: bold; }
+  .regalo { background: #dcdcdc; color: #666; font-weight: bold; }
   .mes-otro { color: #555; font-weight: bold; }
   .mes-actual { background: #f8d7da; color: #c00; font-weight: bold; }
   .num-baja { background: #ffd6d6; color: #c00; }
@@ -108,6 +109,8 @@
           <td class="td-paso">{% if n == _pmid %}PASÓ{% endif %}</td>
         {% elif hmes %}
           <td class="{% if n in hist_act.get(b.id, []) %}mes-actual{% else %}mes-otro{% endif %}">{{ hmes }}</td>
+        {% elif n > _bh %}
+          <td class="regalo">X</td>
         {% else %}
           <td></td>
         {% endif %}

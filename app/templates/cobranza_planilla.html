@@ -156,6 +156,16 @@
       padding: 0 !important;
     }
 
+    /* Cuota de regalo (más allá de cuotas_pactadas): no se cobra */
+    .td-q.cuota-regalo {
+      background: #dcdcdc !important;
+      color: #666;
+      font-size: 9pt;
+      font-weight: 900;
+      line-height: 4.7mm;
+      padding: 0 !important;
+    }
+
     /* Separador de sección */
     td.col-sep, th.col-sep {
       background: #333 !important;
@@ -368,6 +378,9 @@
                  "mes actual" se decide por PERIODO real (anio+mes, hist_act):
                  julio 2026 no es "actual" en julio 2027 (fix C-1). #}
               <td class="td-q {% if n in hist_act.get(b.id, []) %}mes-actual{% else %}mes-otro{% endif %}">{{ hmes }}</td>
+            {% elif n > _bh %}
+              {# Cuota de regalo: la boleta tiene menos cuotas pactadas que columnas #}
+              <td class="td-q cuota-regalo">X</td>
             {% else %}
               <td class="td-q"></td>
             {% endif %}

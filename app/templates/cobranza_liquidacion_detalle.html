@@ -180,7 +180,8 @@
             {%- elif n <= b.cuotas_pactadas -%}
               <td class="cq cq-libre" data-bid="{{ b.id }}" data-cuota="{{ n }}" style="border:1px solid #ccc;text-align:center;padding:0;height:19px;cursor:pointer;"></td>
             {%- else -%}
-              <td class="cq" data-bid="{{ b.id }}" style="border:1px solid #ddd;padding:0;height:19px;background:#f5f5f5;"></td>
+              {# Cuota de regalo (más allá de cuotas_pactadas): X gris, no se cobra #}
+              <td class="cq cq-regalo" data-bid="{{ b.id }}" title="Cuota de regalo: no se cobra" style="background:#dcdcdc;color:#666;font-weight:900;border:1px solid #ccc;text-align:center;padding:0;height:19px;">×</td>
             {%- endif -%}
           {%- endfor -%}
         {%- else -%}
