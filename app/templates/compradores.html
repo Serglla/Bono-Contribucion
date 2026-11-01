@@ -98,6 +98,11 @@
     <a href="/compradores/exportar" class="btn btn-sm btn-outline-success">
       <i class="bi bi-file-earmark-excel me-1"></i><span class="d-none d-sm-inline">Excel</span>
     </a>
+    {% if has_permission(user, 'compradores', 'editar') %}
+    <button type="button" id="btnEdicionRapida" class="btn btn-sm btn-outline-primary" title="Corregir nombre, dirección y zona directamente en la lista">
+      <i class="bi bi-pencil-square me-1"></i><span class="d-none d-sm-inline" id="btnEdicionRapidaTexto">Edición rápida</span>
+    </button>
+    {% endif %}
     <a href="/compradores/carga" class="btn btn-sm btn-outline-danger" data-abrir-carga>
       <i class="bi bi-table me-1"></i><span class="d-none d-sm-inline">Carga en grilla</span>
     </a>
@@ -540,7 +545,7 @@ function verContadoSinCargar(btn) {
           </td>
           <td class="fw-semibold col-nombre" title="{{ c.apellido_nombre }}">{{ c.apellido_nombre }}</td>
           <td class="col-direccion" title="{{ c.direccion or '' }}">{{ c.direccion or "—" }}</td>
-          <td class="col-corta" title="{{ c.zona.nombre if c.zona else '' }}">{{ c.zona.nombre if c.zona else "—" }}</td>
+          <td class="col-corta col-zona" title="{{ c.zona.nombre if c.zona else '' }}">{{ c.zona.nombre if c.zona else "—" }}</td>
           <td data-val="{{ b.fecha_venta.isoformat() if b and b.fecha_venta else '' }}" style="white-space:nowrap;">
             {% if b and b.fecha_venta %}
               {{ b.fecha_venta.strftime('%d/%m/%Y') }}
@@ -697,6 +702,12 @@ function verContadoSinCargar(btn) {
   #tablaCompradores .badge[class*="est-"] { font-size: var(--fs-2xs); }
 
   .sortable:hover { background-color: var(--line); }
+  /* Edición rápida: casilleros editables y resultado del guardado. */
+  .edicion-rapida td[contenteditable] { cursor: text; background: var(--surface); box-shadow: inset 0 0 0 1px var(--link-soft); white-space: normal; text-overflow: clip; }
+  .edicion-rapida td[contenteditable]:focus { outline: 2px solid var(--link); outline-offset: -2px; background: var(--link-bg); }
+  .edicion-rapida td.er-ok { background: var(--ok-bg); }
+  .edicion-rapida td.er-error { background: var(--brand-bg); box-shadow: inset 0 0 0 1px var(--brand); }
+  .edicion-rapida tbody tr { cursor: default !important; }
   /* Mientras se arrastra para seleccionar, que no se pinte el texto de la tabla */
   body.arrastrando-seleccion, body.arrastrando-seleccion * {
     user-select: none !important;
@@ -2023,9 +2034,140 @@ document.querySelectorAll('.input-upper').forEach(el => {
 (function() {
   document.getElementById('tbodyCompradores').addEventListener('dblclick', function(e) {
     const tr = e.target.closest('tr[data-comprador-id]');
-    if (!tr) return;
+    if (!tr || edicionRapida.activa) return;
     window.abrirEditarSocio(tr.dataset.compradorId);
   });
+
+  // ── Edición rápida: nombre, dirección y zona, directo en la lista ─────────
+  // Las celdas se editan en el lugar (contenteditable), así el orden y el buscador
+  // siguen leyendo el texto de la celda como siempre. Cada celda se guarda al salir.
+  const edicionRapida = { activa: false };
+  (function () {
+    const btn = document.getElementById('btnEdicionRapida');
+    if (!btn) return;
+    const tbody = document.getElementById('tbodyCompradores');
+    const tabla = document.getElementById('tablaCompradores');
+    const COLUMNAS = ['.col-nombre', '.col-direccion', '.col-zona'];
+    const VACIO = '—';
+
+    const celdasDe = (tr) => COLUMNAS.map(c => tr.querySelector(c));
+    const textoDe = (td) => { const t = td.textContent.trim(); return t === VACIO ? '' : t; };
+    const filas = () => Array.from(tbody.querySelectorAll('tr[data-comprador-id]'));
+
+    function activar(on) {
+      edicionRapida.activa = on;
+      tabla.classList.toggle('edicion-rapida', on);
+      btn.classList.toggle('btn-primary', on);
+      btn.classList.toggle('btn-outline-primary', !on);
+      document.getElementById('btnEdicionRapidaTexto').textContent = on ? 'Terminar edición' : 'Edición rápida';
+      filas().forEach(tr => celdasDe(tr).forEach(td => {
+        if (on) {
+          td.setAttribute('contenteditable', 'plaintext-only');
+          td.dataset.guardado = textoDe(td);
+        } else {
+          td.removeAttribute('contenteditable');
+          td.classList.remove('er-ok', 'er-error');
+        }
+      }));
+      tbody.querySelectorAll('tr').forEach(tr => {
+        if (on) { tr.dataset.titulo = tr.title; tr.title = ''; } else if (tr.dataset.titulo) { tr.title = tr.dataset.titulo; }
+      });
+    }
+
+    // De a un guardado por fila: cada uno manda lo que hay en ese momento, y el
+    // que llega después no puede pisar al anterior.
+    function guardarFila(tr, td) {
+      tr._cola = (tr._cola || Promise.resolve()).then(() => enviarFila(tr, td));
+      return tr._cola;
+    }
+
+    async function enviarFila(tr, td) {
+      const [nombre, direccion, zona] = celdasDe(tr);
+      const enviados = [textoDe(nombre), textoDe(direccion), textoDe(zona)];
+      const fd = new FormData();
+      fd.append('apellido_nombre', enviados[0]);
+      fd.append('direccion', enviados[1]);
+      fd.append('zona', enviados[2]);
+      td.classList.remove('er-ok', 'er-error');
+      const marcarError = (msg) => { td.classList.add('er-error'); td.title = msg; };
+      let r;
+      try {
+        r = await fetch(`/compradores/${tr.dataset.compradorId}/edicion-rapida`, { method: 'POST', body: fd, keepalive: true });
+      } catch (e) { marcarError('Error de conexión: no se guardó'); return; }
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { marcarError(d.error || 'No se pudo guardar'); return; }
+      // Lo que quedó de verdad (en mayúsculas). Solo se reescribe la celda que no
+      // cambió desde que se mandó: si siguieron escribiendo, eso no se pisa.
+      [[nombre, d.nombre], [direccion, d.direccion], [zona, d.zona]].forEach(([celda, valor], i) => {
+        celda.dataset.guardado = valor;
+        celda.title = valor;
+        celda.classList.remove('er-error');   // la fila entró: ya no hay nada pendiente
+        if (celda !== document.activeElement && textoDe(celda) === enviados[i]) celda.textContent = valor || VACIO;
+      });
+      td.classList.add('er-ok');
+      setTimeout(() => td.classList.remove('er-ok'), 1500);
+    }
+
+    tbody.addEventListener('focusin', (e) => {
+      if (!edicionRapida.activa || !e.target.matches('[contenteditable]')) return;
+      if (e.target.textContent.trim() === VACIO) e.target.textContent = '';
+      const sel = window.getSelection();
+      sel.selectAllChildren(e.target);
+    });
+
+    tbody.addEventListener('focusout', (e) => {
+      const td = e.target;
+      if (!edicionRapida.activa || !td.matches('[contenteditable]')) return;
+      const valor = textoDe(td);
+      if (!valor) td.textContent = VACIO;
+      if (valor !== td.dataset.guardado) guardarFila(td.closest('tr'), td);
+    });
+
+    tbody.addEventListener('keydown', (e) => {
+      const td = e.target;
+      if (!edicionRapida.activa || !td.matches('[contenteditable]')) return;
+      if (e.key === 'Escape') {
+        td.textContent = td.dataset.guardado || VACIO;
+        td.classList.remove('er-error');
+        td.blur();
+      } else if (e.key === 'Enter') {
+        // Como en Excel: guarda y baja a la misma columna de la fila visible siguiente.
+        e.preventDefault();
+        let sig = td.closest('tr').nextElementSibling;
+        while (sig && sig.offsetParent === null) sig = sig.nextElementSibling;
+        const col = COLUMNAS.find(c => td.matches(c));
+        if (sig && sig.querySelector(col)) sig.querySelector(col).focus();
+        else td.blur();
+      }
+    });
+
+    // Un pegado con saltos de línea rompería la celda.
+    tbody.addEventListener('paste', (e) => {
+      if (!edicionRapida.activa || !e.target.matches('[contenteditable]')) return;
+      e.preventDefault();
+      const texto = (e.clipboardData.getData('text') || '').replace(/\s+/g, ' ').trim();
+      document.execCommand('insertText', false, texto);
+    });
+
+    btn.addEventListener('click', async () => {
+      if (!edicionRapida.activa) { activar(true); return; }
+      if (document.activeElement && document.activeElement.matches('[contenteditable]')) {
+        document.activeElement.blur();
+      }
+      // Terminar: esperar lo que se está guardando. Una celda que no entró no se
+      // deja a la vista como si estuviera guardada.
+      await Promise.all(filas().map(tr => tr._cola));
+      const conError = Array.from(tbody.querySelectorAll('.er-error'));
+      if (conError.length) {
+        if (!(await appConfirm(`Hay ${conError.length} dato(s) que no se pudieron guardar (en rojo; pasá el mouse para ver el motivo).\n\n¿Terminar igual y descartarlos?`))) return;
+        conError.forEach(td => { td.textContent = td.dataset.guardado || VACIO; td.title = td.dataset.guardado || ''; });
+      }
+      activar(false);
+    });
+    window.addEventListener('beforeunload', (e) => {
+      if (tbody.querySelector('.er-error')) { e.preventDefault(); e.returnValue = ''; }
+    });
+  })();
 
   function abrirDetalle(id) {
     const modalEl = document.getElementById('modalDetalle');

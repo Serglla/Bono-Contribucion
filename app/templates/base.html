@@ -741,13 +741,13 @@ async function compartirNativo() {
     display: none; position: fixed; left: 2.5vw; top: 6vh; width: 95vw; height: 88vh;
     min-width: 480px; min-height: 280px; max-width: 100vw; max-height: 100vh;
     z-index: 1040;   /* debajo de los modales, para que se vean sus avisos */
-    flex-direction: column; background: var(--surface); border: 1px solid var(--navy);
+    flex-direction: column; background: var(--surface); border: 3px solid var(--brand);
     border-radius: var(--radius); box-shadow: 0 10px 40px rgba(0,0,0,.4);
     overflow: hidden; resize: both;
   }
   #ventanaCargaBarra {
     display: flex; align-items: center; gap: 8px; flex: none; padding: 6px 10px;
-    background: var(--navy); color: #fff; font-weight: 600; font-size: var(--fs-sm);
+    background: var(--brand); color: #fff; font-weight: 600; font-size: var(--fs-sm);
     cursor: move; user-select: none; touch-action: none;
   }
   #ventanaCargaBarra button { color: #fff; border: 0; background: transparent; padding: 2px 8px; border-radius: 6px; cursor: pointer; }
@@ -755,7 +755,7 @@ async function compartirNativo() {
   #ventanaCarga iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
   #ventanaCargaChip {
     display: none; position: fixed; right: 16px; bottom: 16px; z-index: 1040;
-    background: var(--navy); color: #fff; border: 0; border-radius: 999px; padding: 8px 16px;
+    background: var(--brand); color: #fff; border: 0; border-radius: 999px; padding: 8px 16px;
     font-weight: 600; font-size: var(--fs-sm); box-shadow: 0 4px 16px rgba(0,0,0,.35);
   }
   @media (max-width: 767.98px) {

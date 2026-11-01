@@ -2,11 +2,18 @@
 {% block title %}Carga de socios{% endblock %}
 {% block content %}
 <style>
-  .cg-wrap { overflow:auto; max-height:calc(100vh - {{ '60px' if embed else '200px' }}); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); }
-  #cgTabla { width:100%; min-width:1180px; table-layout:fixed; border-collapse:collapse; font-size:var(--fs-sm); }
+  .cg-wrap { overflow:auto; max-height:calc(100vh - 200px); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); }
+  {% if embed %}
+  /* En la ventana flotante la grilla ocupa el alto que quede, sea cual sea su tamaño. */
+  html, body { height:100%; overflow:hidden; }
+  .main-content { height:100%; display:flex; flex-direction:column; }
+  .cg-wrap { flex:1; min-height:0; max-height:none; }
+  {% endif %}
+  /* separate y no collapse: con collapse el encabezado fijo deja ver las filas al desplazar. */
+  #cgTabla { width:100%; min-width:1180px; table-layout:fixed; border-collapse:separate; border-spacing:0; font-size:var(--fs-sm); }
   #cgTabla th { position:sticky; top:0; z-index:2; background:var(--surface-3); color:var(--muted); font-size:var(--fs-2xs);
-                font-weight:700; text-align:left; padding:6px; border:1px solid var(--border); white-space:nowrap; }
-  #cgTabla td { border:1px solid var(--border); padding:0; height:32px; vertical-align:middle; }
+                font-weight:700; text-align:left; padding:6px; border-width:0 1px 1px 0; border-style:solid; border-color:var(--border); white-space:nowrap; }
+  #cgTabla td { border-width:0 1px 1px 0; border-style:solid; border-color:var(--border); padding:0; height:32px; vertical-align:middle; }
   #cgTabla input, #cgTabla select { width:100%; height:31px; border:0; border-radius:0; background:transparent;
                 padding:0 6px; font-size:var(--fs-sm); color:var(--ink); }
   #cgTabla select { padding:0 2px; }

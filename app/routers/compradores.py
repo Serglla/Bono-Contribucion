@@ -920,6 +920,42 @@ async def carga_guardar_fila(
     return JSONResponse(_carga_fila(b))
 
 
+@router.post("/{comprador_id}/edicion-rapida")
+async def edicion_rapida(
+    comprador_id: int,
+    request: Request,
+    apellido_nombre: str = Form(""),
+    direccion: str = Form(""),
+    zona: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Edición rápida desde la lista de Socios: solo nombre, dirección y zona.
+
+    No toca cobrador, vendedor, cuotas ni teléfono. Una zona que no existe no se
+    crea sola: un error de tipeo no debe abrir una zona."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    c = db.query(models.Comprador).get(comprador_id)
+    if c is None:
+        return JSONResponse({"error": "El socio ya no existe"}, status_code=404)
+    nombre = apellido_nombre.strip().upper()
+    if not nombre:
+        return JSONResponse({"error": "El nombre no puede quedar vacío"}, status_code=400)
+    z = None
+    if zona.strip():
+        z = (db.query(models.Zona)
+             .filter(func_count.upper(models.Zona.nombre) == zona.strip().upper()).first())
+        if z is None:
+            return JSONResponse({"error": f"La zona {zona.strip()} no existe"}, status_code=400)
+    c.apellido_nombre = nombre
+    c.direccion = direccion.strip().upper() or None
+    c.zona_id = z.id if z else None
+    db.commit()
+    return JSONResponse({"nombre": c.apellido_nombre, "direccion": c.direccion or "",
+                         "zona": z.nombre if z else ""})
+
+
 @router.post("/crear")
 async def crear(
     request: Request,
