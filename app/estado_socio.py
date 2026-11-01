@@ -218,11 +218,19 @@ def estado_boleta(b, ref):
                    f"({pagadas}/{pactadas} pagas)"}
 
 
+def orden_estado(est):
+    """Valor para ordenar la columna ESTADO: bajas, después de quien más debe a
+    quien menos (a igual deuda, el `rank`), y al final al día y contado."""
+    if est["rank"] == RANK_BAJA:
+        return 0
+    return 1000 - 10 * est.get("debe", 0) + est["rank"]
+
+
 def estado_socio(comprador, ref, por_cob=None):
     """Estado de un socio = el más urgente (menor rank) entre todas sus boletas.
     `ref` = referencia global; `por_cob` = {cobrador_id: ref} (opcional)."""
     if not comprador.boletas:
-        return dict(_SIN_DATOS)
+        return dict(_SIN_DATOS, orden=orden_estado(_SIN_DATOS))
     por_cob = por_cob or {}
     estados = [estado_boleta(b, ref_boleta(b, ref, por_cob)) for b in comprador.boletas]
     peor = min(estados, key=lambda e: e["rank"])
@@ -234,6 +242,7 @@ def estado_socio(comprador, ref, por_cob=None):
     # "debe" del socio = la boleta que más debe (para el filtro Atrasados)
     peor = dict(peor)
     peor["debe_max"] = max(e.get("debe", 0) for e in estados)
+    peor["orden"] = orden_estado(peor)
     return peor
 
 
