@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+{% block title %}Carga de socios{% endblock %}
+{% block content %}
+<style>
+  .cg-wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); }
+  #cgTabla { width:100%; min-width:1180px; table-layout:fixed; border-collapse:collapse; font-size:var(--fs-sm); }
+  #cgTabla th { position:sticky; top:0; z-index:2; background:var(--surface-3); color:var(--muted); font-size:var(--fs-2xs);
+                font-weight:700; text-align:left; padding:6px; border:1px solid var(--border); white-space:nowrap; }
+  #cgTabla td { border:1px solid var(--border); padding:0; height:32px; vertical-align:middle; }
+  #cgTabla input, #cgTabla select { width:100%; height:31px; border:0; border-radius:0; background:transparent;
+                padding:0 6px; font-size:var(--fs-sm); color:var(--ink); }
+  #cgTabla select { padding:0 2px; }
+  #cgTabla input:focus, #cgTabla select:focus { outline:2px solid var(--link); outline-offset:-2px; background:var(--link-bg); }
+  #cgTabla input[readonly], #cgTabla select:disabled { color:var(--muted); opacity:1; }
+  #cgTabla .up { text-transform:uppercase; }
+  #cgTabla td.num input { font-weight:800; }
+  #cgTabla td.auto { background:var(--surface-3); }
+  #cgTabla td.auto input, #cgTabla td.auto select { color:var(--muted); font-size:var(--fs-xs); }
+  #cgTabla td.otros { background:var(--surface-3); color:var(--muted); font-size:var(--fs-2xs); padding:0 6px; white-space:nowrap; overflow:hidden; }
+  #cgTabla td.st { padding:2px 6px; font-size:var(--fs-2xs); line-height:1.2; color:var(--muted); }
+  #cgTabla tr.ok td.st { background:var(--ok-bg); color:var(--ok-ink); }
+  #cgTabla tr.er td.st { background:var(--brand-bg); color:var(--brand-ink); }
+  #cgTabla tr.av td.st { background:var(--warn-bg); color:var(--warn-fg); }
+</style>
+
+<div class="page-header">
+  <h4 class="page-title"><i class="bi bi-table text-danger"></i>Carga de socios</h4>
+  <div class="d-flex gap-2 align-items-center">
+    <span id="cgContador" class="badge text-bg-success"></span>
+    <a href="/compradores/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Socios</a>
+  </div>
+</div>
+
+<p class="text-muted mb-2" style="font-size:var(--fs-xs);">
+  Escribí el primer número de la talonera y Enter. Después nombre, dirección, teléfono y zona: al terminar se guarda solo y aparece otra fila.
+  Los casilleros grises se completan solos; hacé clic para corregirlos.
+</p>
+
+<datalist id="cgZonas">{% for z in zonas %}<option value="{{ z }}"></option>{% endfor %}</datalist>
+
+<div class="cg-wrap">
+  <table id="cgTabla">
+    <colgroup>
+      <col style="width:70px"><col style="width:120px"><col style="width:240px"><col style="width:210px">
+      <col style="width:110px"><col style="width:70px"><col style="width:125px"><col style="width:110px">
+      <col style="width:55px"><col style="width:55px"><col>
+    </colgroup>
+    <thead>
+      <tr>
+        <th>N°</th><th>Otros números</th><th>Apellido y nombre</th><th>Dirección</th><th>Teléfono</th><th>Zona</th>
+        <th>Fecha</th><th>Vendedor</th><th title="Cuotas pactadas">Cuotas</th><th title="Cuotas pagadas al cargar el socio">Pagas</th><th>Estado</th>
+      </tr>
+    </thead>
+    <tbody id="cgFilas"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const FILAS = {{ filas | tojson }};
+  const VENDEDORES = {{ vendedores | tojson }};
+  const tbody = document.getElementById('cgFilas');
+  const contador = document.getElementById('cgContador');
+  const ORDEN_ENTER = ['numero', 'nombre', 'direccion', 'telefono', 'zona'];
+  const COLUMNAS = ['numero', 'nombre', 'direccion', 'telefono', 'zona', 'fecha', 'vendedor', 'cuotas', 'anticipadas'];
+  const EDITABLES = ['nombre', 'direccion', 'telefono', 'zona', 'fecha', 'vendedor', 'cuotas', 'anticipadas'];
+  let guardadas = 0;
+
+  function campo(tr, c) { return tr.querySelector('[data-c="' + c + '"]'); }
+  function valores(tr) { return EDITABLES.map(c => campo(tr, c).value).join('\u0001'); }
+
+  // ¿Hay algo sin guardar? Fila nueva: ya tiene boleta y nombre. Fila guardada:
+  // cambió algo respecto de lo último que devolvió el servidor.
+  function sinGuardar(tr) {
+    if (tr.dataset.guardada === '1') return valores(tr) !== tr._guardado;
+    return filaCompleta(tr);
+  }
+
+  function crearInput(c, opciones) {
+    const i = document.createElement('input');
+    i.dataset.c = c;
+    i.setAttribute('aria-label', c);
+    i.autocomplete = 'off';
+    Object.assign(i, opciones || {});
+    return i;
+  }
+
+  function crearFila() {
+    const tr = document.createElement('tr');
+    const celda = (el, clase) => {
+      const td = document.createElement('td');
+      if (clase) td.className = clase;
+      if (el) td.appendChild(el);
+      tr.appendChild(td);
+      return td;
+    };
+    celda(crearInput('numero', { inputMode: 'numeric' }), 'num');
+    celda(null, 'otros').dataset.c = 'otros';
+    const nombre = crearInput('nombre'); nombre.className = 'up'; celda(nombre);
+    const dir = crearInput('direccion'); dir.className = 'up'; celda(dir);
+    celda(crearInput('telefono'));
+    const zona = crearInput('zona'); zona.setAttribute('list', 'cgZonas'); zona.className = 'up'; celda(zona);
+    celda(crearInput('fecha', { type: 'date', tabIndex: -1 }), 'auto');
+    const vend = document.createElement('select');
+    vend.dataset.c = 'vendedor'; vend.tabIndex = -1; vend.setAttribute('aria-label', 'vendedor');
+    vend.add(new Option('—', ''));
+    VENDEDORES.forEach(v => vend.add(new Option(v.nombre, v.id)));
+    celda(vend, 'auto');
+    celda(crearInput('cuotas', { inputMode: 'numeric', tabIndex: -1 }), 'auto');
+    celda(crearInput('anticipadas', { inputMode: 'numeric', tabIndex: -1 }), 'auto');
+    celda(null, 'st');
+    tbody.appendChild(tr);
+    return tr;
+  }
+
+  function estado(tr, clase, texto) {
+    tr.classList.remove('ok', 'er', 'av');
+    if (clase) tr.classList.add(clase);
+    tr.querySelector('td.st').textContent = texto || '';
+  }
+
+  function actualizarContador() {
+    contador.textContent = guardadas ? guardadas + ' cargados ahora' : '';
+  }
+
+  // Muestra lo que devolvió el servidor: es lo que REALMENTE quedó (recorta cuotas, etc.).
+  function pintar(tr, f, guardada) {
+    tr._fila = f;
+    tr.dataset.buscado = f.numero;
+    campo(tr, 'numero').value = f.numero;
+    const otros = f.otros.slice(0, 2).join(' · ') + (f.otros.length > 2 ? ' +' + (f.otros.length - 2) : '');
+    const celdaOtros = campo(tr, 'otros');
+    celdaOtros.textContent = otros;
+    celdaOtros.title = f.otros.join(' · ');
+    campo(tr, 'fecha').value = f.fecha;
+    const vend = campo(tr, 'vendedor');
+    if (f.vendedor_id && !vend.querySelector('option[value="' + f.vendedor_id + '"]')) {
+      vend.add(new Option(f.vendedor + ' (inactivo)', f.vendedor_id));
+    }
+    vend.value = f.vendedor_id || '';
+    campo(tr, 'cuotas').value = f.cuotas;
+    campo(tr, 'anticipadas').value = f.anticipadas;
+    const bloqueada = f.contado || f.tiene_pagos;
+    campo(tr, 'cuotas').readOnly = bloqueada;
+    campo(tr, 'anticipadas').readOnly = bloqueada;
+    campo(tr, 'fecha').readOnly = f.tiene_pagos;
+    if (!guardada) return;
+    campo(tr, 'numero').readOnly = true;
+    tr.dataset.guardada = '1';
+    campo(tr, 'nombre').value = f.nombre;
+    campo(tr, 'direccion').value = f.direccion;
+    campo(tr, 'telefono').value = f.telefono;
+    campo(tr, 'zona').value = f.zona;
+    tr._guardado = valores(tr);
+  }
+
+  function textoGuardada(f, corregida) {
+    const partes = [corregida ? 'Corregido' : 'Guardado', f.talonera];
+    if (f.contado) partes.push('contado');
+    else if (f.cobrador) partes.push(f.cobrador);
+    return partes.filter(Boolean).join(' · ');
+  }
+
+  function avisoSinCobrador(f) {
+    return !f.contado && !f.zona && !f.cobrador;
+  }
+
+  function limpiarDatos(tr) {
+    tr._fila = null;
+    tr.dataset.buscado = '';
+    campo(tr, 'otros').textContent = '';
+    ['fecha', 'cuotas', 'anticipadas'].forEach(c => { campo(tr, c).value = ''; });
+    campo(tr, 'vendedor').value = '';
+  }
+
+  async function buscarNumero(tr) {
+    const texto = campo(tr, 'numero').value.trim();
+    if (!texto) { limpiarDatos(tr); estado(tr); return false; }
+    if (!/^\d+$/.test(texto)) { limpiarDatos(tr); estado(tr, 'er', 'Solo números'); return false; }
+    const clave = texto.padStart(4, '0');
+    if (tr.dataset.buscado === clave && tr._fila) return true;
+    limpiarDatos(tr);
+    estado(tr, null, 'Buscando…');
+    let r;
+    try {
+      r = await fetch('/compradores/carga/boleta/' + parseInt(texto, 10), { headers: { Accept: 'application/json' } });
+    } catch (e) {
+      estado(tr, 'er', 'Error de conexión');
+      return false;
+    }
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { estado(tr, 'er', d.error || 'No se pudo buscar'); return false; }
+    pintar(tr, d, false);
+    if (d.liquidada) estado(tr, null, d.talonera + (d.contado ? ' · contado' : ''));
+    else estado(tr, 'av', d.talonera + ' · sin liquidar');
+    asegurarFilaVacia();
+    return true;
+  }
+
+  function filaCompleta(tr) {
+    return !!tr._fila && !!campo(tr, 'nombre').value.trim();
+  }
+
+  async function guardar(tr) {
+    if (tr._guardando) { tr._otraVez = true; return tr._guardando; }
+    tr._guardando = enviar(tr).finally(() => { tr._guardando = null; });
+    const ok = await tr._guardando;
+    if (tr._otraVez) {
+      tr._otraVez = false;
+      if (sinGuardar(tr)) return guardar(tr);
+    }
+    return ok;
+  }
+
+  async function enviar(tr) {
+    if (!tr._fila) return false;
+    if (!campo(tr, 'nombre').value.trim()) {
+      estado(tr, 'er', 'Falta el nombre');
+      return false;
+    }
+    const corregida = tr.dataset.guardada === '1';
+    const fd = new FormData();
+    fd.append('boleta_id', tr._fila.boleta_id);
+    fd.append('editar', corregida ? '1' : '0');
+    fd.append('apellido_nombre', campo(tr, 'nombre').value);
+    fd.append('direccion', campo(tr, 'direccion').value);
+    fd.append('telefono', campo(tr, 'telefono').value);
+    fd.append('zona', campo(tr, 'zona').value);
+    fd.append('fecha', campo(tr, 'fecha').value);
+    fd.append('vendedor_id', campo(tr, 'vendedor').value);
+    const pact = parseInt(campo(tr, 'cuotas').value), ant = parseInt(campo(tr, 'anticipadas').value);
+    if (pact > 0) fd.append('cuotas_pactadas', pact);
+    if (ant > 0) fd.append('cuotas_anticipadas', ant);
+    estado(tr, null, 'Guardando…');
+    let r;
+    try {
+      r = await fetch('/compradores/carga/fila', { method: 'POST', body: fd, headers: { Accept: 'application/json' } });
+    } catch (e) {
+      estado(tr, 'er', 'Error de conexión: no se guardó');
+      return false;
+    }
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      estado(tr, 'er', d.error || 'No se pudo guardar');
+      return false;
+    }
+    pintar(tr, d, true);
+    if (!corregida) { guardadas++; actualizarContador(); }
+    if (avisoSinCobrador(d)) estado(tr, 'av', textoGuardada(d, corregida) + ' · sin cobrador');
+    else estado(tr, 'ok', textoGuardada(d, corregida));
+    return true;
+  }
+
+  function ultimaFila() { return tbody.rows[tbody.rows.length - 1]; }
+
+  function asegurarFilaVacia() {
+    const u = ultimaFila();
+    if (u && !u._fila && !campo(u, 'numero').value.trim()) return u;
+    return crearFila();
+  }
+
+  function irAFilaNueva() {
+    const u = asegurarFilaVacia();
+    campo(u, 'numero').focus();
+    u.scrollIntoView({ block: 'nearest' });
+  }
+
+  tbody.addEventListener('keydown', async (e) => {
+    const el = e.target;
+    const c = el.dataset.c;
+    if (!c) return;
+    const tr = el.closest('tr');
+
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && el.tagName === 'INPUT' && el.type !== 'date'
+        && !el.getAttribute('list')) {
+      e.preventDefault();
+      const destino = tbody.rows[tr.sectionRowIndex + (e.key === 'ArrowDown' ? 1 : -1)];
+      if (destino) campo(destino, c).focus();
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+
+    if (c === 'numero' && tr.dataset.guardada !== '1') {
+      if (await buscarNumero(tr)) campo(tr, 'nombre').focus();
+      else el.select();   // escribir encima para probar otro número
+      return;
+    }
+    const k = ORDEN_ENTER.indexOf(c);
+    if (k >= 0 && k < ORDEN_ENTER.length - 1) {
+      campo(tr, ORDEN_ENTER[k + 1]).focus();
+      return;
+    }
+    // Zona o casillero gris: se guarda y se sigue en la última fila.
+    if (await guardar(tr)) irAFilaNueva();
+    else if (tr._fila && !campo(tr, 'nombre').value.trim()) campo(tr, 'nombre').focus();
+  });
+
+  tbody.addEventListener('focusin', (e) => {
+    if (e.target.select && e.target.type !== 'date') e.target.select();
+    // Una fila nueva repite la zona de la anterior; escribir encima la reemplaza.
+    const tr = e.target.closest('tr');
+    const previa = tr.previousElementSibling;
+    if (e.target.dataset.c === 'numero' && !tr._fila && previa && !campo(tr, 'zona').value) {
+      campo(tr, 'zona').value = campo(previa, 'zona').value;
+    }
+  });
+
+  tbody.addEventListener('change', (e) => {
+    const tr = e.target.closest('tr');
+    // Con Tab o clic el número también busca al salir.
+    if (e.target.dataset.c === 'numero' && tr.dataset.guardada !== '1') buscarNumero(tr);
+  });
+
+  // Al salir de una fila con algo sin guardar, se guarda sola.
+  tbody.addEventListener('focusout', (e) => {
+    const tr = e.target.closest('tr');
+    const siguiente = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('tr');
+    if (siguiente !== tr && sinGuardar(tr)) guardar(tr);
+  });
+
+  window.addEventListener('beforeunload', (e) => {
+    if (Array.from(tbody.rows).some(sinGuardar)) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  FILAS.forEach(f => {
+    const tr = crearFila();
+    pintar(tr, f, true);
+    estado(tr, avisoSinCobrador(f) ? 'av' : null,
+      [f.talonera, f.contado ? 'contado' : f.cobrador, f.tiene_pagos ? 'con pagos' : ''].filter(Boolean).join(' · '));
+  });
+  irAFilaNueva();
+})();
+</script>
+{% endblock %}

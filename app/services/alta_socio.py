@@ -170,9 +170,14 @@ def cargar_socio(db, boleta, *, apellido_nombre: str, direccion: str = "", telef
                  zona_id: Optional[int] = None, fecha_compra: Optional[str] = None,
                  vendedor_id: Optional[int] = None, cobrador_raw=None,
                  cuotas_pactadas: Optional[int] = None, cuotas_anticipadas: Optional[int] = None,
-                 te1=None, ne1=None, te2=None, ne2=None):
-    """Alta completa: deja socio y boleta listos (sin commit). Devuelve el socio."""
+                 te1=None, ne1=None, te2=None, ne2=None, vendedor_manda: bool = False):
+    """Alta completa: deja socio y boleta listos (sin commit). Devuelve el socio.
+
+    `vendedor_manda`: el vendedor indicado queda en la boleta aunque la zona tenga
+    otro (grilla de carga: manda el de la liquidación). Sin vendedor, manda la zona."""
     vendedor = vendedor_de_la_zona(db, zona_id, vendedor_id)
+    if vendedor_manda and vendedor_id:
+        vendedor = vendedor_id
     socio = socio_de_la_boleta(db, boleta, apellido_nombre, direccion, telefono, zona_id)
 
     boleta.comprador_id = socio.id
@@ -187,3 +192,40 @@ def cargar_socio(db, boleta, *, apellido_nombre: str, direccion: str = "", telef
     if boleta.condicion in CONDICIONES_RECALCULABLES:
         boleta.condicion = reglas.condicion_vendida(boleta)
     return socio
+
+
+def tiene_pagos(boleta) -> bool:
+    """¿Ya cobró alguna cuota en cobranza? Entonces sus cuotas no se corrigen acá."""
+    return (boleta.historial_cuotas or "").strip() not in ("", "{}")
+
+
+def corregir_fila(db, boleta, socio, *, apellido_nombre: str, direccion: str = "", telefono: str = "",
+                  zona_id: Optional[int] = None, fecha_compra: Optional[str] = None,
+                  vendedor_id: Optional[int] = None,
+                  cuotas_pactadas: Optional[int] = None, cuotas_anticipadas: Optional[int] = None) -> None:
+    """Corrige una fila ya guardada de la grilla de carga (sin commit).
+
+    Con pagos en cobranza NO se tocan cuotas, fecha ni cobrador: `fijar_cuotas`
+    pisa las cuotas pagas con las anticipadas y borraría esos pagos. Una boleta ya
+    emplanillada tampoco cambia de cobrador: lo sigue su planilla."""
+    zona_cambio = socio.zona_id != zona_id
+    socio.apellido_nombre = apellido_nombre.strip().upper()
+    socio.direccion = direccion.strip().upper() or None
+    socio.telefono = telefono.strip() or None
+    socio.zona_id = zona_id
+    if vendedor_id:
+        boleta.vendedor_id = vendedor_id
+
+    if tiene_pagos(boleta):
+        return
+    if fecha_compra:
+        boleta.fecha_venta = date.fromisoformat(fecha_compra)
+    fijar_cuotas(boleta, cuotas_pactadas, cuotas_anticipadas)
+    if boleta.planilla_id is None:
+        if not reglas.lleva_cobrador(boleta):
+            boleta.cobrador_id = None
+        elif zona_cambio:
+            boleta.cobrador_id = None
+            asignar_cobrador(db, boleta, socio, None)
+    if boleta.condicion in CONDICIONES_RECALCULABLES:
+        boleta.condicion = reglas.condicion_vendida(boleta)

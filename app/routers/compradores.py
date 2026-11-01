@@ -12,6 +12,7 @@ from ..models import CondicionBoleta
 # Cuotas que se cobran realmente segun la fecha de venta: las que no entran antes
 # del sorteo final (jun-2027) van de regalo. Ver app/cuotas.py.
 from ..cuotas import cuotas_vigentes
+from ..tiempo import hoy_ar
 from ..services import reglas_boleta as reglas
 from ..services import alta_socio
 # Columna ESTADO de la lista de socios (al día / contado / debe N / baja).
@@ -739,6 +740,183 @@ def _resolver_zona_ex(zona_id: Optional[int], zona_nueva: str, db: Session):
 def _parse_cobrador_id(raw, db) -> Optional[int]:
     """Cobrador elegido a mano en el modal (vive en services/alta_socio.py)."""
     return alta_socio.cobrador_valido(db, raw)
+
+
+# ── Grilla de carga de socios (tipo Excel) ──────────────────────────────────
+# Se escribe el primer número de la talonera y el sistema trae lo demás; cada fila
+# se guarda sola. El alta usa el mismo servicio que el modal "Nuevo Socio", con una
+# diferencia a pedido de Sergio: acá el vendedor de la liquidación manda sobre el
+# de la zona. Sin vendedor en la fila, manda la zona, como en el modal.
+
+CARGA_ULTIMAS_FILAS = 30
+
+
+def _fecha_ref_boleta(b):
+    """Fecha que define las cuotas: la de venta, o la de la liquidación del vendedor."""
+    if b.fecha_venta:
+        return b.fecha_venta
+    liq_fecha = getattr(b.liquidacion_vendedor, "fecha", None)
+    return liq_fecha.date() if liq_fecha else None
+
+
+def _carga_fila(b) -> dict:
+    """Datos de una boleta para una fila de la grilla (con o sin socio cargado)."""
+    c = b.comprador
+    liq = b.liquidacion_vendedor if b.liquidacion_vendedor_id else None
+    vendedor = b.vendedor
+    if c is None and liq is not None and liq.vendedor:
+        vendedor = liq.vendedor     # antes del alta manda el de la liquidación
+    nominal = (b.talonera.num_cuotas if b.talonera and b.talonera.num_cuotas else 0) or 12
+    fecha = _fecha_ref_boleta(b)
+    maximo = cuotas_vigentes(nominal, fecha)
+    contado = alta_socio.es_contado_liquidado(b)
+    pactadas = (b.cuotas_pactadas or maximo) if c is not None else maximo
+    anticipadas = (b.cuotas_anticipadas or 1) if c is not None else (maximo if contado else 1)
+    if alta_socio.tiene_pagos(b):
+        anticipadas = b.cuotas_pagadas or anticipadas   # bloqueada: muestra lo pago hoy
+    return {
+        "boleta_id": b.id,
+        "comprador_id": b.comprador_id,
+        "numero": str(b.numero_principal).zfill(4),
+        "otros": [x.strip() for x in (b.numeros_adicionales or "").split(",") if x.strip()],
+        "talonera": (b.talonera.nombre if b.talonera else "").replace("PATA ", "X"),
+        "nombre": c.apellido_nombre if c else "",
+        "direccion": (c.direccion or "") if c else "",
+        "telefono": (c.telefono or "") if c else "",
+        "zona": c.zona.nombre if c and c.zona else "",
+        "fecha": (fecha or hoy_ar()).isoformat(),
+        "vendedor_id": vendedor.id if vendedor else None,
+        "vendedor": vendedor.nombre if vendedor else "",
+        "cobrador": b.cobrador.nombre if b.cobrador else "",
+        "cuotas": pactadas,
+        "anticipadas": anticipadas,
+        "contado": contado,
+        "liquidada": liq is not None,
+        "tiene_pagos": alta_socio.tiene_pagos(b),
+    }
+
+
+@router.get("/carga", response_class=HTMLResponse)
+async def carga_grilla(request: Request, db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    # No hay fecha de alta guardada: los últimos cargados son los de id más alto.
+    ultimas = (
+        db.query(models.Boleta)
+        .join(models.Comprador, models.Boleta.comprador_id == models.Comprador.id)
+        .order_by(models.Comprador.id.desc(), models.Boleta.id.desc())
+        .limit(CARGA_ULTIMAS_FILAS)
+        .all()
+    )
+    vendedores = (db.query(models.Vendedor).filter(models.Vendedor.activo == True)
+                  .order_by(models.Vendedor.nombre).all())
+    zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
+    return templates.TemplateResponse(request, "compradores_carga.html", {
+        "user": user,
+        "filas": [_carga_fila(b) for b in reversed(ultimas)],
+        "vendedores": [{"id": v.id, "nombre": v.nombre} for v in vendedores],
+        "zonas": [z.nombre for z in zonas],
+    })
+
+
+def _boleta_por_primer_numero(db, numero: int):
+    """Boleta de una talonera común por su primer número. Las taloneras CONTADO son
+    un pool de números de sorteo aparte y pueden repetir el mismo número."""
+    return (db.query(models.Boleta)
+            .join(models.Talonera, models.Boleta.talonera_id == models.Talonera.id)
+            .filter(models.Boleta.numero_principal == numero, models.Talonera.tipo != "CONTADO")
+            .first())
+
+
+@router.get("/carga/boleta/{numero}")
+async def carga_buscar_boleta(numero: int, request: Request, db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+    b = _boleta_por_primer_numero(db, numero)
+    if b is None:
+        return JSONResponse({"error": "No es el primer número de ninguna talonera"}, status_code=404)
+    if b.comprador_id:
+        return JSONResponse({"error": f"Ya es de {b.comprador.apellido_nombre}"}, status_code=409)
+    if b.condicion == CondicionBoleta.BAJA:
+        return JSONResponse({"error": "Está dada de baja"}, status_code=409)
+    return JSONResponse(_carga_fila(b))
+
+
+@router.post("/carga/fila")
+async def carga_guardar_fila(
+    request: Request,
+    boleta_id: int = Form(...),
+    editar: int = Form(0),              # 1 = corrección de una fila ya guardada
+    apellido_nombre: str = Form(""),
+    direccion: str = Form(""),
+    telefono: str = Form(""),
+    zona: str = Form(""),
+    fecha: str = Form(""),
+    vendedor_id: Optional[str] = Form(None),
+    cuotas_pactadas: Optional[int] = Form(None),
+    cuotas_anticipadas: Optional[int] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Guarda una fila de la grilla: alta del socio o corrección de una ya cargada."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, 'compradores', 'editar'):
+        raise HTTPException(403, 'No tenés permiso para editar en esta sección')
+
+    def _error(msg, status=400):
+        return JSONResponse({"error": msg}, status_code=status)
+
+    b = db.query(models.Boleta).get(boleta_id)
+    if b is None:
+        return _error("La boleta ya no existe", 404)
+    nombre = apellido_nombre.strip().upper()
+    if not nombre:
+        return _error("Falta el nombre")
+    try:
+        fecha_iso = date.fromisoformat(fecha.strip()).isoformat() if fecha.strip() else None
+    except ValueError:
+        return _error("La fecha no es válida")
+
+    # Zona por nombre. No se crea sola: un error de tipeo no debe abrir una zona.
+    zona_id = None
+    if zona.strip():
+        z = (db.query(models.Zona)
+             .filter(func_count.upper(models.Zona.nombre) == zona.strip().upper()).first())
+        if z is None:
+            return _error(f"La zona {zona.strip()} no existe")
+        zona_id = z.id
+
+    vend = None
+    if (vendedor_id or "").strip().isdigit():
+        v = db.query(models.Vendedor).get(int(vendedor_id))
+        vend = v.id if v else None
+
+    if b.comprador_id:
+        if not editar:
+            # Reintento de un alta que ya entró (se cortó la respuesta): no es error.
+            if b.comprador.apellido_nombre == nombre:
+                return JSONResponse(_carga_fila(b))
+            return _error(f"Ya es de {b.comprador.apellido_nombre}", 409)
+        alta_socio.corregir_fila(
+            db, b, b.comprador,
+            apellido_nombre=nombre, direccion=direccion, telefono=telefono,
+            zona_id=zona_id, fecha_compra=fecha_iso, vendedor_id=vend,
+            cuotas_pactadas=cuotas_pactadas, cuotas_anticipadas=cuotas_anticipadas,
+        )
+    else:
+        if b.condicion == CondicionBoleta.BAJA:
+            return _error("Está dada de baja", 409)
+        alta_socio.cargar_socio(
+            db, b,
+            apellido_nombre=nombre, direccion=direccion, telefono=telefono,
+            zona_id=zona_id, fecha_compra=fecha_iso, vendedor_id=vend,
+            cuotas_pactadas=cuotas_pactadas, cuotas_anticipadas=cuotas_anticipadas,
+            vendedor_manda=True,
+        )
+    db.commit()
+    db.refresh(b)
+    return JSONResponse(_carga_fila(b))
 
 
 @router.post("/crear")
