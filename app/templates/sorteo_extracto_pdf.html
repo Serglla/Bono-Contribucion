@@ -29,7 +29,9 @@
   </div>
 
   <div class="premios">
-    {% for p in bloque.premios %}{{ p.fecha.strftime("%d/%m/%y") }} {{ p.posicion }}&deg; PREMIO N&ordm;&nbsp;{{ p.numero }}{% if not loop.last %}&nbsp;&nbsp;&nbsp;{% endif %}{% endfor %}
+    {# Todo &nbsp; dentro de cada premio: la línea solo puede cortar ENTRE premios,
+       nunca en el medio de uno (pisa no soporta el inline-block de la pantalla). #}
+    {% for p in bloque.premios %}{{ p.fecha.strftime("%d/%m/%y") }}&nbsp;{{ p.posicion }}&deg;&nbsp;PREMIO&nbsp;N&ordm;&nbsp;{{ p.numero }}{% if not loop.last %}&nbsp;&nbsp; {% endif %}{% endfor %}
   </div>
 
   <div class="seccion">GANADORES</div>
