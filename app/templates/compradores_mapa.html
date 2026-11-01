@@ -55,6 +55,18 @@
   }
   .leaflet-popup-content { font-size: .85rem; }
   .leaflet-popup-content b { font-size: .95rem; }
+  .marker-num.dudoso { border-style: dashed; }
+  .marker-num.sel { outline: 3px solid var(--amber-accent); outline-offset: 1px; }
+  .leyenda-cob { display: inline-flex; align-items: center; font-size: var(--fs-2xs); margin-right: 10px; }
+  .leyenda-cob .punto { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid #333; margin-right: 4px; }
+  #mapaSocios.modo-lasso { cursor: crosshair; touch-action: none; }
+  #mapaSocios.modo-lasso .leaflet-marker-pane * { pointer-events: none; }
+  .panel-mapa {
+    display: none; position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; background: var(--surface); border-radius: 8px; padding: 10px 18px;
+    box-shadow: 0 2px 14px rgba(0,0,0,.35); font-size: .88rem; text-align: center;
+    min-width: 280px; max-width: calc(100% - 24px);
+  }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -68,8 +80,8 @@
   </div>
   <div class="d-flex gap-2 align-items-center">
     {% if user.is_admin %}
-    <button class="btn btn-sm btn-outline-danger" id="btnResetServer" title="Borrar cache compartido y volver a geocodificar (admin)">
-      <i class="bi bi-database-x me-1"></i>Reset cache server
+    <button class="btn btn-sm btn-outline-danger" id="btnResetServer" title="Vuelve a calcular las ubicaciones automáticas. Los pines puestos a mano o con GPS se conservan (admin)">
+      <i class="bi bi-arrow-repeat me-1"></i>Recalcular ubicaciones
     </button>
     {% endif %}
   </div>
@@ -106,6 +118,39 @@
         </div>
       </div>
     </div>
+    <div class="mt-2 d-flex align-items-center flex-wrap gap-3">
+      <div class="d-flex align-items-center gap-2">
+        <label class="text-muted small mb-0" for="filtroMes"><i class="bi bi-calendar3 me-1"></i>Mes de compra:</label>
+        <select id="filtroMes" class="form-select form-select-sm" style="width:auto;">
+          <option value="">— Todos —</option>
+        </select>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <label class="text-muted small mb-0" for="filtroPrecision"><i class="bi bi-crosshair me-1"></i>Precisión:</label>
+        <select id="filtroPrecision" class="form-select form-select-sm" style="width:auto;">
+          <option value="">— Todas —</option>
+          <option value="dudosa">Dudosas (línea punteada)</option>
+          <option value="exacta">Confiables</option>
+        </select>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <label class="text-muted small mb-0" for="colorModo"><i class="bi bi-palette me-1"></i>Color por:</label>
+        <select id="colorModo" class="form-select form-select-sm" style="width:auto;">
+          <option value="pata">Pata</option>
+          <option value="cobrador">Cobrador</option>
+        </select>
+      </div>
+      <div class="form-check mb-0">
+        <input class="form-check-input" type="checkbox" id="filtroSinCobrador">
+        <label class="form-check-label small" for="filtroSinCobrador">Solo sin cobrador</label>
+      </div>
+      {% if puede_editar %}
+      <button id="btnAsignarGrupo" class="btn btn-sm btn-outline-primary" title="Marcá un área en el mapa y asignale un cobrador a todos los que estén adentro">
+        <i class="bi bi-bounding-box me-1"></i>Asignar en grupo
+      </button>
+      {% endif %}
+    </div>
+    <div id="leyendaCobradores" class="mt-2 d-none"></div>
     <div class="mt-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
       <span class="small text-muted" id="contadorVisibles"></span>
       <button id="btnNoUbicadas" class="btn btn-sm btn-outline-warning d-none">
@@ -148,6 +193,7 @@
       <i class="bi bi-info-circle me-1"></i>
       Si corregís la dirección del socio (botón "Editar"), apretá luego
       <strong>Reintentar geocoding</strong> y recargá el mapa para reubicar.
+      Si es un barrio o una manzana que no se encuentra, ponelo a mano con <i class="bi bi-pin-map"></i>.
     </div>
   </div>
 </div>
@@ -168,6 +214,22 @@
       </div>
       <div id="reposiStatus" style="font-size:.75rem;min-height:16px;margin-top:4px;"></div>
     </div>
+    <div id="panelGrupo" class="panel-mapa">
+      <div id="grupoAyuda"><i class="bi bi-bounding-box text-primary me-1"></i>Dibujá con el mouse o el dedo el área que querés asignar</div>
+      <div id="grupoDetalle" class="d-none">
+        <div class="mb-2"><strong id="grupoTotal"></strong> <span id="grupoResumen" class="text-muted small"></span></div>
+        <div class="d-flex gap-2 justify-content-center align-items-center flex-wrap mb-1">
+          <select id="grupoCobrador" class="form-select form-select-sm" style="width:auto;"></select>
+          <button id="btnGrupoAsignar" class="btn btn-sm btn-success"><i class="bi bi-check-lg me-1"></i>Asignar</button>
+        </div>
+        <div class="form-check d-inline-block mb-0" id="grupoCambiarWrap">
+          <input class="form-check-input" type="checkbox" id="grupoCambiar">
+          <label class="form-check-label small" for="grupoCambiar">Cambiar también a los que ya tienen otro cobrador</label>
+        </div>
+      </div>
+      <div id="grupoStatus" class="small" style="min-height:16px;"></div>
+      <button id="btnGrupoCancelar" class="btn btn-sm btn-outline-secondary mt-1"><i class="bi bi-x me-1"></i>Salir</button>
+    </div>
     <div id="mapaSocios"></div>
   </div>
 </div>
@@ -176,12 +238,23 @@
   <i class="bi bi-info-circle me-1"></i>
   Las coordenadas se cachean compartidamente en el servidor — la primera persona que abre el mapa
   paga el costo de geocoding (1 consulta/seg por política de Nominatim), todos los demás cargan al instante.
+  Línea punteada = ubicación dudosa (solo se encontró la calle). Para corregirla usá "Mover pin", o "Estoy acá" parado en la casa con el celular.
 </div>
 
 <script>
 (function(){
   const CIUDAD = "Concepción del Uruguay, Entre Ríos, Argentina";
   const CENTRO_DEFECTO = [-32.4847, -58.2347];
+  // Lo automático se busca solo dentro de la ciudad (lon1,lat1,lon2,lat2).
+  // Mantener igual a GEOCODE_AREA_CIUDAD en routers/compradores.py.
+  const VIEWBOX_CIUDAD = "-58.33,-32.42,-58.20,-32.56";
+  const PRECISION_CONFIABLE = ['casa', 'esquina', 'manual', 'gps'];
+  const PRECISION_TEXTO = {
+    casa: 'Casa exacta', esquina: 'Esquina', manual: 'Puesto a mano', gps: 'Puesto con GPS',
+    calle: 'Dudosa: solo la calle',
+  };
+  const COLORES_COBRADOR = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4',
+                            '#42d4f4', '#f032e6', '#bfef45', '#fabed4', '#469990', '#9a6324'];
 
   function normDir(s) {
     return (s || "").trim().toUpperCase().replace(/\s+/g, " ");
@@ -222,6 +295,7 @@
         <i class="bi bi-geo-alt"></i> ${pt.direccion}<br>
         ${pt.zona ? '<i class="bi bi-map"></i> ' + pt.zona + '<br>' : ''}
         ${pt.vendedor_nombre ? '<i class="bi bi-person-badge"></i> ' + pt.vendedor_nombre + '<br>' : ''}
+        <span class="${esDudoso(pt) ? 'text-danger' : 'text-success'}" style="font-size:.78rem;"><i class="bi bi-crosshair"></i> ${PRECISION_TEXTO[pt.precision] || 'Dudosa: sin clasificar'}</span><br>
         ${!pt.es_contado ? `
         <div class="mt-1 d-flex align-items-center gap-1 flex-wrap">
           <span class="text-muted" style="font-size:.78rem;white-space:nowrap;"><i class="bi bi-person-check"></i> Cobrador:</span>
@@ -244,20 +318,39 @@
         <button class="btn btn-sm btn-outline-warning mt-1 btn-mover-pin" data-cid="${pt.comprador_id}">
           <i class="bi bi-arrows-move"></i> Mover pin
         </button>
+        <button class="btn btn-sm btn-outline-success mt-1 btn-estoy-aca" data-cid="${pt.comprador_id}" title="Guarda como ubicación de este socio el lugar donde estás parado, con el GPS del celular">
+          <i class="bi bi-crosshair2"></i> Estoy acá
+        </button>
       </div>
     `;
   }
 
-  function crearMarcador(pt, lat, lng) {
-    const html = `<div class="marker-num" style="background:${pt.color}; color:${textColorOnBg(pt.color)};">${pt.numero}</div>`;
-    const icon = L.divIcon({
-      html: html, className: '',
+  function esDudoso(pt) { return !PRECISION_CONFIABLE.includes(pt.precision); }
+
+  function colorDe(pt) {
+    if (colorModo !== 'cobrador') return pt.color;
+    if (!pt.cobrador_id) return pt.asignable ? '#ffffff' : '#9e9e9e';
+    const i = (datos.cobradores || []).findIndex(c => c.id === pt.cobrador_id);
+    return COLORES_COBRADOR[Math.max(i, 0) % COLORES_COBRADOR.length];
+  }
+
+  function iconoDe(pt) {
+    const color = colorDe(pt);
+    const clases = 'marker-num' + (esDudoso(pt) ? ' dudoso' : '') + (pt._sel ? ' sel' : '');
+    return L.divIcon({
+      html: `<div class="${clases}" style="background:${color}; color:${textColorOnBg(color)};">${pt.numero}</div>`,
+      className: '',
       iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14]
     });
-    const m = L.marker([lat, lng], { icon: icon });
-    m.bindPopup(buildPopupHtml(pt), { maxWidth: 300 });
+  }
+
+  function crearMarcador(pt, lat, lng) {
+    const m = L.marker([lat, lng], { icon: iconoDe(pt) });
+    m.bindPopup(() => buildPopupHtml(pt), { maxWidth: 300 });
     return m;
   }
+
+  function redibujar(entry) { entry.marker.setIcon(iconoDe(entry.pt)); }
 
   function setProgreso(msg, show) {
     const panel = document.getElementById('panelProgreso');
@@ -271,6 +364,10 @@
   const patasOff = new Set();   // patas ocultas
   let vendedorFiltro = "";       // "" = todos
   let cobradorFiltro = "";       // "" = todos
+  let mesFiltro = "";            // "" = todos, "2026-10", "sin" = sin fecha
+  let precisionFiltro = "";      // "" | "dudosa" | "exacta"
+  let soloSinCobrador = false;
+  let colorModo = "pata";        // "pata" | "cobrador"
 
   // Render leyenda con chips clickables
   function renderLeyenda() {
@@ -325,7 +422,59 @@
       cobradorFiltro = sel.value;
       aplicarFiltros();
     });
+    const selGrupo = document.getElementById('grupoCobrador');
+    selGrupo.add(new Option('— Elegí cobrador —', ''));
+    (datos.cobradores || []).forEach(cb => selGrupo.add(new Option(cb.nombre, cb.id)));
   }
+
+  // Meses de compra, del más nuevo al más viejo, con su cantidad de números.
+  function renderMeses() {
+    const sel = document.getElementById('filtroMes');
+    const cuenta = new Map();
+    (datos.puntos || []).forEach(p => cuenta.set(p.mes || 'sin', (cuenta.get(p.mes || 'sin') || 0) + 1));
+    const nombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto',
+                     'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    [...cuenta.keys()].filter(k => k !== 'sin').sort().reverse().forEach(k => {
+      const [anio, mes] = k.split('-');
+      sel.add(new Option(`${nombres[parseInt(mes) - 1]} ${anio} (${cuenta.get(k)})`, k));
+    });
+    if (cuenta.has('sin')) sel.add(new Option(`Sin fecha (${cuenta.get('sin')})`, 'sin'));
+    sel.addEventListener('change', () => { mesFiltro = sel.value; aplicarFiltros(); });
+  }
+
+  function renderLeyendaCobradores() {
+    const cont = document.getElementById('leyendaCobradores');
+    cont.innerHTML = '';
+    cont.classList.toggle('d-none', colorModo !== 'cobrador');
+    if (colorModo !== 'cobrador') return;
+    const usados = new Set(markers.map(m => m.pt.cobrador_id).filter(Boolean));
+    const items = (datos.cobradores || []).filter(c => usados.has(c.id))
+      .map(c => [c.nombre, colorDe({ cobrador_id: c.id })]);
+    items.push(['Sin cobrador', '#ffffff'], ['Contado o no se cobra', '#9e9e9e']);
+    items.forEach(([nombre, color]) => {
+      const chip = document.createElement('span');
+      chip.className = 'leyenda-cob';
+      const punto = document.createElement('span');
+      punto.className = 'punto';
+      punto.style.background = color;
+      chip.append(punto, nombre);
+      cont.appendChild(chip);
+    });
+  }
+
+  document.getElementById('filtroPrecision').addEventListener('change', (e) => {
+    precisionFiltro = e.target.value;
+    aplicarFiltros();
+  });
+  document.getElementById('filtroSinCobrador').addEventListener('change', (e) => {
+    soloSinCobrador = e.target.checked;
+    aplicarFiltros();
+  });
+  document.getElementById('colorModo').addEventListener('change', (e) => {
+    colorModo = e.target.value;
+    markers.forEach(redibujar);
+    renderLeyendaCobradores();
+  });
 
   // Separa en abanico los marcadores que caen EXACTAMENTE en el mismo punto.
   // Sin esto, varias boletas geocodificadas al mismo lugar (p.ej. el centro de
@@ -361,43 +510,34 @@
   }
 
   // Mostrar/ocultar marcadores segun filtros
-  function aplicarFiltros() {
+  function aplicarFiltros(encuadrar = true) {
     separarSolapados();
     let visibles = 0;
+    let dudosas = 0;
     const visibleBounds = [];
     for (const m of markers) {
       const okPata = !patasOff.has(m.pt.pata);
       const okVend = !vendedorFiltro || String(m.pt.vendedor_id || "") === vendedorFiltro;
       const okCob  = !cobradorFiltro || String(m.pt.cobrador_id || "") === cobradorFiltro;
-      const show = okPata && okVend && okCob;
+      const okMes  = !mesFiltro || (m.pt.mes || 'sin') === mesFiltro;
+      const okPrec = !precisionFiltro || (precisionFiltro === 'dudosa') === esDudoso(m.pt);
+      const okSin  = !soloSinCobrador || (m.pt.asignable && !m.pt.cobrador_id);
+      const show = okPata && okVend && okCob && okMes && okPrec && okSin;
       if (show) {
         if (!map.hasLayer(m.marker)) m.marker.addTo(map);
         visibleBounds.push([m.lat, m.lng]);
         visibles++;
+        if (esDudoso(m.pt)) dudosas++;
       } else {
         if (map.hasLayer(m.marker)) map.removeLayer(m.marker);
       }
     }
     document.getElementById('contadorVisibles').textContent =
-      `Mostrando ${visibles} de ${markers.length} ubicación${markers.length === 1 ? '' : 'es'}`;
-    if (visibleBounds.length > 0) {
+      `Mostrando ${visibles} de ${markers.length} ${markers.length === 1 ? 'ubicación' : 'ubicaciones'}` +
+      (dudosas ? ` · ${dudosas} dudosa${dudosas === 1 ? '' : 's'}` : '');
+    if (encuadrar && visibleBounds.length > 0) {
       map.fitBounds(visibleBounds, { padding: [30,30], maxZoom: 17 });
     }
-  }
-
-  // Geocoding via Nominatim (1 req/seg)
-  async function geocodificar(direccion) {
-    const q = encodeURIComponent(direccion + ", " + CIUDAD);
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`;
-    try {
-      const r = await fetch(url, { headers: { 'Accept-Language': 'es' } });
-      if (!r.ok) return null;
-      const data = await r.json();
-      if (data && data.length > 0) {
-        return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-      }
-    } catch(e) { /* offline o bloqueo */ }
-    return null;
   }
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -406,15 +546,149 @@
     return lat >= -33.0 && lat <= -32.0 && lng >= -58.7 && lng <= -57.8;
   }
 
-  // POST coords al server para que queden cacheadas para todos
-  async function guardarEnServer(direccion, lat, lng) {
+  // "27 DEL OESTE 1500" → calle "27 DEL OESTE", altura "1500".
+  // El número de "9 DE JULIO" o "CALLE 12" es parte del nombre, no la altura.
+  function partirDireccion(direccion) {
+    const d = normDir(direccion);
+    const m = d.match(/^(.*\D)\s+(\d{1,5})(?:\s*BIS)?$/);
+    if (!m || /^(CALLE|AVENIDA|AV\.?|BV\.?|BOULEVARD|BULEVAR|PASAJE|PJE\.?)$/.test(m[1].trim())) {
+      return { calle: d, altura: null };
+    }
+    return { calle: m[1].trim(), altura: m[2] };
+  }
+
+  // "27 DEL OESTE Y RATTO" → ["27 DEL OESTE", "RATTO"]. "A E/ B Y C" no es una esquina.
+  function partirEsquina(direccion) {
+    const d = normDir(direccion);
+    if (/\bE\/|\bENTRE\b/.test(d)) return null;
+    const m = d.match(/^(.+?)\s+(?:Y|ESQ\.?|ESQUINA)\s+(.+)$/);
+    return m ? [partirDireccion(m[1]).calle, partirDireccion(m[2]).calle] : null;
+  }
+
+  // Nominatim confunde calles numeradas ("27 del Oeste" trae "22 del Oeste"):
+  // los números del nombre buscado tienen que estar en el nombre encontrado.
+  function nombreCoincide(calle, resultado) {
+    const pedidos = calle.match(/\d+/g) || [];
+    const nombre = (resultado.address && resultado.address.road) || resultado.name || '';
+    const hallados = nombre.match(/\d+/g) || [];
+    return pedidos.every(n => hallados.includes(n));
+  }
+
+  function urlNominatim(q, extra) {
+    return 'https://nominatim.openstreetmap.org/search?format=json' +
+      `&countrycodes=ar&bounded=1&viewbox=${VIEWBOX_CIUDAD}${extra}&q=` +
+      encodeURIComponent(q + ", " + CIUDAD);
+  }
+
+  // Geocoding via Nominatim (1 req/seg). Devuelve {lat, lng, precision} o null.
+  async function geocodificar(direccion) {
+    const { calle, altura } = partirDireccion(direccion);
     try {
-      await fetch('/compradores/mapa-geocode-save', {
+      const r = await fetch(urlNominatim(direccion, '&limit=3&addressdetails=1'), { headers: { 'Accept-Language': 'es' } });
+      if (!r.ok) return null;
+      const res = (await r.json()).find(x => nombreCoincide(calle, x));
+      if (!res) return null;
+      const numero = res.address && res.address.house_number;
+      return {
+        lat: parseFloat(res.lat), lng: parseFloat(res.lon),
+        precision: altura && numero === altura ? 'casa' : 'calle',
+      };
+    } catch(e) { /* offline o bloqueo */ }
+    return null;
+  }
+
+  // Tramos de una calle (geometría de OpenStreetMap).
+  async function tramosDeCalle(calle) {
+    const r = await fetch(urlNominatim(calle, '&limit=10&dedupe=0&polygon_geojson=1'), { headers: { 'Accept-Language': 'es' } });
+    if (!r.ok) return [];
+    const tramos = [];
+    (await r.json()).filter(x => x.class === 'highway' && nombreCoincide(calle, x)).forEach(x => {
+      const g = x.geojson || {};
+      if (g.type === 'LineString') tramos.push(g.coordinates);
+      if (g.type === 'MultiLineString') tramos.push(...g.coordinates);
+    });
+    return tramos;
+  }
+
+  // Esquina: el punto donde se tocan las dos calles. Si no se cruzan (más de 25 m
+  // entre sí) no se inventa nada. Mantener en metros: 1° de latitud ≈ 111.320 m.
+  function cruceDeTramos(tramosA, tramosB) {
+    const k = Math.cos(-32.48 * Math.PI / 180);
+    const metros = (ax, ay, bx, by) => Math.hypot((ax - bx) * k, ay - by) * 111320;
+    let mejor = null;
+    for (const a of tramosA) for (const [px, py] of a) for (const b of tramosB) {
+      for (let i = 0; i < b.length - 1; i++) {
+        const [x1, y1] = b[i], [x2, y2] = b[i + 1];
+        const dx = (x2 - x1) * k, dy = y2 - y1;
+        const largo = dx * dx + dy * dy;
+        const t = largo ? Math.max(0, Math.min(1, (((px - x1) * k) * dx + (py - y1) * dy) / largo)) : 0;
+        const qx = x1 + t * (x2 - x1), qy = y1 + t * (y2 - y1);
+        const d = metros(px, py, qx, qy);
+        if (!mejor || d < mejor.d) mejor = { d, lat: qy, lng: qx };
+      }
+    }
+    return mejor && mejor.d <= 25 ? { lat: mejor.lat, lng: mejor.lng, precision: 'esquina' } : null;
+  }
+
+  // Mejor ubicación automática de una dirección, de la más a la menos precisa.
+  async function ubicar(direccion) {
+    const esquina = partirEsquina(direccion);
+    if (esquina) {
+      try {
+        const a = await tramosDeCalle(esquina[0]);
+        await sleep(1100);
+        const b = await tramosDeCalle(esquina[1]);
+        const cruce = cruceDeTramos(a, b);
+        if (cruce) return cruce;
+      } catch(e) { /* offline o bloqueo */ }
+      await sleep(1100);
+      const calle = await geocodificar(esquina[0]);
+      return calle && { ...calle, precision: 'calle' };
+    }
+    const r = await geocodificar(direccion);
+    if (r) return r;
+    // Sin altura: al menos la calle. Solo se saca la altura, no los números del
+    // nombre ("27 DEL OESTE 1500" antes quedaba en "DEL OESTE").
+    const { calle, altura } = partirDireccion(direccion);
+    if (altura && calle.length > 3) {
+      await sleep(1100);
+      const sinAltura = await geocodificar(calle);
+      return sinAltura && { ...sinAltura, precision: 'calle' };
+    }
+    return null;
+  }
+
+  // POST coords al server para que queden cacheadas para todos. Devuelve si se guardó.
+  async function guardarEnServer(direccion, lat, lng, precision) {
+    try {
+      const r = await fetch('/compradores/mapa-geocode-save', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ direccion: direccion, lat: lat, lng: lng })
+        body: JSON.stringify({ direccion: direccion, lat: lat, lng: lng, precision: precision || null })
       });
-    } catch(e) { /* swallow */ }
+      return r.ok && (await r.json()).ok;
+    } catch(e) { return false; }
+  }
+
+  // Todos los números con esa dirección comparten el punto: los mueve juntos y
+  // dibuja los que todavía no estaban en el mapa.
+  function ubicarDireccion(direccion, lat, lng, precision) {
+    const clave = normDir(direccion);
+    (datos.puntos || []).filter(p => normDir(p.direccion) === clave).forEach(p => {
+      p.lat = lat;
+      p.lng = lng;
+      p.precision = precision;
+      const entry = markers.find(m => m.pt === p);
+      if (entry) {
+        entry.lat = lat;
+        entry.lng = lng;
+        redibujar(entry);
+      } else {
+        const marker = crearMarcador(p, lat, lng);
+        markers.push({ pt: p, marker, lat, lng });
+      }
+    });
+    aplicarFiltros(false);
   }
 
   async function cargar() {
@@ -430,6 +704,7 @@
     renderLeyenda();
     renderVendedores();
     renderCobradores();
+    renderMeses();
 
     const puntos = datos.puntos || [];
     if (puntos.length === 0) {
@@ -462,34 +737,29 @@
     }
 
     // 2) Geocodificar pendientes a 1/seg, ir guardando al server
-    const total = pendientes.length;
+    // Una dirección repetida se consulta una sola vez.
+    const porDireccion = new Map();
+    pendientes.forEach(pt => {
+      const clave = normDir(pt.direccion);
+      if (!porDireccion.has(clave)) porDireccion.set(clave, pt.direccion);
+    });
+    const total = porDireccion.size;
     let hechos = 0;
     let fallidos = 0;
-    for (const pt of pendientes) {
+    for (const direccion of porDireccion.values()) {
       hechos++;
       setProgreso(
         `Geocodificando ${hechos}/${total}... ` +
         (fallidos > 0 ? `[${fallidos} sin ubicar] ` : '') +
         '(las coords quedan cacheadas para todos)', true);
 
-      let coords = await geocodificar(pt.direccion);
-      // Reintenta sin numero si fallo y la direccion tiene digitos
-      if (!coords) {
-        const sinNum = pt.direccion.replace(/\d+/g, '').trim();
-        if (sinNum && sinNum.length > 3) {
-          await sleep(1100);
-          coords = await geocodificar(sinNum);
-        }
-      }
-      const direccionKey = pt.direccion;
-      if (coords && dentroDeBbox(coords[0], coords[1])) {
-        const m = crearMarcador(pt, coords[0], coords[1]);
-        m.addTo(map);
-        markers.push({ pt, marker: m, lat: coords[0], lng: coords[1] });
-        guardarEnServer(direccionKey, coords[0], coords[1]);
+      const lugar = await ubicar(direccion);
+      if (lugar) {
+        ubicarDireccion(direccion, lugar.lat, lugar.lng, lugar.precision);
+        guardarEnServer(direccion, lugar.lat, lugar.lng, lugar.precision);
       } else {
         // guardamos como fallido para no reintentar la proxima vez
-        guardarEnServer(direccionKey, null, null);
+        guardarEnServer(direccion, null, null);
         fallidos++;
       }
       if (markers.length > 0 && hechos % 5 === 0) {
@@ -499,6 +769,7 @@
     }
 
     aplicarFiltros();
+    renderLeyendaCobradores();
     cargarNoUbicadas();   // refresca el panel con los fallos nuevos
     setProgreso(`Listo. ${markers.length} ubicadas, ${fallidos} sin ubicar.`, true);
     setTimeout(() => setProgreso("", false), 3500);
@@ -534,6 +805,9 @@
             <button class="btn btn-sm btn-outline-primary btn-editar" title="Editar dirección">
               <i class="bi bi-pencil"></i>
             </button>
+            <button class="btn btn-sm btn-outline-warning btn-ubicar" title="Ponerlo a mano en el mapa">
+              <i class="bi bi-pin-map"></i>
+            </button>
           </td>
         `;
         const pt = {
@@ -555,6 +829,7 @@
           pt.vendedor_id = ptOrig.vendedor_id;
         }
         tr.querySelector('.btn-editar').addEventListener('click', () => entrarEdicion(tr, pt));
+        tr.querySelector('.btn-ubicar').addEventListener('click', () => ubicarAMano(tr, ptOrig || pt));
         cont.appendChild(tr);
       });
     } catch(e) { /* swallow */ }
@@ -595,10 +870,14 @@
       <button class="btn btn-sm btn-outline-primary btn-editar" title="Editar dirección">
         <i class="bi bi-pencil"></i>
       </button>
+      <button class="btn btn-sm btn-outline-warning btn-ubicar" title="Ponerlo a mano en el mapa">
+        <i class="bi bi-pin-map"></i>
+      </button>
     `;
     tr.dataset.direccion = mostrar;
     pt.direccion = mostrar;
     tr.querySelector('.btn-editar').addEventListener('click', () => entrarEdicion(tr, pt));
+    tr.querySelector('.btn-ubicar').addEventListener('click', () => ubicarAMano(tr, pt));
   }
 
   // Guarda la nueva dirección, intenta geocodificar y, si OK, agrega al mapa
@@ -636,21 +915,13 @@
 
     // 2) Geocodificar la nueva dirección (esperando 1.1s por respeto a Nominatim)
     await sleep(1100);
-    let coords = await geocodificar(nueva);
-    if (!coords) {
-      const sinNum = nueva.replace(/\d+/g, '').trim();
-      if (sinNum && sinNum.length > 3) {
-        await sleep(1100);
-        coords = await geocodificar(sinNum);
-      }
-    }
+    const lugar = await ubicar(nueva);
 
-    if (coords && dentroDeBbox(coords[0], coords[1])) {
+    if (lugar) {
       // Éxito: agregar al mapa, cachear en server, quitar fila del panel
-      guardarEnServer(nueva, coords[0], coords[1]);
-      const m = crearMarcador(pt, coords[0], coords[1]);
-      m.addTo(map);
-      markers.push({ pt, marker: m, lat: coords[0], lng: coords[1] });
+      guardarEnServer(nueva, lugar.lat, lugar.lng, lugar.precision);
+      (datos.puntos || []).filter(p => p.comprador_id === pt.comprador_id).forEach(p => { p.direccion = nueva; });
+      ubicarDireccion(nueva, lugar.lat, lugar.lng, lugar.precision);
       aplicarFiltros();
       // animación: marcar fila verde y removerla
       tr.classList.add('table-success');
@@ -709,17 +980,15 @@
             mrkEntry.pt.cobrador_id = cobId ? parseInt(cobId) : null;
             const cobObj = (datos.cobradores || []).find(c => c.id === parseInt(cobId));
             mrkEntry.pt.cobrador_nombre = cobObj ? cobObj.nombre : null;
-            // Actualizar lista de cobradores para el filtro si es uno nuevo
-            if (cobId && !datos.cobradores.find(c => c.id === parseInt(cobId))) {
-              // En teoría no debería pasar, pero lo dejamos seguro
-            }
+            redibujar(mrkEntry);
+            renderLeyendaCobradores();
             // Refresh del popup tras breve pausa
             setTimeout(() => {
               mrkEntry.marker.setPopupContent(buildPopupHtml(mrkEntry.pt));
             }, 800);
           }
           // Si hay filtro de cobrador activo y cambió, reaplicar
-          if (cobradorFiltro) aplicarFiltros();
+          if (cobradorFiltro || soloSinCobrador) aplicarFiltros(false);
         } else {
           status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> ' + (data.error || 'Error');
           btn.disabled = false;
@@ -757,13 +1026,13 @@
   const btnReset = document.getElementById('btnResetServer');
   if (btnReset) {
     btnReset.addEventListener('click', async () => {
-      if (!(await appConfirm("¿Borrar TODO el cache compartido de coordenadas en el servidor?\n\nLa próxima persona que abra el mapa va a tener que volver a geocodificar todas las direcciones (tarda varios minutos)."))) return;
+      if (!(await appConfirm("¿Recalcular las ubicaciones automáticas?\n\nSe conservan los pines puestos a mano o con GPS desde este cambio. Los movidos antes no están identificados y se recalculan.\n\nLa próxima persona que abra el mapa va a tener que esperar a que se vuelvan a ubicar (tarda varios minutos, con esa pantalla abierta)."))) return;
       btnReset.disabled = true;
       try {
         const r = await fetch('/compradores/mapa-geocode-reset', { method: 'POST' });
         const j = await r.json();
         if (j.ok) {
-          await appAlert(`Cache borrado: ${j.borradas} entradas.\nRecargando...`, "exito");
+          await appAlert(`Se borraron ${j.borradas} ubicaciones automáticas y se conservaron ${j.conservadas} puestas a mano.\nRecargando...`, "exito");
           location.reload();
         }
       } catch(e) {
@@ -782,13 +1051,187 @@
     if (entry) entrarReposicion(entry);
   });
 
-  // ════ Reposición manual de marcadores ════
-  let reposiMode = null; // { entry, origLat, origLng }
+  // ════ Estoy acá: el GPS del celular, parado en la casa del socio ════
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-estoy-aca');
+    if (!btn) return;
+    const entry = markers.find(m => m.pt.comprador_id === parseInt(btn.dataset.cid));
+    if (!entry) return;
+    if (!navigator.geolocation) { appAlert("Este dispositivo no tiene ubicación disponible.", "error"); return; }
+    setProgreso("Buscando tu ubicación...", true);
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      setProgreso("", false);
+      const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+      const metros = Math.round(accuracy);
+      const aviso = accuracy > 50
+        ? `\n\nOjo: la señal es mala (±${metros} m). Si estás en una computadora o bajo techo, mejor usá "Mover pin".`
+        : ` (±${metros} m)`;
+      if (!(await appConfirm(`¿Guardar el lugar donde estás ahora como ubicación de ${entry.pt.apellido_nombre}?${aviso}`))) return;
+      if (await guardarEnServer(entry.pt.direccion, lat, lng, 'gps')) {
+        entry.marker.closePopup();
+        ubicarDireccion(entry.pt.direccion, lat, lng, 'gps');
+        map.panTo([lat, lng]);
+      } else {
+        appAlert("No se guardó: ese punto está fuera de la zona o no hay conexión.", "error");
+      }
+    }, (err) => {
+      setProgreso("", false);
+      appAlert(err.code === err.PERMISSION_DENIED
+        ? "Hay que permitir el acceso a la ubicación en el navegador."
+        : "No se pudo obtener la ubicación. Probá de nuevo o usá \"Mover pin\".", "error");
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  });
 
-  function entrarReposicion(entry) {
+  // ════ Asignar en grupo: dibujar un área y asignarle un cobrador ════
+  const mapaEl = document.getElementById('mapaSocios');
+  const panelGrupo = document.getElementById('panelGrupo');
+  let lassoActivo = false;
+  let trazo = null;       // {puntos, linea}
+  let dibujo = null;      // polígono ya cerrado
+  let seleccion = [];     // entradas de markers dentro del área
+
+  function limpiarSeleccion() {
+    seleccion.forEach(m => { m.pt._sel = false; redibujar(m); });
+    seleccion = [];
+    if (dibujo) { map.removeLayer(dibujo); dibujo = null; }
+    if (trazo) { map.removeLayer(trazo.linea); trazo = null; }
+    document.getElementById('grupoAyuda').classList.remove('d-none');
+    document.getElementById('grupoDetalle').classList.add('d-none');
+    document.getElementById('grupoStatus').textContent = '';
+  }
+
+  function entrarLasso() {
+    if (reposiMode) salirReposicion(false);
+    map.closePopup();
+    lassoActivo = true;
+    mapaEl.classList.add('modo-lasso');
+    panelGrupo.style.display = 'block';
+    limpiarSeleccion();
+    [map.dragging, map.touchZoom, map.doubleClickZoom, map.boxZoom].forEach(h => h.disable());
+  }
+
+  function salirLasso() {
+    lassoActivo = false;
+    mapaEl.classList.remove('modo-lasso');
+    panelGrupo.style.display = 'none';
+    limpiarSeleccion();
+    [map.dragging, map.touchZoom, map.doubleClickZoom, map.boxZoom].forEach(h => h.enable());
+  }
+
+  function dentroDePoligono(lat, lng, pol) {
+    let adentro = false;
+    for (let i = 0, j = pol.length - 1; i < pol.length; j = i++) {
+      const a = pol[i], b = pol[j];
+      if ((a.lat > lat) !== (b.lat > lat) &&
+          lng < (b.lng - a.lng) * (lat - a.lat) / (b.lat - a.lat) + a.lng) adentro = !adentro;
+    }
+    return adentro;
+  }
+
+  function mostrarSeleccion() {
+    const sin = seleccion.filter(m => !m.pt.cobrador_id).length;
+    const otros = seleccion.length - sin;
+    document.getElementById('grupoAyuda').classList.add('d-none');
+    document.getElementById('grupoDetalle').classList.remove('d-none');
+    document.getElementById('grupoTotal').textContent =
+      `${seleccion.length} número${seleccion.length === 1 ? '' : 's'} en el área`;
+    document.getElementById('grupoResumen').textContent = `(${sin} sin cobrador, ${otros} con cobrador)`;
+    document.getElementById('grupoCambiarWrap').style.display = otros ? '' : 'none';
+    document.getElementById('grupoCambiar').checked = false;
+    document.getElementById('grupoCobrador').value = '';
+  }
+
+  mapaEl.addEventListener('pointerdown', (e) => {
+    if (!lassoActivo || e.target.closest('.leaflet-control')) return;
+    e.preventDefault();
+    limpiarSeleccion();
+    const ll = map.mouseEventToLatLng(e);
+    trazo = { puntos: [ll], linea: L.polyline([ll], { color: '#0d6efd', weight: 2 }).addTo(map) };
+    mapaEl.setPointerCapture(e.pointerId);
+  });
+
+  mapaEl.addEventListener('pointermove', (e) => {
+    if (!lassoActivo || !trazo) return;
+    const ll = map.mouseEventToLatLng(e);
+    trazo.puntos.push(ll);
+    trazo.linea.addLatLng(ll);
+  });
+
+  mapaEl.addEventListener('pointerup', () => {
+    if (!lassoActivo || !trazo) return;
+    const pol = trazo.puntos;
+    map.removeLayer(trazo.linea);
+    trazo = null;
+    if (pol.length < 3) return;
+    dibujo = L.polygon(pol, { color: '#0d6efd', weight: 2, fillOpacity: .08, interactive: false }).addTo(map);
+    // Solo lo que se ve con los filtros activos, y al que se le puede asignar cobrador.
+    seleccion = markers.filter(m => map.hasLayer(m.marker) && m.pt.asignable && dentroDePoligono(m.lat, m.lng, pol));
+    if (!seleccion.length) {
+      document.getElementById('grupoStatus').textContent = 'No hay números para asignar en esa área. Probá de nuevo.';
+      return;
+    }
+    seleccion.forEach(m => { m.pt._sel = true; redibujar(m); });
+    mostrarSeleccion();
+  });
+
+  const btnGrupo = document.getElementById('btnAsignarGrupo');
+  if (btnGrupo) btnGrupo.addEventListener('click', () => (lassoActivo ? salirLasso() : entrarLasso()));
+  document.getElementById('btnGrupoCancelar').addEventListener('click', salirLasso);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lassoActivo) salirLasso(); });
+
+  document.getElementById('btnGrupoAsignar').addEventListener('click', async () => {
+    const status = document.getElementById('grupoStatus');
+    const cobId = document.getElementById('grupoCobrador').value;
+    if (!cobId) { status.textContent = 'Elegí un cobrador.'; return; }
+    const cambiar = document.getElementById('grupoCambiar').checked;
+    const destino = seleccion.filter(m => cambiar || !m.pt.cobrador_id);
+    if (!destino.length) { status.textContent = 'Todos ya tienen cobrador: marcá "Cambiar también".'; return; }
+    const fd = new FormData();
+    fd.append('cobrador_id', cobId);
+    new Set(destino.map(m => m.pt.comprador_id)).forEach(id => fd.append('comprador_ids', id));
+    const btn = document.getElementById('btnGrupoAsignar');
+    btn.disabled = true;
+    status.textContent = 'Asignando...';
+    try {
+      const resp = await fetch('/compradores/asignar-cobrador', { method: 'POST', body: fd });
+      const j = await resp.json();
+      if (!resp.ok || !j.ok) { status.textContent = j.error || 'No se pudo asignar.'; return; }
+      const socios = new Set(destino.map(m => m.pt.comprador_id));
+      const cob = datos.cobradores.find(c => c.id === parseInt(cobId));
+      markers.filter(m => socios.has(m.pt.comprador_id) && m.pt.asignable).forEach(m => {
+        m.pt.cobrador_id = cob.id;
+        m.pt.cobrador_nombre = cob.nombre;
+      });
+      salirLasso();
+      markers.forEach(redibujar);
+      renderLeyendaCobradores();
+      aplicarFiltros(false);
+      setProgreso(`Listo: ${j.socios_tocados} socio${j.socios_tocados === 1 ? '' : 's'} asignado${j.socios_tocados === 1 ? '' : 's'} a ${cob.nombre}.`, true);
+      setTimeout(() => setProgreso("", false), 3500);
+    } catch(err) {
+      status.textContent = 'Error de red: no se asignó.';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ════ Reposición manual de marcadores ════
+  let reposiMode = null; // { entry, origLat, origLng, tr }
+
+  // Socio sin ubicar: aparece un pin en el centro del mapa para arrastrarlo.
+  function ubicarAMano(tr, pt) {
+    if (lassoActivo) salirLasso();
+    const c = map.getCenter();
+    const marker = crearMarcador(pt, c.lat, c.lng).addTo(map);
+    const entry = { pt, marker, lat: c.lat, lng: c.lng, nuevo: true };
+    entrarReposicion(entry, tr);
+    mapaEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function entrarReposicion(entry, tr) {
     if (reposiMode) salirReposicion(false);
     const _cur = entry.marker.getLatLng();
-    reposiMode = { entry, origLat: _cur.lat, origLng: _cur.lng };
+    reposiMode = { entry, origLat: _cur.lat, origLng: _cur.lng, tr };
     entry.marker.closePopup();
     entry.marker.dragging.enable();
     document.getElementById('reposiNombre').textContent = entry.pt.apellido_nombre;
@@ -799,12 +1242,14 @@
   function salirReposicion(guardado) {
     if (!reposiMode) return;
     const { entry, origLat, origLng } = reposiMode;
-    if (!guardado) {
+    if (entry.nuevo) {
+      map.removeLayer(entry.marker);   // el definitivo lo dibuja ubicarDireccion
+    } else if (!guardado) {
       entry.marker.setLatLng([origLat, origLng]);
       entry.lat = origLat;
       entry.lng = origLng;
     }
-    entry.marker.dragging.disable();
+    if (entry.marker.dragging) entry.marker.dragging.disable();
     document.getElementById('panelReposicion').style.display = 'none';
     document.getElementById('btnGuardarRepo').disabled = false;
     document.getElementById('btnCancelarRepo').disabled = false;
@@ -814,7 +1259,7 @@
 
   document.getElementById('btnGuardarRepo').onclick = async () => {
     if (!reposiMode) return;
-    const { entry } = reposiMode;
+    const { entry, tr } = reposiMode;
     const ll = entry.marker.getLatLng();
     const btnG = document.getElementById('btnGuardarRepo');
     const btnC = document.getElementById('btnCancelarRepo');
@@ -826,16 +1271,18 @@
       const r = await fetch('/compradores/mapa-geocode-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ direccion: entry.pt.direccion, lat: ll.lat, lng: ll.lng })
+        body: JSON.stringify({ direccion: entry.pt.direccion, lat: ll.lat, lng: ll.lng, precision: 'manual' })
       });
       const j = await r.json();
       if (j.ok) {
-        entry.lat = ll.lat;
-        entry.lng = ll.lng;
         status.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i> ¡Posición guardada!';
-        setTimeout(() => salirReposicion(true), 900);
+        setTimeout(() => {
+          salirReposicion(true);
+          ubicarDireccion(entry.pt.direccion, ll.lat, ll.lng, 'manual');
+          if (tr) { tr.remove(); actualizarContador(); }
+        }, 900);
       } else {
-        status.innerHTML = '<i class="bi bi-x-circle text-danger"></i> Error al guardar';
+        status.innerHTML = `<i class="bi bi-x-circle text-danger"></i> ${j.error || 'Error al guardar'}`;
         btnG.disabled = false;
         btnC.disabled = false;
       }

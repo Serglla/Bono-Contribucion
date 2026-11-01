@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from sqlalchemy.orm import Session, selectinload, undefer
-from sqlalchemy import func as func_count
+from sqlalchemy import func as func_count, or_
 from typing import Optional
 from datetime import date
 from .. import models, auth as auth_module
@@ -2124,12 +2124,32 @@ async def mapa_view(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(403, 'No tenés permiso para ver esta sección')
     return templates.TemplateResponse(request, "compradores_mapa.html", {
         "user": user,
+        "puede_editar": auth_module.has_permission(user, 'compradores', 'editar'),
     })
 
 
 def _norm_direccion(s: str) -> str:
     """Normalizacion para usar como clave en geocode_cache."""
     return " ".join((s or "").strip().upper().split())
+
+
+# Puntos que puso una persona (pin movido o GPS): el geocoding automático no los
+# pisa y ni "Recalcular" ni el cambio de dirección de un socio los borran.
+GEOCODE_PERSONA = ("manual", "gps")
+GEOCODE_AUTOMATICA = ("casa", "esquina", "calle")
+# Una persona puede ubicar socios de la zona rural. Lo automático se limita a la
+# ciudad: una calle homónima de otro pueblo no tiene que aparecer como buena.
+GEOCODE_AREA_PERSONA = (-33.0, -32.0, -58.7, -57.8)
+GEOCODE_AREA_CIUDAD = (-32.56, -32.42, -58.33, -58.20)
+
+
+def _en_area(lat, lng, area) -> bool:
+    return area[0] <= lat <= area[1] and area[2] <= lng <= area[3]
+
+
+def _no_es_de_persona():
+    return or_(models.GeocodeCache.precision.is_(None),
+               models.GeocodeCache.precision.notin_(GEOCODE_PERSONA))
 
 
 @router.get("/mapa-data")
@@ -2175,15 +2195,15 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
         models.GeocodeCache.direccion,
         models.GeocodeCache.lat,
         models.GeocodeCache.lng,
+        models.GeocodeCache.precision,
     ).all()
     cache_map = {}
-    for d, lat, lng in cache_rows:
-        cache_map[d] = (lat, lng)
+    for d, lat, lng, precision in cache_rows:
+        cache_map[d] = (lat, lng, precision)
 
     puntos = []
     patas_set = {}
     vendedores_set = {}
-    cobradores_set = {}
     for b, c, t, z, v, cob in rows:
         color = (t.color or "").strip().lower()
         if not color or color in ("#ffffff", "#fff", "white"):
@@ -2220,16 +2240,18 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
             "color": color,
             "lat": lat_pre,
             "lng": lng_pre,
+            "precision": cached[2] if cached else None,
             "ya_intentado": ya_intentado,  # true = no reintentar geocoding (fallo previo)
             "es_contado": reglas.es_contado(b),
             "contado_2_veces": b.numero_especial_2 is not None,
+            "mes": b.fecha_venta.strftime("%Y-%m") if b.fecha_venta else "",
+            # ¿Se le puede asignar cobrador? Queda algo por cobrar y no es baja.
+            "asignable": b.condicion != CondicionBoleta.BAJA and reglas.lleva_cobrador(b),
         })
         if t.nombre not in patas_set:
             patas_set[t.nombre] = color
         if v and v.id not in vendedores_set:
             vendedores_set[v.id] = v.nombre
-        if cob and cob.id not in cobradores_set:
-            cobradores_set[cob.id] = cob.nombre
 
     patas = [
         {"nombre": k, "label": k.replace("PATA ", "X"), "color": v}
@@ -2239,9 +2261,10 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
         {"id": vid, "nombre": vnom}
         for vid, vnom in sorted(vendedores_set.items(), key=lambda x: (x[1] or "").upper())
     ]
+    # Todos, no solo los que ya tienen socios: para asignarle a uno nuevo.
     cobradores = [
-        {"id": cid, "nombre": cnom}
-        for cid, cnom in sorted(cobradores_set.items(), key=lambda x: (x[1] or "").upper())
+        {"id": cb.id, "nombre": cb.nombre}
+        for cb in db.query(models.Cobrador).order_by(models.Cobrador.nombre).all()
     ]
 
     return JSONResponse({
@@ -2262,8 +2285,9 @@ async def mapa_data(request: Request, db: Session = Depends(get_db)):
 async def mapa_geocode_save(request: Request, db: Session = Depends(get_db)):
     """Guarda en GeocodeCache las coords obtenidas por el cliente desde Nominatim.
 
-    Body JSON: {"direccion": "...", "lat": -32.48, "lng": -58.23}
+    Body JSON: {"direccion": "...", "lat": -32.48, "lng": -58.23, "precision": "casa"}
     Si lat/lng vienen en null, marca la direccion como "no ubicable" (no reintentar).
+    precision manual/gps = lo puso una persona; lo automático nunca lo pisa.
     """
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'compradores', 'ver'):
@@ -2286,36 +2310,49 @@ async def mapa_geocode_save(request: Request, db: Session = Depends(get_db)):
     except (TypeError, ValueError):
         lat, lng = None, None
 
-    # Bbox sanity check — Concepcion del Uruguay y alrededores
-    if lat is not None and lng is not None:
-        if not (-33.0 <= lat <= -32.0 and -58.7 <= lng <= -57.8):
-            lat, lng = None, None  # fuera del area: tratar como fallo
+    precision = (payload.get("precision") or "").strip().lower()
+    de_persona = precision in GEOCODE_PERSONA
+    if de_persona:
+        # Un pin mal soltado o un GPS errado no debe borrar la ubicación anterior.
+        if lat is None or lng is None or not _en_area(lat, lng, GEOCODE_AREA_PERSONA):
+            return JSONResponse({"ok": False, "error": "Ese punto está fuera de la zona"}, status_code=400)
+    else:
+        if precision not in GEOCODE_AUTOMATICA:
+            precision = None
+        if lat is None or lng is None or not _en_area(lat, lng, GEOCODE_AREA_CIUDAD):
+            lat, lng, precision = None, None, None  # fuera del area: tratar como fallo
 
     from datetime import datetime as _dt
     entry = db.query(models.GeocodeCache).filter(
         models.GeocodeCache.direccion == direccion
     ).first()
     if entry:
+        if entry.precision in GEOCODE_PERSONA and not de_persona:
+            return JSONResponse({"ok": True, "direccion": direccion, "lat": entry.lat, "lng": entry.lng,
+                                 "precision": entry.precision, "protegida": True})
         entry.lat = lat
         entry.lng = lng
+        entry.precision = precision
         entry.intentos = (entry.intentos or 0) + 1
         entry.last_try = _dt.now()
     else:
         entry = models.GeocodeCache(
-            direccion=direccion, lat=lat, lng=lng, intentos=1, last_try=_dt.now(),
+            direccion=direccion, lat=lat, lng=lng, precision=precision, intentos=1, last_try=_dt.now(),
         )
         db.add(entry)
     db.commit()
-    return JSONResponse({"ok": True, "direccion": direccion, "lat": lat, "lng": lng})
+    return JSONResponse({"ok": True, "direccion": direccion, "lat": lat, "lng": lng, "precision": precision})
 
 
 @router.post("/mapa-geocode-reset")
 async def mapa_geocode_reset(request: Request, db: Session = Depends(get_db)):
-    """Borra todo el cache server-side de geocoding. Requiere admin."""
+    """Borra las ubicaciones automáticas para recalcularlas. Requiere admin.
+    Las que puso una persona (pin movido o GPS) se conservan."""
     await auth_module.require_admin(request, db)
-    n = db.query(models.GeocodeCache).delete()
+    n = db.query(models.GeocodeCache).filter(_no_es_de_persona()).delete(synchronize_session=False)
+    conservadas = db.query(models.GeocodeCache).count()
     db.commit()
-    return JSONResponse({"ok": True, "borradas": n})
+    return JSONResponse({"ok": True, "borradas": n, "conservadas": conservadas})
 
 
 @router.post("/mapa-geocode-retry")
@@ -2368,15 +2405,17 @@ async def actualizar_direccion_mapa(cid: int, request: Request, db: Session = De
     #   - Siempre borramos la entrada de la dirección nueva (aunque estuviera
     #     ya cacheada con coords). Esto fuerza una regeocodificación fresca
     #     después de editar.
+    #   - Un punto que puso una persona sigue siendo bueno para esa dirección: no
+    #     se borra en ninguno de los dos casos.
     borradas = 0
     if direccion_vieja_norm:
         borradas += db.query(models.GeocodeCache).filter(
-            models.GeocodeCache.direccion == direccion_vieja_norm
-        ).delete()
+            models.GeocodeCache.direccion == direccion_vieja_norm, _no_es_de_persona()
+        ).delete(synchronize_session=False)
     if nueva_norm and nueva_norm != direccion_vieja_norm:
         borradas += db.query(models.GeocodeCache).filter(
-            models.GeocodeCache.direccion == nueva_norm
-        ).delete()
+            models.GeocodeCache.direccion == nueva_norm, _no_es_de_persona()
+        ).delete(synchronize_session=False)
 
     db.commit()
     return JSONResponse({

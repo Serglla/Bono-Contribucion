@@ -553,6 +553,10 @@ class GeocodeCache(Base):
     # para no cambiar el comportamiento efectivo.)
     lat       = Column(Float, nullable=True)
     lng       = Column(Float, nullable=True)
+    # Qué tan confiable es el punto: casa | esquina | calle (automáticos),
+    # manual | gps (los puso una persona: no se pisan ni se borran solos).
+    # NULL = ubicado antes de que existiera este dato, sin clasificar.
+    precision = Column(String, nullable=True)
     intentos  = Column(Integer, default=0)
     last_try  = Column(DateTime, nullable=True)
 
