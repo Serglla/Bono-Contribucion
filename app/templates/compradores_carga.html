@@ -201,6 +201,10 @@
       estado(tr, 'er', 'Error de conexión');
       return false;
     }
+    if (r.redirected) {
+      estado(tr, 'er', 'Se venció la sesión: volvé a entrar al sistema');
+      return false;
+    }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { estado(tr, 'er', d.error || 'No se pudo buscar'); return false; }
     pintar(tr, d, false);
@@ -253,9 +257,14 @@
       estado(tr, 'er', 'Error de conexión: no se guardó');
       return false;
     }
+    // Sesión vencida: el servidor redirige al login y llega como "200 OK" con HTML.
+    if (r.redirected) {
+      estado(tr, 'er', 'Se venció la sesión: volvé a entrar al sistema');
+      return false;
+    }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) {
-      estado(tr, 'er', d.error || 'No se pudo guardar');
+      estado(tr, 'er', d.error || `No se pudo guardar (error ${r.status})`);
       return false;
     }
     pintar(tr, d, true);

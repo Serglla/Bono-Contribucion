@@ -1,8 +1,11 @@
+import logging
+
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from sqlalchemy.orm import Session, selectinload, undefer
 from sqlalchemy import func as func_count, or_
+from sqlalchemy.exc import IntegrityError
 from typing import Optional
 from datetime import date
 from .. import models, auth as auth_module
@@ -22,6 +25,10 @@ from ..estado_socio import estados_por_socio, estado_boleta, periodos_referencia
 # cuotas o más (al último mes liquidado de su cobrador). Pedido de Sergio: "más
 # de una cuota adeudada".
 ATRASADOS_MIN_CUOTAS = 2
+
+_log = logging.getLogger("compradores")
+
+EDICION_ZONA_MAX = 20   # el nombre de zona más largo de hoy tiene unos 10 caracteres
 
 
 def _parse_zona_id(zona_id_str: Optional[str]) -> Optional[int]:
@@ -931,8 +938,9 @@ async def edicion_rapida(
 ):
     """Edición rápida desde la lista de Socios: solo nombre, dirección y zona.
 
-    No toca cobrador, vendedor, cuotas ni teléfono. Una zona que no existe no se
-    crea sola: un error de tipeo no debe abrir una zona."""
+    No toca cobrador, vendedor, cuotas ni teléfono. Una zona que no existe se crea
+    de paso (pedido de Sergio), sin vendedor ni cobrador: el aviso al terminar la
+    edición las lista para completarlas en Zonas."""
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'compradores', 'editar'):
         raise HTTPException(403, 'No tenés permiso para editar en esta sección')
@@ -943,17 +951,31 @@ async def edicion_rapida(
     if not nombre:
         return JSONResponse({"error": "El nombre no puede quedar vacío"}, status_code=400)
     z = None
-    if zona.strip():
-        z = (db.query(models.Zona)
-             .filter(func_count.upper(models.Zona.nombre) == zona.strip().upper()).first())
+    zona_creada = False
+    zona_txt = zona.strip().upper()
+    if zona_txt:
+        buscar_zona = lambda: (db.query(models.Zona)
+                               .filter(func_count.upper(models.Zona.nombre) == zona_txt).first())
+        z = buscar_zona()
         if z is None:
-            return JSONResponse({"error": f"La zona {zona.strip()} no existe"}, status_code=400)
+            # Un nombre largo es una dirección escrita en la celda equivocada, no una zona.
+            if len(zona_txt) > EDICION_ZONA_MAX:
+                return JSONResponse({"error": f"\"{zona.strip()}\" es muy largo para ser una zona"}, status_code=400)
+            try:
+                _, z = _resolver_zona_ex(None, zona_txt, db)
+                zona_creada = True
+                _log.warning("Edicion rapida: zona nueva %r creada por %s (socio %s)",
+                             zona_txt, user.username, c.id)
+            except IntegrityError:
+                # Otra fila la creó en el mismo instante: se usa esa.
+                db.rollback()
+                z = buscar_zona()
     c.apellido_nombre = nombre
     c.direccion = direccion.strip().upper() or None
     c.zona_id = z.id if z else None
     db.commit()
     return JSONResponse({"nombre": c.apellido_nombre, "direccion": c.direccion or "",
-                         "zona": z.nombre if z else ""})
+                         "zona": z.nombre if z else "", "zona_creada": zona_creada})
 
 
 @router.post("/crear")

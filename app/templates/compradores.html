@@ -2049,6 +2049,7 @@ document.querySelectorAll('.input-upper').forEach(el => {
     const tabla = document.getElementById('tablaCompradores');
     const COLUMNAS = ['.col-nombre', '.col-direccion', '.col-zona'];
     const VACIO = '—';
+    const zonasCreadas = new Set();
 
     const celdasDe = (tr) => COLUMNAS.map(c => tr.querySelector(c));
     const textoDe = (td) => { const t = td.textContent.trim(); return t === VACIO ? '' : t; };
@@ -2094,8 +2095,12 @@ document.querySelectorAll('.input-upper').forEach(el => {
       try {
         r = await fetch(`/compradores/${tr.dataset.compradorId}/edicion-rapida`, { method: 'POST', body: fd, keepalive: true });
       } catch (e) { marcarError('Error de conexión: no se guardó'); return; }
+      // Sesión vencida: el servidor redirige al login y eso llega como "200 OK" con
+      // HTML. Sin mirar `redirected` se tomaba por guardado y no se guardaba nada.
+      if (r.redirected) { marcarError('Se venció la sesión: volvé a entrar al sistema'); return; }
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { marcarError(d.error || 'No se pudo guardar'); return; }
+      if (!r.ok) { marcarError(d.error || `No se pudo guardar: el servidor no respondió bien (error ${r.status})`); return; }
+      if (d.zona_creada) zonasCreadas.add(d.zona);
       // Lo que quedó de verdad (en mayúsculas). Solo se reescribe la celda que no
       // cambió desde que se mandó: si siguieron escribiendo, eso no se pisa.
       [[nombre, d.nombre], [direccion, d.direccion], [zona, d.zona]].forEach(([celda, valor], i) => {
@@ -2159,10 +2164,22 @@ document.querySelectorAll('.input-upper').forEach(el => {
       await Promise.all(filas().map(tr => tr._cola));
       const conError = Array.from(tbody.querySelectorAll('.er-error'));
       if (conError.length) {
-        if (!(await appConfirm(`Hay ${conError.length} dato(s) que no se pudieron guardar (en rojo; pasá el mouse para ver el motivo).\n\n¿Terminar igual y descartarlos?`))) return;
+        // El motivo a la vista, agrupado: "La zona 111 no existe: PEREZ JUAN, SOSA LUIS".
+        const porMotivo = new Map();
+        conError.forEach(td => {
+          const nombre = td.closest('tr').querySelector('.col-nombre').textContent.trim() || 'Sin nombre';
+          if (!porMotivo.has(td.title)) porMotivo.set(td.title, []);
+          porMotivo.get(td.title).push(nombre);
+        });
+        const detalle = Array.from(porMotivo, ([motivo, nombres]) => `• ${motivo}: ${nombres.join(', ')}`).join('\n');
+        if (!(await appConfirm(`No se pudieron guardar ${conError.length} dato(s), marcados en rojo:\n\n${detalle}\n\n¿Terminar igual y descartarlos? Con "Cancelar" seguís editando para corregirlos.`))) return;
         conError.forEach(td => { td.textContent = td.dataset.guardado || VACIO; td.title = td.dataset.guardado || ''; });
       }
       activar(false);
+      if (zonasCreadas.size) {
+        await appAlert(`Se crearon estas zonas nuevas: ${[...zonasCreadas].join(', ')}.\n\nTodavía no tienen vendedor ni cobrador: completalos en la sección Zonas.`, 'info');
+        zonasCreadas.clear();
+      }
     });
     window.addEventListener('beforeunload', (e) => {
       if (tbody.querySelector('.er-error')) { e.preventDefault(); e.returnValue = ''; }

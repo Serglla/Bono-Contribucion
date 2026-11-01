@@ -1,7 +1,8 @@
 """Edición rápida en la lista de Socios (POST /compradores/{id}/edicion-rapida).
 
 Solo cambia nombre, dirección y zona. No toca teléfono, cobrador, vendedor ni cuotas.
-Nombre vacío o zona inexistente: no guarda nada. Hace falta permiso de edición.
+Una zona que no existe se crea de paso. Nombre vacío o zona demasiado larga: no
+guarda nada. Hace falta permiso de edición.
 """
 from datetime import date
 
@@ -48,7 +49,7 @@ def test_cambia_nombre_direccion_y_zona_y_nada_mas():
     db, s, b, z2 = _armar()
     r = _editar(s, apellido_nombre=" pérez juana ", direccion="rocamora 5", zona="9b")
     assert r.status_code == 200
-    assert r.json() == {"nombre": "PÉREZ JUANA", "direccion": "ROCAMORA 5", "zona": "9B"}
+    assert r.json() == {"nombre": "PÉREZ JUANA", "direccion": "ROCAMORA 5", "zona": "9B", "zona_creada": False}
     db.expire_all()
     s, b = db.get(models.Comprador, s.id), db.get(models.Boleta, b.id)
     assert (s.apellido_nombre, s.direccion, s.zona_id) == ("PÉREZ JUANA", "ROCAMORA 5", z2.id)
@@ -74,13 +75,37 @@ def test_nombre_vacio_no_guarda():
     assert s.apellido_nombre == "PEREZ JUAN" and s.direccion == "MITRE 10"
 
 
-def test_zona_inexistente_no_guarda_ni_se_crea():
-    db, s, _, _ = _armar()
-    r = _editar(s, zona="999", direccion="OTRA 1")
-    assert r.status_code == 400 and "999" in r.json()["error"]
+def test_zona_inexistente_se_crea_de_paso():
+    db, s, b, _ = _armar()
+    r = _editar(s, zona=" 999b ", direccion="OTRA 1")
+    assert r.status_code == 200
+    assert r.json()["zona"] == "999B" and r.json()["zona_creada"] is True
     db.expire_all()
+    z = db.query(models.Zona).filter_by(nombre="999B").one()
+    s, b = db.get(models.Comprador, s.id), db.get(models.Boleta, b.id)
+    assert s.zona_id == z.id and s.direccion == "OTRA 1"
+    assert z.vendedor_id is None and z.cobrador_id is None
+    assert b.cobrador.nombre == "MABEL" and b.vendedor.nombre == "ARIEL"     # la boleta no cambia
+
+
+def test_zona_existente_no_se_duplica_ni_avisa_como_nueva():
+    db, s, _, _ = _armar()
+    assert _editar(s, zona="999").json()["zona_creada"] is True
+    r = _editar(s, zona="999").json()
+    assert r["zona_creada"] is False and r["zona"] == "999"
+    assert _editar(s, zona="100bis").json()["zona_creada"] is True
+    assert _editar(s, zona="100BIS").json()["zona_creada"] is False
+    assert db.query(models.Zona).filter_by(nombre="999").count() == 1
+
+
+def test_una_direccion_en_la_celda_de_zona_no_crea_nada():
+    db, s, _, _ = _armar()
+    antes = db.query(models.Zona).count()
+    r = _editar(s, zona="ESTRADA 2100 ESQUINA MITRE", direccion="OTRA 1")
+    assert r.status_code == 400 and "largo" in r.json()["error"]
+    db.expire_all()
+    assert db.query(models.Zona).count() == antes
     assert db.get(models.Comprador, s.id).direccion == "MITRE 10"
-    assert db.query(models.Zona).filter_by(nombre="999").first() is None
 
 
 def test_sin_permiso_no_puede_y_no_ve_el_boton():
