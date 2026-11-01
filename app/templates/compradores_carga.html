@@ -2,7 +2,7 @@
 {% block title %}Carga de socios{% endblock %}
 {% block content %}
 <style>
-  .cg-wrap { overflow-x:auto; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); }
+  .cg-wrap { overflow:auto; max-height:calc(100vh - {{ '60px' if embed else '200px' }}); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); }
   #cgTabla { width:100%; min-width:1180px; table-layout:fixed; border-collapse:collapse; font-size:var(--fs-sm); }
   #cgTabla th { position:sticky; top:0; z-index:2; background:var(--surface-3); color:var(--muted); font-size:var(--fs-2xs);
                 font-weight:700; text-align:left; padding:6px; border:1px solid var(--border); white-space:nowrap; }
@@ -23,6 +23,7 @@
   #cgTabla tr.av td.st { background:var(--warn-bg); color:var(--warn-fg); }
 </style>
 
+{% if not embed %}
 <div class="page-header">
   <h4 class="page-title"><i class="bi bi-table text-danger"></i>Carga de socios</h4>
   <div class="d-flex gap-2 align-items-center">
@@ -30,6 +31,7 @@
     <a href="/compradores/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Socios</a>
   </div>
 </div>
+{% endif %}
 
 <p class="text-muted mb-2" style="font-size:var(--fs-xs);">
   Escribí el primer número de la talonera y Enter. Después nombre, dirección, teléfono y zona: al terminar se guarda solo y aparece otra fila.
@@ -122,7 +124,9 @@
   }
 
   function actualizarContador() {
-    contador.textContent = guardadas ? guardadas + ' cargados ahora' : '';
+    if (contador) contador.textContent = guardadas ? guardadas + (guardadas === 1 ? ' cargado ahora' : ' cargados ahora') : '';
+    // En la ventana flotante el contador va en la barra de título (base.html).
+    if (window.parent !== window && window.parent.cargaVentanaContador) window.parent.cargaVentanaContador(guardadas);
   }
 
   // Muestra lo que devolvió el servidor: es lo que REALMENTE quedó (recorta cuotas, etc.).
@@ -236,7 +240,8 @@
     estado(tr, null, 'Guardando…');
     let r;
     try {
-      r = await fetch('/compradores/carga/fila', { method: 'POST', body: fd, headers: { Accept: 'application/json' } });
+      // keepalive: si cambian de pantalla justo al salir de la fila, igual se guarda.
+      r = await fetch('/compradores/carga/fila', { method: 'POST', body: fd, keepalive: true, headers: { Accept: 'application/json' } });
     } catch (e) {
       estado(tr, 'er', 'Error de conexión: no se guardó');
       return false;
@@ -321,9 +326,26 @@
     if (siguiente !== tr && sinGuardar(tr)) guardar(tr);
   });
 
+  let sinAvisoAlSalir = false;
   window.addEventListener('beforeunload', (e) => {
-    if (Array.from(tbody.rows).some(sinGuardar)) { e.preventDefault(); e.returnValue = ''; }
+    if (!sinAvisoAlSalir && Array.from(tbody.rows).some(sinGuardar)) { e.preventDefault(); e.returnValue = ''; }
   });
+
+  // Lo que usa la ventana flotante de base.html.
+  window.cargaGrilla = {
+    // Guarda lo pendiente. Devuelve true si no quedó nada sin guardar.
+    guardarTodo: async () => {
+      await Promise.all(Array.from(tbody.rows).filter(sinGuardar).map(guardar));
+      return !Array.from(tbody.rows).some(sinGuardar);
+    },
+    guardadas: () => guardadas,
+    enfocar: () => {
+      const u = ultimaFila();
+      if (document.activeElement && tbody.contains(document.activeElement)) document.activeElement.focus();
+      else campo(u, 'numero').focus();
+    },
+    sinAviso: () => { sinAvisoAlSalir = true; },
+  };
 
   FILAS.forEach(f => {
     const tr = crearFila();

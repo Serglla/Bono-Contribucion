@@ -210,6 +210,35 @@ def test_corregir_emplanillada_no_cambia_de_cobrador():
     assert _b(db, b).cobrador_id == x.caro.id
 
 
+def test_ventana_flotante_en_el_resto_del_sistema():
+    _armar()
+    c = _c()
+    html = c.get("/compradores/").text
+    assert 'id="ventanaCarga"' in html and "data-abrir-carga" in html
+    assert 'id="ventanaCarga"' in c.get("/zonas/").text
+
+
+def test_la_grilla_embebida_no_anida_la_ventana_ni_el_menu():
+    _armar()
+    html = _c().get("/compradores/carga?embed=1").text
+    assert "cgTabla" in html and "cargaGrilla" in html
+    assert 'id="ventanaCarga"' not in html and 'id="mainMenu"' not in html
+    # La página suelta sigue andando, sin ventana encima de sí misma.
+    html = _c().get("/compradores/carga").text
+    assert "cgTabla" in html and 'id="ventanaCarga"' not in html and 'id="mainMenu"' in html
+
+
+def test_sin_permiso_de_edicion_no_aparece_la_ventana():
+    db, _ = _armar()
+    db.add(models.User(username="mirador", hashed_password=auth.hash_password("x" * 10), is_admin=False))
+    db.commit()
+    c = TestClient(app)
+    c.cookies.update({"access_token": "Bearer " + auth.create_access_token({"sub": "mirador"})})
+    r = c.get("/compradores/", follow_redirects=False)
+    assert 'id="ventanaCarga"' not in r.text
+    assert c.get("/compradores/carga?embed=1", follow_redirects=False).status_code != 200
+
+
 def test_la_pantalla_muestra_las_ultimas_filas():
     db, x = _armar()
     b = _boleta(db, x)

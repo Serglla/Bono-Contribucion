@@ -244,6 +244,9 @@
     {% if has_permission(user, 'compradores', 'ver') %}
     <a class="menu-link {% if request.url.path.startswith('/compradores') %}active{% endif %}" href="/compradores/"><i class="bi bi-people-fill"></i>Socios</a>
     {% endif %}
+    {% if has_permission(user, 'compradores', 'editar') %}
+    <a class="menu-link" href="/compradores/carga" data-abrir-carga><i class="bi bi-table"></i>Carga en grilla</a>
+    {% endif %}
     {% if has_permission(user, 'vendedores', 'ver') %}
     <a class="menu-link {% if request.url.path.startswith('/vendedores') %}active{% endif %}" href="/vendedores/"><i class="bi bi-person-badge"></i>Vendedores</a>
     {% endif %}
@@ -729,6 +732,143 @@ async function compartirNativo() {
   } catch (e) { /* el usuario canceló el diálogo de compartir */ }
 }
 </script>
+
+{% if user and not embed and has_permission(user, 'compradores', 'editar') and request.url.path != '/compradores/carga' %}
+{# Ventana flotante con la grilla de carga, sobre cualquier pantalla. Por dentro es
+   la misma página /compradores/carga con embed=1 (una sola versión que mantener). #}
+<style>
+  #ventanaCarga {
+    display: none; position: fixed; left: 2.5vw; top: 6vh; width: 95vw; height: 88vh;
+    min-width: 480px; min-height: 280px; max-width: 100vw; max-height: 100vh;
+    z-index: 1040;   /* debajo de los modales, para que se vean sus avisos */
+    flex-direction: column; background: var(--surface); border: 1px solid var(--navy);
+    border-radius: var(--radius); box-shadow: 0 10px 40px rgba(0,0,0,.4);
+    overflow: hidden; resize: both;
+  }
+  #ventanaCargaBarra {
+    display: flex; align-items: center; gap: 8px; flex: none; padding: 6px 10px;
+    background: var(--navy); color: #fff; font-weight: 600; font-size: var(--fs-sm);
+    cursor: move; user-select: none; touch-action: none;
+  }
+  #ventanaCargaBarra button { color: #fff; border: 0; background: transparent; padding: 2px 8px; border-radius: 6px; cursor: pointer; }
+  #ventanaCargaBarra button:hover { background: rgba(255,255,255,.2); }
+  #ventanaCarga iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
+  #ventanaCargaChip {
+    display: none; position: fixed; right: 16px; bottom: 16px; z-index: 1040;
+    background: var(--navy); color: #fff; border: 0; border-radius: 999px; padding: 8px 16px;
+    font-weight: 600; font-size: var(--fs-sm); box-shadow: 0 4px 16px rgba(0,0,0,.35);
+  }
+  @media (max-width: 767.98px) {
+    #ventanaCarga { left: 0 !important; top: 0 !important; width: 100vw !important; height: 100vh !important;
+                    min-width: 0; border-radius: 0; resize: none; }
+    #ventanaCargaBarra { cursor: default; }
+  }
+</style>
+<div id="ventanaCarga" role="dialog" aria-label="Carga de socios">
+  <div id="ventanaCargaBarra">
+    <i class="bi bi-table"></i><span>Carga de socios</span>
+    <span id="ventanaCargaCuenta" class="badge text-bg-success"></span>
+    <span class="ms-auto"></span>
+    <button type="button" id="ventanaCargaMin" title="Minimizar" aria-label="Minimizar"><i class="bi bi-dash-lg"></i></button>
+    <button type="button" id="ventanaCargaCerrar" title="Cerrar" aria-label="Cerrar"><i class="bi bi-x-lg"></i></button>
+  </div>
+  <iframe id="ventanaCargaFrame" title="Carga de socios"></iframe>
+</div>
+<button type="button" id="ventanaCargaChip"><i class="bi bi-table me-1"></i>Carga de socios<span id="ventanaCargaChipCuenta"></span></button>
+<script>
+(function () {
+  const ventana = document.getElementById('ventanaCarga');
+  const barra = document.getElementById('ventanaCargaBarra');
+  const frame = document.getElementById('ventanaCargaFrame');
+  const chip = document.getElementById('ventanaCargaChip');
+  const cuenta = document.getElementById('ventanaCargaCuenta');
+  const chipCuenta = document.getElementById('ventanaCargaChipCuenta');
+  let abierta = false;
+
+  // La grilla avisa cuántos lleva cargados.
+  window.cargaVentanaContador = (n) => {
+    cuenta.textContent = n ? n + (n === 1 ? ' cargado' : ' cargados') : '';
+    chipCuenta.textContent = n ? ' (' + n + ')' : '';
+  };
+
+  function api() {
+    try { return frame.contentWindow.cargaGrilla || null; } catch (e) { return null; }
+  }
+
+  function mostrar() {
+    ventana.style.display = 'flex';
+    chip.style.display = 'none';
+    const g = api();
+    if (g) g.enfocar();
+  }
+
+  function abrir() {
+    if (!abierta) {
+      abierta = true;
+      window.cargaVentanaContador(0);
+      frame.src = '/compradores/carga?embed=1';
+    }
+    mostrar();
+  }
+
+  frame.addEventListener('load', () => { if (abierta && ventana.style.display !== 'none') mostrar(); });
+
+  document.addEventListener('click', (e) => {
+    const link = e.target.closest('[data-abrir-carga]');
+    if (!link || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    const menu = document.getElementById('mainMenu');
+    const inst = menu && bootstrap.Offcanvas.getInstance(menu);
+    if (inst) inst.hide();
+    abrir();
+  });
+
+  document.getElementById('ventanaCargaMin').addEventListener('click', () => {
+    ventana.style.display = 'none';
+    chip.style.display = 'block';
+  });
+  chip.addEventListener('click', mostrar);
+
+  document.getElementById('ventanaCargaCerrar').addEventListener('click', async () => {
+    const g = api();
+    let cargados = 0;
+    if (g) {
+      const todoGuardado = await g.guardarTodo();
+      cargados = g.guardadas();
+      if (!todoGuardado && !(await appConfirm("Hay filas que no se pudieron guardar: mirá la columna Estado.\n\n¿Cerrar igual y perder esos cambios?"))) return;
+      g.sinAviso();
+    }
+    abierta = false;
+    frame.removeAttribute('src');
+    ventana.style.display = 'none';
+    chip.style.display = 'none';
+    // La lista de Socios tiene que mostrar a los recién cargados.
+    if (cargados && location.pathname === '/compradores/') location.reload();
+  });
+
+  // Mover la ventana arrastrando la barra. El iframe no debe tragarse el mouse.
+  let arrastre = null;
+  barra.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button') || window.innerWidth < 768) return;
+    const r = ventana.getBoundingClientRect();
+    arrastre = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    frame.style.pointerEvents = 'none';
+    barra.setPointerCapture(e.pointerId);
+  });
+  barra.addEventListener('pointermove', (e) => {
+    if (!arrastre) return;
+    // La barra siempre queda a la vista, para poder volver a agarrarla.
+    const left = Math.max(80 - ventana.offsetWidth, Math.min(window.innerWidth - 80, e.clientX - arrastre.dx));
+    const top = Math.max(0, Math.min(window.innerHeight - 40, e.clientY - arrastre.dy));
+    ventana.style.left = left + 'px';
+    ventana.style.top = top + 'px';
+  });
+  const soltar = () => { arrastre = null; frame.style.pointerEvents = ''; };
+  barra.addEventListener('pointerup', soltar);
+  barra.addEventListener('pointercancel', soltar);
+})();
+</script>
+{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

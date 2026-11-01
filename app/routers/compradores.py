@@ -797,7 +797,7 @@ def _carga_fila(b) -> dict:
 
 
 @router.get("/carga", response_class=HTMLResponse)
-async def carga_grilla(request: Request, db: Session = Depends(get_db)):
+async def carga_grilla(request: Request, embed: int = 0, db: Session = Depends(get_db)):
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, 'compradores', 'editar'):
         raise HTTPException(403, 'No tenés permiso para editar en esta sección')
@@ -814,6 +814,7 @@ async def carga_grilla(request: Request, db: Session = Depends(get_db)):
     zonas = db.query(models.Zona).order_by(models.Zona.nombre).all()
     return templates.TemplateResponse(request, "compradores_carga.html", {
         "user": user,
+        "embed": bool(embed),   # 1 = dentro de la ventana flotante de base.html
         "filas": [_carga_fila(b) for b in reversed(ultimas)],
         "vendedores": [{"id": v.id, "nombre": v.nombre} for v in vendedores],
         "zonas": [z.nombre for z in zonas],
