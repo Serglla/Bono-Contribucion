@@ -542,6 +542,15 @@ function verContadoSinCargar(btn) {
             {% else %}
               <span class="text-muted">—</span>
             {% endfor %}
+            {# Premios de sorteo adjudicados al socio (amarillo = falta entregar,
+               verde = todos entregados). Detalle en el tooltip. #}
+            {% set _prem = (premios_por_socio | default({})).get(c.id) %}
+            {% if _prem %}
+              {% set _pend = _prem | rejectattr('entregado') | list %}
+              <span class="badge {% if _pend %}bg-warning text-dark{% else %}bg-success{% endif %}"
+                    style="font-size:var(--fs-2xs); cursor:help;"
+                    title="{% for p in _prem %}{{ p.sorteo }} {{ p.fecha }} · {{ p.premio }}{% if p.numero %} (N° {{ p.numero }}){% endif %} · {{ 'ENTREGADO' if p.entregado else 'PENDIENTE' }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">🏆{% if _prem|length > 1 %} {{ _prem|length }}{% endif %}</span>
+            {% endif %}
           </td>
           <td class="fw-semibold col-nombre" title="{{ c.apellido_nombre }}">{{ c.apellido_nombre }}</td>
           <td class="col-direccion" title="{{ c.direccion or '' }}">{{ c.direccion or "—" }}</td>

@@ -385,9 +385,36 @@ async def listar(request: Request, db: Session = Depends(get_db),
             for c in compradores
         ))
 
+    # ── Premios adjudicados ──────────────────────────────────────────────────
+    # Premios de sorteo ya asignados (EntregaPremio) a alguna boleta del socio.
+    # Una sola query para toda la lista; el template muestra un trofeo al lado
+    # del nombre con el detalle en el tooltip.
+    premios_por_socio = {}
+    _ids = [c.id for c in compradores]
+    if _ids:
+        _rows = (
+            db.query(models.Boleta.comprador_id, models.EntregaPremio,
+                     models.PremioSorteo, models.Sorteo)
+            .join(models.EntregaPremio, models.EntregaPremio.boleta_id == models.Boleta.id)
+            .join(models.PremioSorteo, models.PremioSorteo.id == models.EntregaPremio.premio_id)
+            .join(models.Sorteo, models.Sorteo.id == models.PremioSorteo.sorteo_id)
+            .filter(models.Boleta.comprador_id.in_(_ids))
+            .order_by(models.Sorteo.fecha)
+            .all()
+        )
+        for cid, ent, pre, sor in _rows:
+            premios_por_socio.setdefault(cid, []).append({
+                "sorteo": sor.nombre or (sor.tipo.value if sor.tipo else "Sorteo"),
+                "fecha": sor.fecha.strftime("%d/%m/%Y") if sor.fecha else "",
+                "premio": pre.descripcion,
+                "numero": ent.numero_ganador or "",
+                "entregado": bool(ent.entregado),
+            })
+
     return templates.TemplateResponse(request, "compradores.html", {
         "user": user,
         "compradores": compradores,
+        "premios_por_socio": premios_por_socio,
         "estados": estados,
         "estado_ref": "%02d/%d" % (estado_ref[1], estado_ref[0]),
         "zonas": zonas,
