@@ -590,6 +590,9 @@ async def editar_talonera(
     t.numero_fin = numero_fin
     t.valor_cuota = _vc_heredado(db, nombre, valor_cuota, excluir_id=t.id)
     t.num_cuotas = int(num_cuotas or 12)
+    # Si se amplió el rango, crear las boletas SIN_VENDER que faltan (no duplica
+    # las existentes). Si se achicó, las de afuera se dejan como están.
+    _generar_boletas_rango(db, t, numero_inicio, numero_fin)
     db.commit()
     return RedirectResponse("/taloneras/", status_code=302)
 
