@@ -2040,27 +2040,48 @@ async def eliminar_entrega(entrega_id: int, request: Request, db: Session = Depe
     return RedirectResponse("/vendedores/", status_code=302)
 
 
+def _ctx_informe_campania(db, v):
+    """Contexto del informe de campaña. Finalizada: cifras congeladas al cierre
+    (snapshot) + bajas en vivo (siguen llegando de cobranza). En curso: vivo."""
+    vivo = camp_svc.calcular_informe(db, v, _contado_stats_bulk(db).get(v.id))
+    cierre = camp_svc.snapshot(v)
+    return {"v": v, "inf": cierre or vivo, "vivo": vivo, "cierre": cierre}
+
+
 @router.get("/{vid}/informe-campania", response_class=HTMLResponse)
 async def informe_campania(vid: int, request: Request, db: Session = Depends(get_db)):
-    """Informe de campaña del vendedor. Si la campaña está finalizada muestra el
-    snapshot del cierre + las bajas actualizadas (siguen llegando de cobranza);
-    si no, es una vista previa en vivo."""
     user = await auth_module.require_user(request, db)
     if not auth_module.has_permission(user, "vendedores", "ver"):
         raise HTTPException(403, "Sin permiso")
     v = db.query(models.Vendedor).get(vid)
     if not v:
         raise HTTPException(404, "Vendedor no encontrado")
-    vivo = camp_svc.calcular_informe(db, v, _contado_stats_bulk(db).get(vid))
-    cierre = camp_svc.snapshot(v)
+    ctx = _ctx_informe_campania(db, v)
     return templates.TemplateResponse(request, "vendedor_informe_campania.html", {
-        "user": user, "v": v,
-        # Finalizada: cifras congeladas al cierre; bajas en vivo aparte.
-        "inf": cierre or vivo,
-        "vivo": vivo,
-        "cierre": cierre,
+        "user": user, **ctx,
         "can_edit": auth_module.has_permission(user, "vendedores", "editar"),
     })
+
+
+@router.get("/{vid}/informe-campania.pdf")
+async def informe_campania_pdf(vid: int, request: Request, db: Session = Depends(get_db)):
+    """El informe de campaña en PDF, para guardar o compartir por WhatsApp."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "ver"):
+        raise HTTPException(403, "Sin permiso")
+    v = db.query(models.Vendedor).get(vid)
+    if not v:
+        raise HTTPException(404, "Vendedor no encontrado")
+    html = templates.get_template("vendedor_informe_campania_pdf.html").render(
+        request=request, **_ctx_informe_campania(db, v),
+        institucion="Asociación de Bomberos Voluntarios de Concepción del Uruguay",
+    )
+    buf = BytesIO()
+    if pisa.CreatePDF(html, dest=buf, encoding="utf-8").err:
+        raise HTTPException(500, "No se pudo generar el PDF del informe")
+    nombre = f"informe_campania_{v.nombre}.pdf".replace(" ", "_")
+    return Response(content=buf.getvalue(), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
 @router.get("/{vid}/cierre-campania/previa", response_class=JSONResponse)

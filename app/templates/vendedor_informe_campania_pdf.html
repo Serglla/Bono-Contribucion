@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Informe de campaña — {{ v.nombre }}</title>
+{% macro pesos(x) %}${{ '{:,.0f}'.format(x or 0)|replace(',', '.') }}{% endmacro %}
+{% macro num(x, d=0) %}{{ ('{:,.' ~ d ~ 'f}').format(x or 0)|replace(',', '#')|replace('.', ',')|replace('#', '.') }}{% endmacro %}
+<style>
+  /* xhtml2pdf soporta un subconjunto chico de CSS: solo tablas, sin flex ni grid. */
+  @page { size: A4 portrait; margin: 14mm 12mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 9.5pt; color: #000; }
+  table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+  th, td { border: 1px solid #888; padding: 2pt 4pt; text-align: center; }
+  th { background: #e8ecf2; }
+  .l { text-align: left; } .r { text-align: right; }
+  .tot td { font-weight: bold; background: #f3f4f6; }
+  .titulo { text-align: center; margin-bottom: 4mm; }
+  .inst { font-size: 10pt; font-weight: bold; }
+  .doc { font-size: 15pt; font-weight: bold; margin-top: 2mm; }
+  .per { font-size: 10pt; margin-top: 1mm; }
+  .sec { font-size: 10.5pt; font-weight: bold; color: #1a2a4a; margin: 5mm 0 1.5mm; border-bottom: 1.5pt solid #1a2a4a; }
+  .nota { font-size: 7.5pt; color: #444; margin-top: 1mm; }
+  .kpi td { border: 1px solid #bbb; padding: 3pt 5pt; text-align: left; width: 25%; }
+  .kv { font-size: 13pt; font-weight: bold; }
+  .kl { font-size: 7pt; color: #555; }
+  .ok { color: #1b7f3b; } .bad { color: #c62828; }
+</style>
+</head>
+<body>
+<div class="titulo">
+  <div class="inst">{{ institucion }}</div>
+  <div class="doc">INFORME DE CAMPAÑA — {{ v.nombre }}</div>
+  <div class="per">
+    {% if cierre %}Campaña finalizada el {{ v.fecha_fin_campania.strftime('%d/%m/%Y') }}{% else %}Campaña en curso (vista previa){% endif %}
+    · Período {{ inf.inicio or '—' }} al {{ inf.ultima_liq or '—' }}
+  </div>
+  {% if inf.zonas %}<div class="per">Zonas: {{ inf.zonas|join(', ') }}</div>{% endif %}
+</div>
+
+<div class="sec">RESUMEN</div>
+<table class="kpi">
+  <tr>
+    <td><div class="kv">{{ inf.dias_trabajados }}</div><div class="kl">Días trabajados ({{ inf.dias_con_liq }} con liquidación)</div></td>
+    <td><div class="kv">{{ num(inf.total_eq) }}</div><div class="kl">Boletas liquidadas (eq. PATA 1)</div></td>
+    <td><div class="kv">{{ num(inf.prom_eq_dia, 2) }}</div><div class="kl">Promedio por día trabajado</div></td>
+    <td><div class="kv ok">{{ pesos(inf.ingresos_total) }}</div><div class="kl">Ingresos del vendedor (total)</div></td>
+  </tr>
+  <tr>
+    <td><div class="kv">{{ pesos(inf.prom_ing_dia) }}</div><div class="kl">Ingreso promedio por día</div></td>
+    <td><div class="kv">{{ pesos(inf.prom_ing_mes) }}</div><div class="kl">Ingreso promedio por mes</div></td>
+    <td><div class="kv bad">{{ num(vivo.pct_bajas, 1) }}%</div><div class="kl">Bajas hoy ({{ vivo.n_bajas }} de {{ vivo.n_vendidas }})</div></td>
+    <td><div class="kv">{{ inf.entregadas }}</div><div class="kl">Boletas recibidas en caja ({{ inf.retiradas }} retiradas)</div></td>
+  </tr>
+</table>
+
+<div class="sec">VENTAS</div>
+<table>
+  <tr><th class="l">Concepto</th><th>Boletas</th><th>Equivalente PATA 1</th></tr>
+  <tr><td class="l">En cuotas</td><td>{{ inf.cuotas_n }}</td><td>{{ num(inf.cuotas_eq) }}</td></tr>
+  <tr><td class="l">Al contado</td><td>{{ inf.contados_n }}</td><td>{{ num(inf.contados_eq) }}</td></tr>
+  <tr><td class="l">Cuotas extras cobradas</td><td>{{ inf.extras_n }}</td><td>—</td></tr>
+  <tr class="tot"><td class="l">Total ({{ inf.n_liquidaciones }} liquidaciones)</td><td>{{ inf.cuotas_n + inf.contados_n }}</td><td>{{ num(inf.total_eq) }}</td></tr>
+</table>
+<div class="nota">
+  {% if inf.mejor_dia %}Mejor día: {{ inf.mejor_dia.fecha }} ({{ num(inf.mejor_dia.eq) }} eq., {{ pesos(inf.mejor_dia.ingresos) }}).{% endif %}
+  {% if inf.mejor_mes %}Mejor mes: {{ inf.mejor_mes.label }} ({{ pesos(inf.mejor_mes.ingresos) }}).{% endif %}
+</div>
+
+<div class="sec">INGRESOS POR MES</div>
+<table>
+  <tr><th class="l">Mes</th><th>Días liq.</th><th>Cuotas eq.</th><th>Contado eq.</th><th>Extras</th><th class="r">Ingresos</th></tr>
+  {% for m in inf.por_mes %}
+  <tr><td class="l">{{ m.label }}</td><td>{{ m.dias_liq }}</td><td>{{ num(m.cuotas_eq) }}</td><td>{{ num(m.contados_eq) }}</td><td>{{ m.extras }}</td><td class="r">{{ pesos(m.ingresos) }}</td></tr>
+  {% else %}<tr><td colspan="6">Sin liquidaciones.</td></tr>{% endfor %}
+  <tr class="tot"><td class="l">Total</td><td>{{ inf.dias_con_liq }}</td><td>{{ num(inf.cuotas_eq) }}</td><td>{{ num(inf.contados_eq) }}</td><td>{{ inf.extras_n }}</td><td class="r">{{ pesos(inf.ingresos_total) }}</td></tr>
+</table>
+<div class="nota">Ingresos = cuota 1 + comisión contado + comisión de cuotas extras, según sus liquidaciones.</div>
+
+<div class="sec">BAJAS</div>
+{% if cierre %}<div class="nota" style="margin-bottom:1.5mm;">Al cierre: {{ num(cierre.pct_bajas, 1) }}% ({{ cierre.n_bajas }} de {{ cierre.n_vendidas }}) · Hoy: {{ num(vivo.pct_bajas, 1) }}% ({{ vivo.n_bajas }} de {{ vivo.n_vendidas }}).</div>{% endif %}
+<table>
+  <tr><th class="l">PATA</th><th>Vendidas</th><th>Bajas</th><th>%</th></tr>
+  {% for p in vivo.por_pata %}
+  <tr><td class="l">{{ p.pata }}</td><td>{{ p.vendidas }}</td><td>{{ p.bajas }}</td><td>{{ num(p.pct, 1) }}%</td></tr>
+  {% else %}<tr><td colspan="4">Sin ventas con socio cargado.</td></tr>{% endfor %}
+  <tr class="tot"><td class="l">Total</td><td>{{ vivo.n_vendidas }}</td><td>{{ vivo.n_bajas }}</td><td>{{ num(vivo.pct_bajas, 1) }}%</td></tr>
+</table>
+{% if vivo.bajas_por_mes %}
+<div class="nota">Se dieron de baja en: {% for b in vivo.bajas_por_mes %}{{ b.mes }}: {{ b.cantidad }}{% if not loop.last %} · {% endif %}{% endfor %}.</div>
+{% endif %}
+{% if vivo.equipo.n %}
+<div class="nota">Resto del equipo ({{ vivo.equipo.n }}): promedio por día {{ num(vivo.equipo.prom_por_dia, 2) }} (él: {{ num(inf.prom_eq_dia, 2) }}) · bajas {{ num(vivo.equipo.pct_bajas or 0, 1) }}% (él: {{ num(vivo.pct_bajas, 1) }}%).</div>
+{% endif %}
+
+<div class="sec">NÚMEROS NO ENTREGADOS</div>
+<div class="nota" style="margin-bottom:1.5mm;">
+  {% if cierre %}En su poder sin rendir al finalizar — {{ inf.en_mano_n }} boleta(s), devueltas al stock.
+  {% else %}En su poder sin rendir hasta hoy — {{ inf.en_mano_n }} boleta(s).{% endif %}
+</div>
+{% if inf.en_mano %}
+<table>
+  <tr><th class="l" style="width:18%">Talonera</th><th style="width:10%">Cant.</th><th class="l">Números</th></tr>
+  {% for g in inf.en_mano %}<tr><td class="l">{{ g.talonera }}</td><td>{{ g.cantidad }}</td><td class="l">{{ g.rangos_txt }}</td></tr>{% endfor %}
+</table>
+{% else %}<div class="nota">Ninguno — rindió todos los números que recibió.</div>{% endif %}
+{% if vivo.sin_socio_n %}
+<div class="nota" style="margin:2mm 0 1.5mm;">Liquidados sin datos del socio cargados — {{ vivo.sin_socio_n }} boleta(s):</div>
+<table>
+  <tr><th class="l" style="width:18%">Talonera</th><th style="width:10%">Cant.</th><th class="l">Números</th></tr>
+  {% for g in vivo.sin_socio %}<tr><td class="l">{{ g.talonera }}</td><td>{{ g.cantidad }}</td><td class="l">{{ g.rangos_txt }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+
+<div class="nota" style="margin-top:5mm;">Generado {{ inf.generado }}{% if cierre %} (cifras al cierre; bajas actualizadas){% endif %}.</div>
+</body>
+</html>

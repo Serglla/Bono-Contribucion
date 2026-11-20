@@ -15,6 +15,8 @@
              border: none; cursor: pointer; text-decoration: none; }
   .btn-print { background: #e63946; color: #fff; font-weight: 600; }
   .btn-back  { background: #ffffff33; color: #fff; }
+  .btn-share { background: #25d366; color: #fff; font-weight: 600; }
+  .btn-pdf   { background: #e63946; color: #fff; font-weight: 600; }
   .hoja { background: #fff; max-width: 210mm; margin: 14px auto; padding: 14mm 12mm; box-shadow: 0 1px 6px #0003; }
   h1 { font-size: 1.35rem; margin: 0 0 2px; }
   .sub { color: #555; font-size: .9rem; margin: 0 0 2px; }
@@ -55,7 +57,9 @@
 <body>
 <div class="toolbar">
   <a class="btn-back" href="/vendedores/{{ v.id }}/detalle">&larr; Volver</a>
-  <button class="btn-print" onclick="window.print()">Imprimir / Guardar PDF</button>
+  <button class="btn-share" onclick="compartirInforme()" id="btnCompartir">Compartir</button>
+  <a class="btn-pdf" href="/vendedores/{{ v.id }}/informe-campania.pdf">Descargar PDF</a>
+  <button class="btn-back" onclick="window.print()">Imprimir</button>
   <span style="font-size:.85rem;opacity:.85;">Informe de campaña · {{ v.nombre }}</span>
 </div>
 
@@ -181,5 +185,41 @@
   <p class="nota">Números de sorteo extra sin asignar: CONTADO {{ cp.contado or 0 }} · CONTADO 2× {{ cp.contado2 or 0 }}.</p>
   {% endif %}
 </div>
+<script>
+  // Compartir: genera el PDF en el servidor y lo manda con la Web Share API
+  // (WhatsApp en el celular incluido). Si el navegador no puede compartir
+  // archivos (PC), cae a un resumen en texto por WhatsApp.
+  async function compartirInforme() {
+    const btn = document.getElementById("btnCompartir");
+    const texto = {{ ("Informe de campaña — " ~ v.nombre ~ "
+"
+      ~ "Período: " ~ (inf.inicio or "—") ~ " al " ~ (inf.ultima_liq or "—") ~ " (" ~ inf.dias_trabajados ~ " días)
+"
+      ~ "Liquidadas: " ~ num(inf.total_eq)|trim ~ " eq. PATA 1 · " ~ num(inf.prom_eq_dia, 2)|trim ~ " por día
+"
+      ~ "Ingresos: " ~ pesos(inf.ingresos_total)|trim ~ " (" ~ pesos(inf.prom_ing_mes)|trim ~ " por mes)
+"
+      ~ "Bajas: " ~ num(vivo.pct_bajas, 1)|trim ~ "% (" ~ vivo.n_bajas ~ " de " ~ vivo.n_vendidas ~ ")
+"
+      ~ "Números no entregados: " ~ inf.en_mano_n)|tojson }};
+    btn.disabled = true; const label = btn.textContent; btn.textContent = "Generando…";
+    try {
+      const resp = await fetch("/vendedores/{{ v.id }}/informe-campania.pdf");
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const file = new File([blob], {{ ("informe_campania_" ~ v.nombre ~ ".pdf")|replace(" ", "_")|tojson }}, { type: "application/pdf" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: "Informe de campaña — {{ v.nombre }}", text: texto });
+          return;
+        }
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return;   // el usuario cerró el menú de compartir
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+    window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank");
+  }
+</script>
 </body>
 </html>
