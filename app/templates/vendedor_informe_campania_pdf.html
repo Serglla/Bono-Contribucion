@@ -31,7 +31,7 @@
   <div class="inst">{{ institucion }}</div>
   <div class="doc">INFORME DE CAMPAÑA — {{ v.nombre }}</div>
   <div class="per">
-    {% if cierre %}Campaña finalizada el {{ v.fecha_fin_campania.strftime('%d/%m/%Y') }}{% else %}Campaña en curso (vista previa){% endif %}
+    {% if cierre %}Campaña finalizada el {{ v.fecha_fin_campania.strftime('%d/%m/%Y') }}{% else %}Campaña en curso{% endif %}
     · Período {{ inf.inicio or '—' }} al {{ inf.ultima_liq or '—' }}
   </div>
   {% if inf.zonas %}<div class="per">Zonas: {{ inf.zonas|join(', ') }}</div>{% endif %}
@@ -92,7 +92,7 @@
 <div class="nota">Resto del equipo ({{ vivo.equipo.n }}): promedio por día {{ num(vivo.equipo.prom_por_dia, 2) }} (él: {{ num(inf.prom_eq_dia, 2) }}) · bajas {{ num(vivo.equipo.pct_bajas or 0, 1) }}% (él: {{ num(vivo.pct_bajas, 1) }}%).</div>
 {% endif %}
 
-<div class="sec">NÚMEROS NO ENTREGADOS</div>
+<div class="sec">{% if cierre %}NÚMEROS NO ENTREGADOS{% else %}NÚMEROS EN SU PODER SIN RENDIR{% endif %}</div>
 <div class="nota" style="margin-bottom:1.5mm;">
   {% if cierre %}En su poder sin rendir al finalizar — {{ inf.en_mano_n }} boleta(s), devueltas al stock.
   {% else %}En su poder sin rendir hasta hoy — {{ inf.en_mano_n }} boleta(s).{% endif %}
@@ -102,7 +102,7 @@
   <tr><th class="l" style="width:18%">Talonera</th><th style="width:10%">Cant.</th><th class="l">Números</th></tr>
   {% for g in inf.en_mano %}<tr><td class="l">{{ g.talonera }}</td><td>{{ g.cantidad }}</td><td class="l">{{ g.rangos_txt }}</td></tr>{% endfor %}
 </table>
-{% else %}<div class="nota">Ninguno — rindió todos los números que recibió.</div>{% endif %}
+{% else %}<div class="nota">Ninguno{% if cierre %} — rindió todos los números que recibió{% endif %}.</div>{% endif %}
 {% if vivo.sin_socio_n %}
 <div class="nota" style="margin:2mm 0 1.5mm;">Liquidados sin datos del socio cargados — {{ vivo.sin_socio_n }} boleta(s):</div>
 <table>

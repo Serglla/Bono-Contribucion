@@ -66,7 +66,7 @@
 <div class="hoja">
   <h1>Informe de campaña — {{ v.nombre }}
     {% if cierre %}<span class="estado fin">FINALIZADA {{ v.fecha_fin_campania.strftime('%d/%m/%Y') }}</span>
-    {% else %}<span class="estado prev">VISTA PREVIA · campaña en curso</span>{% endif %}
+    {% else %}<span class="estado prev">EN CURSO</span>{% endif %}
   </h1>
   <p class="sub">
     Período: {{ inf.inicio or '—' }} → {{ inf.ultima_liq or '—' }}
@@ -74,7 +74,7 @@
     {% if inf.zonas %}· Zonas: {{ inf.zonas|join(', ') }}{% endif %}
   </p>
   <p class="meta">
-    Cifras {% if cierre %}congeladas al cierre ({{ inf.generado }}){% else %}al {{ inf.generado }}{% endif %}.
+    Cifras {% if cierre %}congeladas al cierre ({{ inf.generado }}){% else %}actualizadas al {{ inf.generado }}{% endif %}.
     Días trabajados = desde la primera entrega a caja hasta la última liquidación.
   </p>
 
@@ -157,7 +157,7 @@
     bajas {{ num(vivo.equipo.pct_bajas or 0, 1) }}% (él: {{ num(vivo.pct_bajas, 1) }}%).</p>
   {% endif %}
 
-  <h2>Números no entregados</h2>
+  <h2>{% if cierre %}Números no entregados{% else %}Números en su poder sin rendir{% endif %}</h2>
   {% set no_ent = inf.en_mano %}
   {% if cierre %}
     <p class="nota">Números que tenía en su poder sin rendir al finalizar la campaña
@@ -171,7 +171,7 @@
     <thead><tr><th class="left" style="width:22%">Talonera</th><th style="width:12%">Cantidad</th><th class="left">Números</th></tr></thead>
     <tbody>{% for g in no_ent %}<tr><td class="left">{{ g.talonera }}</td><td>{{ g.cantidad }}</td><td class="left">{{ g.rangos_txt }}</td></tr>{% endfor %}</tbody>
   </table>
-  {% else %}<p class="nota">Ninguno — rindió todos los números que recibió.</p>{% endif %}
+  {% else %}<p class="nota">Ninguno{% if cierre %} — rindió todos los números que recibió{% endif %}.</p>{% endif %}
 
   {% if vivo.sin_socio_n %}
   <p class="nota" style="margin-top:8px;">Liquidados pero todavía <b>sin datos del socio cargados</b> — {{ vivo.sin_socio_n }} boleta(s):</p>

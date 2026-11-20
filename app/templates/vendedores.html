@@ -90,6 +90,10 @@
                   data-bs-toggle="modal" data-bs-target="#modalEditar{{ v.id }}">
             <i class="bi bi-pencil"></i>
           </button>
+          <a href="/vendedores/{{ v.id }}/informe-campania" class="btn btn-sm" title="Informe de campaña"
+             style="padding:1px 6px;font-size:.7rem;color:#5e35b1;border:1px solid #b39ddb;">
+            <i class="bi bi-file-earmark-bar-graph"></i>
+          </a>
         </div>
       </div>
 
@@ -364,6 +368,10 @@
                     data-bs-toggle="modal" data-bs-target="#modalEditar{{ v.id }}">
               <i class="bi bi-pencil"></i>
             </button>
+            <a href="/vendedores/{{ v.id }}/informe-campania" class="btn btn-sm ms-1" title="Informe de campaña"
+               style="padding:2px 7px;color:#5e35b1;border:1px solid #b39ddb;" ondblclick="event.stopPropagation();">
+              <i class="bi bi-file-earmark-bar-graph"></i>
+            </a>
           </td>
         </tr>
         {% else %}
