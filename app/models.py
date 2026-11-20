@@ -101,6 +101,10 @@ class Vendedor(Base):
     telefono = Column(String)
     activo = Column(Boolean, default=True)
     es_jefe_equipo = Column(Boolean, default=False)
+    # Cierre de campaña (19/11/2026, alembic 0003): NULL = sigue vendiendo.
+    # cierre_snapshot = JSON con las cifras del informe al momento de cerrar.
+    fecha_fin_campania = Column(DateTime, nullable=True)
+    cierre_snapshot    = Column(String, nullable=True)
     boletas = relationship("Boleta", back_populates="vendedor")
     zonas = relationship("Zona", back_populates="vendedor")
     liquidaciones = relationship("LiquidacionVendedor", back_populates="vendedor")

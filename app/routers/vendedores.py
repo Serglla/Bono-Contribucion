@@ -19,6 +19,7 @@ from ..tiempo import hoy_ar, ahora_ar
 from ..cuotas import cuotas_vigentes, cuotas_regaladas, campana
 from ..services import reglas_boleta as reglas
 from ..services import liquidacion_vendedor as liq_svc
+from ..services import campania_vendedor as camp_svc
 
 router = APIRouter(prefix="/vendedores", tags=["vendedores"])
 
@@ -391,6 +392,8 @@ async def listar(request: Request, db: Session = Depends(get_db)):
     vendedores = db.query(models.Vendedor).order_by(
         models.Vendedor.es_jefe_equipo.desc(), models.Vendedor.nombre
     ).all()
+    # Campaña finalizada → al final de la lista (orden estable)
+    vendedores.sort(key=lambda _v: _v.fecha_fin_campania is not None)
     taloneras = db.query(models.Talonera).order_by(
         models.Talonera.nombre, models.Talonera.numero_inicio
     ).all()
@@ -1103,41 +1106,8 @@ async def detalle(vid: int, request: Request, db: Session = Depends(get_db)):
     # No se recalcula por boleta porque numero_especial puede no estar seteado aún
     # (se setea al cargar el comprador, DESPUÉS de la liquidación) y la zona puede
     # haber cambiado el vendedor_id de la boleta sin alterar la liquidación original.
-    ingreso_por_liq = {
-        liq.id: (float(liq.cuota_1_total or 0)
-                 + float(liq.comision_contados or 0)
-                 + float(liq.comision_cuotas_extras or 0)
-                 + float(getattr(liq, "comision_cuotas_extras_p0", 0) or 0))
-        for liq in liquidaciones
-    }
-    # Ajuste: restar cuota 1 de boletas de CUOTAS que fueron reasignadas a otro vendedor
-    # (cambió vendedor_id por zona al cargar comprador; el otro vendedor cobra la cuota 1).
-    # NO se restan boletas contado, aunque no tengan numero_especial aún:
-    #   - numero_especial seteado → contado obvio (excluido)
-    #   - numero_especial NULL pero cuotas_anticipadas >= cuotas_pactadas → contado
-    #     (los especiales se cargan en grupos de 5; hasta entonces solo se detecta
-    #     por cuotas_anticipadas). Su comision_contados ya está en ingreso_por_liq;
-    #     restarle valor_cuota la reduciría incorrectamente.
-    _liq_ids = {liq.id for liq in liquidaciones}
-    if _liq_ids:
-        from sqlalchemy import or_ as _or_
-        _pasadas = db.query(models.Boleta).filter(
-            models.Boleta.liquidacion_vendedor_id.in_(_liq_ids),
-            models.Boleta.vendedor_id != vid,
-            models.Boleta.numero_especial.is_(None),
-            models.Boleta.numero_especial_2.is_(None),
-            # Excluir boletas al contado sin numero_especial todavía
-            # (cuotas_anticipadas >= cuotas_pactadas indica pago total de entrada)
-            _or_(
-                models.Boleta.cuotas_anticipadas.is_(None),
-                models.Boleta.cuotas_pactadas.is_(None),
-                models.Boleta.cuotas_anticipadas < models.Boleta.cuotas_pactadas,
-            ),
-        ).all()
-        for _b in _pasadas:
-            if _b.liquidacion_vendedor_id in ingreso_por_liq and _b.talonera:
-                ingreso_por_liq[_b.liquidacion_vendedor_id] -= float(_b.talonera.valor_cuota or 0)
-
+    # Cálculo compartido con el informe de campaña (services/campania_vendedor.py).
+    ingreso_por_liq = camp_svc.ingresos_por_liq(db, vid, liquidaciones)
     ingresos_total = sum(ingreso_por_liq.values())
     # Total vendidas: boletas con comprador cargado, ponderado por multiplicador de PATA (Float)
     total_vendidas_pond = sum(
@@ -2068,6 +2038,77 @@ async def eliminar_entrega(entrega_id: int, request: Request, db: Session = Depe
         db.delete(e)
         db.commit()
     return RedirectResponse("/vendedores/", status_code=302)
+
+
+@router.get("/{vid}/informe-campania", response_class=HTMLResponse)
+async def informe_campania(vid: int, request: Request, db: Session = Depends(get_db)):
+    """Informe de campaña del vendedor. Si la campaña está finalizada muestra el
+    snapshot del cierre + las bajas actualizadas (siguen llegando de cobranza);
+    si no, es una vista previa en vivo."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "ver"):
+        raise HTTPException(403, "Sin permiso")
+    v = db.query(models.Vendedor).get(vid)
+    if not v:
+        raise HTTPException(404, "Vendedor no encontrado")
+    vivo = camp_svc.calcular_informe(db, v, _contado_stats_bulk(db).get(vid))
+    cierre = camp_svc.snapshot(v)
+    return templates.TemplateResponse(request, "vendedor_informe_campania.html", {
+        "user": user, "v": v,
+        # Finalizada: cifras congeladas al cierre; bajas en vivo aparte.
+        "inf": cierre or vivo,
+        "vivo": vivo,
+        "cierre": cierre,
+        "can_edit": auth_module.has_permission(user, "vendedores", "editar"),
+    })
+
+
+@router.get("/{vid}/cierre-campania/previa", response_class=JSONResponse)
+async def cierre_campania_previa(vid: int, request: Request, db: Session = Depends(get_db)):
+    """Lo que va a pasar al finalizar: números en mano que vuelven al stock,
+    liquidadas sin socio, pool CONTADO pendiente y zonas asignadas."""
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "ver"):
+        raise HTTPException(403, "Sin permiso")
+    v = db.query(models.Vendedor).get(vid)
+    if not v:
+        return JSONResponse({"ok": False, "error": "Vendedor no encontrado"}, status_code=404)
+    en_mano = camp_svc.boletas_en_mano(db, vid)
+    sin_socio = camp_svc.liquidadas_sin_socio(db, vid)
+    return JSONResponse({
+        "ok": True,
+        "en_mano_n": len(en_mano),
+        "en_mano": camp_svc.agrupar_numeros(en_mano),
+        "sin_socio_n": len(sin_socio),
+        "contado_pend": _contado_stats_bulk(db).get(vid) or {"contado": 0, "contado2": 0},
+        "zonas": [z.nombre for z in db.query(models.Zona).filter(models.Zona.vendedor_id == vid).all()],
+    })
+
+
+@router.post("/{vid}/finalizar-campania", response_class=JSONResponse)
+async def finalizar_campania(vid: int, request: Request, db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+    v = db.query(models.Vendedor).get(vid)
+    if not v:
+        return JSONResponse({"ok": False, "error": "Vendedor no encontrado"}, status_code=404)
+    if v.fecha_fin_campania:
+        return JSONResponse({"ok": False, "error": "La campaña ya está finalizada"}, status_code=400)
+    res = camp_svc.finalizar(db, v, user.id, _contado_stats_bulk(db).get(vid))
+    return JSONResponse({"ok": True, **res})
+
+
+@router.post("/{vid}/reabrir-campania", response_class=JSONResponse)
+async def reabrir_campania(vid: int, request: Request, db: Session = Depends(get_db)):
+    user = await auth_module.require_user(request, db)
+    if not auth_module.has_permission(user, "vendedores", "editar"):
+        raise HTTPException(403, "Sin permiso")
+    v = db.query(models.Vendedor).get(vid)
+    if not v:
+        return JSONResponse({"ok": False, "error": "Vendedor no encontrado"}, status_code=404)
+    camp_svc.reabrir(db, v)
+    return JSONResponse({"ok": True})
 
 
 @router.post("/{vid}/toggle-jefe")

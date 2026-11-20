@@ -61,6 +61,16 @@
   </div>
 </div>
 
+{% if v.fecha_fin_campania %}
+<div class="alert py-2 small mb-3 d-flex align-items-center gap-2 flex-wrap" style="background:#ede7f6;border:1px solid #d1c4e9;color:#4527a0;">
+  <i class="bi bi-flag-fill"></i>
+  <span>Campaña <strong>finalizada</strong> el {{ v.fecha_fin_campania.strftime('%d/%m/%Y') }}.</span>
+  <a href="/vendedores/{{ v.id }}/informe-campania" class="btn btn-sm ms-auto" style="background:#5e35b1;color:#fff;">
+    <i class="bi bi-file-earmark-text me-1"></i>Ver informe de campaña
+  </a>
+</div>
+{% endif %}
+
 {# ── Bloque de acciones ── #}
 <div class="sec-card mb-4">
   <div class="p-3 d-flex flex-column gap-3">
@@ -87,6 +97,31 @@
         <button class="btn btn-sm btn-outline-secondary" disabled>
           <i class="bi bi-box-arrow-in-down me-1"></i>Entregar a Caja
         </button>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Grupo CAMPAÑA — cierre e informe (19/11/2026) #}
+    <div>
+      <div class="text-uppercase fw-bold mb-2" style="font-size:var(--fs-2xs);letter-spacing:.08em;color:var(--muted);">
+        <i class="bi bi-flag me-1"></i>Campaña
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <a href="/vendedores/{{ v.id }}/informe-campania" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-file-earmark-text me-1"></i>{% if v.fecha_fin_campania %}Informe de campaña{% else %}Ver informe (en curso){% endif %}
+        </a>
+        {% if can_edit %}
+          {% if v.fecha_fin_campania %}
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReabrirCampania"
+                  title="Deshace el cierre. Las boletas devueltas al stock no vuelven solas.">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>Reabrir campaña
+          </button>
+          {% else %}
+          <button type="button" class="btn btn-sm btn-outline-danger" id="btnFinalizarCampania"
+                  title="El vendedor terminó de vender: devuelve lo que tiene en mano al stock y genera el informe">
+            <i class="bi bi-flag-fill me-1"></i>Finalizar campaña
+          </button>
+          {% endif %}
         {% endif %}
       </div>
     </div>
@@ -3290,5 +3325,76 @@ function renderDetalleLiq(d) {
   }
 })();
 
+</script>
+
+{# ══════════ MODAL FINALIZAR CAMPAÑA ══════════ #}
+<div class="modal fade" id="modalFinalizarCampania" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-flag-fill text-danger me-2"></i>Finalizar campaña de {{ v.nombre }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body small" id="finCampBody">
+        <div class="text-muted">Revisando…</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-danger" id="finCampConfirmar" disabled>
+          <i class="bi bi-flag-fill me-1"></i>Finalizar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const vid = {{ v.id }};
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const btnFin = document.getElementById('btnFinalizarCampania');
+  if (btnFin) btnFin.addEventListener('click', async () => {
+    const body = document.getElementById('finCampBody');
+    const ok = document.getElementById('finCampConfirmar');
+    ok.disabled = true;
+    body.innerHTML = '<div class="text-muted">Revisando…</div>';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalFinalizarCampania')).show();
+    let d;
+    try { d = await (await fetch(`/vendedores/${vid}/cierre-campania/previa`)).json(); }
+    catch (e) { body.innerHTML = '<div class="text-danger">No se pudo consultar.</div>'; return; }
+    if (!d.ok) { body.innerHTML = `<div class="text-danger">${esc(d.error)}</div>`; return; }
+    let h = '<p>Se guarda la fecha de cierre y una foto de las cifras para el informe.</p>';
+    if (d.en_mano_n > 0) {
+      h += `<div class="alert alert-warning py-2"><b>${d.en_mano_n} boleta(s) en su poder sin rendir</b> vuelven al stock de la institución:`
+         + '<ul class="mb-1 mt-1">' + d.en_mano.map(g => `<li><b>${esc(g.talonera)}</b> (${g.cantidad}): ${esc(g.rangos_txt)}</li>`).join('') + '</ul>'
+         + 'Si alguna la vendió, <b>liquidala antes</b> de finalizar. Quedan listadas en el informe como no entregadas.</div>';
+    } else {
+      h += '<div class="alert alert-success py-2">No tiene boletas en su poder sin rendir.</div>';
+    }
+    if (d.sin_socio_n > 0)
+      h += `<div class="alert alert-info py-2">${d.sin_socio_n} boleta(s) liquidada(s) todavía sin datos del socio: siguen a su nombre, se cargan normalmente.</div>`;
+    const cp = d.contado_pend || {};
+    if ((cp.contado || 0) + (cp.contado2 || 0) > 0)
+      h += `<div class="alert alert-secondary py-2">Números de sorteo extra sin asignar: CONTADO ${cp.contado || 0} · CONTADO 2× ${cp.contado2 || 0}.</div>`;
+    if (d.zonas && d.zonas.length)
+      h += `<div class="alert alert-secondary py-2">Zonas asignadas a él: <b>${d.zonas.map(esc).join(', ')}</b>. Si otro vendedor las va a trabajar, reasignalas en Zonas.</div>`;
+    body.innerHTML = h;
+    ok.disabled = false;
+  });
+  const btnOk = document.getElementById('finCampConfirmar');
+  if (btnOk) btnOk.addEventListener('click', async () => {
+    btnOk.disabled = true;
+    const r = await fetch(`/vendedores/${vid}/finalizar-campania`, {method: 'POST'});
+    const d = await r.json().catch(() => ({}));
+    if (!d.ok) { alert(d.error || 'No se pudo finalizar'); btnOk.disabled = false; return; }
+    window.location = `/vendedores/${vid}/informe-campania`;
+  });
+  const btnReab = document.getElementById('btnReabrirCampania');
+  if (btnReab) btnReab.addEventListener('click', async () => {
+    if (!confirm('¿Reabrir la campaña? Se borra la foto del cierre. Las boletas que volvieron al stock NO vuelven solas.')) return;
+    const d = await (await fetch(`/vendedores/${vid}/reabrir-campania`, {method: 'POST'})).json().catch(() => ({}));
+    if (!d.ok) { alert(d.error || 'No se pudo reabrir'); return; }
+    window.location.reload();
+  });
+})();
 </script>
 {% endblock %}

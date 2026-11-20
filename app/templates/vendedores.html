@@ -70,11 +70,17 @@
           {% endif %}
         </div>
         <div class="d-flex gap-1" onclick="event.stopPropagation();" ondblclick="event.stopPropagation();">
+          {% if v.fecha_fin_campania %}
+          <a href="/vendedores/{{ v.id }}/informe-campania" class="btn btn-sm" style="font-size:.65rem;padding:1px 6px;background:#ede7f6;color:#4527a0;border:1px solid #d1c4e9;">
+            <i class="bi bi-flag-fill me-1"></i>Finalizó
+          </a>
+          {% else %}
           <form method="post" action="/vendedores/{{ v.id }}/toggle" class="d-inline">
             <button class="btn btn-sm {% if v.activo %}btn-success{% else %}btn-outline-secondary{% endif %}" style="font-size:.65rem;padding:1px 6px;">
               {% if v.activo %}Activo{% else %}Inactivo{% endif %}
             </button>
           </form>
+          {% endif %}
           <form method="post" action="/vendedores/{{ v.id }}/toggle-jefe" class="d-inline">
             <button class="btn btn-sm {% if v.es_jefe_equipo %}btn-warning{% else %}btn-outline-secondary{% endif %}" style="padding:1px 6px;font-size:.7rem;">
               <i class="bi bi-star{% if v.es_jefe_equipo %}-fill{% endif %}"></i>
@@ -282,7 +288,7 @@
         {% for v in vendedores %}
         {% set s = stats.get(v.id, {"caja":0,"liq_pendiente":0,"baja":0,"vendido":0,"liquidados":0,"liquidados_cuotas":0,"liquidados_contados":0}) %}
         {% set cs = contado_stats.get(v.id, {"contado":0,"contado2":0}) %}
-        <tr style="cursor:pointer;" ondblclick="window.location='/vendedores/{{ v.id }}/detalle'">
+        <tr style="cursor:pointer;{% if v.fecha_fin_campania %}opacity:.6;{% endif %}" ondblclick="window.location='/vendedores/{{ v.id }}/detalle'">
           <td>
             <span class="fw-semibold">{{ v.nombre }}</span>
             {% if v.es_jefe_equipo %}
@@ -335,11 +341,18 @@
             {% else %}<span class="text-muted small">—</span>{% endif %}
           </td>
           <td class="text-center">
+            {% if v.fecha_fin_campania %}
+            <a href="/vendedores/{{ v.id }}/informe-campania" class="btn btn-sm" style="font-size:.75rem;padding:2px 8px;background:#ede7f6;color:#4527a0;border:1px solid #d1c4e9;"
+               title="Campaña finalizada el {{ v.fecha_fin_campania.strftime('%d/%m/%Y') }} — ver informe" ondblclick="event.stopPropagation();">
+              <i class="bi bi-flag-fill me-1"></i>Finalizó
+            </a>
+            {% else %}
             <form method="post" action="/vendedores/{{ v.id }}/toggle" class="d-inline">
               <button class="btn btn-sm {% if v.activo %}btn-success{% else %}btn-outline-secondary{% endif %}" style="font-size:.75rem;padding:2px 8px;">
                 {% if v.activo %}Activo{% else %}Inactivo{% endif %}
               </button>
             </form>
+            {% endif %}
           </td>
           <td class="text-end">
             <form method="post" action="/vendedores/{{ v.id }}/toggle-jefe" class="d-inline" title="{% if v.es_jefe_equipo %}Quitar jefe{% else %}Marcar jefe{% endif %}">
